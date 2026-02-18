@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relativistic N-Body Physics</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="app">
+        <canvas id="simCanvas"></canvas>
+
+        <div id="ui-overlay">
+            <div class="panel control-panel">
+                <h1>Particle Control</h1>
+
+                <div class="control-group">
+                    <label>Mass (kg)</label>
+                    <input type="number" id="massInput" value="10" step="1" min="1">
+                </div>
+
+                <div class="control-group">
+                    <label>Charge (C)</label>
+                    <input type="number" id="chargeInput" value="0" step="1">
+                </div>
+
+                <div class="control-group">
+                    <label>Spin (J·s)</label>
+                    <input type="number" id="spinInput" value="0" step="1">
+                </div>
+
+                <div class="control-group">
+                    <label>Interaction Mode</label>
+                    <div class="mode-toggles">
+                        <button class="mode-btn active" data-mode="place">Place</button>
+                        <button class="mode-btn" data-mode="shoot">Shoot</button>
+                        <button class="mode-btn" data-mode="orbit">Orbit</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Collision Mode</label>
+                    <div class="mode-toggles" id="collision-toggles">
+                        <button class="mode-btn active" data-collision="pass">Pass</button>
+                        <button class="mode-btn" data-collision="bounce">Bounce</button>
+                        <button class="mode-btn" data-collision="merge">Merge</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Boundary Mode</label>
+                    <div class="mode-toggles" id="boundary-toggles">
+                        <button class="mode-btn active" data-boundary="despawn">Despawn</button>
+                        <button class="mode-btn" data-boundary="loop">Loop</button>
+                        <button class="mode-btn" data-boundary="bounce">Bounce</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Sim Speed: <span id="speedValue">1.0</span>x</label>
+                    <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
+                </div>
+
+                <div class="control-group">
+                    <button id="clearBtn" class="danger-btn">Clear All</button>
+                    <button id="pauseBtn">Pause</button>
+                </div>
+            </div>
+
+            <div class="panel stats-panel">
+                <div class="stat-item">Particles: <span id="particleCount">0</span></div>
+                <div class="stat-item">FPS: <span id="fpsCounter">0</span></div>
+                <div class="stat-item">Sim Speed: <span id="simSpeed">1x</span></div>
+            </div>
+        </div>
+
+        <div id="hint-overlay">
+            <p>Left Click to Spawn • Right Click to Remove • Scroll to Zoom</p>
+        </div>
+    </div>
+    <script type="module" src="main.js"></script>
+</body>
+
+</html>
