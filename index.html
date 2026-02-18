@@ -60,6 +60,25 @@
                 </div>
 
                 <div class="control-group">
+                    <label>Presets</label>
+                    <select id="presetSelect"
+                        style="width: 100%; padding: 5px; background: #334; color: white; border: 1px solid #445; border-radius: 4px;">
+                        <option value="none">Select Preset...</option>
+                        <option value="solar">Solar System</option>
+                        <option value="binary">Binary Star</option>
+                        <option value="galaxy">Galaxy</option>
+                        <option value="collision">Collision</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        Show Trails
+                        <input type="checkbox" id="trailsToggle">
+                    </label>
+                </div>
+
+                <div class="control-group">
                     <label>Sim Speed: <span id="speedValue">1.0</span>x</label>
                     <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
                 </div>
@@ -67,6 +86,7 @@
                 <div class="control-group">
                     <button id="clearBtn" class="danger-btn">Clear All</button>
                     <button id="pauseBtn">Pause</button>
+                    <button id="stepBtn">Step</button>
                 </div>
             </div>
 

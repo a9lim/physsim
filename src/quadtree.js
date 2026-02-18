@@ -50,13 +50,21 @@ export default class QuadTree {
             return false; // Point not in this node's boundary
         }
 
-        if (this.points.length < this.capacity) {
+        if (this.points.length < this.capacity && !this.divided) {
             this.points.push(particle);
             return true;
         }
 
         if (!this.divided) {
             this.subdivide();
+            // Move existing points to children
+            for (let p of this.points) {
+                if (this.northwest.insert(p)) continue;
+                if (this.northeast.insert(p)) continue;
+                if (this.southwest.insert(p)) continue;
+                if (this.southeast.insert(p)) continue;
+            }
+            this.points = []; // Points are now in children
         }
 
         if (this.northwest.insert(particle)) return true;
@@ -67,19 +75,68 @@ export default class QuadTree {
         return false;
     }
 
+    calculateMassDistribution() {
+        if (!this.divided) {
+            this.totalMass = 0;
+            this.totalCharge = 0;
+            let centerOfMassX = 0;
+            let centerOfMassY = 0;
+
+            if (this.points.length > 0) {
+                for (let p of this.points) {
+                    this.totalMass += p.mass;
+                    this.totalCharge += p.charge;
+                    centerOfMassX += p.pos.x * p.mass;
+                    centerOfMassY += p.pos.y * p.mass;
+                }
+                if (this.totalMass > 0) {
+                    this.centerOfMass = new Vec2(centerOfMassX / this.totalMass, centerOfMassY / this.totalMass);
+                } else {
+                    this.centerOfMass = new Vec2(this.boundary.x, this.boundary.y);
+                }
+            } else {
+                this.centerOfMass = new Vec2(this.boundary.x, this.boundary.y);
+            }
+        } else {
+            this.northwest.calculateMassDistribution();
+            this.northeast.calculateMassDistribution();
+            this.southwest.calculateMassDistribution();
+            this.southeast.calculateMassDistribution();
+
+            this.totalMass = this.northwest.totalMass + this.northeast.totalMass + this.southwest.totalMass + this.southeast.totalMass;
+            this.totalCharge = this.northwest.totalCharge + this.northeast.totalCharge + this.southwest.totalCharge + this.southeast.totalCharge;
+
+            if (this.totalMass > 0) {
+                const comX = (this.northwest.centerOfMass.x * this.northwest.totalMass +
+                    this.northeast.centerOfMass.x * this.northeast.totalMass +
+                    this.southwest.centerOfMass.x * this.southwest.totalMass +
+                    this.southeast.centerOfMass.x * this.southeast.totalMass) / this.totalMass;
+
+                const comY = (this.northwest.centerOfMass.y * this.northwest.totalMass +
+                    this.northeast.centerOfMass.y * this.northeast.totalMass +
+                    this.southwest.centerOfMass.y * this.southwest.totalMass +
+                    this.southeast.centerOfMass.y * this.southeast.totalMass) / this.totalMass;
+
+                this.centerOfMass = new Vec2(comX, comY);
+            } else {
+                this.centerOfMass = new Vec2(this.boundary.x, this.boundary.y);
+            }
+        }
+    }
+
     query(range, found) {
         if (!found) found = [];
         if (!this.boundary.intersects(range)) {
             return found;
         }
 
-        for (let p of this.points) {
-            if (range.contains(p.pos)) {
-                found.push(p);
+        if (!this.divided) {
+            for (let p of this.points) {
+                if (range.contains(p.pos)) {
+                    found.push(p);
+                }
             }
-        }
-
-        if (this.divided) {
+        } else {
             this.northwest.query(range, found);
             this.northeast.query(range, found);
             this.southwest.query(range, found);

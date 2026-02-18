@@ -41,43 +41,17 @@ export default class Physics {
             qt.insert(p);
         }
 
+        // Calculate Mass Distribution for Barnes-Hut
+        qt.calculateMassDistribution();
+
         // 1. Handle Collisions
         if (collisionMode !== 'pass') {
             this.handleCollisions(particles, qt, collisionMode);
         }
 
-        // 2. Calculate Forces (Still O(N^2) for accuracy, could use Barnes-Hut but user asked for QuadTree specifically for collisions/despawn mostly?)
-        // The user said "use quadtrees", likely implying optimization.
-        // For < 500 particles, O(N^2) force is fine. Let's stick to N^2 force for precision unless laggy.
-
-        const forces = particles.map(() => new Vec2(0, 0));
-
-        for (let i = 0; i < particles.length; i++) {
-            for (let j = i + 1; j < particles.length; j++) {
-                const p1 = particles[i];
-                const p2 = particles[j];
-
-                const rVec = Vec2.sub(p2.pos, p1.pos);
-                let rSq = rVec.magSq();
-
-                // For Toroidal (Loop) world, we need shortest distance logic?
-                // "Looping around" usually implies topological torus for gravity too.
-                // Keeping gravity simple (Eucledian) even in Loop mode is easier and often expected in simple sims,
-                // otherwise forces wrap around too. 
-                // Let's stick to Eucledian forces, but position wrapping.
-
-                rSq = Math.max(rSq, 25);
-                const r = Math.sqrt(rSq);
-                const dir = rVec.normalize();
-
-                const fGravityMag = (this.G * p1.mass * p2.mass) / rSq;
-                const fTotalMag = fGravityMag - (this.k * p1.charge * p2.charge) / rSq;
-                const f = dir.clone().scale(fTotalMag);
-
-                forces[i].add(f);
-                forces[j].sub(f);
-            }
-        }
+        // 2. Calculate Forces using Barnes-Hut
+        const theta = 0.5; // Threshold
+        const forces = particles.map(p => this.calculateForce(p, qt, theta));
 
         // 3. Integration & Boundary
         const despanLimit = 100; // Despawn distance from edge
@@ -263,5 +237,51 @@ export default class Physics {
         const correction = n.clone().scale(overlap / 2);
         p1.pos.sub(correction);
         p2.pos.add(correction);
+    }
+
+    calculateForce(particle, node, theta) {
+        let force = new Vec2(0, 0);
+        if (node.totalMass === 0) return force;
+
+        const dVec = Vec2.sub(node.centerOfMass, particle.pos);
+        const dSq = dVec.magSq();
+        const d = Math.sqrt(dSq);
+        const size = node.boundary.w * 2;
+
+        // If node is a single body (leaf) or sufficiently far away
+        if ((!node.divided && node.points.length > 0) || (node.divided && (size / d < theta))) {
+            if (!node.divided) {
+                // Leaf node: iterate over particles
+                for (let other of node.points) {
+                    if (other === particle) continue;
+
+                    const rVec = Vec2.sub(other.pos, particle.pos);
+                    let rSq = rVec.magSq();
+                    rSq = Math.max(rSq, 25); // Softening
+                    const fGravityMag = (this.G * particle.mass * other.mass) / rSq;
+                    const fTotalMag = fGravityMag - (this.k * particle.charge * other.charge) / rSq;
+                    const f = rVec.normalize().scale(fTotalMag);
+                    force.add(f);
+                }
+            } else {
+                // Internal node treated as body
+                let rSq = dSq;
+                rSq = Math.max(rSq, 25);
+
+                const fGravityMag = (this.G * particle.mass * node.totalMass) / rSq;
+                const fTotalMag = fGravityMag - (this.k * particle.charge * node.totalCharge) / rSq;
+
+                const f = dVec.normalize().scale(fTotalMag);
+                force.add(f);
+            }
+        } else if (node.divided) {
+            // Recurse
+            force.add(this.calculateForce(particle, node.northwest, theta));
+            force.add(this.calculateForce(particle, node.northeast, theta));
+            force.add(this.calculateForce(particle, node.southwest, theta));
+            force.add(this.calculateForce(particle, node.southeast, theta));
+        }
+
+        return force;
     }
 }

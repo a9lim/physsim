@@ -3,6 +3,7 @@ export default class Renderer {
         this.ctx = ctx;
         this.width = width;
         this.height = height;
+        this.trails = false;
     }
 
     resize(width, height) {
@@ -12,8 +13,12 @@ export default class Renderer {
 
     render(particles) {
         // Clear background
-        this.ctx.fillStyle = 'rgba(15, 23, 42, 0.3)'; // Trail effect
-        this.ctx.fillRect(0, 0, this.width, this.height);
+        if (this.trails) {
+            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.3)'; // Trail effect
+            this.ctx.fillRect(0, 0, this.width, this.height);
+        } else {
+            this.ctx.clearRect(0, 0, this.width, this.height);
+        }
 
         // Draw particles
         particles.forEach(p => {

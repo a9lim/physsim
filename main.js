@@ -69,6 +69,77 @@ class Simulation {
                 }
             });
         });
+
+        // Trails toggle
+        document.getElementById('trailsToggle').addEventListener('change', (e) => {
+            this.renderer.trails = e.target.checked;
+        });
+
+        // Step button
+        document.getElementById('stepBtn').addEventListener('click', () => {
+            if (!this.running) {
+                // Manually trigger one update
+                const dt = 0.1 * parseFloat(document.getElementById('speedInput').value);
+                const collisionMode = document.querySelector('#collision-toggles .mode-btn.active').dataset.collision;
+                const boundaryMode = document.querySelector('#boundary-toggles .mode-btn.active').dataset.boundary;
+                this.physics.update(this.particles, dt, collisionMode, boundaryMode);
+                this.renderer.render(this.particles);
+                this.updateStats();
+            }
+        });
+
+        // Preset selector
+        document.getElementById('presetSelect').addEventListener('change', (e) => {
+            this.loadPreset(e.target.value);
+            // Reset selector to default optionally, or keep it
+            e.target.blur(); // Remove focus
+        });
+    }
+
+    loadPreset(name) {
+        this.particles = [];
+        const width = this.width;
+        const height = this.height;
+        const cx = width / 2;
+        const cy = height / 2;
+
+        if (name === 'solar') {
+            // Sun
+            this.addParticle(cx, cy, 0, 0, { mass: 5000, charge: 0 });
+            // Planets
+            for (let i = 0; i < 5; i++) {
+                const dist = 100 + i * 60;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.sqrt(CONFIG.G * 5000 / dist);
+                const pos = new Vec2(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist);
+                const vel = new Vec2(-Math.sin(angle) * speed, Math.cos(angle) * speed);
+                this.addParticle(pos.x, pos.y, vel.x, vel.y, { mass: 10 + Math.random() * 20, charge: 0 });
+            }
+        } else if (name === 'binary') {
+            // Two stars
+            const dist = 100;
+            const speed = Math.sqrt(CONFIG.G * 1000 / (2 * dist)); // Approximation
+            this.addParticle(cx - dist, cy, 0, speed, { mass: 1000, charge: 0 });
+            this.addParticle(cx + dist, cy, 0, -speed, { mass: 1000, charge: 0 });
+        } else if (name === 'galaxy') {
+            // Black hole
+            this.addParticle(cx, cy, 0, 0, { mass: 10000, charge: 0 });
+            // Stars
+            for (let i = 0; i < 200; i++) {
+                const dist = 150 + Math.random() * 300;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.sqrt(CONFIG.G * 10000 / dist);
+                const pos = new Vec2(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist);
+                const vel = new Vec2(-Math.sin(angle) * speed, Math.cos(angle) * speed);
+                this.addParticle(pos.x, pos.y, vel.x, vel.y, { mass: 2 + Math.random() * 5, charge: (Math.random() - 0.5) * 10 });
+            }
+        } else if (name === 'collision') {
+            // Two clusters
+            for (let i = 0; i < 50; i++) {
+                this.addParticle(cx - 200 + Math.random() * 50, cy + Math.random() * 50, 2, 0, { mass: 5, charge: 0 });
+                this.addParticle(cx + 200 + Math.random() * 50, cy + Math.random() * 50, -2, 0, { mass: 5, charge: 0 });
+            }
+        }
     }
 
     addParticle(x, y, vx, vy, options = {}) {
