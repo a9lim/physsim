@@ -1,7 +1,10 @@
 import Vec2 from './vec2.js';
 
 export default class Particle {
+    static nextId = 0;
+
     constructor(x, y, mass = 10, charge = 0) {
+        this.id = Particle.nextId++;
         this.pos = new Vec2(x, y);
         this.vel = new Vec2(0, 0); // Newtonian velocity (for display/approx)
         this.acc = new Vec2(0, 0);
@@ -11,7 +14,8 @@ export default class Particle {
         this.charge = charge;
         this.spin = 0; // Angular momentum
 
-        this.radius = Math.sqrt(this.mass) * 3; // Visual size based on mass
+        this.radius = Math.sqrt(this.mass) * 1; // Visual size based on mass
+
         this.color = this.getColor();
     }
 
@@ -41,7 +45,7 @@ export default class Particle {
     }
 
     updateColor() {
-        this.radius = Math.sqrt(this.mass) * 3; // Larger visual size
+        this.radius = Math.sqrt(this.mass) * 1; // Larger visual size
         this.color = this.getColor();
     }
 }

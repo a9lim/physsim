@@ -89,7 +89,11 @@ export default class InputHandler {
                 const dir = rVec.normalize();
 
                 // v_orbit = sqrt(G * M / r)
-                const vMag = Math.sqrt(this.sim.physics.G * bestBody.mass / r);
+                let vMag = Math.sqrt(this.sim.physics.G * bestBody.mass / r);
+
+                // Clamp orbital velocity to ~0.99c to prevent massive relativistic glitches natively
+                const maxV = this.sim.physics.c * 0.99;
+                if (vMag > maxV) vMag = maxV;
 
                 // Perpendicular direction
                 const vDir = new Vec2(-dir.y, dir.x); // or new Vec2(dir.y, -dir.x) for other way

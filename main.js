@@ -94,6 +94,16 @@ class Simulation {
             // Reset selector to default optionally, or keep it
             e.target.blur(); // Remove focus
         });
+
+        // Theme toggle
+        const themeToggleBtn = document.getElementById('themeToggleBtn');
+        if (themeToggleBtn) {
+            themeToggleBtn.addEventListener('click', () => {
+                document.body.classList.toggle('light-theme');
+                const isLight = document.body.classList.contains('light-theme');
+                themeToggleBtn.textContent = isLight ? 'Dark Mode' : 'Light Mode';
+            });
+        }
     }
 
     loadPreset(name) {
@@ -105,39 +115,40 @@ class Simulation {
 
         if (name === 'solar') {
             // Sun
-            this.addParticle(cx, cy, 0, 0, { mass: 5000, charge: 0 });
+            this.addParticle(cx, cy, 0, 0, { mass: 80, charge: 0 }); // Reduced from 5000 to keep v < c
             // Planets
             for (let i = 0; i < 5; i++) {
                 const dist = 100 + i * 60;
                 const angle = Math.random() * Math.PI * 2;
-                const speed = Math.sqrt(CONFIG.G * 5000 / dist);
+                const speed = Math.sqrt(CONFIG.G * 80 / dist);
                 const pos = new Vec2(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist);
                 const vel = new Vec2(-Math.sin(angle) * speed, Math.cos(angle) * speed);
-                this.addParticle(pos.x, pos.y, vel.x, vel.y, { mass: 10 + Math.random() * 20, charge: 0 });
+                this.addParticle(pos.x, pos.y, vel.x, vel.y, { mass: 0.5 + Math.random() * 1.5, charge: 0 });
             }
         } else if (name === 'binary') {
             // Two stars
             const dist = 100;
-            const speed = Math.sqrt(CONFIG.G * 1000 / (2 * dist)); // Approximation
-            this.addParticle(cx - dist, cy, 0, speed, { mass: 1000, charge: 0 });
-            this.addParticle(cx + dist, cy, 0, -speed, { mass: 1000, charge: 0 });
+            const starMass = 50;
+            const speed = Math.sqrt(CONFIG.G * starMass / (2 * dist));
+            this.addParticle(cx - dist, cy, 0, speed, { mass: starMass, charge: 0 });
+            this.addParticle(cx + dist, cy, 0, -speed, { mass: starMass, charge: 0 });
         } else if (name === 'galaxy') {
             // Black hole
-            this.addParticle(cx, cy, 0, 0, { mass: 10000, charge: 0 });
+            this.addParticle(cx, cy, 0, 0, { mass: 150, charge: 0 });
             // Stars
             for (let i = 0; i < 200; i++) {
                 const dist = 150 + Math.random() * 300;
                 const angle = Math.random() * Math.PI * 2;
-                const speed = Math.sqrt(CONFIG.G * 10000 / dist);
+                const speed = Math.sqrt(CONFIG.G * 150 / dist);
                 const pos = new Vec2(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist);
                 const vel = new Vec2(-Math.sin(angle) * speed, Math.cos(angle) * speed);
-                this.addParticle(pos.x, pos.y, vel.x, vel.y, { mass: 2 + Math.random() * 5, charge: (Math.random() - 0.5) * 10 });
+                this.addParticle(pos.x, pos.y, vel.x, vel.y, { mass: 0.1 + Math.random() * 0.4, charge: (Math.random() - 0.5) * 5 });
             }
         } else if (name === 'collision') {
             // Two clusters
             for (let i = 0; i < 50; i++) {
-                this.addParticle(cx - 200 + Math.random() * 50, cy + Math.random() * 50, 2, 0, { mass: 5, charge: 0 });
-                this.addParticle(cx + 200 + Math.random() * 50, cy + Math.random() * 50, -2, 0, { mass: 5, charge: 0 });
+                this.addParticle(cx - 200 + Math.random() * 50, cy + Math.random() * 50, 0.5, 0, { mass: 1, charge: 0 });
+                this.addParticle(cx + 200 + Math.random() * 50, cy + Math.random() * 50, -0.5, 0, { mass: 1, charge: 0 });
             }
         }
     }

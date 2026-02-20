@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Relativistic N-Body Physics</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;600&display=swap" rel="stylesheet">
 </head>
 
 <body>
@@ -15,7 +15,10 @@
 
         <div id="ui-overlay">
             <div class="panel control-panel">
-                <h1>Particle Control</h1>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h1>Particle Control</h1>
+                    <button id="themeToggleBtn" style="padding: 4px 8px; font-size: 0.7em;">Light Mode</button>
+                </div>
 
                 <div class="control-group">
                     <label>Mass (kg)</label>
