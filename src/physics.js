@@ -112,15 +112,9 @@ export default class Physics {
             for (let p2 of candidates) {
                 if (p1 === p2 || p2.mass === 0) continue;
 
-                // Simple check to avoid double processing: only process if p1 index < p2 index?
-                // But QuadTree query doesn't give indices.
-                // We can just rely on the fact that if we process p1 vs p2, we update both.
-                // To avoid double processing (p1 vs p2, then p2 vs p1), we can just check id or similar.
-                // Let's just do distance check and if colliding, resolve.
-                // Issue: resolving twice in same frame might jitter.
                 // Fix: Add unique IDs to particles or use a Set of processed pairs? 
-                // Let's add IDs to particles in next step or use simple coordinate check to order them.
-                if (p1.pos.x > p2.pos.x) continue; // Arbitrary ordering to process pair once
+                // Let's rely on the unique ID generated in particle.js.
+                if (p1.id >= p2.id) continue; // Reliable ordering to process pair once
 
                 const dist = p1.pos.dist(p2.pos);
                 const minDist = p1.radius + p2.radius;
@@ -167,8 +161,12 @@ export default class Physics {
     }
 
     resolveBounce(p1, p2, minDist, dist) {
+        // Prevent div by 0 and vector NaN corruptions if overlapping exactly
+        const safeDist = dist === 0 ? 0.0001 : dist;
+        const offset = dist === 0 ? new Vec2(Math.random() - 0.5, Math.random() - 0.5) : Vec2.sub(p2.pos, p1.pos);
+
         // 1. Calculate Normal and Tangent
-        const n = Vec2.sub(p2.pos, p1.pos).normalize();
+        const n = offset.normalize();
         const t = new Vec2(-n.y, n.x);
 
         // 2. Decompose Momentum (using Momentum instead of Velocity for Relativistic correctness approx)
@@ -233,7 +231,7 @@ export default class Physics {
         setMomentumFromVelocity(p2, v2Final);
 
         // Position Correction (Anti-stick)
-        const overlap = (minDist - dist) + 0.5; // +epsilon
+        const overlap = (minDist - safeDist) + 0.5; // +epsilon
         const correction = n.clone().scale(overlap / 2);
         p1.pos.sub(correction);
         p2.pos.add(correction);

@@ -1,6 +1,6 @@
 # Relativistic N-Body Physics Simulation
 
-A high-performance, interactive physics simulation that models gravity and electromagnetism with relativistic effects. It uses the **Barnes-Hut algorithm** for efficient force calculation, allowing for simulations with thousands of particles.
+A high-performance, interactive physics simulation that models gravity and electromagnetism with relativistic effects. It uses the **Barnes-Hut algorithm** for efficient force calculation, allowing for simulations with thousands of particles. This is a complete rewrite of an old Java project I had in Javascript, now powered by Antigravity.
 
 ## Features
 
@@ -49,7 +49,7 @@ A high-performance, interactive physics simulation that models gravity and elect
 ## Technical Details
 
 The simulation implements a **Relativistic Euler Integration** scheme:
-1. Forces are calculated using **Barnes-Hut** (approximating distant clusters as single bodies).
+1. Forces are calculated using **Barnes-Hut** 
 2. Momentum is updated: $\vec{p}_{new} = \vec{p}_{old} + \vec{F} \cdot dt$
 3. Velocity is derived from momentum: $\vec{v} = \frac{\vec{p}}{m \sqrt{1 + \frac{p^2}{m^2 c^2}}}$
 4. Position is updated: $\vec{x}_{new} = \vec{x}_{old} + \vec{v} \cdot dt$
