@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Relativistic N-Body Physics</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Noto+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 </head>
 
 <body>
@@ -15,25 +15,27 @@
 
         <div id="ui-overlay">
             <div class="panel control-panel">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="panel-header">
                     <h1>Particle Control</h1>
-                    <button id="themeToggleBtn" style="padding: 4px 8px; font-size: 0.7em;">Light Mode</button>
+                    <button id="themeToggleBtn" class="icon-btn" title="Toggle Theme">☀</button>
                 </div>
 
                 <div class="control-group">
-                    <label>Mass (kg)</label>
-                    <input type="number" id="massInput" value="10" step="1" min="1">
+                    <label>Mass <span class="slider-value" id="massValue">10</span></label>
+                    <input type="range" id="massInput" min="1" max="200" step="1" value="10">
                 </div>
 
                 <div class="control-group">
-                    <label>Charge (C)</label>
-                    <input type="number" id="chargeInput" value="0" step="1">
+                    <label>Charge <span class="slider-value" id="chargeValue">0</span></label>
+                    <input type="range" id="chargeInput" min="-50" max="50" step="1" value="0">
                 </div>
 
                 <div class="control-group">
-                    <label>Spin (J·s)</label>
-                    <input type="number" id="spinInput" value="0" step="1">
+                    <label>Angular Momentum <span class="slider-value" id="spinValue">0</span></label>
+                    <input type="range" id="spinInput" min="-50" max="50" step="1" value="0">
                 </div>
+
+                <div class="divider"></div>
 
                 <div class="control-group">
                     <label>Interaction Mode</label>
@@ -62,46 +64,48 @@
                     </div>
                 </div>
 
+                <div class="divider"></div>
+
                 <div class="control-group">
                     <label>Presets</label>
-                    <select id="presetSelect"
-                        style="width: 100%; padding: 5px; background: #334; color: white; border: 1px solid #445; border-radius: 4px;">
+                    <select id="presetSelect">
                         <option value="none">Select Preset...</option>
                         <option value="solar">Solar System</option>
                         <option value="binary">Binary Star</option>
                         <option value="galaxy">Galaxy</option>
                         <option value="collision">Collision</option>
+                        <option value="magnetic">Magnetic Spin</option>
                     </select>
                 </div>
 
                 <div class="control-group">
-                    <label style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                    <label>
                         Show Trails
                         <input type="checkbox" id="trailsToggle">
                     </label>
                 </div>
 
                 <div class="control-group">
-                    <label>Sim Speed: <span id="speedValue">1.0</span>x</label>
+                    <label>Sim Speed <span class="slider-value" id="speedValue">20</span>x</label>
                     <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
                 </div>
 
-                <div class="control-group">
-                    <button id="clearBtn" class="danger-btn">Clear All</button>
+                <div class="control-group btn-row">
+                    <button id="clearBtn" class="danger-btn">Clear</button>
                     <button id="pauseBtn">Pause</button>
                     <button id="stepBtn">Step</button>
                 </div>
             </div>
 
             <div class="panel stats-panel">
-                <div class="stat-item">Particles: <span id="particleCount">0</span></div>
-                <div class="stat-item">FPS: <span id="fpsCounter">0</span></div>
-                <div class="stat-item">Sim Speed: <span id="simSpeed">1x</span></div>
+                <div class="stat-item">Particles <span id="particleCount">0</span></div>
+                <div class="stat-item">FPS <span id="fpsCounter">0</span></div>
+                <div class="stat-item">Speed <span id="simSpeed">1x</span></div>
             </div>
         </div>
 
         <div id="hint-overlay">
-            <p>Left Click to Spawn • Right Click to Remove • Scroll to Zoom</p>
+            <p>Left Click to Spawn · Right Click to Remove · Scroll to Zoom</p>
         </div>
     </div>
     <script type="module" src="main.js"></script>
