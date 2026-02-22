@@ -47,7 +47,7 @@ export default class QuadTree {
 
     insert(particle) {
         if (!this.boundary.contains(particle.pos)) {
-            return false; // Point not in this node's boundary
+            return false;
         }
 
         if (this.points.length < this.capacity && !this.divided) {
@@ -57,14 +57,13 @@ export default class QuadTree {
 
         if (!this.divided) {
             this.subdivide();
-            // Move existing points to children
             for (let p of this.points) {
                 if (this.northwest.insert(p)) continue;
                 if (this.northeast.insert(p)) continue;
                 if (this.southwest.insert(p)) continue;
                 if (this.southeast.insert(p)) continue;
             }
-            this.points = []; // Points are now in children
+            this.points = [];
         }
 
         if (this.northwest.insert(particle)) return true;
@@ -79,6 +78,9 @@ export default class QuadTree {
         if (!this.divided) {
             this.totalMass = 0;
             this.totalCharge = 0;
+            this.totalSpin = 0;
+            this.totalMagneticMoment = 0;  // sum of charge * spin
+            this.totalAngularMomentum = 0; // sum of mass * spin
             let centerOfMassX = 0;
             let centerOfMassY = 0;
 
@@ -86,6 +88,9 @@ export default class QuadTree {
                 for (let p of this.points) {
                     this.totalMass += p.mass;
                     this.totalCharge += p.charge;
+                    this.totalSpin += p.spin;
+                    this.totalMagneticMoment += p.charge * p.spin;
+                    this.totalAngularMomentum += p.mass * p.spin;
                     centerOfMassX += p.pos.x * p.mass;
                     centerOfMassY += p.pos.y * p.mass;
                 }
@@ -105,6 +110,9 @@ export default class QuadTree {
 
             this.totalMass = this.northwest.totalMass + this.northeast.totalMass + this.southwest.totalMass + this.southeast.totalMass;
             this.totalCharge = this.northwest.totalCharge + this.northeast.totalCharge + this.southwest.totalCharge + this.southeast.totalCharge;
+            this.totalSpin = this.northwest.totalSpin + this.northeast.totalSpin + this.southwest.totalSpin + this.southeast.totalSpin;
+            this.totalMagneticMoment = this.northwest.totalMagneticMoment + this.northeast.totalMagneticMoment + this.southwest.totalMagneticMoment + this.southeast.totalMagneticMoment;
+            this.totalAngularMomentum = this.northwest.totalAngularMomentum + this.northeast.totalAngularMomentum + this.southwest.totalAngularMomentum + this.southeast.totalAngularMomentum;
 
             if (this.totalMass > 0) {
                 const comX = (this.northwest.centerOfMass.x * this.northwest.totalMass +
