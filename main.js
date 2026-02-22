@@ -45,9 +45,13 @@ class Simulation {
             this.particles = [];
         });
 
+        const pauseIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`;
+        const playIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+
         document.getElementById('pauseBtn').addEventListener('click', (e) => {
             this.running = !this.running;
-            e.target.textContent = this.running ? 'Pause' : 'Resume';
+            e.currentTarget.innerHTML = this.running ? pauseIcon : playIcon;
+            e.currentTarget.title = this.running ? 'Pause' : 'Resume';
         });
 
         // Toggle groups logic
@@ -104,10 +108,13 @@ class Simulation {
         // Theme toggle
         const themeToggleBtn = document.getElementById('themeToggleBtn');
         if (themeToggleBtn) {
+            const sunIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor"></path></svg>`;
+            const moonIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+
             themeToggleBtn.addEventListener('click', () => {
                 document.body.classList.toggle('light-theme');
                 const isLight = document.body.classList.contains('light-theme');
-                themeToggleBtn.textContent = isLight ? '🌙' : '☀';
+                themeToggleBtn.innerHTML = isLight ? moonIcon : sunIcon;
             });
         }
     }

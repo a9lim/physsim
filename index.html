@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Relativistic N-Body Physics</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Noto+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
 </head>
 
 <body>
@@ -14,93 +14,136 @@
         <canvas id="simCanvas"></canvas>
 
         <div id="ui-overlay">
-            <div class="panel control-panel">
+            <div class="sidebar">
                 <div class="panel-header">
                     <h1>Particle Control</h1>
-                    <button id="themeToggleBtn" class="icon-btn" title="Toggle Theme">☀</button>
+                    <button id="themeToggleBtn" class="icon-btn" title="Toggle Theme">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor"></path>
+                        </svg>
+                    </button>
                 </div>
 
-                <div class="control-group">
-                    <label>Mass <span class="slider-value" id="massValue">10</span></label>
-                    <input type="range" id="massInput" min="1" max="200" step="1" value="10">
-                </div>
-
-                <div class="control-group">
-                    <label>Charge <span class="slider-value" id="chargeValue">0</span></label>
-                    <input type="range" id="chargeInput" min="-50" max="50" step="1" value="0">
-                </div>
-
-                <div class="control-group">
-                    <label>Angular Momentum <span class="slider-value" id="spinValue">0</span></label>
-                    <input type="range" id="spinInput" min="-50" max="50" step="1" value="0">
+                <div class="stats-section">
+                    <div class="stat-item">Particles <span id="particleCount">0</span></div>
+                    <div class="stat-item">FPS <span id="fpsCounter">0</span></div>
+                    <div class="stat-item">Speed <span id="simSpeed">1x</span></div>
                 </div>
 
                 <div class="divider"></div>
 
-                <div class="control-group">
-                    <label>Interaction Mode</label>
-                    <div class="mode-toggles">
-                        <button class="mode-btn active" data-mode="place">Place</button>
-                        <button class="mode-btn" data-mode="shoot">Shoot</button>
-                        <button class="mode-btn" data-mode="orbit">Orbit</button>
+                <div class="control-scroll-area">
+                    <div class="control-group">
+                        <label>Mass <span class="slider-value" id="massValue">10</span></label>
+                        <input type="range" id="massInput" min="1" max="200" step="1" value="10">
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="control-group">
+                        <label>Charge <span class="slider-value" id="chargeValue">0</span></label>
+                        <input type="range" id="chargeInput" min="-50" max="50" step="1" value="0">
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="control-group">
+                        <label>Angular Momentum <span class="slider-value" id="spinValue">0</span></label>
+                        <input type="range" id="spinInput" min="-50" max="50" step="1" value="0">
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="control-group">
+                        <label>Interaction Mode</label>
+                        <div class="mode-toggles">
+                            <button class="mode-btn active" data-mode="place">Place</button>
+                            <button class="mode-btn" data-mode="shoot">Shoot</button>
+                            <button class="mode-btn" data-mode="orbit">Orbit</button>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="control-group">
+                        <label>Collision Mode</label>
+                        <div class="mode-toggles" id="collision-toggles">
+                            <button class="mode-btn active" data-collision="pass">Pass</button>
+                            <button class="mode-btn" data-collision="bounce">Bounce</button>
+                            <button class="mode-btn" data-collision="merge">Merge</button>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="control-group">
+                        <label>Boundary Mode</label>
+                        <div class="mode-toggles" id="boundary-toggles">
+                            <button class="mode-btn active" data-boundary="despawn">Despawn</button>
+                            <button class="mode-btn" data-boundary="loop">Loop</button>
+                            <button class="mode-btn" data-boundary="bounce">Bounce</button>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="control-group">
+                        <label>Presets</label>
+                        <select id="presetSelect">
+                            <option value="none">Select Preset...</option>
+                            <option value="solar">Solar System</option>
+                            <option value="binary">Binary Star</option>
+                            <option value="galaxy">Galaxy</option>
+                            <option value="collision">Collision</option>
+                            <option value="magnetic">Magnetic Spin</option>
+                        </select>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="control-group">
+                        <label class="checkbox-label">
+                            Show Trails
+                            <input type="checkbox" id="trailsToggle">
+                        </label>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="control-group">
+                        <label>Sim Speed <span class="slider-value" id="speedValue">20</span>x</label>
+                        <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="btn-row">
+                        <button id="clearBtn" class="danger-btn" title="Clear">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 6h18"></path>
+                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                            </svg>
+                        </button>
+                        <button id="pauseBtn" title="Pause">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="6" y="4" width="4" height="16"></rect>
+                                <rect x="14" y="4" width="4" height="16"></rect>
+                            </svg>
+                        </button>
+                        <button id="stepBtn" title="Step">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                                <line x1="19" y1="5" x2="19" y2="19"></line>
+                            </svg>
+                        </button>
                     </div>
                 </div>
-
-                <div class="control-group">
-                    <label>Collision Mode</label>
-                    <div class="mode-toggles" id="collision-toggles">
-                        <button class="mode-btn active" data-collision="pass">Pass</button>
-                        <button class="mode-btn" data-collision="bounce">Bounce</button>
-                        <button class="mode-btn" data-collision="merge">Merge</button>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <label>Boundary Mode</label>
-                    <div class="mode-toggles" id="boundary-toggles">
-                        <button class="mode-btn active" data-boundary="despawn">Despawn</button>
-                        <button class="mode-btn" data-boundary="loop">Loop</button>
-                        <button class="mode-btn" data-boundary="bounce">Bounce</button>
-                    </div>
-                </div>
-
-                <div class="divider"></div>
-
-                <div class="control-group">
-                    <label>Presets</label>
-                    <select id="presetSelect">
-                        <option value="none">Select Preset...</option>
-                        <option value="solar">Solar System</option>
-                        <option value="binary">Binary Star</option>
-                        <option value="galaxy">Galaxy</option>
-                        <option value="collision">Collision</option>
-                        <option value="magnetic">Magnetic Spin</option>
-                    </select>
-                </div>
-
-                <div class="control-group">
-                    <label>
-                        Show Trails
-                        <input type="checkbox" id="trailsToggle">
-                    </label>
-                </div>
-
-                <div class="control-group">
-                    <label>Sim Speed <span class="slider-value" id="speedValue">20</span>x</label>
-                    <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
-                </div>
-
-                <div class="control-group btn-row">
-                    <button id="clearBtn" class="danger-btn">Clear</button>
-                    <button id="pauseBtn">Pause</button>
-                    <button id="stepBtn">Step</button>
-                </div>
-            </div>
-
-            <div class="panel stats-panel">
-                <div class="stat-item">Particles <span id="particleCount">0</span></div>
-                <div class="stat-item">FPS <span id="fpsCounter">0</span></div>
-                <div class="stat-item">Speed <span id="simSpeed">1x</span></div>
             </div>
         </div>
 
@@ -108,7 +151,7 @@
             <p>Left Click to Spawn · Right Click to Remove · Scroll to Zoom</p>
         </div>
     </div>
-    <script type="module" src="main.js"></script>
+    <script type="module" src="main.js?v=2"></script>
 </body>
 
 </html>
