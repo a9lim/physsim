@@ -6,7 +6,7 @@ export default class Renderer {
         this.trails = false;
         this.spinAngle = 0;
         this.trailHistory = new Map(); // particle id -> array of positions
-        this.maxTrailLength = 80;
+        this.maxTrailLength = 200;
     }
 
     resize(width, height) {
@@ -57,13 +57,13 @@ export default class Renderer {
                 if (!trail || trail.length < 2) continue;
 
                 for (let i = 1; i < trail.length; i++) {
-                    const alpha = (i / trail.length) * (isLight ? 0.5 : 0.6);
+                    const alpha = (i / trail.length) * (isLight ? 0.7 : 0.9);
                     ctx.beginPath();
                     ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
                     ctx.lineTo(trail[i].x, trail[i].y);
                     ctx.strokeStyle = p.color;
                     ctx.globalAlpha = alpha;
-                    ctx.lineWidth = Math.max(1, p.radius * 0.5);
+                    ctx.lineWidth = Math.max(1.5, p.radius * 0.6);
                     ctx.stroke();
                 }
             }
