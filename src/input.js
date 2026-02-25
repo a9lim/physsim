@@ -9,70 +9,93 @@ export default class InputHandler {
         this.dragStart = new Vec2(0, 0);
         this.currentPos = new Vec2(0, 0);
 
+        this.canvasRect = canvas.getBoundingClientRect();
+
         this.setupListeners();
-        this.setupUI();
     }
 
-    setupUI() {
-        // UI toggles are handled in main.js now
+    updateRect() {
+        this.canvasRect = this.canvas.getBoundingClientRect();
+    }
+
+    getPos(clientX, clientY) {
+        return new Vec2(clientX - this.canvasRect.left, clientY - this.canvasRect.top);
     }
 
     setupListeners() {
         this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
         this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
         this.canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
-        // Prevent context menu on right click
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
+        this.canvas.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
+        this.canvas.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
     }
 
-    getPos(e) {
-        const rect = this.canvas.getBoundingClientRect();
-        return new Vec2(e.clientX - rect.left, e.clientY - rect.top);
+    onTouchStart(e) {
+        e.preventDefault();
+        if (e.touches.length !== 1) return;
+        const t = e.touches[0];
+        this.isDragging = true;
+        this.dragStart = this.getPos(t.clientX, t.clientY);
+        this.currentPos = this.dragStart.clone();
+    }
+
+    onTouchMove(e) {
+        e.preventDefault();
+        if (e.touches.length !== 1) return;
+        const t = e.touches[0];
+        this.currentPos = this.getPos(t.clientX, t.clientY);
+    }
+
+    onTouchEnd(e) {
+        e.preventDefault();
+        if (!this.isDragging) return;
+        this.isDragging = false;
+        const t = e.changedTouches[0];
+        this.spawnParticle(this.getPos(t.clientX, t.clientY));
     }
 
     onMouseDown(e) {
         if (e.button === 2) {
-            // Right click: Remove particle
-            const pos = this.getPos(e);
+            const pos = this.getPos(e.clientX, e.clientY);
             this.sim.particles = this.sim.particles.filter(p => p.pos.dist(pos) > p.radius + 5);
             return;
         }
 
         this.isDragging = true;
-        this.dragStart = this.getPos(e);
+        this.dragStart = this.getPos(e.clientX, e.clientY);
         this.currentPos = this.dragStart.clone();
     }
 
     onMouseMove(e) {
-        this.currentPos = this.getPos(e);
+        this.currentPos = this.getPos(e.clientX, e.clientY);
     }
 
     onMouseUp(e) {
         if (!this.isDragging) return;
         this.isDragging = false;
+        if (e.button !== 0) return;
+        this.spawnParticle(this.getPos(e.clientX, e.clientY));
+    }
 
-        if (e.button !== 0) return; // Only process left click release
+    spawnParticle(endPos) {
+        const dragVector = Vec2.sub(this.dragStart, endPos);
 
-        const endPos = this.getPos(e);
-        const dragVector = Vec2.sub(this.dragStart, endPos); // Pull back to shoot
-
-        const mode = document.querySelector('.mode-btn.active').dataset.mode;
+        const mode = document.querySelector('#interaction-toggles .mode-btn.active').dataset.mode;
         const mass = parseFloat(document.getElementById('massInput').value);
         const charge = parseFloat(document.getElementById('chargeInput').value);
         const spin = parseFloat(document.getElementById('spinInput').value);
 
         if (mode === 'shoot') {
-            // Velocity proportional to drag distance
             const velocity = dragVector.scale(0.1);
             this.sim.addParticle(this.dragStart.x, this.dragStart.y, velocity.x, velocity.y, { mass, charge, spin });
         } else if (mode === 'orbit') {
-            // Find nearest implementation of orbital velocity?
-            // For now, let's just place it with a calculated tangential velocity relative to center of mass or nearest massive object
-            // Simple heuristic: find massive neighbor
             let bestBody = null;
             let maxGForce = 0;
 
-            this.sim.particles.forEach(p => {
+            for (const p of this.sim.particles) {
                 const d = p.pos.dist(this.dragStart);
                 if (d > 10) {
                     const force = p.mass / (d * d);
@@ -81,35 +104,21 @@ export default class InputHandler {
                         bestBody = p;
                     }
                 }
-            });
+            }
 
             if (bestBody) {
                 const rVec = Vec2.sub(bestBody.pos, this.dragStart);
                 const r = rVec.mag();
                 const dir = rVec.normalize();
 
-                // v_orbit = sqrt(M / r)  (natural units: G = 1)
-                let vMag = Math.sqrt(bestBody.mass / r);
-
-                // Clamp orbital velocity to ~0.99c to prevent massive relativistic glitches natively
-                const maxV = 0.99; // c = 1 in natural units
-                if (vMag > maxV) vMag = maxV;
-
-                // Perpendicular direction
-                const vDir = new Vec2(-dir.y, dir.x); // or new Vec2(dir.y, -dir.x) for other way
-
-                // Add initial velocity from drag if any?
-                // For orbit mode, let's say drag defines the direction of orbit + extra kick
-
-                const velocity = vDir.scale(vMag);
-                this.sim.addParticle(this.dragStart.x, this.dragStart.y, velocity.x, velocity.y, { mass, charge, spin });
-
+                const vMag = Math.min(Math.sqrt(bestBody.mass / r), 0.99);
+                const vx = -dir.y * vMag;
+                const vy = dir.x * vMag;
+                this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin });
             } else {
-                // No body to orbit, just place at rest
                 this.sim.addParticle(this.dragStart.x, this.dragStart.y, 0, 0, { mass, charge, spin });
             }
         } else {
-            // Place mode
             this.sim.addParticle(this.dragStart.x, this.dragStart.y, 0, 0, { mass, charge, spin });
         }
     }

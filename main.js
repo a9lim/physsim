@@ -4,8 +4,6 @@ import Renderer from './src/renderer.js';
 import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
 
-// Natural units: all constants = 1
-
 class Simulation {
     constructor() {
         this.canvas = document.getElementById('simCanvas');
@@ -16,11 +14,27 @@ class Simulation {
         this.particles = [];
         this.physics = new PhysicsInfo();
         this.renderer = new Renderer(this.ctx, this.width, this.height);
+        this.renderer.setTheme(true); // light mode default
         this.input = new InputHandler(this.canvas, this);
         this.renderer.input = this.input;
 
         this.lastTime = 0;
         this.running = true;
+        this.frameCount = 0;
+        this.lastFpsTime = 0;
+
+        // Cached DOM elements — avoids per-frame getElementById/querySelector
+        this.dom = {
+            particleCount: document.getElementById('particleCount'),
+            fpsCounter: document.getElementById('fpsCounter'),
+            simSpeed: document.getElementById('simSpeed'),
+            speedInput: document.getElementById('speedInput'),
+        };
+
+        // Track active modes in JS state instead of querying DOM each frame
+        this.collisionMode = 'pass';
+        this.boundaryMode = 'despawn';
+        this.speedScale = 20;
 
         this.init();
     }
@@ -29,6 +43,7 @@ class Simulation {
         this.resize();
         window.addEventListener('resize', () => this.resize());
         this.setupUI();
+        this.setupHintFade();
         requestAnimationFrame((t) => this.loop(t));
     }
 
@@ -38,108 +53,157 @@ class Simulation {
         this.canvas.width = this.width;
         this.canvas.height = this.height;
         this.renderer.resize(this.width, this.height);
+        this.input.updateRect();
+    }
+
+    setupHintFade() {
+        const hint = document.getElementById('hint-bar');
+        if (hint) {
+            setTimeout(() => hint.classList.add('fade-out'), 5000);
+        }
     }
 
     setupUI() {
+        // ─── Panel toggle ───
+        const panel = document.getElementById('control-panel');
+        const panelToggle = document.getElementById('panelToggle');
+
+        const closePanel = () => {
+            panel.classList.remove('open');
+            panelToggle.classList.remove('active');
+        };
+        const togglePanel = () => {
+            panel.classList.toggle('open');
+            panelToggle.classList.toggle('active');
+        };
+
+        panelToggle.addEventListener('click', togglePanel);
+        document.getElementById('panelClose').addEventListener('click', closePanel);
+
+        // ─── Preset dialog ───
+        const presetDialog = document.getElementById('preset-dialog');
+        const presetBtn = document.getElementById('presetBtn');
+        const presetBackdrop = presetDialog.querySelector('.preset-backdrop');
+
+        const closePresetDialog = () => presetDialog.classList.remove('open');
+
+        presetBtn.addEventListener('click', () => presetDialog.classList.add('open'));
+        presetBackdrop.addEventListener('click', closePresetDialog);
+
+        presetDialog.querySelectorAll('.preset-card').forEach(card => {
+            card.addEventListener('click', () => {
+                this.loadPreset(card.dataset.preset);
+                closePresetDialog();
+            });
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closePresetDialog();
+            }
+        });
+
+        // ─── Clear ───
         document.getElementById('clearBtn').addEventListener('click', () => {
             this.particles = [];
         });
 
-        const pauseIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`;
-        const playIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+        // ─── Pause / Resume ───
+        const pauseBtn = document.getElementById('pauseBtn');
+        const pauseIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`;
+        const playIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
 
-        document.getElementById('pauseBtn').addEventListener('click', (e) => {
+        pauseBtn.addEventListener('click', () => {
             this.running = !this.running;
-            e.currentTarget.innerHTML = this.running ? pauseIcon : playIcon;
-            e.currentTarget.title = this.running ? 'Pause' : 'Resume';
+            pauseBtn.innerHTML = this.running
+                ? pauseIcon + ' Pause'
+                : playIcon + ' Play';
+            pauseBtn.title = this.running ? 'Pause' : 'Resume';
         });
 
-        // Toggle groups logic
-        document.querySelectorAll('.mode-toggles').forEach(group => {
+        // ─── Mode toggles — track state in JS ───
+        const bindToggleGroup = (id, attr, setter) => {
+            const group = document.getElementById(id);
             group.addEventListener('click', (e) => {
-                if (e.target.classList.contains('mode-btn')) {
-                    group.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                    e.target.classList.add('active');
-                }
+                const btn = e.target.closest('.mode-btn');
+                if (!btn) return;
+                group.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                setter(btn.dataset[attr]);
             });
-        });
+        };
 
-        // Trails toggle
+        bindToggleGroup('collision-toggles', 'collision', (v) => { this.collisionMode = v; });
+        bindToggleGroup('boundary-toggles', 'boundary', (v) => { this.boundaryMode = v; });
+        bindToggleGroup('interaction-toggles', 'mode', () => {}); // read in input.js on spawn
+
+        // ─── Trails toggle ───
         document.getElementById('trailsToggle').addEventListener('change', (e) => {
             this.renderer.trails = e.target.checked;
         });
 
-        // Slider value displays
+        // ─── Slider value displays ───
         const sliderConfig = [
             { id: 'massInput', display: 'massValue' },
             { id: 'chargeInput', display: 'chargeValue' },
             { id: 'spinInput', display: 'spinValue' },
-            { id: 'speedInput', display: 'speedValue' },
         ];
 
         sliderConfig.forEach(({ id, display }) => {
             const slider = document.getElementById(id);
             const label = document.getElementById(display);
-            if (slider && label) {
-                slider.addEventListener('input', () => {
-                    label.textContent = slider.value;
-                });
-            }
+            slider.addEventListener('input', () => { label.textContent = slider.value; });
         });
 
-        // Step button
+        // Speed slider — also update cached state
+        this.dom.speedInput.addEventListener('input', () => {
+            const val = parseFloat(this.dom.speedInput.value);
+            this.speedScale = val;
+            document.getElementById('speedValue').textContent = val;
+        });
+
+        // ─── Step button ───
         document.getElementById('stepBtn').addEventListener('click', () => {
             if (!this.running) {
-                const dt = 0.1 * parseFloat(document.getElementById('speedInput').value);
-                const collisionMode = document.querySelector('#collision-toggles .mode-btn.active').dataset.collision;
-                const boundaryMode = document.querySelector('#boundary-toggles .mode-btn.active').dataset.boundary;
-                this.physics.update(this.particles, dt, collisionMode, boundaryMode);
+                const dt = 0.1 * this.speedScale;
+                this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, this.width, this.height);
                 this.renderer.render(this.particles);
                 this.updateStats();
             }
         });
 
-        // Preset selector
-        document.getElementById('presetSelect').addEventListener('change', (e) => {
-            this.loadPreset(e.target.value);
-            e.target.blur();
-        });
-
-        // Theme toggle
+        // ─── Theme toggle ───
         const themeToggleBtn = document.getElementById('themeToggleBtn');
-        if (themeToggleBtn) {
-            const sunIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor"></path></svg>`;
-            const moonIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+        const sunIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor"></path></svg>`;
+        const moonIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
 
-            themeToggleBtn.addEventListener('click', () => {
-                document.body.classList.toggle('light-theme');
-                const isLight = document.body.classList.contains('light-theme');
-                themeToggleBtn.innerHTML = isLight ? moonIcon : sunIcon;
-            });
-        }
+        themeToggleBtn.addEventListener('click', () => {
+            document.body.classList.toggle('light-theme');
+            const isLight = document.body.classList.contains('light-theme');
+            themeToggleBtn.innerHTML = isLight ? moonIcon : sunIcon;
+            this.renderer.setTheme(isLight);
+        });
     }
 
     loadPreset(name) {
         this.particles = [];
-        const width = this.width;
-        const height = this.height;
-        const cx = width / 2;
-        const cy = height / 2;
+        const cx = this.width / 2;
+        const cy = this.height / 2;
 
         if (name === 'solar') {
             this.addParticle(cx, cy, 0, 0, { mass: 80, charge: 0, spin: 0 });
             for (let i = 0; i < 5; i++) {
                 const dist = 100 + i * 60;
                 const angle = Math.random() * Math.PI * 2;
-                const speed = Math.sqrt(CONFIG.G * 80 / dist);
-                const pos = new Vec2(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist);
-                const vel = new Vec2(-Math.sin(angle) * speed, Math.cos(angle) * speed);
-                this.addParticle(pos.x, pos.y, vel.x, vel.y, { mass: 0.5 + Math.random() * 1.5, charge: 0, spin: 0 });
+                const speed = Math.sqrt(80 / dist);
+                const cos = Math.cos(angle), sin = Math.sin(angle);
+                this.addParticle(cx + cos * dist, cy + sin * dist, -sin * speed, cos * speed,
+                    { mass: 0.5 + Math.random() * 1.5, charge: 0, spin: 0 });
             }
         } else if (name === 'binary') {
             const dist = 100;
             const starMass = 50;
-            const speed = Math.sqrt(CONFIG.G * starMass / (2 * dist));
+            const speed = Math.sqrt(starMass / (2 * dist));
             this.addParticle(cx - dist, cy, 0, speed, { mass: starMass, charge: 0, spin: 10 });
             this.addParticle(cx + dist, cy, 0, -speed, { mass: starMass, charge: 0, spin: 10 });
         } else if (name === 'galaxy') {
@@ -147,10 +211,9 @@ class Simulation {
             for (let i = 0; i < 200; i++) {
                 const dist = 150 + Math.random() * 300;
                 const angle = Math.random() * Math.PI * 2;
-                const speed = Math.sqrt(CONFIG.G * 150 / dist);
-                const pos = new Vec2(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist);
-                const vel = new Vec2(-Math.sin(angle) * speed, Math.cos(angle) * speed);
-                this.addParticle(pos.x, pos.y, vel.x, vel.y, {
+                const speed = Math.sqrt(150 / dist);
+                const cos = Math.cos(angle), sin = Math.sin(angle);
+                this.addParticle(cx + cos * dist, cy + sin * dist, -sin * speed, cos * speed, {
                     mass: 0.1 + Math.random() * 0.4,
                     charge: (Math.random() - 0.5) * 5,
                     spin: (Math.random() - 0.5) * 10
@@ -162,18 +225,16 @@ class Simulation {
                 this.addParticle(cx + 200 + Math.random() * 50, cy + Math.random() * 50, -0.5, 0, { mass: 1, charge: 0, spin: 0 });
             }
         } else if (name === 'magnetic') {
-            // Magnetic demo: charged spinning particles attracting via aligned dipoles
             const spacing = 80;
             for (let i = -2; i <= 2; i++) {
                 for (let j = -2; j <= 2; j++) {
-                    const x = cx + i * spacing + (Math.random() - 0.5) * 20;
-                    const y = cy + j * spacing + (Math.random() - 0.5) * 20;
-                    const spin = 20 + Math.random() * 10; // All co-rotating
-                    this.addParticle(x, y, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, {
-                        mass: 3 + Math.random() * 2,
-                        charge: 5 + Math.random() * 5,
-                        spin: spin
-                    });
+                    this.addParticle(
+                        cx + i * spacing + (Math.random() - 0.5) * 20,
+                        cy + j * spacing + (Math.random() - 0.5) * 20,
+                        (Math.random() - 0.5) * 0.1,
+                        (Math.random() - 0.5) * 0.1,
+                        { mass: 3 + Math.random() * 2, charge: 5 + Math.random() * 5, spin: 20 + Math.random() * 10 }
+                    );
                 }
             }
         }
@@ -182,31 +243,37 @@ class Simulation {
     addParticle(x, y, vx, vy, options = {}) {
         const p = new Particle(x, y);
 
-        const baseMass = options.mass || 10;
+        const baseMass = options.mass ?? 10;
         const massVar = baseMass * 0.2;
-        p.mass = Math.max(1, baseMass + (Math.random() * massVar - massVar / 2));
+        p.mass = Math.max(1, baseMass + (Math.random() - 0.5) * massVar);
 
-        const baseCharge = options.charge || 0;
-        let chargeVar = 0;
-        if (Math.abs(baseCharge) > 0) chargeVar = baseCharge * 0.2;
-        p.charge = baseCharge + (Math.random() * chargeVar - chargeVar / 2);
+        const baseCharge = options.charge ?? 0;
+        if (baseCharge !== 0) {
+            p.charge = baseCharge + (Math.random() - 0.5) * baseCharge * 0.2;
+        } else {
+            p.charge = 0;
+        }
 
-        const baseSpin = options.spin || 0;
-        let spinVar = 0;
-        if (Math.abs(baseSpin) > 0) spinVar = baseSpin * 0.2;
-        p.spin = baseSpin + (Math.random() * spinVar - spinVar / 2);
+        const baseSpin = options.spin ?? 0;
+        if (baseSpin !== 0) {
+            p.spin = baseSpin + (Math.random() - 0.5) * baseSpin * 0.2;
+        } else {
+            p.spin = 0;
+        }
 
         p.updateColor();
 
-        p.vel = new Vec2(vx, vy);
-        const speedSq = p.vel.magSq();
+        const speedSq = vx * vx + vy * vy;
         if (speedSq < 1) {
             const gamma = 1 / Math.sqrt(1 - speedSq);
-            p.momentum = p.vel.clone().scale(gamma * p.mass);
+            p.vel.set(vx, vy);
+            p.momentum.set(vx * gamma * p.mass, vy * gamma * p.mass);
         } else {
-            p.vel = p.vel.clone().normalize().scale(0.99);
+            const s = 0.99 / Math.sqrt(speedSq);
+            const cvx = vx * s, cvy = vy * s;
             const gamma = 1 / Math.sqrt(1 - 0.99 * 0.99);
-            p.momentum = p.vel.clone().scale(gamma * p.mass);
+            p.vel.set(cvx, cvy);
+            p.momentum.set(cvx * gamma * p.mass, cvy * gamma * p.mass);
         }
 
         this.particles.push(p);
@@ -216,14 +283,10 @@ class Simulation {
         const rawDt = (timestamp - this.lastTime) / 1000;
         this.lastTime = timestamp;
 
-        const speedScale = parseFloat(document.getElementById('speedInput').value);
-        const dt = Math.min(rawDt, 0.1) * speedScale;
-
-        const collisionMode = document.querySelector('#collision-toggles .mode-btn.active').dataset.collision;
-        const boundaryMode = document.querySelector('#boundary-toggles .mode-btn.active').dataset.boundary;
+        const dt = Math.min(rawDt, 0.1) * this.speedScale;
 
         if (this.running) {
-            this.physics.update(this.particles, dt, collisionMode, boundaryMode);
+            this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, this.width, this.height);
         }
 
         this.renderer.render(this.particles, dt);
@@ -233,22 +296,18 @@ class Simulation {
     }
 
     updateStats() {
-        document.getElementById('particleCount').textContent = this.particles.length;
+        this.dom.particleCount.textContent = this.particles.length;
 
-        const speed = parseFloat(document.getElementById('speedInput').value);
-        document.getElementById('simSpeed').textContent = speed + 'x';
-
-        // FPS
+        // FPS — update display only once per second
+        this.frameCount++;
         const now = performance.now();
-        if (!this.lastFpsTime) this.lastFpsTime = now;
         if (now - this.lastFpsTime >= 1000) {
-            document.getElementById('fpsCounter').textContent = this.frameCount || 0;
+            this.dom.fpsCounter.textContent = this.frameCount;
+            this.dom.simSpeed.textContent = this.speedScale + 'x';
             this.frameCount = 0;
             this.lastFpsTime = now;
         }
-        this.frameCount = (this.frameCount || 0) + 1;
     }
 }
 
-// Start
 window.sim = new Simulation();

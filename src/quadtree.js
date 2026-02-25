@@ -2,10 +2,10 @@ import Vec2 from './vec2.js';
 
 class Rect {
     constructor(x, y, w, h) {
-        this.x = x; // Center x
-        this.y = y; // Center y
-        this.w = w; // Half width
-        this.h = h; // Half height
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
     }
 
     contains(point) {
@@ -29,18 +29,23 @@ export default class QuadTree {
         this.capacity = capacity;
         this.points = [];
         this.divided = false;
+
+        this.totalMass = 0;
+        this.totalCharge = 0;
+        this.totalSpin = 0;
+        this.totalMagneticMoment = 0;
+        this.totalAngularMomentum = 0;
+        this.centerOfMass = new Vec2(boundary.x, boundary.y);
     }
 
     subdivide() {
-        const x = this.boundary.x;
-        const y = this.boundary.y;
-        const w = this.boundary.w;
-        const h = this.boundary.h;
+        const { x, y, w, h } = this.boundary;
+        const hw = w / 2, hh = h / 2;
 
-        this.northwest = new QuadTree(new Rect(x - w / 2, y - h / 2, w / 2, h / 2), this.capacity);
-        this.northeast = new QuadTree(new Rect(x + w / 2, y - h / 2, w / 2, h / 2), this.capacity);
-        this.southwest = new QuadTree(new Rect(x - w / 2, y + h / 2, w / 2, h / 2), this.capacity);
-        this.southeast = new QuadTree(new Rect(x + w / 2, y + h / 2, w / 2, h / 2), this.capacity);
+        this.northwest = new QuadTree(new Rect(x - hw, y - hh, hw, hh), this.capacity);
+        this.northeast = new QuadTree(new Rect(x + hw, y - hh, hw, hh), this.capacity);
+        this.southwest = new QuadTree(new Rect(x - hw, y + hh, hw, hh), this.capacity);
+        this.southeast = new QuadTree(new Rect(x + hw, y + hh, hw, hh), this.capacity);
 
         this.divided = true;
     }
@@ -57,77 +62,75 @@ export default class QuadTree {
 
         if (!this.divided) {
             this.subdivide();
-            for (let p of this.points) {
-                if (this.northwest.insert(p)) continue;
-                if (this.northeast.insert(p)) continue;
-                if (this.southwest.insert(p)) continue;
-                if (this.southeast.insert(p)) continue;
+            for (const p of this.points) {
+                this.northwest.insert(p) ||
+                this.northeast.insert(p) ||
+                this.southwest.insert(p) ||
+                this.southeast.insert(p);
             }
             this.points = [];
         }
 
-        if (this.northwest.insert(particle)) return true;
-        if (this.northeast.insert(particle)) return true;
-        if (this.southwest.insert(particle)) return true;
-        if (this.southeast.insert(particle)) return true;
-
-        return false;
+        return this.northwest.insert(particle) ||
+            this.northeast.insert(particle) ||
+            this.southwest.insert(particle) ||
+            this.southeast.insert(particle);
     }
 
     calculateMassDistribution() {
         if (!this.divided) {
-            this.totalMass = 0;
-            this.totalCharge = 0;
-            this.totalSpin = 0;
-            this.totalMagneticMoment = 0;  // sum of charge * spin
-            this.totalAngularMomentum = 0; // sum of mass * spin
-            let centerOfMassX = 0;
-            let centerOfMassY = 0;
+            const pts = this.points;
+            if (pts.length === 0) return;
 
-            if (this.points.length > 0) {
-                for (let p of this.points) {
-                    this.totalMass += p.mass;
-                    this.totalCharge += p.charge;
-                    this.totalSpin += p.spin;
-                    this.totalMagneticMoment += p.charge * p.spin;
-                    this.totalAngularMomentum += p.mass * p.spin;
-                    centerOfMassX += p.pos.x * p.mass;
-                    centerOfMassY += p.pos.y * p.mass;
-                }
-                if (this.totalMass > 0) {
-                    this.centerOfMass = new Vec2(centerOfMassX / this.totalMass, centerOfMassY / this.totalMass);
-                } else {
-                    this.centerOfMass = new Vec2(this.boundary.x, this.boundary.y);
-                }
-            } else {
-                this.centerOfMass = new Vec2(this.boundary.x, this.boundary.y);
+            let mass = 0, charge = 0, spin = 0, magMom = 0, angMom = 0;
+            let comX = 0, comY = 0;
+
+            for (const p of pts) {
+                mass += p.mass;
+                charge += p.charge;
+                spin += p.spin;
+                magMom += p.charge * p.spin;
+                angMom += p.mass * p.spin;
+                comX += p.pos.x * p.mass;
+                comY += p.pos.y * p.mass;
+            }
+
+            this.totalMass = mass;
+            this.totalCharge = charge;
+            this.totalSpin = spin;
+            this.totalMagneticMoment = magMom;
+            this.totalAngularMomentum = angMom;
+
+            if (mass > 0) {
+                this.centerOfMass.set(comX / mass, comY / mass);
             }
         } else {
-            this.northwest.calculateMassDistribution();
-            this.northeast.calculateMassDistribution();
-            this.southwest.calculateMassDistribution();
-            this.southeast.calculateMassDistribution();
+            const children = [this.northwest, this.northeast, this.southwest, this.southeast];
+            for (const child of children) {
+                child.calculateMassDistribution();
+            }
 
-            this.totalMass = this.northwest.totalMass + this.northeast.totalMass + this.southwest.totalMass + this.southeast.totalMass;
-            this.totalCharge = this.northwest.totalCharge + this.northeast.totalCharge + this.southwest.totalCharge + this.southeast.totalCharge;
-            this.totalSpin = this.northwest.totalSpin + this.northeast.totalSpin + this.southwest.totalSpin + this.southeast.totalSpin;
-            this.totalMagneticMoment = this.northwest.totalMagneticMoment + this.northeast.totalMagneticMoment + this.southwest.totalMagneticMoment + this.southeast.totalMagneticMoment;
-            this.totalAngularMomentum = this.northwest.totalAngularMomentum + this.northeast.totalAngularMomentum + this.southwest.totalAngularMomentum + this.southeast.totalAngularMomentum;
+            let mass = 0, charge = 0, spin = 0, magMom = 0, angMom = 0;
+            let comX = 0, comY = 0;
 
-            if (this.totalMass > 0) {
-                const comX = (this.northwest.centerOfMass.x * this.northwest.totalMass +
-                    this.northeast.centerOfMass.x * this.northeast.totalMass +
-                    this.southwest.centerOfMass.x * this.southwest.totalMass +
-                    this.southeast.centerOfMass.x * this.southeast.totalMass) / this.totalMass;
+            for (const c of children) {
+                mass += c.totalMass;
+                charge += c.totalCharge;
+                spin += c.totalSpin;
+                magMom += c.totalMagneticMoment;
+                angMom += c.totalAngularMomentum;
+                comX += c.centerOfMass.x * c.totalMass;
+                comY += c.centerOfMass.y * c.totalMass;
+            }
 
-                const comY = (this.northwest.centerOfMass.y * this.northwest.totalMass +
-                    this.northeast.centerOfMass.y * this.northeast.totalMass +
-                    this.southwest.centerOfMass.y * this.southwest.totalMass +
-                    this.southeast.centerOfMass.y * this.southeast.totalMass) / this.totalMass;
+            this.totalMass = mass;
+            this.totalCharge = charge;
+            this.totalSpin = spin;
+            this.totalMagneticMoment = magMom;
+            this.totalAngularMomentum = angMom;
 
-                this.centerOfMass = new Vec2(comX, comY);
-            } else {
-                this.centerOfMass = new Vec2(this.boundary.x, this.boundary.y);
+            if (mass > 0) {
+                this.centerOfMass.set(comX / mass, comY / mass);
             }
         }
     }
@@ -139,7 +142,7 @@ export default class QuadTree {
         }
 
         if (!this.divided) {
-            for (let p of this.points) {
+            for (const p of this.points) {
                 if (range.contains(p.pos)) {
                     found.push(p);
                 }
