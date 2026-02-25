@@ -4,6 +4,12 @@ export default class Vec2 {
         this.y = y;
     }
 
+    set(x, y) {
+        this.x = x;
+        this.y = y;
+        return this;
+    }
+
     clone() {
         return new Vec2(this.x, this.y);
     }
@@ -37,7 +43,8 @@ export default class Vec2 {
     normalize() {
         const m = this.mag();
         if (m > 0) {
-            this.scale(1 / m);
+            this.x /= m;
+            this.y /= m;
         }
         return this;
     }
