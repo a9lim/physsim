@@ -58,9 +58,9 @@ const _PALETTE = Object.freeze({
 
   --bg:             ${D.canvas};
   --canvas-bg:      ${D.canvas};
-  --surface:        ${_r(D.panelSolid, 0.88)};
+  --surface:        ${_r(D.panelSolid, 0.58)};
   --surface-solid:  ${D.panelSolid};
-  --bg-hover:       ${_r(D.text, 0.05)};
+  --bg-hover:       ${_r(D.text, 0.051)};
 
   --text-1:         ${D.text};
   --text-2:         ${D.textSecondary};
@@ -68,30 +68,30 @@ const _PALETTE = Object.freeze({
 
   --accent:         ${P.accent};
   --accent-hover:   ${P.accentHover};
-  --accent-subtle:  ${_r(P.accent, 0.07)};
+  --accent-subtle:  ${_r(P.accent, 0.078)};
 
   --danger:         ${P.accent};
-  --danger-subtle:  ${_r(P.accent, 0.07)};
+  --accent-subtle:  ${_r(P.accent, 0.078)};
 
-  --border:         ${_r(D.text, 0.06)};
-  --border-strong:  ${_r(D.text, 0.12)};
-  --slider-track:   ${_r(D.text, 0.08)};
+  --border:         ${_r(D.text, 0.059)};
+  --border-strong:  ${_r(D.text, 0.122)};
+  --slider-track:   ${_r(D.text, 0.06)};
   --backdrop:       rgba(0, 0, 0, 0.5);
 }
 body.light-theme {
   --bg:             ${L.canvas};
   --canvas-bg:      ${L.canvas};
-  --surface:        ${_r(L.panelSolid, 0.82)};
+  --surface:        ${_r(L.panelSolid, 0.55)};
   --surface-solid:  ${L.panelSolid};
-  --bg-hover:       ${_r(L.text, 0.04)};
+  --bg-hover:       ${_r(L.text, 0.039)};
 
   --text-1:         ${L.text};
   --text-2:         ${L.textSecondary};
   --text-3:         ${L.textMuted};
 
-  --border:         ${_r(L.text, 0.08)};
-  --border-strong:  ${_r(L.text, 0.14)};
-  --slider-track:   ${_r(L.text, 0.08)};
+  --border:         ${_r(L.text, 0.078)};
+  --border-strong:  ${_r(L.text, 0.141)};
+  --slider-track:   ${_r(L.text, 0.06)};
   --backdrop:       rgba(0, 0, 0, 0.3);
 }`;
   document.head.appendChild(style);
