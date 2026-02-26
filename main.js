@@ -1,5 +1,5 @@
 import Vec2 from './src/vec2.js';
-import PhysicsInfo from './src/physics.js';
+import Physics from './src/physics.js';
 import Renderer from './src/renderer.js';
 import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
@@ -12,7 +12,7 @@ class Simulation {
         this.height = window.innerHeight;
 
         this.particles = [];
-        this.physics = new PhysicsInfo();
+        this.physics = new Physics();
         this.renderer = new Renderer(this.ctx, this.width, this.height);
         this.renderer.setTheme(true); // light mode default
         this.input = new InputHandler(this.canvas, this);
@@ -110,12 +110,13 @@ class Simulation {
 
         // ─── Pause / Resume ───
         const pauseBtn = document.getElementById('pauseBtn');
-        const pauseIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`;
-        const playIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+        const pauseIcon = document.getElementById('pauseIcon');
+        const playIcon = document.getElementById('playIcon');
 
         pauseBtn.addEventListener('click', () => {
             this.running = !this.running;
-            pauseBtn.innerHTML = this.running ? pauseIcon : playIcon;
+            pauseIcon.hidden = !this.running;
+            playIcon.hidden = this.running;
             pauseBtn.title = this.running ? 'Pause' : 'Resume';
         });
 
@@ -133,7 +134,7 @@ class Simulation {
 
         bindToggleGroup('collision-toggles', 'collision', (v) => { this.collisionMode = v; });
         bindToggleGroup('boundary-toggles', 'boundary', (v) => { this.boundaryMode = v; });
-        bindToggleGroup('interaction-toggles', 'mode', () => {}); // read in input.js on spawn
+        bindToggleGroup('interaction-toggles', 'mode', (v) => { this.input.mode = v; });
 
         // ─── Trails toggle ───
         document.getElementById('trailsToggle').addEventListener('change', (e) => {
@@ -171,15 +172,9 @@ class Simulation {
         });
 
         // ─── Theme toggle ───
-        const themeToggleBtn = document.getElementById('themeToggleBtn');
-        const sunIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
-        const moonIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
-
-        themeToggleBtn.addEventListener('click', () => {
-            document.body.classList.toggle('light-theme');
-            const isLight = document.body.classList.contains('light-theme');
-            themeToggleBtn.innerHTML = isLight ? sunIcon : moonIcon;
-            this.renderer.setTheme(isLight);
+        document.getElementById('themeToggleBtn').addEventListener('click', () => {
+            document.body.dataset.theme = document.body.dataset.theme === 'dark' ? '' : 'dark';
+            this.renderer.setTheme(document.body.dataset.theme !== 'dark');
         });
     }
 

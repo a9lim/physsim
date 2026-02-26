@@ -8,8 +8,13 @@ export default class InputHandler {
         this.isDragging = false;
         this.dragStart = new Vec2(0, 0);
         this.currentPos = new Vec2(0, 0);
+        this.mode = 'place';
 
         this.canvasRect = canvas.getBoundingClientRect();
+
+        this.massInput = document.getElementById('massInput');
+        this.chargeInput = document.getElementById('chargeInput');
+        this.spinInput = document.getElementById('spinInput');
 
         this.setupListeners();
     }
@@ -83,10 +88,10 @@ export default class InputHandler {
     spawnParticle(endPos) {
         const dragVector = Vec2.sub(this.dragStart, endPos);
 
-        const mode = document.querySelector('#interaction-toggles .mode-btn.active').dataset.mode;
-        const mass = parseFloat(document.getElementById('massInput').value);
-        const charge = parseFloat(document.getElementById('chargeInput').value);
-        const spin = parseFloat(document.getElementById('spinInput').value);
+        const mode = this.mode;
+        const mass = parseFloat(this.massInput.value);
+        const charge = parseFloat(this.chargeInput.value);
+        const spin = parseFloat(this.spinInput.value);
 
         if (mode === 'shoot') {
             const velocity = dragVector.scale(0.1);

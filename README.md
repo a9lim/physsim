@@ -1,69 +1,66 @@
 # Relativistic N-Body Physics Simulation
 
-A high-performance, interactive physics simulation that models gravity and electromagnetism with relativistic effects. It uses the **Barnes-Hut algorithm** for efficient force calculation, allowing for simulations with thousands of particles. This is a complete rewrite of an old Java project I had in Javascript, now powered by Antigravity.
+A high-performance, interactive physics simulation that models gravity, electromagnetism, magnetic dipole interactions, and gravitomagnetic corrections with relativistic effects. Uses the **Barnes-Hut algorithm** for O(N log N) force calculation, enabling simulations with thousands of particles. Pure vanilla JS — no build system or dependencies.
 
 ## Features
 
-- **Relativistic Physics**: Particles respect the speed of light ($c$)..
-- **Forces**: 
-  - **Gravity**: All particles attract each other based on mass.
-  - **Electromagnetism**: Particles with charge repel (like charges) or attract (opposites).
-- **Barnes-Hut Optimization**: Uses a QuadTree to approximate long-range forces ($O(N \log N)$), enabling high particle counts.
-- **Interactive Modes**:
-  - **Place**: Click to spawn particles at rest.
-  - **Shoot**: Drag and release to launch particles.
-  - **Orbit**: Automatically calculates velocity for a stable circular orbit around the nearest massive body.
-- **Presets**: Instantly load scenarios like Solar System, Binary Star, Galaxy, and Collision.
-- **Visuals**:
-  - **Trails**: Visualize particle paths.
-  - **Dynamic Color**: Particle color shifts based on charge.
-  - **Glow Effects**: Stylized rendering.
+- **Relativistic Physics** — Momentum-based integration naturally enforces the speed-of-light limit. Velocity is derived via the Lorentz factor, so no particle can ever exceed *c*.
+- **Four Force Types**
+  - **Gravity** — Universal attraction between masses (inverse-square)
+  - **Coulomb** — Electrostatic repulsion/attraction between charged particles
+  - **Magnetic Dipole** — Interaction between spinning, charged particles
+  - **Gravitomagnetic** — Relativistic correction coupling mass and angular momentum
+- **Barnes-Hut Optimization** — QuadTree spatial partitioning approximates long-range forces at O(N log N)
+- **Interaction Modes** — Place (spawn at rest), Shoot (drag to set velocity), Orbit (auto-calculates circular orbit around nearest massive body)
+- **Collision Modes** — Pass-through, elastic bounce with spin-friction transfer, or merge (conserves mass/charge/momentum)
+- **Boundary Modes** — Despawn off-screen, toroidal wrap, or bounce off edges
+- **Presets** — Solar System, Binary Star, Galaxy, Collision, Magnetic Spin
+- **Visuals** — Particle trails, charge-based dynamic coloring, spin rings, additive glow in dark mode, light/dark theme toggle
+- **Zoom & Pan** — Scroll to zoom
 
 ## Controls
 
-### Simulation
-- **Play/Pause**: Toggle simulation.
-- **Step**: Advance simulation by one frame (when paused).
-- **Speed**: Adjust time step ($dt$).
-- **Clear**: Remove all particles.
+| Action | Input |
+|---|---|
+| Spawn particle | Left click |
+| Remove particle | Right click |
+| Zoom | Scroll wheel |
+| Play / Pause | Topbar button |
+| Step (when paused) | Topbar button |
+| Reset | Topbar button |
 
-### Physics Parameters
-- **Mass/Charge/Spin**: Properties for the next particle you spawn.
-- **Interaction Mode**:
-  - `Place`: Spawn at cursor.
-  - `Shoot`: Drag to set velocity.
-  - `Orbit`: Auto-orbit valid gravitating bodies.
-- **Collision Mode**:
-  - `Pass`: Particles pass through each other.
-  - `Bounce`: Elastic collisions.
-  - `Merge`: Particles combine mass/charge/momentum upon contact.
-- **Boundary Mode**:
-  - `Despawn`: Particles are removed when far from screen.
-  - `Loop`: Toroidal topology (wrap around edges).
-  - `Bounce`: Particles bounce off screen edges.
+All physics parameters (mass, charge, angular momentum, collision mode, boundary mode, sim speed, trails) are in the sidebar panel, toggled from the topbar.
 
-### Other
-- **Trails**: Toggle particle trails.
-- **Presets**: Load pre-defined scenarios.
+## Running Locally
+
+Serve the directory to avoid CORS issues with ES6 modules:
+
+```bash
+python -m http.server
+# Navigate to http://localhost:8000
+```
 
 ## Technical Details
 
-The simulation implements a **Relativistic Euler Integration** scheme:
-1. Forces are calculated using **Barnes-Hut** 
-2. Momentum is updated: $\vec{p}_{new} = \vec{p}_{old} + \vec{F} \cdot dt$
-3. Velocity is derived from momentum: $\vec{v} = \frac{\vec{p}}{m \sqrt{1 + \frac{p^2}{m^2 c^2}}}$
-4. Position is updated: $\vec{x}_{new} = \vec{x}_{old} + \vec{v} \cdot dt$
+The simulation uses **relativistic Euler integration** with momentum as the primary state variable:
 
-This ensures that no particle can ever exceed the speed limit $c$, providing inherent stability for high-energy interactions.
+1. Forces calculated via Barnes-Hut tree traversal
+2. Momentum update: **p** = **p** + **F** · dt
+3. Velocity derived: **v** = **p** / (m · γ), where γ = √(1 + p²/m²)
+4. Position update: **x** = **x** + **v** · dt
 
-## Running the Simulation
+Natural units (c = 1, G = 1) throughout. The momentum-based approach provides inherent stability — high-energy interactions cannot produce superluminal velocities.
 
-Simply open `index.html` in a modern web browser. 
+### Architecture
 
-For the best experience (to avoid CORS issues with Modules if run locally without a server), it is recommended to serve the directory:
-
-```bash
-# Python 3
-python -m http.server
-# Then navigate to http://localhost:8000
+```
+index.html
+  ├── colors.js      — palette, fonts, CSS variable injection
+  └── main.js        — Simulation class (ES module entry)
+        ├── src/physics.js    — force calculation, integration, collisions
+        │     ├── src/quadtree.js  — Barnes-Hut spatial partitioning
+        │     └── src/vec2.js      — 2D vector math
+        ├── src/renderer.js   — Canvas 2D drawing, trails, themes
+        ├── src/input.js      — mouse/touch interaction, particle spawning
+        └── src/particle.js   — entity definition
 ```

@@ -1,9 +1,23 @@
 import Vec2 from './vec2.js';
 import QuadTree, { Rect } from './quadtree.js';
 
-// Reusable scratch vectors to avoid allocation in hot paths
-const _tmpForce = new Vec2();
-const _tmpR = new Vec2();
+const BH_THETA = 0.5;
+const MIN_DIST_SQ = 25;
+const BOUNCE_FRICTION = 0.4;
+const DESPAWN_MARGIN = 100;
+
+function setMomentumFromVel(p, vn, vt, nx, ny, tx, ty) {
+    let vx = nx * vn + tx * vt;
+    let vy = ny * vn + ty * vt;
+    const speedSq = vx * vx + vy * vy;
+    if (speedSq >= 1) {
+        const s = 0.99 / Math.sqrt(speedSq);
+        vx *= s; vy *= s;
+    }
+    const gamma = 1 / Math.sqrt(1 - (vx * vx + vy * vy));
+    p.momentum.set(vx * gamma * p.mass, vy * gamma * p.mass);
+    p.vel.set(vx, vy);
+}
 
 export default class Physics {
     constructor() {
@@ -26,7 +40,6 @@ export default class Physics {
             this.handleCollisions(particles, qt, collisionMode);
         }
 
-        const theta = 0.5;
         const n = particles.length;
 
         // Calculate all forces before integrating (avoids order-dependent updates)
@@ -37,10 +50,8 @@ export default class Physics {
         }
         for (let i = 0; i < n; i++) {
             this._forces[i].set(0, 0);
-            this.calculateForce(particles[i], qt, theta, this._forces[i]);
+            this.calculateForce(particles[i], qt, BH_THETA, this._forces[i]);
         }
-
-        const despawnLimit = 100;
 
         for (let i = n - 1; i >= 0; i--) {
             const p = particles[i];
@@ -59,8 +70,8 @@ export default class Physics {
             p.pos.y += p.vel.y * dt;
 
             if (boundaryMode === 'despawn') {
-                if (p.pos.x < -despawnLimit || p.pos.x > width + despawnLimit ||
-                    p.pos.y < -despawnLimit || p.pos.y > height + despawnLimit) {
+                if (p.pos.x < -DESPAWN_MARGIN || p.pos.x > width + DESPAWN_MARGIN ||
+                    p.pos.y < -DESPAWN_MARGIN || p.pos.y > height + DESPAWN_MARGIN) {
                     particles.splice(i, 1);
                 }
             } else if (boundaryMode === 'loop') {
@@ -168,9 +179,8 @@ export default class Physics {
 
         const surfaceV1 = v1t + p1.spin * p1.radius;
         const surfaceV2 = v2t - p2.spin * p2.radius;
-        const friction = 0.4;
         const effectiveMass = (m1 * m2) / mSum;
-        const tangentialImpulse = friction * (surfaceV1 - surfaceV2) * effectiveMass;
+        const tangentialImpulse = BOUNCE_FRICTION * (surfaceV1 - surfaceV2) * effectiveMass;
 
         const v1tFinal = v1t - tangentialImpulse / m1;
         const v2tFinal = v2t + tangentialImpulse / m2;
@@ -178,21 +188,8 @@ export default class Physics {
         p1.spin -= tangentialImpulse / (m1 * p1.radius);
         p2.spin -= tangentialImpulse / (m2 * p2.radius);
 
-        const setMomentumFromVel = (p, vn, vt) => {
-            let vx = nx * vn + tx * vt;
-            let vy = ny * vn + ty * vt;
-            const speedSq = vx * vx + vy * vy;
-            if (speedSq >= 1) {
-                const s = 0.99 / Math.sqrt(speedSq);
-                vx *= s; vy *= s;
-            }
-            const gamma = 1 / Math.sqrt(1 - (vx * vx + vy * vy));
-            p.momentum.set(vx * gamma * p.mass, vy * gamma * p.mass);
-            p.vel.set(vx, vy);
-        };
-
-        setMomentumFromVel(p1, v1nFinal, v1tFinal);
-        setMomentumFromVel(p2, v2nFinal, v2tFinal);
+        setMomentumFromVel(p1, v1nFinal, v1tFinal, nx, ny, tx, ty);
+        setMomentumFromVel(p2, v2nFinal, v2tFinal, nx, ny, tx, ty);
 
         const overlap = (minDist - safeDist) / 2 + 0.25;
         p1.pos.x -= nx * overlap;
@@ -218,7 +215,7 @@ export default class Physics {
                     const rx = other.pos.x - particle.pos.x;
                     const ry = other.pos.y - particle.pos.y;
                     let rSq = rx * rx + ry * ry;
-                    rSq = rSq < 25 ? 25 : rSq;
+                    rSq = rSq < MIN_DIST_SQ ? MIN_DIST_SQ : rSq;
                     const r = Math.sqrt(rSq);
                     const invR = 1 / r;
                     const invRSq = 1 / rSq;
@@ -233,7 +230,7 @@ export default class Physics {
                     out.y += ry * fTotal;
                 }
             } else {
-                let rSq = dSq < 25 ? 25 : dSq;
+                let rSq = dSq < MIN_DIST_SQ ? MIN_DIST_SQ : dSq;
                 const r = Math.sqrt(rSq);
                 const invR = 1 / r;
                 const invRSq = 1 / rSq;

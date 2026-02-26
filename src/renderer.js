@@ -2,6 +2,12 @@ const TWO_PI = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
 const _PAL = window._PALETTE;
 
+// Precomputed spin ring colors: [hue][isLight ? 0 : 1]
+const _spinColors = {
+    pos: { light: `hsla(${_PAL.spinPos},80%,60%,0.6)`, dark: `hsla(${_PAL.spinPos},80%,60%,0.7)` },
+    neg: { light: `hsla(${_PAL.spinNeg},80%,60%,0.6)`, dark: `hsla(${_PAL.spinNeg},80%,60%,0.7)` },
+};
+
 export default class Renderer {
     constructor(ctx, width, height) {
         this.ctx = ctx;
@@ -49,7 +55,7 @@ export default class Renderer {
             ctx.beginPath();
             ctx.moveTo(start.x, start.y);
             ctx.lineTo(end.x, end.y);
-            ctx.strokeStyle = isLight ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.5)';
+            ctx.strokeStyle = isLight ? '#00000066' : '#ffffff80';
             ctx.lineWidth = 1;
             ctx.setLineDash([5, 5]);
             ctx.stroke();
@@ -59,19 +65,27 @@ export default class Renderer {
 
     updateTrails(particles) {
         const history = this.trailHistory;
-        const maxLen = this.maxTrailLength;
+        const capacity = this.maxTrailLength * 2; // flat x,y pairs
         const activeIds = new Set();
 
         for (const p of particles) {
             activeIds.add(p.id);
             let trail = history.get(p.id);
             if (!trail) {
-                trail = [];
+                trail = { data: new Float32Array(capacity), len: 0, start: 0 };
                 history.set(p.id, trail);
             }
-            trail.push(p.pos.x, p.pos.y); // flat x,y pairs — half the object overhead
-            if (trail.length > maxLen * 2) {
-                trail.splice(0, 2);
+            if (trail.len < capacity) {
+                // Buffer not full yet — append at (start + len) % capacity
+                const writeIdx = (trail.start + trail.len) % capacity;
+                trail.data[writeIdx] = p.pos.x;
+                trail.data[writeIdx + 1] = p.pos.y;
+                trail.len += 2;
+            } else {
+                // Buffer full — overwrite oldest, advance start
+                trail.data[trail.start] = p.pos.x;
+                trail.data[trail.start + 1] = p.pos.y;
+                trail.start = (trail.start + 2) % capacity;
             }
         }
 
@@ -88,14 +102,15 @@ export default class Renderer {
 
         for (const p of particles) {
             const trail = this.trailHistory.get(p.id);
-            if (!trail || trail.length < 4) continue; // need at least 2 points (4 values)
+            if (!trail || trail.len < 4) continue; // need at least 2 points (4 values)
 
-            const segCount = (trail.length / 2) - 1;
+            const pointCount = trail.len / 2;
+            const segCount = pointCount - 1;
+            const capacity = trail.data.length;
             const lineWidth = Math.max(1.5, p.radius * 0.6);
             ctx.strokeStyle = p.color;
             ctx.lineWidth = lineWidth;
 
-            // Batch into fewer alpha groups (4 groups) to reduce state changes
             const groupCount = 4;
             for (let g = 0; g < groupCount; g++) {
                 const segStart = Math.floor(g * segCount / groupCount);
@@ -105,11 +120,11 @@ export default class Renderer {
                 const midSeg = (segStart + segEnd) / 2;
                 ctx.globalAlpha = ((midSeg + 1) / (segCount + 1)) * alphaMax;
                 ctx.beginPath();
-                const i0 = segStart * 2;
-                ctx.moveTo(trail[i0], trail[i0 + 1]);
+                const i0 = (trail.start + segStart * 2) % capacity;
+                ctx.moveTo(trail.data[i0], trail.data[i0 + 1]);
                 for (let s = segStart + 1; s <= segEnd; s++) {
-                    const i = s * 2;
-                    ctx.lineTo(trail[i], trail[i + 1]);
+                    const i = (trail.start + s * 2) % capacity;
+                    ctx.lineTo(trail.data[i], trail.data[i + 1]);
                 }
                 ctx.stroke();
             }
@@ -132,7 +147,7 @@ export default class Renderer {
                     ctx.shadowColor = p.color;
                 } else {
                     ctx.shadowBlur = 5;
-                    ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+                    ctx.shadowColor = '#ffffff80';
                 }
             } else {
                 ctx.shadowBlur = 0;
@@ -153,9 +168,8 @@ export default class Renderer {
         const ringRadius = p.radius + 3 + spinMag * 0.05;
         const arcLen = Math.min(0.4 + spinMag * 0.03, Math.PI * 1.5);
         const baseAngle = this.spinAngle * spinDir * (0.5 + spinMag * 0.05);
-        const alpha = isLight ? 0.6 : 0.7;
-        const hue = p.spin > 0 ? _PAL.spinPos : _PAL.spinNeg;
-        const style = `hsla(${hue},80%,60%,${alpha})`;
+        const colors = p.spin > 0 ? _spinColors.pos : _spinColors.neg;
+        const style = isLight ? colors.light : colors.dark;
 
         ctx.globalCompositeOperation = 'source-over';
         ctx.strokeStyle = style;

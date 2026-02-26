@@ -16,10 +16,10 @@ const _FONT = Object.freeze({
 // ---------- Palette ----------
 const _PALETTE = Object.freeze({
   // Particle physics colors
-  neutral:   '#bdc3c7',       // zero-charge particle fill
-  chargePos: 220,             // hue — positive charge (blue)
-  chargeNeg: 10,              // hue — negative charge (red)
-  spinPos:   160,             // hue — positive spin ring (cyan)
+  neutral:   '#847a70',       // zero-charge particle fill
+  chargePos: 201,             // hue — positive charge (blue)
+  chargeNeg: 7,              // hue — negative charge (red)
+  spinPos:   174,             // hue — positive spin ring (cyan)
   spinNeg:   30,              // hue — negative spin ring (orange)
 
   // Mode-independent accent
@@ -45,54 +45,60 @@ const _PALETTE = Object.freeze({
 });
 
 // ---------- CSS Custom Property Injection ----------
+// [css-var, palette-key]                → direct value
+// [css-var, palette-key, alpha]         → same alpha both themes
+// [css-var, palette-key, lightA, darkA] → per-theme alpha
 (function injectPaletteVars() {
-  const P = _PALETTE, D = P.dark, L = P.light;
+  const P = _PALETTE, L = P.light, D = P.dark;
+
+  const themeMap = [
+    ['bg',            'canvas'],
+    ['canvas-bg',     'canvas'],
+    ['surface',       'panelSolid',    0.55,  0.58],
+    ['surface-solid', 'panelSolid'],
+    ['bg-hover',      'text',          0.039, 0.051],
+
+    ['text-1',        'text'],
+    ['text-2',        'textSecondary'],
+    ['text-3',        'textMuted'],
+
+    ['border',        'text',          0.078, 0.059],
+    ['border-strong', 'text',          0.141, 0.122],
+    ['slider-track',  'text',          0.06],
+  ];
+
+  const gen = (T, dark) => themeMap.map(([name, key, lA, dA]) => {
+    const a = dark ? (dA ?? lA) : lA;
+    return `  --${name}: ${a != null ? _r(T[key], a) : T[key]};`;
+  }).join('\n');
 
   const style = document.createElement('style');
   style.id = 'palette-vars';
-  style.textContent =
-`:root {
+  style.textContent = `:root {
   --font-display:   ${_FONT.display};
   --font-body:      ${_FONT.body};
   --font-mono:      ${_FONT.mono};
 
-  --bg:             ${D.canvas};
-  --canvas-bg:      ${D.canvas};
-  --surface:        ${_r(D.panelSolid, 0.58)};
-  --surface-solid:  ${D.panelSolid};
-  --bg-hover:       ${_r(D.text, 0.051)};
-
-  --text-1:         ${D.text};
-  --text-2:         ${D.textSecondary};
-  --text-3:         ${D.textMuted};
+${gen(L, false)}
 
   --accent:         ${P.accent};
   --accent-hover:   ${P.accentHover};
   --accent-subtle:  ${_r(P.accent, 0.078)};
-
   --danger:         ${P.accent};
-  --accent-subtle:  ${_r(P.accent, 0.078)};
+  --danger-subtle:  ${_r(P.accent, 0.078)};
 
-  --border:         ${_r(D.text, 0.059)};
-  --border-strong:  ${_r(D.text, 0.122)};
-  --slider-track:   ${_r(D.text, 0.06)};
-  --backdrop:       rgba(0, 0, 0, 0.5);
+  --shadow-sm:      0 1px 4px #0000000a, 0 0 0 1px #00000005;
+  --shadow-md:      0 4px 20px #0000000f, 0 0 0 1px #00000005;
+  --shadow-lg:      0 12px 48px #0000001a, 0 0 0 1px #00000005;
+  --backdrop:       #0000004d;
 }
-body.light-theme {
-  --bg:             ${L.canvas};
-  --canvas-bg:      ${L.canvas};
-  --surface:        ${_r(L.panelSolid, 0.55)};
-  --surface-solid:  ${L.panelSolid};
-  --bg-hover:       ${_r(L.text, 0.039)};
+[data-theme="dark"] {
+${gen(D, true)}
 
-  --text-1:         ${L.text};
-  --text-2:         ${L.textSecondary};
-  --text-3:         ${L.textMuted};
-
-  --border:         ${_r(L.text, 0.078)};
-  --border-strong:  ${_r(L.text, 0.141)};
-  --slider-track:   ${_r(L.text, 0.06)};
-  --backdrop:       rgba(0, 0, 0, 0.3);
+  --shadow-sm:      0 1px 4px #00000033, 0 0 0 1px #ffffff08;
+  --shadow-md:      0 4px 20px #0000004d, 0 0 0 1px #ffffff08;
+  --shadow-lg:      0 12px 48px #00000066, 0 0 0 1px #ffffff08;
+  --backdrop:       #00000080;
 }`;
   document.head.appendChild(style);
 })();
