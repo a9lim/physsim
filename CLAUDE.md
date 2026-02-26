@@ -68,7 +68,7 @@ Three placement modes in input.js: `place` (spawn at rest), `shoot` (drag distan
 - Presets are defined inline in `Simulation.loadPreset()` in main.js.
 - UI is styled with CSS custom properties (design tokens) for theme switching (dark/light). Accent: `#D97757` light / `#E89B80` dark.
 - Fonts: Sora (section headings, uppercase), Instrument Serif (display/preset titles), Geist (body/controls). All loaded from Google Fonts CDN.
-- UI architecture: floating frosted-glass topbar + non-blocking slide-in sidebar (right side, toggleable, does not block canvas interaction). Preset dialog is a centered modal card grid.
+- UI architecture: floating frosted-glass topbar + non-blocking slide-in sidebar (right side, toggleable, does not block canvas interaction). Preset dialog is a centered modal card grid. Topbar right section layout: Presets | divider | Pause, Step, Reset | divider | Theme toggle (sun/moon), Settings. Playback/reset controls are icon-only `tool-btn`s, no text labels.
 - Design system modeled after ~/Documents/antigravity/gerry — match its exact token values (colors, shadows, font sizes, spacing) when making UI changes.
 - Sidebar section headings: Sora 0.68rem/600/uppercase/0.12em tracking with `border-bottom` underline. Panel header: Sora 0.72rem same style.
-- Tool buttons (`.tool-btn`): 34x34, bare icons, transparent default, `--bg-hover` on hover. Ghost buttons (`.ghost-btn`): pill-shaped with border.
+- Tool buttons (`.tool-btn`): 34x34, bare icons, transparent default, `--bg-hover` on hover, `stroke-width="2"` on SVGs (matches Gerry). Ghost buttons (`.ghost-btn`): pill-shaped with border. Topbar dividers (`.topbar-divider`): 1px wide, 18px tall, `--border` color.
