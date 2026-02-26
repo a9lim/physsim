@@ -24,9 +24,9 @@ export default class Physics {
         this.boundary = new Rect(0, 0, 0, 0);
     }
 
-    update(particles, dt, collisionMode, boundaryMode, width, height) {
-        this.boundary.x = width / 2;
-        this.boundary.y = height / 2;
+    update(particles, dt, collisionMode, boundaryMode, width, height, offX = 0, offY = 0) {
+        this.boundary.x = offX + width / 2;
+        this.boundary.y = offY + height / 2;
         this.boundary.w = width * 2;
         this.boundary.h = height * 2;
 
@@ -69,22 +69,25 @@ export default class Physics {
             p.pos.x += p.vel.x * dt;
             p.pos.y += p.vel.y * dt;
 
+            const left = offX, top = offY;
+            const right = offX + width, bottom = offY + height;
+
             if (boundaryMode === 'despawn') {
-                if (p.pos.x < -DESPAWN_MARGIN || p.pos.x > width + DESPAWN_MARGIN ||
-                    p.pos.y < -DESPAWN_MARGIN || p.pos.y > height + DESPAWN_MARGIN) {
+                if (p.pos.x < left - DESPAWN_MARGIN || p.pos.x > right + DESPAWN_MARGIN ||
+                    p.pos.y < top - DESPAWN_MARGIN || p.pos.y > bottom + DESPAWN_MARGIN) {
                     particles.splice(i, 1);
                 }
             } else if (boundaryMode === 'loop') {
-                if (p.pos.x < 0) p.pos.x += width;
-                else if (p.pos.x > width) p.pos.x -= width;
-                if (p.pos.y < 0) p.pos.y += height;
-                else if (p.pos.y > height) p.pos.y -= height;
+                if (p.pos.x < left) p.pos.x += width;
+                else if (p.pos.x > right) p.pos.x -= width;
+                if (p.pos.y < top) p.pos.y += height;
+                else if (p.pos.y > bottom) p.pos.y -= height;
             } else if (boundaryMode === 'bounce') {
                 let bounced = false;
-                if (p.pos.x < p.radius) { p.pos.x = p.radius; p.momentum.x *= -1; bounced = true; }
-                else if (p.pos.x > width - p.radius) { p.pos.x = width - p.radius; p.momentum.x *= -1; bounced = true; }
-                if (p.pos.y < p.radius) { p.pos.y = p.radius; p.momentum.y *= -1; bounced = true; }
-                else if (p.pos.y > height - p.radius) { p.pos.y = height - p.radius; p.momentum.y *= -1; bounced = true; }
+                if (p.pos.x < left + p.radius) { p.pos.x = left + p.radius; p.momentum.x *= -1; bounced = true; }
+                else if (p.pos.x > right - p.radius) { p.pos.x = right - p.radius; p.momentum.x *= -1; bounced = true; }
+                if (p.pos.y < top + p.radius) { p.pos.y = top + p.radius; p.momentum.y *= -1; bounced = true; }
+                else if (p.pos.y > bottom - p.radius) { p.pos.y = bottom - p.radius; p.momentum.y *= -1; bounced = true; }
 
                 if (bounced) {
                     const pMagSq2 = p.momentum.magSq();

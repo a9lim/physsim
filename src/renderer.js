@@ -29,13 +29,20 @@ export default class Renderer {
         this.isLight = isLight;
     }
 
-    render(particles, dt = 0.016) {
+    render(particles, dt = 0.016, camera) {
         const ctx = this.ctx;
         const isLight = this.isLight;
 
         this.spinAngle += dt * 3;
 
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.width, this.height);
+
+        // Apply camera transform
+        if (camera) {
+            const z = camera.zoom;
+            ctx.setTransform(z, 0, 0, z, this.width / 2 - camera.x * z, this.height / 2 - camera.y * z);
+        }
 
         if (this.trails) {
             this.updateTrails(particles);
@@ -49,6 +56,7 @@ export default class Renderer {
         ctx.globalCompositeOperation = 'source-over';
         ctx.shadowBlur = 0;
 
+        // Drag line drawn in world space (dragStart/currentPos are world coords)
         if (this.input && this.input.isDragging) {
             const start = this.input.dragStart;
             const end = this.input.currentPos;
@@ -56,11 +64,14 @@ export default class Renderer {
             ctx.moveTo(start.x, start.y);
             ctx.lineTo(end.x, end.y);
             ctx.strokeStyle = isLight ? '#00000066' : '#ffffff80';
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 1 / (camera ? camera.zoom : 1);
             ctx.setLineDash([5, 5]);
             ctx.stroke();
             ctx.setLineDash([]);
         }
+
+        // Reset transform
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
     updateTrails(particles) {

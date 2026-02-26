@@ -84,6 +84,11 @@ ${gen(L, false)}
   --accent:         ${P.accent};
   --accent-hover:   ${P.accentHover};
   --accent-subtle:  ${_r(P.accent, 0.078)};
+  --accent-glow:    ${_r(P.accent, 0.18)};
+  --accent-light:   ${P.accentHover};
+  --intro-warm:     ${_r(P.accentHover, 0.08)};
+  --intro-warm-hover: ${_r(P.accentHover, 0.12)};
+  --intro-cool:     ${_r('#5898ba', 0.04)};
   --danger:         ${P.accent};
   --danger-subtle:  ${_r(P.accent, 0.078)};
 

@@ -15,6 +15,10 @@ class Simulation {
         this.physics = new Physics();
         this.renderer = new Renderer(this.ctx, this.width, this.height);
         this.renderer.setTheme(true); // light mode default
+
+        // Camera: (x,y) = world point at screen center, zoom = scale factor
+        this.camera = { x: this.width / 2, y: this.height / 2, zoom: 1 };
+
         this.input = new InputHandler(this.canvas, this);
         this.renderer.input = this.input;
 
@@ -43,17 +47,20 @@ class Simulation {
         this.resize();
         window.addEventListener('resize', () => this.resize());
         this.setupUI();
-        this.setupHintFade();
         requestAnimationFrame((t) => this.loop(t));
     }
 
     resize() {
+        const oldW = this.width, oldH = this.height;
         this.width = window.innerWidth;
         this.height = window.innerHeight;
         this.canvas.width = this.width;
         this.canvas.height = this.height;
         this.renderer.resize(this.width, this.height);
         this.input.updateRect();
+        // Keep camera centered on same world point after resize
+        this.camera.x += (this.width - oldW) / 2;
+        this.camera.y += (this.height - oldH) / 2;
     }
 
     setupHintFade() {
@@ -64,6 +71,24 @@ class Simulation {
     }
 
     setupUI() {
+        // ─── Intro screen dismiss ───
+        const introScreen = document.getElementById('intro-screen');
+        const introStart = document.getElementById('intro-start');
+        if (introStart && introScreen) {
+            introStart.addEventListener('click', () => {
+                introScreen.classList.add('hidden');
+                document.body.classList.add('app-ready');
+                // Slide sidebar in after transition enables (double-rAF ensures style flush)
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    panel.classList.add('open');
+                    panelToggle.classList.add('active');
+                }));
+                setTimeout(() => { introScreen.style.display = 'none'; }, 850);
+                // Start hint fade timer after intro is dismissed
+                this.setupHintFade();
+            });
+        }
+
         // ─── Panel toggle ───
         const panel = document.getElementById('control-panel');
         const panelToggle = document.getElementById('panelToggle');
@@ -106,6 +131,9 @@ class Simulation {
         // ─── Clear ───
         document.getElementById('clearBtn').addEventListener('click', () => {
             this.particles = [];
+            this.camera.x = this.width / 2;
+            this.camera.y = this.height / 2;
+            this.camera.zoom = 1;
         });
 
         // ─── Pause / Resume ───
@@ -164,9 +192,12 @@ class Simulation {
         // ─── Step button ───
         document.getElementById('stepBtn').addEventListener('click', () => {
             if (!this.running) {
+                const cam = this.camera;
+                const halfW = this.width / (2 * cam.zoom);
+                const halfH = this.height / (2 * cam.zoom);
                 const dt = 0.1 * this.speedScale;
-                this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, this.width, this.height);
-                this.renderer.render(this.particles);
+                this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
+                this.renderer.render(this.particles, 0, cam);
                 this.updateStats();
             }
         });
@@ -180,6 +211,10 @@ class Simulation {
 
     loadPreset(name) {
         this.particles = [];
+        // Reset camera on preset load
+        this.camera.x = this.width / 2;
+        this.camera.y = this.height / 2;
+        this.camera.zoom = 1;
         const cx = this.width / 2;
         const cy = this.height / 2;
 
@@ -278,11 +313,20 @@ class Simulation {
 
         const dt = Math.min(rawDt, 0.1) * this.speedScale;
 
+        // Visible world bounds for physics boundary checks
+        const cam = this.camera;
+        const halfW = this.width / (2 * cam.zoom);
+        const halfH = this.height / (2 * cam.zoom);
+        const visW = halfW * 2;
+        const visH = halfH * 2;
+        const visLeft = cam.x - halfW;
+        const visTop = cam.y - halfH;
+
         if (this.running) {
-            this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, this.width, this.height);
+            this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, visW, visH, visLeft, visTop);
         }
 
-        this.renderer.render(this.particles, dt);
+        this.renderer.render(this.particles, dt, cam);
         this.updateStats();
 
         requestAnimationFrame((t) => this.loop(t));

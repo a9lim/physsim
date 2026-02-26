@@ -23,8 +23,16 @@ export default class InputHandler {
         this.canvasRect = this.canvas.getBoundingClientRect();
     }
 
+    /** Convert screen (client) coords to world coords via camera */
     getPos(clientX, clientY) {
-        return new Vec2(clientX - this.canvasRect.left, clientY - this.canvasRect.top);
+        const sx = clientX - this.canvasRect.left;
+        const sy = clientY - this.canvasRect.top;
+        const cam = this.sim.camera;
+        const w = this.sim.width, h = this.sim.height;
+        return new Vec2(
+            (sx - w / 2) / cam.zoom + cam.x,
+            (sy - h / 2) / cam.zoom + cam.y
+        );
     }
 
     setupListeners() {
@@ -32,6 +40,7 @@ export default class InputHandler {
         this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
         this.canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        this.canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
 
         this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
         this.canvas.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
@@ -60,6 +69,28 @@ export default class InputHandler {
         this.isDragging = false;
         const t = e.changedTouches[0];
         this.spawnParticle(this.getPos(t.clientX, t.clientY));
+    }
+
+    onWheel(e) {
+        e.preventDefault();
+        const cam = this.sim.camera;
+        const w = this.sim.width, h = this.sim.height;
+
+        // Screen coords of mouse
+        const sx = e.clientX - this.canvasRect.left;
+        const sy = e.clientY - this.canvasRect.top;
+
+        // World pos under mouse before zoom
+        const wx = (sx - w / 2) / cam.zoom + cam.x;
+        const wy = (sy - h / 2) / cam.zoom + cam.y;
+
+        // Update zoom (clamp to reasonable range)
+        const factor = e.deltaY > 0 ? 0.9 : 1.1;
+        cam.zoom = Math.min(Math.max(cam.zoom * factor, 0.1), 20);
+
+        // Adjust camera so mouse still points at same world pos
+        cam.x = wx - (sx - w / 2) / cam.zoom;
+        cam.y = wy - (sy - h / 2) / cam.zoom;
     }
 
     onMouseDown(e) {
