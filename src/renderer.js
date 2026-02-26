@@ -1,5 +1,6 @@
 const TWO_PI = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
+const _PAL = window._PALETTE;
 
 export default class Renderer {
     constructor(ctx, width, height) {
@@ -153,7 +154,7 @@ export default class Renderer {
         const arcLen = Math.min(0.4 + spinMag * 0.03, Math.PI * 1.5);
         const baseAngle = this.spinAngle * spinDir * (0.5 + spinMag * 0.05);
         const alpha = isLight ? 0.6 : 0.7;
-        const hue = p.spin > 0 ? 160 : 30;
+        const hue = p.spin > 0 ? _PAL.spinPos : _PAL.spinNeg;
         const style = `hsla(${hue},80%,60%,${alpha})`;
 
         ctx.globalCompositeOperation = 'source-over';

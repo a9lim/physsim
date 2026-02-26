@@ -1,5 +1,7 @@
 import Vec2 from './vec2.js';
 
+const _PAL = window._PALETTE;
+
 export default class Particle {
     static nextId = 0;
 
@@ -18,10 +20,10 @@ export default class Particle {
     }
 
     getColor() {
-        if (this.charge === 0) return '#bdc3c7';
+        if (this.charge === 0) return _PAL.neutral;
 
         const intensity = Math.min(Math.abs(this.charge) / 20, 1.0);
-        const hue = this.charge > 0 ? 220 : 10;
+        const hue = this.charge > 0 ? _PAL.chargePos : _PAL.chargeNeg;
         const sat = 50 + 50 * intensity;
         const light = 60 - 20 * intensity;
 

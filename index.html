@@ -7,7 +7,9 @@
     <title>Relativistic N-Body Physics</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Sora:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="colors.js"></script>
 </head>
 
 <body class="light-theme">
@@ -86,7 +88,6 @@
             </div>
             <div class="panel-section">
                 <h2 class="section-heading">Particle Properties</h2>
-                <p class="section-hint">Configure mass, charge, and angular momentum for new particles.</p>
 
                 <div class="control-group">
                     <label>Mass <span class="slider-value" id="massValue">10</span></label>
@@ -106,7 +107,6 @@
 
             <div class="panel-section">
                 <h2 class="section-heading">Interaction</h2>
-                <p class="section-hint">Choose how new particles are spawned into the simulation.</p>
 
                 <div class="control-group">
                     <div class="mode-toggles" id="interaction-toggles">
@@ -119,7 +119,6 @@
 
             <div class="panel-section">
                 <h2 class="section-heading">Physics</h2>
-                <p class="section-hint">Control collision behavior and boundary conditions.</p>
 
                 <div class="control-group">
                     <label>Collision Mode</label>
@@ -142,7 +141,6 @@
 
             <div class="panel-section">
                 <h2 class="section-heading">Visuals</h2>
-                <p class="section-hint">Adjust rendering options and simulation speed.</p>
 
                 <div class="control-group">
                     <label class="checkbox-label">

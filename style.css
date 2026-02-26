@@ -3,34 +3,10 @@
    ═══════════════════════════════════════════════ */
 
 :root {
-    /* Palette — warm dark */
-    --bg: #0C0B09;
-    --canvas-bg: #0C0B09;
-    --surface: rgba(24, 22, 18, 0.88);
-    --surface-solid: #181612;
-    --bg-hover: rgba(232, 226, 212, 0.05);
-    --text-1: #E8E2D4;
-    --text-2: #8A8278;
-    --text-3: #5A544C;
-    --accent: #E89B80;
-    --accent-hover: #F0B8A0;
-    --accent-subtle: rgba(217, 119, 87, 0.07);
-    --danger: #E89B80;
-    --danger-subtle: rgba(217, 119, 87, 0.07);
-    --border: rgba(232, 226, 212, 0.06);
-    --border-strong: rgba(232, 226, 212, 0.12);
-    --slider-track: rgba(232, 226, 212, 0.08);
-    --backdrop: rgba(0, 0, 0, 0.5);
-
     /* Shadows */
     --shadow-sm: 0 1px 4px rgba(0,0,0,0.20), 0 0 0 1px rgba(255,255,255,0.03);
     --shadow-md: 0 4px 20px rgba(0,0,0,0.30), 0 0 0 1px rgba(255,255,255,0.03);
     --shadow-lg: 0 12px 48px rgba(0,0,0,0.40), 0 0 0 1px rgba(255,255,255,0.03);
-
-    /* Typography */
-    --font-display: 'Instrument Serif', 'Georgia', serif;
-    --font-heading: 'Sora', var(--font-body);
-    --font-body: 'Geist', system-ui, -apple-system, sans-serif;
 
     /* Spacing */
     --sp-1: 4px;
@@ -63,24 +39,6 @@
    ═══════════════════════════════════════════════ */
 
 body.light-theme {
-    --bg: #F0EDE4;
-    --canvas-bg: #F0EDE4;
-    --surface: rgba(252, 250, 244, 0.82);
-    --surface-solid: #FCFAF4;
-    --bg-hover: rgba(26, 22, 18, 0.04);
-    --text-1: #1A1612;
-    --text-2: #78706A;
-    --text-3: #A8A098;
-    --accent: #D97757;
-    --accent-hover: #E89B80;
-    --accent-subtle: rgba(217, 119, 87, 0.07);
-    --danger: #D97757;
-    --danger-subtle: rgba(217, 119, 87, 0.07);
-    --border: rgba(26, 22, 18, 0.08);
-    --border-strong: rgba(26, 22, 18, 0.14);
-    --slider-track: rgba(26, 22, 18, 0.08);
-    --backdrop: rgba(0, 0, 0, 0.3);
-
     --shadow-sm: 0 1px 4px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02);
     --shadow-md: 0 4px 20px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02);
     --shadow-lg: 0 12px 48px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.02);
@@ -329,7 +287,7 @@ body {
 }
 
 .panel-title {
-    font-family: var(--font-heading);
+    font-family: var(--font-body);
     font-size: 0.72rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -342,23 +300,18 @@ body {
    ═══════════════════════════════════════════════ */
 
 .panel-section {
-    padding: var(--sp-3) 0;
-    border-bottom: 1px solid var(--border);
+    margin-bottom: 0.7rem;
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
 }
 
-.panel-section:first-child {
-    padding-top: var(--sp-1);
-}
-
 .panel-section:last-of-type {
-    border-bottom: none;
+    margin-bottom: 0;
 }
 
 .section-heading {
-    font-family: var(--font-heading);
+    font-family: var(--font-body);
     font-size: 0.68rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -367,13 +320,6 @@ body {
     padding-bottom: 0.4rem;
     border-bottom: 1px solid var(--border);
     margin-bottom: 0.65rem;
-}
-
-.section-hint {
-    font-family: var(--font-body);
-    font-size: 0.72rem;
-    color: var(--text-3);
-    line-height: 1.5;
 }
 
 /* ═══════════════════════════════════════════════
@@ -388,7 +334,7 @@ body {
 
 label {
     font-size: 0.78rem;
-    color: var(--text-2);
+    color: var(--text-1);
     font-weight: 400;
     display: flex;
     justify-content: space-between;
@@ -396,6 +342,7 @@ label {
 }
 
 .slider-value {
+    font-family: var(--font-mono);
     color: var(--text-1);
     font-weight: 600;
     font-size: 0.78rem;
