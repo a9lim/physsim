@@ -226,7 +226,7 @@ export default class Physics {
                     const fGravity = particle.mass * other.mass * invRSq;
                     const fCoulomb = -(particle.charge * other.charge) * invRSq;
                     const fMagnetic = (particle.charge * particle.spin * other.charge * other.spin) * invRSq * invR;
-                    const fGravitomag = (particle.mass * particle.spin * other.mass * other.spin) * invRSq * invR;
+                    const fGravitomag = -(particle.mass * particle.spin * other.mass * other.spin) * invRSq * invR;
 
                     const fTotal = (fGravity + fCoulomb + fMagnetic + fGravitomag) * invR;
                     out.x += rx * fTotal;
@@ -241,7 +241,7 @@ export default class Physics {
                 const fGravity = particle.mass * node.totalMass * invRSq;
                 const fCoulomb = -(particle.charge * node.totalCharge) * invRSq;
                 const fMagnetic = (particle.charge * particle.spin * node.totalMagneticMoment) * invRSq * invR;
-                const fGravitomag = (particle.mass * particle.spin * node.totalAngularMomentum) * invRSq * invR;
+                const fGravitomag = -(particle.mass * particle.spin * node.totalAngularMomentum) * invRSq * invR;
 
                 const fTotal = (fGravity + fCoulomb + fMagnetic + fGravitomag) * invR;
                 out.x += dx * fTotal;
