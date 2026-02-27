@@ -1,6 +1,8 @@
 # Relativistic N-Body Physics Simulation
 
-A high-performance, interactive physics simulation that models gravity, electromagnetism, magnetic dipole interactions, and gravitomagnetic corrections with relativistic effects. Uses the **Barnes-Hut algorithm** for O(N log N) force calculation, enabling simulations with thousands of particles. Pure vanilla JS — no build system or dependencies.
+A high-performance, interactive physics simulation that models gravity, electromagnetism, magnetic dipole interactions, and gravitomagnetic corrections with relativistic effects. Uses the **Barnes-Hut algorithm** for O(N log N) force calculation, enabling simulations with thousands of particles.
+
+**[Live Demo →](https://a9l.im/physsim)** · Part of the [a9l.im](https://a9l.im) portfolio
 
 ## Features
 
@@ -20,16 +22,13 @@ A high-performance, interactive physics simulation that models gravity, electrom
 
 ## Controls
 
-| Action | Input |
-|---|---|
-| Spawn particle | Left click |
-| Remove particle | Right click |
-| Zoom | Scroll wheel |
-| Play / Pause | Topbar button |
-| Step (when paused) | Topbar button |
-| Reset | Topbar button |
-
-All physics parameters (mass, charge, angular momentum, collision mode, boundary mode, sim speed, trails) are in the sidebar panel, toggled from the topbar.
+| Input | Action |
+|-------|--------|
+| Left click | Spawn particle |
+| Right click | Remove particle |
+| Scroll wheel | Zoom in/out |
+| Topbar buttons | Play/Pause, Step, Reset |
+| Sidebar panel | All physics parameters (mass, charge, spin, collision mode, etc.) |
 
 ## Running Locally
 
@@ -40,7 +39,25 @@ python -m http.server
 # Navigate to http://localhost:8000
 ```
 
-## Technical Details
+No build step, no dependencies. Shared design system files (`shared-tokens.js`, `shared-base.css`) load from the root site — serve from the parent `a9lim.github.io/` directory for full functionality.
+
+## Architecture
+
+```
+index.html
+  ├── colors.js          — extends shared palette with particle hues, CSS vars
+  └── main.js            — Simulation class (ES module entry)
+        ├── src/physics.js    — force calculation, integration, collisions
+        │     ├── src/quadtree.js  — Barnes-Hut spatial partitioning
+        │     └── src/vec2.js      — 2D vector math
+        ├── src/renderer.js   — Canvas 2D drawing, trails, themes
+        ├── src/input.js      — mouse/touch interaction, particle spawning
+        └── src/particle.js   — entity definition
+```
+
+Uses the shared design system from [a9lim.github.io](https://github.com/a9lim/a9lim.github.io) — glass panels, tool buttons, intro screen, preset dialog, slider values, and responsive breakpoints.
+
+### Technical Details
 
 The simulation uses **relativistic Euler integration** with momentum as the primary state variable:
 
@@ -51,16 +68,11 @@ The simulation uses **relativistic Euler integration** with momentum as the prim
 
 Natural units (c = 1, G = 1) throughout. The momentum-based approach provides inherent stability — high-energy interactions cannot produce superluminal velocities.
 
-### Architecture
+## Sibling Projects
 
-```
-index.html
-  ├── colors.js      — palette, fonts, CSS variable injection
-  └── main.js        — Simulation class (ES module entry)
-        ├── src/physics.js    — force calculation, integration, collisions
-        │     ├── src/quadtree.js  — Barnes-Hut spatial partitioning
-        │     └── src/vec2.js      — 2D vector math
-        ├── src/renderer.js   — Canvas 2D drawing, trails, themes
-        ├── src/input.js      — mouse/touch interaction, particle spawning
-        └── src/particle.js   — entity definition
-```
+- [Cellular Metabolism](https://github.com/a9lim/biosim) — [a9l.im/biosim](https://a9l.im/biosim)
+- [Redistricting Simulator](https://github.com/a9lim/gerry) — [a9l.im/gerry](https://a9l.im/gerry)
+
+## License
+
+MIT
