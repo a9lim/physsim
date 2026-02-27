@@ -24,12 +24,13 @@ const _PALETTE = Object.freeze({
 
   // Mode-independent accent
   accent:      '#FE3B01',
-  accentHover: '#FF6B3D',
+  accentLight: '#FF6B3D',
 
   // Mode-dependent surfaces & text
   dark: Object.freeze({
     canvas:        '#0C0B09',
     panelSolid:    '#181612',
+    elevated:      '#1E1C18',
     text:          '#E8E2D4',
     textSecondary: '#8A8278',
     textMuted:     '#5A544C',
@@ -38,6 +39,7 @@ const _PALETTE = Object.freeze({
   light: Object.freeze({
     canvas:        '#F0EDE4',
     panelSolid:    '#FCFAF4',
+    elevated:      '#FDFBF5',
     text:          '#1A1612',
     textSecondary: '#78706A',
     textMuted:     '#A8A098',
@@ -52,15 +54,15 @@ const _PALETTE = Object.freeze({
   const P = _PALETTE, L = P.light, D = P.dark;
 
   const themeMap = [
-    ['bg',            'canvas'],
-    ['canvas-bg',     'canvas'],
-    ['surface',       'panelSolid',    0.55,  0.58],
-    ['surface-solid', 'panelSolid'],
+    ['bg-canvas',     'canvas'],
+    ['bg-panel',      'panelSolid',    0.55,  0.58],
+    ['bg-panel-solid','panelSolid'],
+    ['bg-elevated',   'elevated'],
     ['bg-hover',      'text',          0.039, 0.051],
 
-    ['text-1',        'text'],
-    ['text-2',        'textSecondary'],
-    ['text-3',        'textMuted'],
+    ['text',          'text'],
+    ['text-secondary','textSecondary'],
+    ['text-muted',    'textMuted'],
 
     ['border',        'text',          0.078, 0.059],
     ['border-strong', 'text',          0.141, 0.122],
@@ -82,12 +84,11 @@ const _PALETTE = Object.freeze({
 ${gen(L, false)}
 
   --accent:         ${P.accent};
-  --accent-hover:   ${P.accentHover};
+  --accent-light:   ${P.accentLight};
   --accent-subtle:  ${_r(P.accent, 0.078)};
   --accent-glow:    ${_r(P.accent, 0.18)};
-  --accent-light:   ${P.accentHover};
-  --intro-warm:     ${_r(P.accentHover, 0.08)};
-  --intro-warm-hover: ${_r(P.accentHover, 0.12)};
+  --intro-warm:     ${_r(P.accentLight, 0.08)};
+  --intro-warm-hover: ${_r(P.accentLight, 0.12)};
   --intro-cool:     ${_r('#5898ba', 0.04)};
   --danger:         ${P.accent};
   --danger-subtle:  ${_r(P.accent, 0.078)};

@@ -204,8 +204,9 @@ class Simulation {
 
         // ─── Theme toggle ───
         document.getElementById('themeToggleBtn').addEventListener('click', () => {
-            document.body.dataset.theme = document.body.dataset.theme === 'dark' ? '' : 'dark';
-            this.renderer.setTheme(document.body.dataset.theme !== 'dark');
+            const html = document.documentElement;
+            html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
+            this.renderer.setTheme(html.dataset.theme !== 'dark');
         });
     }
 
