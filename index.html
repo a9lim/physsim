@@ -8,7 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/shared-base.css">
     <link rel="stylesheet" href="styles.css">
+    <script src="/shared-tokens.js"></script>
     <script src="colors.js"></script>
 </head>
 
@@ -70,18 +72,18 @@
 
     <canvas id="simCanvas"></canvas>
 
-    <nav id="topbar" class="glass">
+    <nav id="topbar" class="sim-toolbar glass">
         <div class="topbar-left">
-            <span class="site-title">Relativistic N-Body</span>
+            <h1 class="sim-brand">Relativistic <em>N-Body</em></h1>
             <div class="topbar-stats">
                 <span class="stat-chip"><span id="particleCount">0</span> particles</span>
                 <span class="stat-chip"><span id="fpsCounter">0</span> fps</span>
                 <span class="stat-chip"><span id="simSpeed">20x</span></span>
             </div>
         </div>
-        <div class="topbar-right">
+        <div class="topbar-right sim-toolbar-actions">
             <button id="presetBtn" class="ghost-btn">Presets</button>
-            <div class="topbar-divider"></div>
+            <div class="tool-sep"></div>
             <button id="pauseBtn" class="tool-btn" title="Pause">
                 <svg id="pauseIcon" width="18" height="18" viewBox="0 0 24 24">
                     <rect x="6" y="4" width="4" height="16"></rect>
@@ -103,7 +105,7 @@
                     <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
                 </svg>
             </button>
-            <div class="topbar-divider"></div>
+            <div class="tool-sep"></div>
             <button id="themeToggleBtn" class="tool-btn" title="Toggle Theme">
                 <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="5"></circle>
@@ -130,10 +132,10 @@
         </div>
     </nav>
 
-    <aside id="control-panel">
-        <div class="panel-body glass">
-            <div class="panel-header">
-                <h2 class="panel-title">Settings</h2>
+    <aside id="control-panel" class="sim-panel glass">
+        <div class="panel-body">
+            <div class="stats-header">
+                <h2 class="stats-title">Settings</h2>
                 <button id="panelClose" class="tool-btn" title="Close" aria-label="Close panel">
                     <svg width="16" height="16" viewBox="0 0 24 24">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -142,7 +144,7 @@
                 </button>
             </div>
             <div class="panel-section">
-                <h2 class="section-heading">Particle Properties</h2>
+                <h2 class="group-label">Particle Properties</h2>
 
                 <div class="control-group">
                     <label>Mass <span class="slider-value" id="massValue">10</span></label>
@@ -161,7 +163,7 @@
             </div>
 
             <div class="panel-section">
-                <h2 class="section-heading">Interaction</h2>
+                <h2 class="group-label">Interaction</h2>
 
                 <div class="control-group">
                     <div class="mode-toggles" id="interaction-toggles">
@@ -173,7 +175,7 @@
             </div>
 
             <div class="panel-section">
-                <h2 class="section-heading">Physics</h2>
+                <h2 class="group-label">Physics</h2>
 
                 <div class="control-group">
                     <label>Collision Mode</label>
@@ -195,7 +197,7 @@
             </div>
 
             <div class="panel-section">
-                <h2 class="section-heading">Visuals</h2>
+                <h2 class="group-label">Visuals</h2>
 
                 <div class="control-group">
                     <label class="checkbox-label">
@@ -213,7 +215,7 @@
         </div>
     </aside>
 
-    <div id="preset-dialog">
+    <div id="preset-dialog" class="preset-dialog">
         <div class="preset-backdrop"></div>
         <div class="preset-content glass">
             <h2 class="preset-title">Presets</h2>
@@ -242,7 +244,7 @@
         </div>
     </div>
 
-    <div id="hint-bar" class="glass">
+    <div id="hint-bar" class="sim-bar glass">
         <p>Left Click to Spawn · Right Click to Remove · Scroll to Zoom</p>
     </div>
 
