@@ -20,10 +20,13 @@
    Base Overrides
    ═══════════════════════════════════════════════ */
 
+html, body {
+    overflow: hidden;
+}
+
 body {
     font-weight: 400;
     font-size: 14px;
-    overflow: hidden;
     height: 100vh;
     height: 100dvh;
     width: 100vw;
@@ -218,17 +221,6 @@ label {
     .panel-body {
         height: auto;
         max-height: 55vh;
-    }
-
-    .panel-body::before {
-        content: '';
-        display: block;
-        width: 36px;
-        height: 4px;
-        background: var(--border-strong);
-        border-radius: 2px;
-        margin: 0 auto var(--sp-4);
-        flex-shrink: 0;
     }
 
     #hint-bar {

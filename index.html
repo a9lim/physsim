@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/shared-base.css">
     <link rel="stylesheet" href="styles.css">
     <script src="/shared-tokens.js"></script>
+    <script src="/shared-touch.js"></script>
     <script src="colors.js"></script>
 </head>
 
@@ -74,6 +75,7 @@
 
     <nav id="topbar" class="sim-toolbar glass">
         <div class="topbar-left">
+            <a href="/" class="sim-home" title="a9l.im"><img src="/logo.svg" alt="a9l.im" height="28"></a>
             <h1 class="sim-brand">Relativistic <em>N-Body</em></h1>
             <div class="topbar-stats">
                 <span class="stat-chip"><span id="particleCount">0</span> particles</span>
@@ -133,6 +135,7 @@
     </nav>
 
     <aside id="control-panel" class="sim-panel glass">
+        <div class="sheet-handle"></div>
         <div class="panel-body">
             <div class="stats-header">
                 <h2 class="stats-title">Settings</h2>
@@ -242,6 +245,33 @@
                 </button>
             </div>
         </div>
+    </div>
+
+    <div id="sim-controls" class="sim-controls glass">
+        <button id="zoom-in-btn" class="tool-btn" title="Zoom in" aria-label="Zoom in">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2.5" stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+        </button>
+        <span id="zoom-level" class="zoom-level">100%</span>
+        <button id="zoom-out-btn" class="tool-btn" title="Zoom out" aria-label="Zoom out">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2.5" stroke-linecap="round">
+                <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+        </button>
+        <div class="ctrl-sep"></div>
+        <button id="zoom-reset-btn" class="tool-btn" title="Reset zoom" aria-label="Reset zoom">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 3h6v6" />
+                <path d="M9 21H3v-6" />
+                <path d="M21 3l-7 7" />
+                <path d="M3 21l7-7" />
+            </svg>
+        </button>
     </div>
 
     <div id="hint-bar" class="sim-bar glass">

@@ -33,6 +33,7 @@ class Simulation {
             fpsCounter: document.getElementById('fpsCounter'),
             simSpeed: document.getElementById('simSpeed'),
             speedInput: document.getElementById('speedInput'),
+            zoomLevel: document.getElementById('zoom-level'),
         };
 
         // Track active modes in JS state instead of querying DOM each frame
@@ -105,6 +106,11 @@ class Simulation {
         panelToggle.addEventListener('click', togglePanel);
         document.getElementById('panelClose').addEventListener('click', closePanel);
 
+        // Swipe-to-dismiss for mobile bottom sheet
+        if (typeof initSwipeDismiss === 'function') {
+            initSwipeDismiss(panel, { onDismiss: closePanel });
+        }
+
         // ─── Preset dialog ───
         const presetDialog = document.getElementById('preset-dialog');
         const presetBtn = document.getElementById('presetBtn');
@@ -134,6 +140,7 @@ class Simulation {
             this.camera.x = this.width / 2;
             this.camera.y = this.height / 2;
             this.camera.zoom = 1;
+            this.updateZoomDisplay();
         });
 
         // ─── Pause / Resume ───
@@ -202,6 +209,16 @@ class Simulation {
             }
         });
 
+        // ─── Zoom controls ───
+        document.getElementById('zoom-in-btn').addEventListener('click', () => this.zoomBy(1.25));
+        document.getElementById('zoom-out-btn').addEventListener('click', () => this.zoomBy(1 / 1.25));
+        document.getElementById('zoom-reset-btn').addEventListener('click', () => {
+            this.camera.x = this.width / 2;
+            this.camera.y = this.height / 2;
+            this.camera.zoom = 1;
+            this.updateZoomDisplay();
+        });
+
         // ─── Theme toggle ───
         document.getElementById('themeToggleBtn').addEventListener('click', () => {
             const html = document.documentElement;
@@ -216,6 +233,7 @@ class Simulation {
         this.camera.x = this.width / 2;
         this.camera.y = this.height / 2;
         this.camera.zoom = 1;
+        this.updateZoomDisplay();
         const cx = this.width / 2;
         const cy = this.height / 2;
 
@@ -308,6 +326,16 @@ class Simulation {
         this.particles.push(p);
     }
 
+    zoomBy(factor) {
+        const cam = this.camera;
+        cam.zoom = Math.min(Math.max(cam.zoom * factor, 0.1), 20);
+        this.updateZoomDisplay();
+    }
+
+    updateZoomDisplay() {
+        this.dom.zoomLevel.textContent = Math.round(this.camera.zoom * 100) + '%';
+    }
+
     loop(timestamp) {
         const rawDt = (timestamp - this.lastTime) / 1000;
         this.lastTime = timestamp;
@@ -342,6 +370,7 @@ class Simulation {
         if (now - this.lastFpsTime >= 1000) {
             this.dom.fpsCounter.textContent = this.frameCount;
             this.dom.simSpeed.textContent = this.speedScale + 'x';
+            this.updateZoomDisplay();
             this.frameCount = 0;
             this.lastFpsTime = now;
         }
