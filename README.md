@@ -75,4 +75,4 @@ Natural units (c = 1, G = 1) throughout. The momentum-based approach provides in
 
 ## License
 
-MIT
+[AGPL-3.0](LICENSE)

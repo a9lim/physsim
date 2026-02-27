@@ -16,6 +16,13 @@ export default class InputHandler {
         this.chargeInput = document.getElementById('chargeInput');
         this.spinInput = document.getElementById('spinInput');
 
+        // Multi-touch state
+        this._pinching = false;
+        this._wasPinching = false;
+        this._lastPinchDist = 0;
+        this._lastPinchCenterX = 0;
+        this._lastPinchCenterY = 0;
+
         this.setupListeners();
     }
 
@@ -47,28 +54,105 @@ export default class InputHandler {
         this.canvas.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
     }
 
+    _pinchDist(t1, t2) {
+        const dx = t1.clientX - t2.clientX;
+        const dy = t1.clientY - t2.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
     onTouchStart(e) {
         e.preventDefault();
-        if (e.touches.length !== 1) return;
-        const t = e.touches[0];
-        this.isDragging = true;
-        this.dragStart = this.getPos(t.clientX, t.clientY);
-        this.currentPos = this.dragStart.clone();
+
+        if (e.touches.length === 2) {
+            // Start pinch-to-zoom
+            this._pinching = true;
+            this.isDragging = false; // cancel any single-finger drag
+            const t0 = e.touches[0], t1 = e.touches[1];
+            this._lastPinchDist = this._pinchDist(t0, t1);
+            this._lastPinchCenterX = (t0.clientX + t1.clientX) / 2;
+            this._lastPinchCenterY = (t0.clientY + t1.clientY) / 2;
+            return;
+        }
+
+        if (e.touches.length === 1 && !this._wasPinching) {
+            // Single finger — start drag for spawn
+            const t = e.touches[0];
+            this.isDragging = true;
+            this.dragStart = this.getPos(t.clientX, t.clientY);
+            this.currentPos = this.dragStart.clone();
+        }
     }
 
     onTouchMove(e) {
         e.preventDefault();
-        if (e.touches.length !== 1) return;
-        const t = e.touches[0];
-        this.currentPos = this.getPos(t.clientX, t.clientY);
+
+        if (e.touches.length === 2 && this._pinching) {
+            const t0 = e.touches[0], t1 = e.touches[1];
+            const dist = this._pinchDist(t0, t1);
+            const cx = (t0.clientX + t1.clientX) / 2;
+            const cy = (t0.clientY + t1.clientY) / 2;
+
+            // Pinch-to-zoom: reuse onWheel math — preserve world point under pinch center
+            const cam = this.sim.camera;
+            const w = this.sim.width, h = this.sim.height;
+            const sx = cx - this.canvasRect.left;
+            const sy = cy - this.canvasRect.top;
+
+            // World pos under pinch center before zoom
+            const wx = (sx - w / 2) / cam.zoom + cam.x;
+            const wy = (sy - h / 2) / cam.zoom + cam.y;
+
+            // Scale factor from pinch delta
+            const factor = dist / this._lastPinchDist;
+            cam.zoom = Math.min(Math.max(cam.zoom * factor, 0.1), 20);
+
+            // Adjust camera so pinch center still points at same world pos
+            cam.x = wx - (sx - w / 2) / cam.zoom;
+            cam.y = wy - (sy - h / 2) / cam.zoom;
+
+            // Pan: translate by movement of pinch center
+            const panDx = (cx - this._lastPinchCenterX) / cam.zoom;
+            const panDy = (cy - this._lastPinchCenterY) / cam.zoom;
+            cam.x -= panDx;
+            cam.y -= panDy;
+
+            this._lastPinchDist = dist;
+            this._lastPinchCenterX = cx;
+            this._lastPinchCenterY = cy;
+            return;
+        }
+
+        if (e.touches.length === 1 && this.isDragging && !this._pinching) {
+            const t = e.touches[0];
+            this.currentPos = this.getPos(t.clientX, t.clientY);
+        }
     }
 
     onTouchEnd(e) {
         e.preventDefault();
-        if (!this.isDragging) return;
-        this.isDragging = false;
-        const t = e.changedTouches[0];
-        this.spawnParticle(this.getPos(t.clientX, t.clientY));
+
+        if (e.touches.length === 0) {
+            // All fingers lifted
+            if (this._pinching) {
+                this._pinching = false;
+                this._wasPinching = true;
+                // Clear wasPinching after a short delay to prevent accidental spawn
+                setTimeout(() => { this._wasPinching = false; }, 300);
+                return;
+            }
+
+            if (this.isDragging && !this._wasPinching) {
+                this.isDragging = false;
+                const t = e.changedTouches[0];
+                this.spawnParticle(this.getPos(t.clientX, t.clientY));
+                return;
+            }
+
+            this.isDragging = false;
+        } else if (e.touches.length === 1 && this._pinching) {
+            // Went from 2 fingers to 1 — still in pinch mode, don't start drag
+            // Just update state to avoid jump when remaining finger moves
+        }
     }
 
     onWheel(e) {
