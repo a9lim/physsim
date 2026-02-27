@@ -104,7 +104,7 @@ export default class InputHandler {
 
             // Scale factor from pinch delta
             const factor = dist / this._lastPinchDist;
-            cam.zoom = Math.min(Math.max(cam.zoom * factor, 0.1), 20);
+            cam.zoom = Math.min(Math.max(cam.zoom * factor, 1), 3);
 
             // Adjust camera so pinch center still points at same world pos
             cam.x = wx - (sx - w / 2) / cam.zoom;
@@ -170,7 +170,7 @@ export default class InputHandler {
 
         // Update zoom (clamp to reasonable range)
         const factor = e.deltaY > 0 ? 0.9 : 1.1;
-        cam.zoom = Math.min(Math.max(cam.zoom * factor, 0.1), 20);
+        cam.zoom = Math.min(Math.max(cam.zoom * factor, 1), 3);
 
         // Adjust camera so mouse still points at same world pos
         cam.x = wx - (sx - w / 2) / cam.zoom;

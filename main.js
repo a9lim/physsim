@@ -328,7 +328,7 @@ class Simulation {
 
     zoomBy(factor) {
         const cam = this.camera;
-        cam.zoom = Math.min(Math.max(cam.zoom * factor, 0.1), 20);
+        cam.zoom = Math.min(Math.max(cam.zoom * factor, 1), 3);
         this.updateZoomDisplay();
     }
 

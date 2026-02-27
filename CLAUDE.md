@@ -42,6 +42,7 @@ index.html
 - **Momentum-based integration**: Physics uses relativistic momentum (not velocity) as the primary state variable. Velocity is derived via Lorentz factor: `v = p / (m * gamma)` where `gamma = sqrt(1 + p²/m²)`. This naturally enforces the speed-of-light limit.
 - **Barnes-Hut approximation**: QuadTree stores aggregate mass, charge, spin, and center-of-mass per node. `BH_THETA` (0.5) controls accuracy vs. performance tradeoff.
 - **Softening parameter**: `MIN_DIST_SQ` (25) prevents force singularities at close range. Other named constants: `BOUNCE_FRICTION` (0.4), `DESPAWN_MARGIN` (100).
+- **Zoom range**: Clamped to 1x–3x in all input paths (mouse wheel, pinch-to-zoom, and zoom buttons).
 - **Minimal global state**: The `Simulation` instance owns all runtime state (`window.sim` for console debugging). Design tokens (`window._PALETTE`, `window._FONT`, `window._r`) are frozen globals set by `colors.js` and consumed by ES modules via `window._PALETTE`.
 
 ### Rendering
