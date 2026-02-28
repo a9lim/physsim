@@ -5,9 +5,9 @@
 
 // ---------- Project-specific palette keys ----------
 _PALETTE.neutral   = _PALETTE.extended.slate;  // zero-charge particle fill
-_PALETTE.chargePos = 201;             // hue — positive charge (blue)
-_PALETTE.chargeNeg = 7;              // hue — negative charge (red)
-_PALETTE.spinPos   = 174;             // hue — positive spin ring (cyan)
+_PALETTE.chargePos = 4;             // hue — positive charge (red)
+_PALETTE.chargeNeg = 197;              // hue — negative charge (blue)
+_PALETTE.spinPos   = 153;             // hue — positive spin ring (cyan)
 _PALETTE.spinNeg   = 30;              // hue — negative spin ring (orange)
 
 Object.freeze(_PALETTE.extended);
