@@ -52,7 +52,9 @@ index.html
         │     └── src/vec2.js      — 2D vector math
         ├── src/renderer.js   — Canvas 2D drawing, trails, themes
         ├── src/input.js      — mouse/touch interaction, particle spawning
-        └── src/particle.js   — entity definition
+        ├── src/particle.js   — entity definition
+        ├── src/presets.js    — preset definitions + loadPreset function
+        └── src/ui.js         — setupUI, DOM cache, all event binding
 ```
 
 Uses the shared design system from [a9lim.github.io](https://github.com/a9lim/a9lim.github.io) — glass panels, tool buttons, intro screen, preset dialog, slider values, and responsive breakpoints.

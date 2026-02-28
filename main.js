@@ -1,8 +1,8 @@
-import Vec2 from './src/vec2.js';
 import Physics from './src/physics.js';
 import Renderer from './src/renderer.js';
 import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
+import { setupUI } from './src/ui.js';
 
 class Simulation {
     constructor() {
@@ -14,9 +14,8 @@ class Simulation {
         this.particles = [];
         this.physics = new Physics();
         this.renderer = new Renderer(this.ctx, this.width, this.height);
-        this.renderer.setTheme(true); // light mode default
+        this.renderer.setTheme(true);
 
-        // Camera: (x,y) = world point at screen center, zoom = scale factor
         this.camera = { x: this.width / 2, y: this.height / 2, zoom: 1 };
 
         this.input = new InputHandler(this.canvas, this);
@@ -27,7 +26,6 @@ class Simulation {
         this.frameCount = 0;
         this.lastFpsTime = 0;
 
-        // Cached DOM elements — avoids per-frame getElementById/querySelector
         this.dom = {
             particleCount: document.getElementById('particleCount'),
             fpsCounter: document.getElementById('fpsCounter'),
@@ -36,7 +34,6 @@ class Simulation {
             zoomLevel: document.getElementById('zoom-level'),
         };
 
-        // Track active modes in JS state instead of querying DOM each frame
         this.collisionMode = 'pass';
         this.boundaryMode = 'despawn';
         this.speedScale = 20;
@@ -47,7 +44,7 @@ class Simulation {
     init() {
         this.resize();
         window.addEventListener('resize', () => this.resize());
-        this.setupUI();
+        setupUI(this);
         requestAnimationFrame((t) => this.loop(t));
     }
 
@@ -59,254 +56,21 @@ class Simulation {
         this.canvas.height = this.height;
         this.renderer.resize(this.width, this.height);
         this.input.updateRect();
-        // Keep camera centered on same world point after resize
         this.camera.x += (this.width - oldW) / 2;
         this.camera.y += (this.height - oldH) / 2;
-    }
-
-    setupHintFade() {
-        const hint = document.getElementById('hint-bar');
-        if (hint) {
-            setTimeout(() => hint.classList.add('fade-out'), 5000);
-        }
-    }
-
-    setupUI() {
-        // ─── Intro screen dismiss ───
-        const introScreen = document.getElementById('intro-screen');
-        const introStart = document.getElementById('intro-start');
-        if (introStart && introScreen) {
-            introStart.addEventListener('click', () => {
-                introScreen.classList.add('hidden');
-                document.body.classList.add('app-ready');
-                // Slide sidebar in after transition enables (double-rAF ensures style flush)
-                requestAnimationFrame(() => requestAnimationFrame(() => {
-                    panel.classList.add('open');
-                    panelToggle.classList.add('active');
-                }));
-                setTimeout(() => { introScreen.style.display = 'none'; }, 850);
-                // Start hint fade timer after intro is dismissed
-                this.setupHintFade();
-            });
-        }
-
-        // ─── Panel toggle ───
-        const panel = document.getElementById('control-panel');
-        const panelToggle = document.getElementById('panelToggle');
-
-        const closePanel = () => {
-            panel.classList.remove('open');
-            panelToggle.classList.remove('active');
-        };
-        const togglePanel = () => {
-            panel.classList.toggle('open');
-            panelToggle.classList.toggle('active');
-        };
-
-        panelToggle.addEventListener('click', togglePanel);
-        document.getElementById('panelClose').addEventListener('click', closePanel);
-
-        // Swipe-to-dismiss for mobile bottom sheet
-        if (typeof initSwipeDismiss === 'function') {
-            initSwipeDismiss(panel, { onDismiss: closePanel });
-        }
-
-        // ─── Preset dialog ───
-        const presetDialog = document.getElementById('preset-dialog');
-        const presetBtn = document.getElementById('presetBtn');
-        const presetBackdrop = presetDialog.querySelector('.preset-backdrop');
-
-        const closePresetDialog = () => presetDialog.classList.remove('open');
-
-        presetBtn.addEventListener('click', () => presetDialog.classList.add('open'));
-        presetBackdrop.addEventListener('click', closePresetDialog);
-
-        presetDialog.querySelectorAll('.preset-card').forEach(card => {
-            card.addEventListener('click', () => {
-                this.loadPreset(card.dataset.preset);
-                closePresetDialog();
-            });
-        });
-
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                closePresetDialog();
-            }
-        });
-
-        // ─── Clear ───
-        document.getElementById('clearBtn').addEventListener('click', () => {
-            this.particles = [];
-            this.camera.x = this.width / 2;
-            this.camera.y = this.height / 2;
-            this.camera.zoom = 1;
-            this.updateZoomDisplay();
-        });
-
-        // ─── Pause / Resume ───
-        const pauseBtn = document.getElementById('pauseBtn');
-        const pauseIcon = document.getElementById('pauseIcon');
-        const playIcon = document.getElementById('playIcon');
-
-        pauseBtn.addEventListener('click', () => {
-            this.running = !this.running;
-            pauseIcon.hidden = !this.running;
-            playIcon.hidden = this.running;
-            pauseBtn.title = this.running ? 'Pause' : 'Resume';
-        });
-
-        // ─── Mode toggles — track state in JS ───
-        const bindToggleGroup = (id, attr, setter) => {
-            const group = document.getElementById(id);
-            group.addEventListener('click', (e) => {
-                const btn = e.target.closest('.mode-btn');
-                if (!btn) return;
-                group.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                setter(btn.dataset[attr]);
-            });
-        };
-
-        bindToggleGroup('collision-toggles', 'collision', (v) => { this.collisionMode = v; });
-        bindToggleGroup('boundary-toggles', 'boundary', (v) => { this.boundaryMode = v; });
-        bindToggleGroup('interaction-toggles', 'mode', (v) => { this.input.mode = v; });
-
-        // ─── Trails toggle ───
-        document.getElementById('trailsToggle').addEventListener('change', (e) => {
-            this.renderer.trails = e.target.checked;
-        });
-
-        // ─── Slider value displays ───
-        const sliderConfig = [
-            { id: 'massInput', display: 'massValue' },
-            { id: 'chargeInput', display: 'chargeValue' },
-            { id: 'spinInput', display: 'spinValue' },
-        ];
-
-        sliderConfig.forEach(({ id, display }) => {
-            const slider = document.getElementById(id);
-            const label = document.getElementById(display);
-            slider.addEventListener('input', () => { label.textContent = slider.value; });
-        });
-
-        // Speed slider — also update cached state
-        this.dom.speedInput.addEventListener('input', () => {
-            const val = parseFloat(this.dom.speedInput.value);
-            this.speedScale = val;
-            document.getElementById('speedValue').textContent = val;
-        });
-
-        // ─── Step button ───
-        document.getElementById('stepBtn').addEventListener('click', () => {
-            if (!this.running) {
-                const cam = this.camera;
-                const halfW = this.width / (2 * cam.zoom);
-                const halfH = this.height / (2 * cam.zoom);
-                const dt = 0.1 * this.speedScale;
-                this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
-                this.renderer.render(this.particles, 0, cam);
-                this.updateStats();
-            }
-        });
-
-        // ─── Zoom controls ───
-        document.getElementById('zoom-in-btn').addEventListener('click', () => this.zoomBy(1.25));
-        document.getElementById('zoom-out-btn').addEventListener('click', () => this.zoomBy(1 / 1.25));
-        document.getElementById('zoom-reset-btn').addEventListener('click', () => {
-            this.camera.x = this.width / 2;
-            this.camera.y = this.height / 2;
-            this.camera.zoom = 1;
-            this.updateZoomDisplay();
-        });
-
-        // ─── Theme toggle ───
-        document.getElementById('themeToggleBtn').addEventListener('click', () => {
-            const html = document.documentElement;
-            html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
-            this.renderer.setTheme(html.dataset.theme !== 'dark');
-        });
-    }
-
-    loadPreset(name) {
-        this.particles = [];
-        // Reset camera on preset load
-        this.camera.x = this.width / 2;
-        this.camera.y = this.height / 2;
-        this.camera.zoom = 1;
-        this.updateZoomDisplay();
-        const cx = this.width / 2;
-        const cy = this.height / 2;
-
-        if (name === 'solar') {
-            this.addParticle(cx, cy, 0, 0, { mass: 80, charge: 0, spin: 0 });
-            for (let i = 0; i < 5; i++) {
-                const dist = 100 + i * 60;
-                const angle = Math.random() * Math.PI * 2;
-                const speed = Math.sqrt(80 / dist);
-                const cos = Math.cos(angle), sin = Math.sin(angle);
-                this.addParticle(cx + cos * dist, cy + sin * dist, -sin * speed, cos * speed,
-                    { mass: 0.5 + Math.random() * 1.5, charge: 0, spin: 0 });
-            }
-        } else if (name === 'binary') {
-            const dist = 100;
-            const starMass = 50;
-            const speed = Math.sqrt(starMass / (2 * dist));
-            this.addParticle(cx - dist, cy, 0, speed, { mass: starMass, charge: 0, spin: 10 });
-            this.addParticle(cx + dist, cy, 0, -speed, { mass: starMass, charge: 0, spin: 10 });
-        } else if (name === 'galaxy') {
-            this.addParticle(cx, cy, 0, 0, { mass: 150, charge: 0, spin: 30 });
-            for (let i = 0; i < 200; i++) {
-                const dist = 150 + Math.random() * 300;
-                const angle = Math.random() * Math.PI * 2;
-                const speed = Math.sqrt(150 / dist);
-                const cos = Math.cos(angle), sin = Math.sin(angle);
-                this.addParticle(cx + cos * dist, cy + sin * dist, -sin * speed, cos * speed, {
-                    mass: 0.1 + Math.random() * 0.4,
-                    charge: (Math.random() - 0.5) * 5,
-                    spin: (Math.random() - 0.5) * 10
-                });
-            }
-        } else if (name === 'collision') {
-            for (let i = 0; i < 50; i++) {
-                this.addParticle(cx - 200 + Math.random() * 50, cy + Math.random() * 50, 0.5, 0, { mass: 1, charge: 0, spin: 0 });
-                this.addParticle(cx + 200 + Math.random() * 50, cy + Math.random() * 50, -0.5, 0, { mass: 1, charge: 0, spin: 0 });
-            }
-        } else if (name === 'magnetic') {
-            const spacing = 80;
-            for (let i = -2; i <= 2; i++) {
-                for (let j = -2; j <= 2; j++) {
-                    this.addParticle(
-                        cx + i * spacing + (Math.random() - 0.5) * 20,
-                        cy + j * spacing + (Math.random() - 0.5) * 20,
-                        (Math.random() - 0.5) * 0.1,
-                        (Math.random() - 0.5) * 0.1,
-                        { mass: 3 + Math.random() * 2, charge: 5 + Math.random() * 5, spin: 20 + Math.random() * 10 }
-                    );
-                }
-            }
-        }
     }
 
     addParticle(x, y, vx, vy, options = {}) {
         const p = new Particle(x, y);
 
         const baseMass = options.mass ?? 10;
-        const massVar = baseMass * 0.2;
-        p.mass = Math.max(1, baseMass + (Math.random() - 0.5) * massVar);
+        p.mass = Math.max(1, baseMass + (Math.random() - 0.5) * baseMass * 0.2);
 
         const baseCharge = options.charge ?? 0;
-        if (baseCharge !== 0) {
-            p.charge = baseCharge + (Math.random() - 0.5) * baseCharge * 0.2;
-        } else {
-            p.charge = 0;
-        }
+        p.charge = baseCharge !== 0 ? baseCharge + (Math.random() - 0.5) * baseCharge * 0.2 : 0;
 
         const baseSpin = options.spin ?? 0;
-        if (baseSpin !== 0) {
-            p.spin = baseSpin + (Math.random() - 0.5) * baseSpin * 0.2;
-        } else {
-            p.spin = 0;
-        }
+        p.spin = baseSpin !== 0 ? baseSpin + (Math.random() - 0.5) * baseSpin * 0.2 : 0;
 
         p.updateColor();
 
@@ -327,8 +91,7 @@ class Simulation {
     }
 
     zoomBy(factor) {
-        const cam = this.camera;
-        cam.zoom = Math.min(Math.max(cam.zoom * factor, 1), 3);
+        this.camera.zoom = Math.min(Math.max(this.camera.zoom * factor, 1), 3);
         this.updateZoomDisplay();
     }
 
@@ -342,17 +105,12 @@ class Simulation {
 
         const dt = Math.min(rawDt, 0.1) * this.speedScale;
 
-        // Visible world bounds for physics boundary checks
         const cam = this.camera;
         const halfW = this.width / (2 * cam.zoom);
         const halfH = this.height / (2 * cam.zoom);
-        const visW = halfW * 2;
-        const visH = halfH * 2;
-        const visLeft = cam.x - halfW;
-        const visTop = cam.y - halfH;
 
         if (this.running) {
-            this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, visW, visH, visLeft, visTop);
+            this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
         }
 
         this.renderer.render(this.particles, dt, cam);
@@ -364,7 +122,6 @@ class Simulation {
     updateStats() {
         this.dom.particleCount.textContent = this.particles.length;
 
-        // FPS — update display only once per second
         this.frameCount++;
         const now = performance.now();
         if (now - this.lastFpsTime >= 1000) {
