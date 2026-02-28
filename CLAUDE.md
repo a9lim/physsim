@@ -32,8 +32,10 @@ index.html
         ├── src/renderer.js (Canvas 2D drawing, trails, themes — no imports, uses window._PALETTE)
         ├── src/input.js (mouse interaction, particle spawning)
         │     └── src/vec2.js
-        └── src/particle.js (entity definition)
-              └── src/vec2.js
+        ├── src/particle.js (entity definition)
+        │     └── src/vec2.js
+        ├── src/presets.js (preset definitions + loadPreset function)
+        └── src/ui.js (setupUI, DOM cache, all event binding)
 ```
 
 ### Key Design Decisions
