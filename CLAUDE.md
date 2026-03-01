@@ -21,15 +21,19 @@ Opening `index.html` directly may fail due to CORS restrictions on ES6 module im
 
 ```
 index.html
-  ├── /shared-base.css (shared reset, layout tokens, .glass, .tool-btn, intro, keyframes, preset dialog, slider-value, responsive)
-  ├── styles.css (project-specific overrides)
+  ├── /shared-base.css (shared reset, layout tokens, .glass, .tool-btn, intro, keyframes, sim layout, toast, responsive)
+  ├── styles.css (project-specific overrides + form controls, preset dialog, range sliders, mode toggles, checkboxes, ghost buttons)
   ├── /shared-tokens.js (_r, _FONT, _PALETTE base + extended — shared across all a9l.im sites)
+  ├── /shared-utils.js (clamp, lerp, cubicBezier, showToast, debounce, throttle, escapeHtml)
+  ├── /shared-camera.js (createCamera — viewport/zoom/pan module, bindZoomButtons)
   ├── colors.js (extends _PALETTE with particle hues, freezes, injects project CSS vars)
   └── main.js (Simulation class, ES module)
+        ├── src/config.js (named constants: BH_THETA, ZOOM_MIN/MAX, physics params)
+        ├── src/relativity.js (gammaFromSpeed, invMassGamma, setMomentum)
         ├── src/physics.js (force calculation, integration, collisions)
         │     ├── src/quadtree.js (Barnes-Hut spatial partitioning)
         │     └── src/vec2.js (2D vector math)
-        ├── src/renderer.js (Canvas 2D drawing, trails, themes — no imports, uses window._PALETTE)
+        ├── src/renderer.js (Canvas 2D drawing, trails, themes — uses shared camera)
         ├── src/input.js (mouse interaction, particle spawning)
         │     └── src/vec2.js
         ├── src/particle.js (entity definition)
@@ -94,6 +98,8 @@ JS modules alias as `const _PAL = window._PALETTE`.
 - Spacing tokens (`--sp-*`, `--inset`) — physsim-specific layout system
 - `.panel-section` (has flex layout beyond basic margin)
 - Global `label` styling (can't share without conflicts)
+- Form controls (moved from shared-base.css): `.slider-value`, `input[type=range]` (WebKit + Moz), `.mode-toggles`/`.mode-btn`, `.checkbox-label`/`input[type="checkbox"]`, `.ghost-btn`
+- Preset dialog (moved from shared-base.css): `.preset-dialog`, `.preset-backdrop`, `.preset-content`, `.preset-title`, `.preset-grid`, `.preset-card`, `.preset-name`, `.preset-desc` (with 600px/440px responsive overrides)
 - `prefers-reduced-motion` backdrop-filter removal (supplements shared)
 - Theme toggle icon CSS
 

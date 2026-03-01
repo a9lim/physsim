@@ -66,10 +66,8 @@ export function setupUI(sim) {
     // ─── Clear ───
     document.getElementById('clearBtn').addEventListener('click', () => {
         sim.particles = [];
-        sim.camera.x = sim.width / 2;
-        sim.camera.y = sim.height / 2;
-        sim.camera.zoom = 1;
-        sim.updateZoomDisplay();
+        sim.camera.reset(sim.width / 2, sim.height / 2, 1);
+        showToast('Simulation cleared');
     });
 
     // ─── Pause / Resume ───
@@ -138,13 +136,12 @@ export function setupUI(sim) {
     });
 
     // ─── Zoom controls ───
-    document.getElementById('zoom-in-btn').addEventListener('click', () => sim.zoomBy(1.25));
-    document.getElementById('zoom-out-btn').addEventListener('click', () => sim.zoomBy(1 / 1.25));
-    document.getElementById('zoom-reset-btn').addEventListener('click', () => {
-        sim.camera.x = sim.width / 2;
-        sim.camera.y = sim.height / 2;
-        sim.camera.zoom = 1;
-        sim.updateZoomDisplay();
+    sim.camera.bindZoomButtons({
+        zoomIn: document.getElementById('zoom-in-btn'),
+        zoomOut: document.getElementById('zoom-out-btn'),
+        reset: document.getElementById('zoom-reset-btn'),
+        display: document.getElementById('zoom-level'),
+        onReset: () => sim.camera.reset(sim.width / 2, sim.height / 2, 1),
     });
 
     // ─── Theme toggle ───

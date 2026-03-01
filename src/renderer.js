@@ -1,3 +1,5 @@
+import { MAX_TRAIL_LENGTH } from './config.js';
+
 const TWO_PI = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
 const _PAL = window._PALETTE;
@@ -17,7 +19,6 @@ export default class Renderer {
         this.isLight = false;
         this.spinAngle = 0;
         this.trailHistory = new Map();
-        this.maxTrailLength = 200;
     }
 
     resize(width, height) {
@@ -76,7 +77,7 @@ export default class Renderer {
 
     updateTrails(particles) {
         const history = this.trailHistory;
-        const capacity = this.maxTrailLength * 2; // flat x,y pairs
+        const capacity = MAX_TRAIL_LENGTH * 2; // flat x,y pairs
         const activeIds = new Set();
 
         for (const p of particles) {
