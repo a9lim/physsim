@@ -3,6 +3,9 @@ import Renderer from './src/renderer.js';
 import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
 import { setupUI } from './src/ui.js';
+import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE } from './src/config.js';
+
+import { setMomentum } from './src/relativity.js';
 
 class Simulation {
     constructor() {
@@ -16,7 +19,12 @@ class Simulation {
         this.renderer = new Renderer(this.ctx, this.width, this.height);
         this.renderer.setTheme(true);
 
-        this.camera = { x: this.width / 2, y: this.height / 2, zoom: 1 };
+        this.camera = createCamera({
+            width: this.width, height: this.height,
+            x: this.width / 2, y: this.height / 2,
+            minZoom: ZOOM_MIN, maxZoom: ZOOM_MAX,
+            wheelFactor: WHEEL_ZOOM_IN,
+        });
 
         this.input = new InputHandler(this.canvas, this);
         this.renderer.input = this.input;
@@ -31,12 +39,11 @@ class Simulation {
             fpsCounter: document.getElementById('fpsCounter'),
             simSpeed: document.getElementById('simSpeed'),
             speedInput: document.getElementById('speedInput'),
-            zoomLevel: document.getElementById('zoom-level'),
         };
 
         this.collisionMode = 'pass';
         this.boundaryMode = 'despawn';
-        this.speedScale = 20;
+        this.speedScale = DEFAULT_SPEED_SCALE;
 
         this.init();
     }
@@ -56,8 +63,11 @@ class Simulation {
         this.canvas.height = this.height;
         this.renderer.resize(this.width, this.height);
         this.input.updateRect();
+        // Shift camera center so top-left world position is preserved
         this.camera.x += (this.width - oldW) / 2;
         this.camera.y += (this.height - oldH) / 2;
+        this.camera.viewportW = this.width;
+        this.camera.viewportH = this.height;
     }
 
     addParticle(x, y, vx, vy, options = {}) {
@@ -73,30 +83,8 @@ class Simulation {
         p.spin = baseSpin !== 0 ? baseSpin + (Math.random() - 0.5) * baseSpin * 0.2 : 0;
 
         p.updateColor();
-
-        const speedSq = vx * vx + vy * vy;
-        if (speedSq < 1) {
-            const gamma = 1 / Math.sqrt(1 - speedSq);
-            p.vel.set(vx, vy);
-            p.momentum.set(vx * gamma * p.mass, vy * gamma * p.mass);
-        } else {
-            const s = 0.99 / Math.sqrt(speedSq);
-            const cvx = vx * s, cvy = vy * s;
-            const gamma = 1 / Math.sqrt(1 - 0.99 * 0.99);
-            p.vel.set(cvx, cvy);
-            p.momentum.set(cvx * gamma * p.mass, cvy * gamma * p.mass);
-        }
-
+        setMomentum(p, vx, vy);
         this.particles.push(p);
-    }
-
-    zoomBy(factor) {
-        this.camera.zoom = Math.min(Math.max(this.camera.zoom * factor, 1), 3);
-        this.updateZoomDisplay();
-    }
-
-    updateZoomDisplay() {
-        this.dom.zoomLevel.textContent = Math.round(this.camera.zoom * 100) + '%';
     }
 
     loop(timestamp) {
@@ -127,7 +115,6 @@ class Simulation {
         if (now - this.lastFpsTime >= 1000) {
             this.dom.fpsCounter.textContent = this.frameCount;
             this.dom.simSpeed.textContent = this.speedScale + 'x';
-            this.updateZoomDisplay();
             this.frameCount = 0;
             this.lastFpsTime = now;
         }

@@ -17,17 +17,7 @@ Object.freeze(_FONT);
 Object.freeze(_PALETTE);
 
 // ---------- Project-specific CSS vars ----------
-(function injectProjectVars() {
-  const P = _PALETTE;
-
-  const style = document.createElement('style');
-  style.id = 'project-vars';
-  style.textContent = `:root {
-  --danger:           ${P.accent};
-  --danger-subtle:    ${_r(P.accent, 0.078)};
-}`;
-  document.head.appendChild(style);
-})();
+// (none currently needed — shared tokens cover all physsim styles)
 
 // ---------- Expose for ES modules ----------
 window._PALETTE = _PALETTE;

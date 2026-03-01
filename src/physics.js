@@ -1,22 +1,10 @@
 import Vec2 from './vec2.js';
 import QuadTree, { Rect } from './quadtree.js';
-
-const BH_THETA = 0.5;
-const MIN_DIST_SQ = 25;
-const BOUNCE_FRICTION = 0.4;
-const DESPAWN_MARGIN = 100;
+import { BH_THETA, QUADTREE_CAPACITY, MIN_DIST_SQ, BOUNCE_FRICTION, DESPAWN_MARGIN } from './config.js';
+import { invMassGamma, setMomentum } from './relativity.js';
 
 function setMomentumFromVel(p, vn, vt, nx, ny, tx, ty) {
-    let vx = nx * vn + tx * vt;
-    let vy = ny * vn + ty * vt;
-    const speedSq = vx * vx + vy * vy;
-    if (speedSq >= 1) {
-        const s = 0.99 / Math.sqrt(speedSq);
-        vx *= s; vy *= s;
-    }
-    const gamma = 1 / Math.sqrt(1 - (vx * vx + vy * vy));
-    p.momentum.set(vx * gamma * p.mass, vy * gamma * p.mass);
-    p.vel.set(vx, vy);
+    setMomentum(p, nx * vn + tx * vt, ny * vn + ty * vt);
 }
 
 export default class Physics {
@@ -30,7 +18,7 @@ export default class Physics {
         this.boundary.w = width * 2;
         this.boundary.h = height * 2;
 
-        const qt = new QuadTree(this.boundary, 4);
+        const qt = new QuadTree(this.boundary, QUADTREE_CAPACITY);
         for (const p of particles) {
             qt.insert(p);
         }
@@ -60,9 +48,7 @@ export default class Physics {
             p.momentum.x += F.x * dt;
             p.momentum.y += F.y * dt;
 
-            const pMagSq = p.momentum.magSq();
-            const mSq = p.mass * p.mass;
-            const invMGamma = 1 / (p.mass * Math.sqrt(1 + pMagSq / mSq));
+            const invMGamma = invMassGamma(p.momentum.magSq(), p.mass);
 
             p.vel.x = p.momentum.x * invMGamma;
             p.vel.y = p.momentum.y * invMGamma;
@@ -90,8 +76,7 @@ export default class Physics {
                 else if (p.pos.y > bottom - p.radius) { p.pos.y = bottom - p.radius; p.momentum.y *= -1; bounced = true; }
 
                 if (bounced) {
-                    const pMagSq2 = p.momentum.magSq();
-                    const invMG = 1 / (p.mass * Math.sqrt(1 + pMagSq2 / (p.mass * p.mass)));
+                    const invMG = invMassGamma(p.momentum.magSq(), p.mass);
                     p.vel.x = p.momentum.x * invMG;
                     p.vel.y = p.momentum.y * invMG;
                 }

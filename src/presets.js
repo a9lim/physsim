@@ -64,13 +64,21 @@ export const PRESETS = {
     },
 };
 
+const PRESET_LABELS = {
+    solar: 'Solar System',
+    binary: 'Binary Stars',
+    galaxy: 'Galaxy',
+    collision: 'Collision',
+    magnetic: 'Magnetic',
+};
+
 export function loadPreset(name, sim) {
     sim.particles = [];
-    sim.camera.x = sim.width / 2;
-    sim.camera.y = sim.height / 2;
-    sim.camera.zoom = 1;
-    sim.updateZoomDisplay();
+    sim.camera.reset(sim.width / 2, sim.height / 2, 1);
 
     const preset = PRESETS[name];
-    if (preset) preset(sim);
+    if (preset) {
+        preset(sim);
+        showToast(PRESET_LABELS[name] || name);
+    }
 }

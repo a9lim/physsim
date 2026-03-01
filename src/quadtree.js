@@ -32,7 +32,6 @@ export default class QuadTree {
 
         this.totalMass = 0;
         this.totalCharge = 0;
-        this.totalSpin = 0;
         this.totalMagneticMoment = 0;
         this.totalAngularMomentum = 0;
         this.centerOfMass = new Vec2(boundary.x, boundary.y);
@@ -82,13 +81,12 @@ export default class QuadTree {
             const pts = this.points;
             if (pts.length === 0) return;
 
-            let mass = 0, charge = 0, spin = 0, magMom = 0, angMom = 0;
+            let mass = 0, charge = 0, magMom = 0, angMom = 0;
             let comX = 0, comY = 0;
 
             for (const p of pts) {
                 mass += p.mass;
                 charge += p.charge;
-                spin += p.spin;
                 magMom += p.charge * p.spin;
                 angMom += p.mass * p.spin;
                 comX += p.pos.x * p.mass;
@@ -97,7 +95,6 @@ export default class QuadTree {
 
             this.totalMass = mass;
             this.totalCharge = charge;
-            this.totalSpin = spin;
             this.totalMagneticMoment = magMom;
             this.totalAngularMomentum = angMom;
 
@@ -110,13 +107,12 @@ export default class QuadTree {
                 child.calculateMassDistribution();
             }
 
-            let mass = 0, charge = 0, spin = 0, magMom = 0, angMom = 0;
+            let mass = 0, charge = 0, magMom = 0, angMom = 0;
             let comX = 0, comY = 0;
 
             for (const c of children) {
                 mass += c.totalMass;
                 charge += c.totalCharge;
-                spin += c.totalSpin;
                 magMom += c.totalMagneticMoment;
                 angMom += c.totalAngularMomentum;
                 comX += c.centerOfMass.x * c.totalMass;
@@ -125,7 +121,6 @@ export default class QuadTree {
 
             this.totalMass = mass;
             this.totalCharge = charge;
-            this.totalSpin = spin;
             this.totalMagneticMoment = magMom;
             this.totalAngularMomentum = angMom;
 
