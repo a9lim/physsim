@@ -5,6 +5,14 @@ const HALF_PI = Math.PI / 2;
 const _PAL = window._PALETTE;
 const _r = window._r;
 
+// Per-force component vector colors (matching force toggle colors)
+const _forceCompColors = {
+    gravity:     { light: _r(_PAL.extended.slate, 0.7),  dark: _r(_PAL.extended.slate, 0.8) },
+    coulomb:     { light: _r(_PAL.extended.blue, 0.7),   dark: _r(_PAL.extended.blue, 0.8) },
+    magnetic:    { light: _r(_PAL.extended.cyan, 0.7),   dark: _r(_PAL.extended.cyan, 0.8) },
+    gravitomag:  { light: _r(_PAL.extended.purple, 0.7), dark: _r(_PAL.extended.purple, 0.8) },
+};
+
 // Precomputed spin ring colors: [hue][isLight ? 0 : 1]
 const _spinColors = {
     pos: { light: `hsla(${_PAL.spinPos},80%,60%,0.6)`, dark: `hsla(${_PAL.spinPos},80%,60%,0.7)` },
@@ -19,6 +27,7 @@ export default class Renderer {
         this.trails = false;
         this.showVelocity = false;
         this.showForce = false;
+        this.showForceComponents = false;
         this.isLight = false;
         this.spinAngle = 0;
         this.trailHistory = new Map();
@@ -62,7 +71,14 @@ export default class Renderer {
 
         const invZoom = 1 / (camera ? camera.zoom : 1);
         if (this.showVelocity) this.drawVelocityVectors(ctx, particles, invZoom, isLight);
-        if (this.showForce) this.drawForceVectors(ctx, particles, invZoom, isLight);
+        if (this.showForce) {
+            this.drawForceVectors(ctx, particles, invZoom, isLight);
+            this.drawTorqueArcs(ctx, particles, invZoom, isLight);
+        }
+        if (this.showForceComponents) {
+            this.drawForceComponentVectors(ctx, particles, invZoom, isLight);
+            this.drawTorqueComponentArcs(ctx, particles, invZoom, isLight);
+        }
 
         // Drag line drawn in world space (dragStart/currentPos are world coords)
         if (this.input && this.input.isDragging) {
@@ -174,7 +190,7 @@ export default class Renderer {
 
             ctx.fill();
 
-            if (p.spin !== 0) {
+            if (p.angVel !== 0) {
                 this.drawSpinRing(ctx, p, isLight, blendMode);
             }
         }
@@ -225,14 +241,81 @@ export default class Renderer {
         }
     }
 
+    _drawTorqueArc(ctx, p, torque, invZoom, color, angleOffset) {
+        const mag = Math.abs(torque);
+        if (mag < 0.01) return;
+
+        const dir = Math.sign(torque);
+        const scaled = Math.min(mag * 10, 50);
+        const radius = p.radius + 8;
+        const arcLen = Math.min(0.3 + scaled * 0.04, Math.PI * 1.2);
+        const baseAngle = this.spinAngle * 0.5 + angleOffset;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5 * invZoom;
+        ctx.beginPath();
+        ctx.arc(p.pos.x, p.pos.y, radius, baseAngle, baseAngle + arcLen);
+        ctx.stroke();
+
+        // Arrowhead at arc tip
+        const endAngle = baseAngle + arcLen;
+        const ax = p.pos.x + Math.cos(endAngle) * radius;
+        const ay = p.pos.y + Math.sin(endAngle) * radius;
+        const arrowAngle = endAngle + (dir > 0 ? HALF_PI : -HALF_PI);
+        const h = 4 * invZoom;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax + Math.cos(arrowAngle - 0.5) * h, ay + Math.sin(arrowAngle - 0.5) * h);
+        ctx.lineTo(ax + Math.cos(arrowAngle + 0.5) * h, ay + Math.sin(arrowAngle + 0.5) * h);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+    }
+
+    drawTorqueArcs(ctx, particles, invZoom, isLight) {
+        const color = isLight ? _r(_PAL.accent, 0.7) : _r(_PAL.accentLight, 0.8);
+        for (const p of particles) {
+            this._drawTorqueArc(ctx, p, p.torque, invZoom, color, 0);
+        }
+    }
+
+    drawTorqueComponentArcs(ctx, particles, invZoom, isLight) {
+        const theme = isLight ? 'light' : 'dark';
+        const magColor = _forceCompColors.magnetic[theme];
+        const gmColor = _forceCompColors.gravitomag[theme];
+        for (const p of particles) {
+            this._drawTorqueArc(ctx, p, p.torqueMagnetic, invZoom, magColor, 0);
+            this._drawTorqueArc(ctx, p, p.torqueGravitomag, invZoom, gmColor, Math.PI);
+        }
+    }
+
+    drawForceComponentVectors(ctx, particles, invZoom, isLight) {
+        const scale = 5;
+        const theme = isLight ? 'light' : 'dark';
+        const forces = [
+            { key: 'forceGravity', color: _forceCompColors.gravity[theme] },
+            { key: 'forceCoulomb', color: _forceCompColors.coulomb[theme] },
+            { key: 'forceMagnetic', color: _forceCompColors.magnetic[theme] },
+            { key: 'forceGravitomag', color: _forceCompColors.gravitomag[theme] },
+        ];
+        for (const { key, color } of forces) {
+            for (const p of particles) {
+                const fx = p[key].x * scale, fy = p[key].y * scale;
+                const mag = Math.sqrt(fx * fx + fy * fy);
+                if (mag < 1 * invZoom) continue;
+                this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
+            }
+        }
+    }
+
     drawSpinRing(ctx, p, isLight, blendMode) {
         ctx.shadowBlur = 0;
-        const spinDir = Math.sign(p.spin);
-        const spinMag = Math.min(Math.abs(p.spin), 50);
+        const spinDir = Math.sign(p.angVel);
+        const spinMag = Math.min(Math.abs(p.angVel), 50);
         const ringRadius = p.radius + 3 + spinMag * 0.05;
         const arcLen = Math.min(0.4 + spinMag * 0.03, Math.PI * 1.5);
         const baseAngle = this.spinAngle * spinDir * (0.5 + spinMag * 0.05);
-        const colors = p.spin > 0 ? _spinColors.pos : _spinColors.neg;
+        const colors = p.angVel > 0 ? _spinColors.pos : _spinColors.neg;
         const style = isLight ? colors.light : colors.dark;
 
         ctx.globalCompositeOperation = 'source-over';

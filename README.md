@@ -6,7 +6,7 @@ A high-performance, interactive physics simulation that models gravity, electrom
 
 ## Features
 
-- **Relativistic Physics** — Momentum-based integration naturally enforces the speed-of-light limit. Velocity is derived via the Lorentz factor, so no particle can ever exceed *c*.
+- **Relativistic Physics** — Proper velocity integration naturally enforces the speed-of-light limit. Both linear and rotational state use the same pattern: `derived = state / √(1 + state² × scale²)`, so no particle can ever exceed *c*.
 - **Four Force Types**
   - **Gravity** — Universal attraction between masses (inverse-square)
   - **Coulomb** — Electrostatic repulsion/attraction between charged particles
@@ -21,7 +21,7 @@ A high-performance, interactive physics simulation that models gravity, electrom
 - **Velocity Verlet Integration** — Kick-drift-kick scheme for time-symmetric, energy-conserving integration
 - **Independent Force Toggles** — Enable/disable gravity, Coulomb, magnetic, gravitomagnetic, and relativity independently via sidebar switches
 - **Energy Conservation Display** — Real-time tracking of linear KE (relativistic or classical), rotational KE, gravitational and Coulomb PE, total energy, and drift percentage
-- **Velocity & Force Vectors** — Optional arrow overlays showing particle velocity and net force direction/magnitude
+- **Force Component Vectors** — Per-force-type arrows (gravity, Coulomb, magnetic, gravitomagnetic) in distinct colors alongside net force and velocity vectors
 - **Particle Inspection** — Hover for compact tooltip (mass, charge, spin, speed); click to select and see live stats in sidebar (gamma, force breakdown)
 - **Keyboard Shortcuts** — Space (pause), R (reset), `.` (step), P (presets), 1-5 (load preset), V (velocity vectors), F (force vectors), T (theme), S (sidebar); press `?` for help overlay
 - **Info Tips** — Hover `?` icons next to controls for explanations of physics concepts and simulation parameters
@@ -59,6 +59,7 @@ index.html
         │     └── src/vec2.js      — 2D vector math
         ├── src/renderer.js   — Canvas 2D drawing, trails, themes
         ├── src/input.js      — mouse/touch interaction, particle spawning
+        ├── src/relativity.js — relativistic helpers (proper velocity, spin derivation)
         ├── src/particle.js   — entity definition
         ├── src/presets.js    — preset definitions + loadPreset function
         └── src/ui.js         — setupUI, DOM cache, all event binding
@@ -68,15 +69,17 @@ Uses the shared design system from [a9lim.github.io](https://github.com/a9lim/a9
 
 ### Technical Details
 
-The simulation uses **Velocity Verlet** (kick-drift-kick) integration with relativistic momentum as the primary state variable:
+The simulation uses **Velocity Verlet** (kick-drift-kick) integration with proper velocity **w** = γ**v** (celerity) as the primary state variable:
 
-1. Half-kick momentum with stored forces: **p** += **F** · dt/2
-2. Derive velocity: **v** = **p** / (m · γ), where γ = √(1 + p²/m²)
+1. Half-kick proper velocity: **w** += **F**/m · dt/2
+2. Derive velocity: **v** = **w** / √(1 + w²)
 3. Drift position: **x** += **v** · dt
 4. Recalculate forces via Barnes-Hut tree traversal
-5. Half-kick momentum with new forces: **p** += **F** · dt/2
+5. Half-kick proper velocity: **w** += **F**/m · dt/2
 
-Natural units (c = 1, G = 1) throughout. The momentum-based approach provides inherent stability — high-energy interactions cannot produce superluminal velocities. Velocity Verlet is time-symmetric and energy-conserving, producing significantly lower energy drift than forward Euler.
+Spin uses the same pattern — `p.spin` stores proper angular velocity, angular velocity is derived via `ω = S / √(1 + S²r²)`, naturally capping surface velocity at *c*.
+
+Natural units (c = 1, G = 1) throughout. The proper velocity approach provides inherent stability — γ = √(1 + w²) has no singularities unlike 1/√(1 − v²), and high-energy interactions cannot produce superluminal velocities. Velocity Verlet is time-symmetric and energy-conserving, producing significantly lower energy drift than forward Euler.
 
 ## Sibling Projects
 

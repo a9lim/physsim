@@ -29,7 +29,7 @@ index.html
   ├── colors.js (extends _PALETTE with particle hues, freezes, injects project CSS vars)
   └── main.js (Simulation class, ES module)
         ├── src/config.js (named constants: BH_THETA, ZOOM_MIN/MAX, physics params)
-        ├── src/relativity.js (gammaFromSpeed, invMassGamma, setMomentum)
+        ├── src/relativity.js (spinToAngVel, setVelocity)
         ├── src/physics.js (force calculation, integration, collisions)
         │     ├── src/quadtree.js (Barnes-Hut spatial partitioning)
         │     └── src/vec2.js (2D vector math)
@@ -45,10 +45,10 @@ index.html
 ### Key Design Decisions
 
 - **Natural units**: c=1, G=1 throughout the physics engine. All equations use these conventions.
-- **Momentum-based integration**: Physics uses relativistic momentum (not velocity) as the primary state variable. Velocity is derived via Lorentz factor: `v = p / (m * gamma)` where `gamma = sqrt(1 + p²/m²)`. This naturally enforces the speed-of-light limit.
-- **Velocity Verlet integration**: Kick-drift-kick scheme for time-symmetric, energy-conserving integration. Each step: half-kick momentum (old forces) → drift position → recalculate forces → half-kick momentum (new forces). Stored forces in `particle.force` Vec2.
-- **Force gating**: Each force type (gravity, Coulomb, magnetic, gravitomagnetic) can be independently toggled via `Physics` boolean flags. Relativity toggle switches between relativistic (`invMassGamma`) and classical (`1/mass`) momentum-velocity conversion.
-- **Barnes-Hut approximation**: QuadTree stores aggregate mass, charge, spin, and center-of-mass per node. `BH_THETA` (0.5) controls accuracy vs. performance tradeoff.
+- **Proper velocity integration**: Physics uses proper velocity `w = γv` (celerity) as the primary linear state variable. Velocity is derived via `v = w / √(1 + w²)`, naturally enforcing the speed-of-light limit without mass in the derivation. Kicks use `Δw = F/m · Δt`. In the classical limit (`w ≈ v`), the derivation becomes identity. Spin uses the same pattern: `p.spin` stores proper angular velocity (unbounded), angular velocity is derived via `angVel = spin / √(1 + spin² · radius²)`, naturally capping surface velocity at c.
+- **Velocity Verlet integration**: Kick-drift-kick scheme for time-symmetric, energy-conserving integration. Each step: half-kick proper velocity (old forces, F/m) → drift position → recalculate forces → half-kick proper velocity (new forces). Stored forces in `particle.force` Vec2. Lorentz factor computed as `γ = √(1 + w²)` — no NaN risk unlike `1/√(1-v²)`.
+- **Force gating**: Each force type (gravity, Coulomb, magnetic, gravitomagnetic, spin-orbit) can be independently toggled via `Physics` boolean flags. Magnetic toggle gates both dipole and Lorentz forces; gravitomagnetic toggle gates both dipole and linear GM forces. Relativity toggle switches between relativistic (`1/√(1+w²)`/`spinToAngVel`) and classical (identity) proper-velocity-to-velocity and spin-to-angVel conversion.
+- **Barnes-Hut approximation**: QuadTree stores aggregate mass, charge, angular velocity (magnetic moment, angular momentum), momentum, and center-of-mass per node. `BH_THETA` (0.5) controls accuracy vs. performance tradeoff. Aggregate nodes use average velocity (`totalMomentum/totalMass`) for velocity-dependent forces.
 - **Softening parameter**: `MIN_DIST_SQ` (25) prevents force singularities at close range. Other named constants: `BOUNCE_FRICTION` (0.4), `DESPAWN_MARGIN` (100).
 - **Zoom range**: Clamped to 1x–3x in all input paths (mouse wheel, pinch-to-zoom, and zoom buttons).
 - **Minimal global state**: The `Simulation` instance owns all runtime state (`window.sim` for console debugging). Design tokens (`window._PALETTE`, `window._FONT`, `window._r`) are frozen globals set by `colors.js` and consumed by ES modules via `window._PALETTE`.
@@ -60,8 +60,10 @@ index.html
 - Spin ring colors are precomputed at module scope (`_spinColors`) — 4 hsla strings (2 hues × 2 themes).
 - Particle color is computed from `_PALETTE` charge hues (`chargePos=201` blue, `chargeNeg=7` red, `neutral` from `extended.slate`) with dynamic HSL saturation/lightness based on charge magnitude.
 - **Velocity vectors**: Optional white arrows from particle center in velocity direction, scaled by speed.
-- **Force vectors**: Optional accent-colored arrows from particle center in force direction, scaled by magnitude.
-- **Particle tooltip**: Hover over particles shows compact stats (mass, charge, spin, speed). Click to select and display live stats in a sidebar section (mass, charge, spin, speed, gamma, total force).
+- **Force vectors**: Optional accent-colored arrows from particle center in net force direction, scaled by magnitude.
+- **Force component vectors**: Optional per-force-type arrows (gravity=slate, Coulomb=blue, magnetic=cyan, gravitomagnetic=purple) showing individual force contributions. Each particle stores `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag` Vec2s accumulated during force calculation.
+- **Torque arcs**: Curved arrows around particles showing spin-orbit torque. Displayed when force vectors or force components are toggled on. Net torque uses accent color; component mode shows magnetic (cyan) and gravitomagnetic (purple) torques separately at opposite angular offsets. Each particle stores `torqueMagnetic` and `torqueGravitomag` scalars.
+- **Particle tooltip**: Hover over particles shows compact stats (mass, charge, spin, speed). Click to select and display live stats in a sidebar section (mass, charge, spin, speed, gamma, total force, torque).
 
 ### Energy Conservation
 
@@ -69,7 +71,19 @@ Energy stats computed per frame: linear KE (relativistic `(γ-1)mc²` or classic
 
 ### Force Types
 
-Four force types per particle pair: gravitational, Coulomb (electrostatic), magnetic dipole-dipole, and gravitomagnetic correction. All are inverse-square with different coupling constants. Each can be independently toggled on/off via sidebar checkboxes.
+Six force components per particle pair, organized under five toggles:
+
+**Radial forces** (along separation vector):
+- **Gravity** (`gravityEnabled`): `m₁m₂/r²`, attractive.
+- **Coulomb** (`coulombEnabled`): `-q₁q₂/r²`, like-repels.
+- **Magnetic dipole** (`magneticEnabled`): `(q₁ω₁)(q₂ω₂)/r⁴`, aligned-attracts. Uses derived angular velocity `angVel`.
+- **Gravitomagnetic dipole** (`gravitomagEnabled`): `-(m₁ω₁)(m₂ω₂)/r⁴`, co-rotating-repels. Angular velocity is bounded by relativistic derivation (`angVel = spin/√(1+spin²r²)`), so GM dipole can never overwhelm gravity when relativity is on.
+
+**Velocity-dependent forces** (perpendicular to velocity, do no work):
+- **Lorentz force** (`magneticEnabled`): Moving charges create magnetic fields `B_z = q_s(v_s×r̂)_z/r²` that deflect other moving charges. `F = q·v×B`.
+- **Linear gravitomagnetism** (`gravitomagEnabled`): Same structure for mass currents, opposite sign. Co-moving masses repel via `Bg_z = m_s(v_s×r̂)_z/r²`.
+
+**Spin-orbit coupling** (`spinOrbitEnabled`): B and Bg fields from moving sources drive spin evolution. `d(spin)/dt = (q/m)·B_z - Bg_z`. Integrated via Verlet half-kicks alongside proper velocity. Torque displayed in selected particle stats.
 
 ### Collision Modes
 
@@ -123,7 +137,7 @@ JS modules alias as `const _PAL = window._PALETTE`.
 
 ### Keyboard Shortcuts & Info Tips
 
-- **Shortcuts** via `initShortcuts()` from `shared-shortcuts.js`: Space (pause), R (reset), `.` (step), P (presets), 1-5 (load preset), V (velocity vectors), F (force vectors), T (theme), S (sidebar), Esc (close/deselect).
+- **Shortcuts** via `initShortcuts()` from `shared-shortcuts.js`: Space (pause), R (reset), `.` (step), P (presets), 1-5 (load preset), V (velocity vectors), F (force vectors), C (force components), T (theme), S (sidebar), O (spin-orbit toggle), Esc (close/deselect).
 - **Info tips** via `createInfoTip()` from `shared-info.js`: `?` buttons next to Energy, Particle Properties, each force toggle, Interaction mode, Collision mode, Boundary mode. Data defined inline in `ui.js`.
 
 ### CSS Patterns
@@ -141,4 +155,4 @@ JS modules alias as `const _PAL = window._PALETTE`.
 - **Shared CSS at domain root** — `shared-base.css` is loaded via `/shared-base.css` (absolute path). When serving locally, serve from the parent `a9lim.github.io/` directory or the shared file won't resolve.
 - **Preset dialog needs both ID and class** — `#preset-dialog` has `class="preset-dialog"` so both the shared CSS (`.preset-dialog`) and any JS targeting the ID work correctly.
 - **`data-theme="light"` must be on `<html>`** — CSS theme rules depend on it before JS runs.
-- Particle visual radius scales as `sqrt(mass)`.
+- Particle radius is `cbrt(mass)` (uniform density sphere with ρ = 3/(4π)). Both linear and rotational state variables use the same derivation pattern: `derived = state / √(1 + state² × scale²)`. Linear: `v = w / √(1 + w²)` where `p.w` is proper velocity (γv). Rotational: `angVel = spin / √(1 + spin² · r²)` where `p.spin` is proper angular velocity. Both naturally cap derived quantities below c. When relativity is off, derivation is identity (`v = w`, `angVel = spin`).

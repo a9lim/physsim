@@ -19,22 +19,25 @@ export const PRESETS = {
         const dist = 100;
         const starMass = 50;
         const speed = Math.sqrt(starMass / (2 * dist));
-        sim.addParticle(cx - dist, cy, 0, speed, { mass: starMass, charge: 0, spin: 10 });
-        sim.addParticle(cx + dist, cy, 0, -speed, { mass: starMass, charge: 0, spin: 10 });
+        const spin = 0.8 / Math.cbrt(starMass); // 80% of surface-velocity cap
+        sim.addParticle(cx - dist, cy, 0, speed, { mass: starMass, charge: 0, spin });
+        sim.addParticle(cx + dist, cy, 0, -speed, { mass: starMass, charge: 0, spin });
     },
 
     galaxy(sim) {
         const cx = sim.width / 2, cy = sim.height / 2;
-        sim.addParticle(cx, cy, 0, 0, { mass: 150, charge: 0, spin: 30 });
+        const coreMass = 150;
+        sim.addParticle(cx, cy, 0, 0, { mass: coreMass, charge: 0, spin: 0.8 / Math.cbrt(coreMass) });
         for (let i = 0; i < 200; i++) {
             const dist = 150 + Math.random() * 300;
             const angle = Math.random() * Math.PI * 2;
-            const speed = Math.sqrt(150 / dist);
+            const speed = Math.sqrt(coreMass / dist);
             const cos = Math.cos(angle), sin = Math.sin(angle);
+            const m = 0.1 + Math.random() * 0.4;
             sim.addParticle(cx + cos * dist, cy + sin * dist, -sin * speed, cos * speed, {
-                mass: 0.1 + Math.random() * 0.4,
+                mass: m,
                 charge: (Math.random() - 0.5) * 5,
-                spin: (Math.random() - 0.5) * 10
+                spin: (Math.random() - 0.5) * 1.5 / Math.cbrt(m)
             });
         }
     },
@@ -52,12 +55,13 @@ export const PRESETS = {
         const spacing = 80;
         for (let i = -2; i <= 2; i++) {
             for (let j = -2; j <= 2; j++) {
+                const m = 3 + Math.random() * 2;
                 sim.addParticle(
                     cx + i * spacing + (Math.random() - 0.5) * 20,
                     cy + j * spacing + (Math.random() - 0.5) * 20,
                     (Math.random() - 0.5) * 0.1,
                     (Math.random() - 0.5) * 0.1,
-                    { mass: 3 + Math.random() * 2, charge: 5 + Math.random() * 5, spin: 20 + Math.random() * 10 }
+                    { mass: m, charge: 5 + Math.random() * 5, spin: 0.8 / Math.cbrt(m) }
                 );
             }
         }

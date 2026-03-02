@@ -34,6 +34,8 @@ export default class QuadTree {
         this.totalCharge = 0;
         this.totalMagneticMoment = 0;
         this.totalAngularMomentum = 0;
+        this.totalMomentumX = 0;
+        this.totalMomentumY = 0;
         this.centerOfMass = new Vec2(boundary.x, boundary.y);
     }
 
@@ -83,20 +85,25 @@ export default class QuadTree {
 
             let mass = 0, charge = 0, magMom = 0, angMom = 0;
             let comX = 0, comY = 0;
+            let momX = 0, momY = 0;
 
             for (const p of pts) {
                 mass += p.mass;
                 charge += p.charge;
-                magMom += p.charge * p.spin;
-                angMom += p.mass * p.spin;
+                magMom += p.charge * p.angVel;
+                angMom += p.mass * p.angVel;
                 comX += p.pos.x * p.mass;
                 comY += p.pos.y * p.mass;
+                momX += p.mass * p.w.x;
+                momY += p.mass * p.w.y;
             }
 
             this.totalMass = mass;
             this.totalCharge = charge;
             this.totalMagneticMoment = magMom;
             this.totalAngularMomentum = angMom;
+            this.totalMomentumX = momX;
+            this.totalMomentumY = momY;
 
             if (mass > 0) {
                 this.centerOfMass.set(comX / mass, comY / mass);
@@ -109,6 +116,7 @@ export default class QuadTree {
 
             let mass = 0, charge = 0, magMom = 0, angMom = 0;
             let comX = 0, comY = 0;
+            let momX = 0, momY = 0;
 
             for (const c of children) {
                 mass += c.totalMass;
@@ -117,12 +125,16 @@ export default class QuadTree {
                 angMom += c.totalAngularMomentum;
                 comX += c.centerOfMass.x * c.totalMass;
                 comY += c.centerOfMass.y * c.totalMass;
+                momX += c.totalMomentumX;
+                momY += c.totalMomentumY;
             }
 
             this.totalMass = mass;
             this.totalCharge = charge;
             this.totalMagneticMoment = magMom;
             this.totalAngularMomentum = angMom;
+            this.totalMomentumX = momX;
+            this.totalMomentumY = momY;
 
             if (mass > 0) {
                 this.centerOfMass.set(comX / mass, comY / mass);

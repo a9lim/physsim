@@ -165,8 +165,8 @@
                             <input type="range" id="chargeInput" min="-50" max="50" step="1" value="0">
                         </div>
                         <div class="control-group">
-                            <label>Angular Momentum <span class="slider-value" id="spinValue">0</span></label>
-                            <input type="range" id="spinInput" min="-50" max="50" step="1" value="0">
+                            <label>Spin <span class="slider-value" id="spinValue">0</span></label>
+                            <input type="range" id="spinInput" min="-5" max="5" step="any" value="0">
                         </div>
                     </div>
                     <div class="panel-section">
@@ -196,6 +196,9 @@
                         <div class="ctrl-row"><label for="relativity-toggle">Relativity <button class="info-trigger" data-info="relativity" aria-label="Relativity info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="relativity-toggle" checked role="switch" aria-checked="true">
                             <label for="relativity-toggle" class="tog tog-relativity"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="spinorbit-toggle">Spin-Orbit <button class="info-trigger" data-info="spinorbit" aria-label="Spin-orbit coupling info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="spinorbit-toggle" checked role="switch" aria-checked="true">
+                            <label for="spinorbit-toggle" class="tog tog-spinorbit"><span class="tog-thumb"></span></label></div></div>
                     </div>
                     <div class="panel-section">
                         <h2 class="group-label">Physics</h2>
@@ -231,6 +234,9 @@
                             <label class="checkbox-label">Show Force Vectors<input type="checkbox" id="forceToggle"></label>
                         </div>
                         <div class="control-group">
+                            <label class="checkbox-label">Show Force Components<input type="checkbox" id="forceComponentsToggle"></label>
+                        </div>
+                        <div class="control-group">
                             <label>Sim Speed <span class="slider-value" id="speedValue">20</span>x</label>
                             <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
                         </div>
@@ -261,6 +267,7 @@
                         <div class="stat-row"><span class="stat-label">Speed</span><span class="stat-value" id="sel-speed">—</span></div>
                         <div class="stat-row"><span class="stat-label">γ (gamma)</span><span class="stat-value" id="sel-gamma">—</span></div>
                         <div class="stat-row"><span class="stat-label">|Force|</span><span class="stat-value" id="sel-force">—</span></div>
+                        <div class="stat-row"><span class="stat-label">Torque</span><span class="stat-value" id="sel-torque">—</span></div>
                     </div>
                 </div>
             </div>

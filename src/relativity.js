@@ -2,31 +2,26 @@
 
 import { MAX_SPEED_RATIO } from './config.js';
 
-/** Lorentz factor from speed squared (v²/c²). */
-export function gammaFromSpeed(speedSq) {
-    return 1 / Math.sqrt(1 - speedSq);
+/**
+ * Derive angular velocity from proper angular velocity via rotational Lorentz factor.
+ * ω = S / √(1 + S²r²), naturally caps surface velocity |ωr| < c.
+ */
+export function spinToAngVel(spin, radius) {
+    return spin / Math.sqrt(1 + spin * spin * radius * radius);
 }
 
 /**
- * 1 / (mass * gamma) computed from momentum magnitude squared.
- * Multiply momentum components by this to get velocity: v = p * invMassGamma.
+ * Set particle proper velocity from velocity components.
+ * Clamps |v| < MAX_SPEED_RATIO, then sets p.vel and p.w = γv.
  */
-export function invMassGamma(pMagSq, mass) {
-    return 1 / (mass * Math.sqrt(1 + pMagSq / (mass * mass)));
-}
-
-/**
- * Set particle momentum from velocity components.
- * Clamps |v| < MAX_SPEED_RATIO, then sets p.vel and p.momentum.
- */
-export function setMomentum(p, vx, vy) {
+export function setVelocity(p, vx, vy) {
     const speedSq = vx * vx + vy * vy;
     if (speedSq >= 1) {
         const s = MAX_SPEED_RATIO / Math.sqrt(speedSq);
         vx *= s;
         vy *= s;
     }
-    const gamma = gammaFromSpeed(vx * vx + vy * vy);
+    const gamma = 1 / Math.sqrt(1 - vx * vx - vy * vy);
     p.vel.set(vx, vy);
-    p.momentum.set(vx * gamma * p.mass, vy * gamma * p.mass);
+    p.w.set(vx * gamma, vy * gamma);
 }

@@ -115,6 +115,7 @@ body {
 .tog-magnetic   { --tog-color: var(--ext-cyan); }
 .tog-gravitomag { --tog-color: var(--ext-purple); }
 .tog-relativity { --tog-color: var(--accent); }
+.tog-spinorbit  { --tog-color: var(--ext-orange); }
 
 .ctrl-row {
     display: flex;

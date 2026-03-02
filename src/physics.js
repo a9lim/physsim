@@ -1,10 +1,10 @@
 import Vec2 from './vec2.js';
 import QuadTree, { Rect } from './quadtree.js';
 import { BH_THETA, QUADTREE_CAPACITY, MIN_DIST_SQ, BOUNCE_FRICTION, DESPAWN_MARGIN } from './config.js';
-import { invMassGamma, setMomentum } from './relativity.js';
+import { setVelocity, spinToAngVel } from './relativity.js';
 
-function setMomentumFromVel(p, vn, vt, nx, ny, tx, ty) {
-    setMomentum(p, nx * vn + tx * vt, ny * vn + ty * vt);
+function setVelocityFromVel(p, vn, vt, nx, ny, tx, ty) {
+    setVelocity(p, nx * vn + tx * vt, ny * vn + ty * vt);
 }
 
 export default class Physics {
@@ -17,6 +17,7 @@ export default class Physics {
         this.magneticEnabled = true;
         this.gravitomagEnabled = true;
         this.relativityEnabled = true;
+        this.spinOrbitEnabled = true;
 
         // Accumulated potential energy (set during force calculation)
         this.potentialEnergy = 0;
@@ -37,33 +38,45 @@ export default class Physics {
 
         // First frame: compute initial forces if not yet done
         if (!this._forcesInit && n > 0) {
+            for (const p of particles) {
+                p.angVel = this.relativityEnabled ? spinToAngVel(p.spin, p.radius) : p.spin;
+            }
             const qt0 = new QuadTree(this.boundary, QUADTREE_CAPACITY);
             for (const p of particles) qt0.insert(p);
             qt0.calculateMassDistribution();
             this.potentialEnergy = 0;
             for (const p of particles) {
                 p.force.set(0, 0);
+                p.forceGravity.set(0, 0);
+                p.forceCoulomb.set(0, 0);
+                p.forceMagnetic.set(0, 0);
+                p.forceGravitomag.set(0, 0);
+                p.torque = 0;
+                p.torqueMagnetic = 0;
+                p.torqueGravitomag = 0;
                 this.calculateForce(p, qt0, BH_THETA, p.force);
             }
             this._forcesInit = true;
         }
 
-        // Step 1: Half-kick momentum with old forces
+        // Step 1: Half-kick proper velocity with old forces
         for (let i = 0; i < n; i++) {
             const p = particles[i];
-            p.momentum.x += p.force.x * dt * 0.5;
-            p.momentum.y += p.force.y * dt * 0.5;
+            const halfDtOverM = dt * 0.5 / p.mass;
+            p.w.x += p.force.x * halfDtOverM;
+            p.w.y += p.force.y * halfDtOverM;
+            if (this.spinOrbitEnabled) p.spin += p.torque * dt * 0.5;
         }
 
-        // Step 2: Derive velocity and drift positions
+        // Step 2: Derive velocity and angular velocity, drift positions
+        const relOn = this.relativityEnabled;
         for (let i = 0; i < n; i++) {
             const p = particles[i];
-            const invMG = this.relativityEnabled
-                ? invMassGamma(p.momentum.magSq(), p.mass)
-                : 1 / p.mass;
+            const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
 
-            p.vel.x = p.momentum.x * invMG;
-            p.vel.y = p.momentum.y * invMG;
+            p.vel.x = p.w.x * invG;
+            p.vel.y = p.w.y * invG;
+            p.angVel = relOn ? spinToAngVel(p.spin, p.radius) : p.spin;
             p.pos.x += p.vel.x * dt;
             p.pos.y += p.vel.y * dt;
         }
@@ -82,21 +95,29 @@ export default class Physics {
         this.potentialEnergy = 0;
         for (const p of particles) {
             p.force.set(0, 0);
+            p.forceGravity.set(0, 0);
+            p.forceCoulomb.set(0, 0);
+            p.forceMagnetic.set(0, 0);
+            p.forceGravitomag.set(0, 0);
+            p.torque = 0;
+            p.torqueMagnetic = 0;
+            p.torqueGravitomag = 0;
             this.calculateForce(p, qt, BH_THETA, p.force);
         }
 
         // Step 6: Half-kick with new forces
         for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
-            p.momentum.x += p.force.x * dt * 0.5;
-            p.momentum.y += p.force.y * dt * 0.5;
+            const halfDtOverM = dt * 0.5 / p.mass;
+            p.w.x += p.force.x * halfDtOverM;
+            p.w.y += p.force.y * halfDtOverM;
+            if (this.spinOrbitEnabled) p.spin += p.torque * dt * 0.5;
 
-            // Re-derive velocity after second kick
-            const invMG = this.relativityEnabled
-                ? invMassGamma(p.momentum.magSq(), p.mass)
-                : 1 / p.mass;
-            p.vel.x = p.momentum.x * invMG;
-            p.vel.y = p.momentum.y * invMG;
+            // Re-derive velocity and angular velocity after second kick
+            const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
+            p.vel.x = p.w.x * invG;
+            p.vel.y = p.w.y * invG;
+            p.angVel = relOn ? spinToAngVel(p.spin, p.radius) : p.spin;
 
             // Step 7: Handle boundaries
             const left = offX, top = offY;
@@ -114,17 +135,15 @@ export default class Physics {
                 else if (p.pos.y > bottom) p.pos.y -= height;
             } else if (boundaryMode === 'bounce') {
                 let bounced = false;
-                if (p.pos.x < left + p.radius) { p.pos.x = left + p.radius; p.momentum.x *= -1; bounced = true; }
-                else if (p.pos.x > right - p.radius) { p.pos.x = right - p.radius; p.momentum.x *= -1; bounced = true; }
-                if (p.pos.y < top + p.radius) { p.pos.y = top + p.radius; p.momentum.y *= -1; bounced = true; }
-                else if (p.pos.y > bottom - p.radius) { p.pos.y = bottom - p.radius; p.momentum.y *= -1; bounced = true; }
+                if (p.pos.x < left + p.radius) { p.pos.x = left + p.radius; p.w.x *= -1; bounced = true; }
+                else if (p.pos.x > right - p.radius) { p.pos.x = right - p.radius; p.w.x *= -1; bounced = true; }
+                if (p.pos.y < top + p.radius) { p.pos.y = top + p.radius; p.w.y *= -1; bounced = true; }
+                else if (p.pos.y > bottom - p.radius) { p.pos.y = bottom - p.radius; p.w.y *= -1; bounced = true; }
 
                 if (bounced) {
-                    const invMG = this.relativityEnabled
-                        ? invMassGamma(p.momentum.magSq(), p.mass)
-                        : 1 / p.mass;
-                    p.vel.x = p.momentum.x * invMG;
-                    p.vel.y = p.momentum.y * invMG;
+                    const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
+                    p.vel.x = p.w.x * invG;
+                    p.vel.y = p.w.y * invG;
                 }
             }
         }
@@ -166,17 +185,24 @@ export default class Physics {
 
     resolveMerge(p1, p2) {
         const totalMass = p1.mass + p2.mass;
-        const newPx = p1.momentum.x + p2.momentum.x;
-        const newPy = p1.momentum.y + p2.momentum.y;
+        // Conserve momentum: p = m*w, so w_new = (m1*w1 + m2*w2) / totalMass
+        const newWx = (p1.mass * p1.w.x + p2.mass * p2.w.x) / totalMass;
+        const newWy = (p1.mass * p1.w.y + p2.mass * p2.w.y) / totalMass;
         const newX = (p1.pos.x * p1.mass + p2.pos.x * p2.mass) / totalMass;
         const newY = (p1.pos.y * p1.mass + p2.pos.y * p2.mass) / totalMass;
 
         p1.mass = totalMass;
         p1.charge = p1.charge + p2.charge;
         p1.spin = p1.spin + p2.spin;
-        p1.momentum.set(newPx, newPy);
+        p1.w.set(newWx, newWy);
         p1.pos.set(newX, newY);
         p1.updateColor();
+        p1.angVel = this.relativityEnabled ? spinToAngVel(p1.spin, p1.radius) : p1.spin;
+
+        // Re-derive velocity from proper velocity
+        const invG = this.relativityEnabled ? 1 / Math.sqrt(1 + p1.w.magSq()) : 1;
+        p1.vel.x = p1.w.x * invG;
+        p1.vel.y = p1.w.y * invG;
 
         p2.mass = 0;
     }
@@ -210,8 +236,8 @@ export default class Physics {
         const v1nFinal = (v1n * (m1 - m2) + 2 * m2 * v2n) / mSum;
         const v2nFinal = (v2n * (m2 - m1) + 2 * m1 * v1n) / mSum;
 
-        const surfaceV1 = v1t + p1.spin * p1.radius;
-        const surfaceV2 = v2t - p2.spin * p2.radius;
+        const surfaceV1 = v1t + p1.angVel * p1.radius;
+        const surfaceV2 = v2t - p2.angVel * p2.radius;
         const effectiveMass = (m1 * m2) / mSum;
         const tangentialImpulse = BOUNCE_FRICTION * (surfaceV1 - surfaceV2) * effectiveMass;
 
@@ -220,9 +246,11 @@ export default class Physics {
 
         p1.spin -= tangentialImpulse / (m1 * p1.radius);
         p2.spin -= tangentialImpulse / (m2 * p2.radius);
+        p1.angVel = this.relativityEnabled ? spinToAngVel(p1.spin, p1.radius) : p1.spin;
+        p2.angVel = this.relativityEnabled ? spinToAngVel(p2.spin, p2.radius) : p2.spin;
 
-        setMomentumFromVel(p1, v1nFinal, v1tFinal, nx, ny, tx, ty);
-        setMomentumFromVel(p2, v2nFinal, v2tFinal, nx, ny, tx, ty);
+        setVelocityFromVel(p1, v1nFinal, v1tFinal, nx, ny, tx, ty);
+        setVelocityFromVel(p2, v2nFinal, v2tFinal, nx, ny, tx, ty);
 
         const overlap = (minDist - safeDist) / 2 + 0.25;
         p1.pos.x -= nx * overlap;
@@ -244,10 +272,12 @@ export default class Physics {
             if (!node.divided) {
                 for (const other of node.points) {
                     if (other === particle) continue;
-                    this._pairForce(particle, other.pos.x, other.pos.y, other.mass, other.charge, other.spin, other.charge * other.spin, other.mass * other.spin, out);
+                    this._pairForce(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y, other.mass, other.charge, other.angVel, other.charge * other.angVel, other.mass * other.angVel, out);
                 }
             } else {
-                this._pairForce(particle, node.centerOfMass.x, node.centerOfMass.y, node.totalMass, node.totalCharge, 0, node.totalMagneticMoment, node.totalAngularMomentum, out);
+                const avgVx = node.totalMass > 0 ? node.totalMomentumX / node.totalMass : 0;
+                const avgVy = node.totalMass > 0 ? node.totalMomentumY / node.totalMass : 0;
+                this._pairForce(particle, node.centerOfMass.x, node.centerOfMass.y, avgVx, avgVy, node.totalMass, node.totalCharge, 0, node.totalMagneticMoment, node.totalAngularMomentum, out);
             }
         } else if (node.divided) {
             this.calculateForce(particle, node.northwest, theta, out);
@@ -260,8 +290,10 @@ export default class Physics {
     /**
      * Compute force from a source (particle or aggregate node) on a particle.
      * Also accumulates potential energy (only half to avoid double-counting with aggregates).
+     * Includes radial forces (gravity, Coulomb, dipole) and velocity-dependent forces
+     * (Lorentz, linear gravitomagnetism, spin-orbit torque).
      */
-    _pairForce(p, sx, sy, sMass, sCharge, sSpin, sMagMoment, sAngMomentum, out) {
+    _pairForce(p, sx, sy, svx, svy, sMass, sCharge, sSpin, sMagMoment, sAngMomentum, out) {
         const rx = sx - p.pos.x;
         const ry = sy - p.pos.y;
         let rSq = rx * rx + ry * ry;
@@ -270,34 +302,76 @@ export default class Physics {
         const invR = 1 / r;
         const invRSq = 1 / rSq;
 
-        let fTotal = 0;
+        // Cross product of source velocity with separation: (v_s × r̂)_z component
+        const crossSV = svx * ry - svy * rx;
 
         if (this.gravityEnabled) {
-            const fGravity = p.mass * sMass * invRSq;
-            fTotal += fGravity;
+            const fDir = p.mass * sMass * invRSq * invR;
+            out.x += rx * fDir;
+            out.y += ry * fDir;
+            p.forceGravity.x += rx * fDir;
+            p.forceGravity.y += ry * fDir;
             // Gravitational PE: -G*m1*m2/r (G=1)
             this.potentialEnergy -= p.mass * sMass * invR * 0.5;
         }
 
         if (this.coulombEnabled) {
-            const fCoulomb = -(p.charge * sCharge) * invRSq;
-            fTotal += fCoulomb;
+            const fDir = -(p.charge * sCharge) * invRSq * invR;
+            out.x += rx * fDir;
+            out.y += ry * fDir;
+            p.forceCoulomb.x += rx * fDir;
+            p.forceCoulomb.y += ry * fDir;
             // Coulomb PE: +k*q1*q2/r (k=1)
             this.potentialEnergy += p.charge * sCharge * invR * 0.5;
         }
 
         if (this.magneticEnabled) {
-            const fMagnetic = (p.charge * p.spin * sMagMoment) * invRSq * invR;
-            fTotal += fMagnetic;
+            // Dipole radial component
+            const fDir = (p.charge * p.angVel * sMagMoment) * invRSq * invRSq * invR;
+            out.x += rx * fDir;
+            out.y += ry * fDir;
+            p.forceMagnetic.x += rx * fDir;
+            p.forceMagnetic.y += ry * fDir;
+
+            // Lorentz force: F = q_test × v_test × B, where B_z = q_s * crossSV / r³
+            const Bz = sCharge * crossSV * invR * invRSq;
+            const lorentzX = p.charge * p.vel.y * Bz;
+            const lorentzY = -(p.charge * p.vel.x * Bz);
+            out.x += lorentzX;
+            out.y += lorentzY;
+            p.forceMagnetic.x += lorentzX;
+            p.forceMagnetic.y += lorentzY;
+
+            // Spin-orbit torque (EM): d(spin)/dt += (q/m) * B_z
+            if (this.spinOrbitEnabled && p.mass > 0) {
+                const emTorque = (p.charge / p.mass) * Bz;
+                p.torque += emTorque;
+                p.torqueMagnetic += emTorque;
+            }
         }
 
         if (this.gravitomagEnabled) {
-            const fGravitomag = -(p.mass * p.spin * sAngMomentum) * invRSq * invR;
-            fTotal += fGravitomag;
-        }
+            // Dipole radial component (angular velocity bounded by relativistic derivation)
+            const fDir = -(p.mass * p.angVel * sAngMomentum) * invRSq * invRSq * invR;
+            out.x += rx * fDir;
+            out.y += ry * fDir;
+            p.forceGravitomag.x += rx * fDir;
+            p.forceGravitomag.y += ry * fDir;
 
-        const fDir = fTotal * invR;
-        out.x += rx * fDir;
-        out.y += ry * fDir;
+            // Linear gravitomagnetism: opposite sign (co-moving repels)
+            const Bgz = sMass * crossSV * invR * invRSq;
+            const gmX = -(p.mass * p.vel.y * Bgz);
+            const gmY = p.mass * p.vel.x * Bgz;
+            out.x += gmX;
+            out.y += gmY;
+            p.forceGravitomag.x += gmX;
+            p.forceGravitomag.y += gmY;
+
+            // Spin-orbit torque (GM): d(spin)/dt -= Bg_z
+            if (this.spinOrbitEnabled) {
+                p.torque -= Bgz;
+                p.torqueGravitomag -= Bgz;
+            }
+        }
     }
 }

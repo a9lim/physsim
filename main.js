@@ -5,7 +5,7 @@ import Particle from './src/particle.js';
 import { setupUI } from './src/ui.js';
 import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE } from './src/config.js';
 
-import { setMomentum } from './src/relativity.js';
+import { setVelocity, spinToAngVel } from './src/relativity.js';
 
 class Simulation {
     constructor() {
@@ -62,6 +62,7 @@ class Simulation {
             speed: document.getElementById('sel-speed'),
             gamma: document.getElementById('sel-gamma'),
             force: document.getElementById('sel-force'),
+            torque: document.getElementById('sel-torque'),
         };
 
         this.init();
@@ -95,15 +96,15 @@ class Simulation {
         const relativity = this.physics.relativityEnabled;
 
         for (const p of this.particles) {
-            const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
             if (relativity) {
-                // Relativistic KE: (gamma - 1) * m * c^2, with c=1
-                const gamma = 1 / Math.sqrt(1 - Math.min(speedSq, 0.9999));
+                // Relativistic KE: (γ - 1)mc², γ = √(1 + w²)
+                const gamma = Math.sqrt(1 + p.w.magSq());
                 linearKE += (gamma - 1) * p.mass;
             } else {
+                const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
                 linearKE += 0.5 * p.mass * speedSq;
             }
-            rotationalKE += 0.5 * p.mass * p.spin * p.spin;
+            rotationalKE += 0.5 * p.mass * p.angVel * p.angVel;
         }
 
         const pe = this.physics.potentialEnergy;
@@ -140,7 +141,8 @@ class Simulation {
         p.spin = baseSpin !== 0 ? baseSpin + (Math.random() - 0.5) * baseSpin * 0.2 : 0;
 
         p.updateColor();
-        setMomentum(p, vx, vy);
+        setVelocity(p, vx, vy);
+        p.angVel = this.physics.relativityEnabled ? spinToAngVel(p.spin, p.radius) : p.spin;
         this.particles.push(p);
         this.initialEnergy = null;
         this.physics._forcesInit = false;
@@ -184,20 +186,20 @@ class Simulation {
 
         dom.section.hidden = false;
         const fmt = (v) => Math.abs(v) < 0.01 ? '0' : Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(2);
-        const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
-        const speed = Math.sqrt(speedSq);
+        const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
         const gamma = this.physics.relativityEnabled
-            ? 1 / Math.sqrt(1 - Math.min(speedSq, 0.9999))
+            ? Math.sqrt(1 + p.w.magSq())
             : 1;
         const forceMag = Math.sqrt(p.force.x * p.force.x + p.force.y * p.force.y);
 
         dom.id.textContent = p.id;
         dom.mass.textContent = fmt(p.mass);
         dom.charge.textContent = fmt(p.charge);
-        dom.spin.textContent = fmt(p.spin);
+        dom.spin.textContent = fmt(p.angVel);
         dom.speed.textContent = speed.toFixed(4) + 'c';
         dom.gamma.textContent = gamma.toFixed(3);
         dom.force.textContent = fmt(forceMag);
+        dom.torque.textContent = fmt(p.torque);
     }
 
     updateStats() {

@@ -104,6 +104,7 @@ export function setupUI(sim) {
         { id: 'magnetic-toggle', prop: 'magneticEnabled' },
         { id: 'gravitomag-toggle', prop: 'gravitomagEnabled' },
         { id: 'relativity-toggle', prop: 'relativityEnabled' },
+        { id: 'spinorbit-toggle', prop: 'spinOrbitEnabled' },
     ];
     forceToggles.forEach(({ id, prop }) => {
         const el = document.getElementById(id);
@@ -123,19 +124,21 @@ export function setupUI(sim) {
     document.getElementById('forceToggle').addEventListener('change', (e) => {
         sim.renderer.showForce = e.target.checked;
     });
+    document.getElementById('forceComponentsToggle').addEventListener('change', (e) => {
+        sim.renderer.showForceComponents = e.target.checked;
+    });
 
     // ─── Slider value displays ───
-    const sliderConfig = [
-        { id: 'massInput', display: 'massValue' },
-        { id: 'chargeInput', display: 'chargeValue' },
-        { id: 'spinInput', display: 'spinValue' },
-    ];
+    const massSlider = document.getElementById('massInput');
+    const massLabel = document.getElementById('massValue');
+    const chargeSlider = document.getElementById('chargeInput');
+    const chargeLabel = document.getElementById('chargeValue');
+    const spinSlider = document.getElementById('spinInput');
+    const spinLabel = document.getElementById('spinValue');
 
-    sliderConfig.forEach(({ id, display }) => {
-        const slider = document.getElementById(id);
-        const label = document.getElementById(display);
-        slider.addEventListener('input', () => { label.textContent = slider.value; });
-    });
+    massSlider.addEventListener('input', () => { massLabel.textContent = massSlider.value; });
+    chargeSlider.addEventListener('input', () => { chargeLabel.textContent = chargeSlider.value; });
+    spinSlider.addEventListener('input', () => { spinLabel.textContent = parseFloat(spinSlider.value).toFixed(2); });
 
     sim.dom.speedInput.addEventListener('input', () => {
         const val = parseFloat(sim.dom.speedInput.value);
@@ -214,8 +217,19 @@ export function setupUI(sim) {
             el.checked = !el.checked;
             sim.renderer.showForce = el.checked;
         }},
+        { key: 'C', label: 'Toggle force components', group: 'View', action: () => {
+            const el = document.getElementById('forceComponentsToggle');
+            el.checked = !el.checked;
+            sim.renderer.showForceComponents = el.checked;
+        }},
         { key: 'T', label: 'Toggle theme', group: 'View', action: toggleTheme },
         { key: 'S', label: 'Toggle sidebar', group: 'View', action: togglePanel },
+        { key: 'O', label: 'Toggle spin-orbit', group: 'Simulation', action: () => {
+            const el = document.getElementById('spinorbit-toggle');
+            el.checked = !el.checked;
+            sim.physics.spinOrbitEnabled = el.checked;
+            el.setAttribute('aria-checked', el.checked);
+        }},
         { key: 'Escape', label: 'Close dialogs', group: 'View', action: closePresetDialog },
     ];
 
@@ -226,12 +240,13 @@ export function setupUI(sim) {
     // ─── Info tips ───
     const infoData = {
         energy: { title: 'Energy Conservation', body: 'Total energy should remain constant in a closed system. Drift indicates numerical integration error.' },
-        spin: { title: 'Angular Momentum', body: 'Intrinsic spin of the particle. Affects magnetic and gravitomagnetic forces. Positive = counter-clockwise, negative = clockwise.' },
+        spin: { title: 'Spin', body: 'Intrinsic spin of the particle. Affects magnetic and gravitomagnetic forces. Evolves via spin-orbit coupling when enabled. Positive = counter-clockwise, negative = clockwise.' },
         gravity: { title: 'Gravity', body: 'Attractive force between all massive particles. Proportional to m\u2081m\u2082/r\u00B2. In natural units, G=1.' },
         coulomb: { title: 'Coulomb Force', body: 'Electric force between charged particles. Like charges repel, opposites attract. Proportional to q\u2081q\u2082/r\u00B2.' },
-        magnetic: { title: 'Magnetic Force', body: 'Dipole-dipole force between spinning charged particles. Proportional to (q\u2081s\u2081)(q\u2082s\u2082)/r\u00B3.' },
-        gravitomag: { title: 'Gravitomagnetic Force', body: 'Relativistic correction coupling mass and spin. Analogous to frame-dragging in general relativity. Proportional to (m\u2081s\u2081)(m\u2082s\u2082)/r\u00B3.' },
-        relativity: { title: 'Relativity', body: 'When enabled, uses relativistic momentum (p = \u03B3mv) which naturally enforces the speed-of-light limit. When off, uses classical Newtonian mechanics (p = mv).' },
+        magnetic: { title: 'Magnetic Force', body: 'Dipole-dipole force (q\u2081s\u2081)(q\u2082s\u2082)/r\u2074 plus Lorentz force from velocity-dependent magnetic fields. Moving charges create B fields that deflect other moving charges perpendicular to their velocity.' },
+        gravitomag: { title: 'Gravitomagnetic Force', body: 'Dipole force -(m\u2081s\u2081)(m\u2082s\u2082)/r\u2074 plus linear gravitomagnetism from mass currents. Co-moving masses repel via velocity-dependent fields, analogous to frame-dragging.' },
+        spinorbit: { title: 'Spin-Orbit Coupling', body: 'Magnetic and gravitomagnetic fields from moving sources exert torques on particle spin. Enables spin evolution: d(spin)/dt = (q/m)\u00B7B from EM fields, minus Bg from gravitomagnetic fields.' },
+        relativity: { title: 'Relativity', body: 'When enabled, uses proper velocity (w = \u03B3v) and derives v = w/\u221A(1+w\u00B2), naturally enforcing the speed-of-light limit. When off, v = w (classical Newtonian mechanics).' },
         interaction: { title: 'Interaction Modes', body: '<b>Place</b> \u2014 spawn a particle at rest.<br><b>Shoot</b> \u2014 drag to set velocity (drag distance \u00D7 0.1).<br><b>Orbit</b> \u2014 spawn in circular orbit around the nearest massive body.' },
         collision: { title: 'Collision Modes', body: '<b>Pass</b> \u2014 particles pass through each other.<br><b>Bounce</b> \u2014 elastic collision with spin-friction transfer.<br><b>Merge</b> \u2014 particles combine, conserving mass, charge, and momentum.' },
         boundary: { title: 'Boundary Modes', body: '<b>Despawn</b> \u2014 particles are removed when they leave the viewport.<br><b>Loop</b> \u2014 particles wrap around to the opposite side.<br><b>Bounce</b> \u2014 particles reflect off the viewport edges.' },

@@ -9,14 +9,22 @@ export default class Particle {
         this.id = Particle.nextId++;
         this.pos = new Vec2(x, y);
         this.vel = new Vec2(0, 0);
-        this.momentum = new Vec2(0, 0);
+        this.w = new Vec2(0, 0);    // proper velocity (γv, unbounded state variable)
         this.force = new Vec2(0, 0);
+        this.forceGravity = new Vec2(0, 0);
+        this.forceCoulomb = new Vec2(0, 0);
+        this.forceMagnetic = new Vec2(0, 0);
+        this.forceGravitomag = new Vec2(0, 0);
 
         this.mass = mass;
         this.charge = charge;
-        this.spin = 0;
+        this.spin = 0;      // proper angular velocity (unbounded state variable)
+        this.angVel = 0;    // angular velocity (derived, like vel from w)
+        this.torque = 0;
+        this.torqueMagnetic = 0;
+        this.torqueGravitomag = 0;
 
-        this.radius = Math.sqrt(this.mass);
+        this.radius = Math.cbrt(this.mass);
         this.color = this.getColor();
     }
 
@@ -32,7 +40,7 @@ export default class Particle {
     }
 
     updateColor() {
-        this.radius = Math.sqrt(this.mass);
+        this.radius = Math.cbrt(this.mass);
         this.color = this.getColor();
     }
 }
