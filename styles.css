@@ -82,21 +82,14 @@ body {
 #control-panel {
     top: calc(var(--inset) + var(--toolbar-h) + var(--inset));
     right: var(--inset);
-    bottom: var(--inset);
+    bottom: auto;
+    max-height: calc(100dvh - var(--toolbar-h) - var(--inset) * 3);
     max-width: calc(100vw - var(--inset) * 2);
     pointer-events: none;
 }
 
 #control-panel.open {
     pointer-events: auto;
-}
-
-/* ═══════════════════════════════════════════════
-   Panel Header — Override
-   ═══════════════════════════════════════════════ */
-
-#control-panel .stats-header {
-    padding: 0 0 6px;
 }
 
 /* ═══════════════════════════════════════════════
