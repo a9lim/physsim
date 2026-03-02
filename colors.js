@@ -4,11 +4,13 @@
    =================================================================== */
 
 // ---------- Project-specific palette keys ----------
+// Derive particle hues from extended palette colors
+const _hueOf = (hex) => Math.round(_rgb2hsl(..._parseHex(hex))[0]);
 _PALETTE.neutral   = _PALETTE.extended.slate;  // zero-charge particle fill
-_PALETTE.chargePos = 4;             // hue — positive charge (red)
-_PALETTE.chargeNeg = 197;              // hue — negative charge (blue)
-_PALETTE.spinPos   = 153;             // hue — positive spin ring (cyan)
-_PALETTE.spinNeg   = 30;              // hue — negative spin ring (orange)
+_PALETTE.chargePos = _hueOf(_PALETTE.extended.red);     // hue — positive charge
+_PALETTE.chargeNeg = _hueOf(_PALETTE.extended.blue);    // hue — negative charge
+_PALETTE.spinPos   = _hueOf(_PALETTE.extended.cyan);    // hue — positive spin ring
+_PALETTE.spinNeg   = _hueOf(_PALETTE.extended.orange);  // hue — negative spin ring
 
 Object.freeze(_PALETTE.extended);
 Object.freeze(_PALETTE.light);

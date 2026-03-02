@@ -16,6 +16,12 @@ export default class InputHandler {
         this.chargeInput = document.getElementById('chargeInput');
         this.spinInput = document.getElementById('spinInput');
 
+        // Tooltip and selection
+        this.tooltip = document.getElementById('particle-tooltip');
+        this.hoveredParticle = null;
+        this._screenX = 0;
+        this._screenY = 0;
+
         // Multi-touch state
         this._pinching = false;
         this._wasPinching = false;
@@ -43,6 +49,10 @@ export default class InputHandler {
         this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
         this.canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        this.canvas.addEventListener('mouseleave', () => {
+            this.hoveredParticle = null;
+            this.tooltip.hidden = true;
+        });
 
         // Wheel zoom via shared camera (preserves world point under cursor)
         this.sim.camera.bindWheel(this.canvas);
@@ -142,6 +152,10 @@ export default class InputHandler {
         if (e.button === 2) {
             const pos = this.getPos(e.clientX, e.clientY);
             this.sim.particles = this.sim.particles.filter(p => p.pos.dist(pos) > p.radius + 5);
+            // Deselect if selected particle was removed
+            if (this.sim.selectedParticle && !this.sim.particles.includes(this.sim.selectedParticle)) {
+                this.sim.selectedParticle = null;
+            }
             return;
         }
 
@@ -152,13 +166,54 @@ export default class InputHandler {
 
     onMouseMove(e) {
         this.currentPos = this.getPos(e.clientX, e.clientY);
+        this._screenX = e.clientX;
+        this._screenY = e.clientY;
+
+        // Hover detection for tooltip
+        const hit = this.findParticleAt(this.currentPos);
+        this.hoveredParticle = hit;
+        if (hit) {
+            const speed = Math.sqrt(hit.vel.x * hit.vel.x + hit.vel.y * hit.vel.y);
+            this.tooltip.textContent = `m=${hit.mass.toFixed(1)}  q=${hit.charge.toFixed(1)}  v=${speed.toFixed(3)}`;
+            this.tooltip.style.left = (e.clientX + 14) + 'px';
+            this.tooltip.style.top = (e.clientY - 10) + 'px';
+            this.tooltip.hidden = false;
+        } else {
+            this.tooltip.hidden = true;
+        }
     }
 
     onMouseUp(e) {
         if (!this.isDragging) return;
         this.isDragging = false;
         if (e.button !== 0) return;
-        this.spawnParticle(this.getPos(e.clientX, e.clientY));
+
+        const endPos = this.getPos(e.clientX, e.clientY);
+        const dragDist = this.dragStart.dist(endPos);
+
+        // Short click on a particle → select it instead of spawning
+        if (dragDist < 5) {
+            const hit = this.findParticleAt(endPos);
+            if (hit) {
+                this.sim.selectedParticle = hit;
+                return;
+            }
+        }
+
+        this.spawnParticle(endPos);
+    }
+
+    findParticleAt(worldPos) {
+        let best = null;
+        let bestDist = Infinity;
+        for (const p of this.sim.particles) {
+            const d = p.pos.dist(worldPos);
+            if (d < p.radius + 5 && d < bestDist) {
+                bestDist = d;
+                best = p;
+            }
+        }
+        return best;
     }
 
     spawnParticle(endPos) {

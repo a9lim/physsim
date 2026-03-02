@@ -10,6 +10,7 @@ export default class Particle {
         this.pos = new Vec2(x, y);
         this.vel = new Vec2(0, 0);
         this.momentum = new Vec2(0, 0);
+        this.force = new Vec2(0, 0);
 
         this.mass = mass;
         this.charge = charge;
