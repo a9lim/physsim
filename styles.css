@@ -63,23 +63,6 @@ body {
     min-width: 0;
 }
 
-.topbar-stats {
-    display: flex;
-    gap: var(--sp-3);
-}
-
-.stat-chip {
-    font-size: 0.78rem;
-    color: var(--text-secondary);
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-}
-
-.stat-chip span {
-    color: var(--accent);
-    font-weight: 500;
-}
-
 /* ─── Tool Button Overrides ─── */
 
 #panelClose svg {
@@ -108,23 +91,12 @@ body {
     pointer-events: auto;
 }
 
-.panel-body {
-    flex: 1;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 16px;
-    scrollbar-width: none;
-}
-
-.panel-body::-webkit-scrollbar { width: 0; }
-
 /* ═══════════════════════════════════════════════
    Panel Header — Override
    ═══════════════════════════════════════════════ */
 
 #control-panel .stats-header {
-    padding: 0 0 10px;
-    margin-bottom: var(--sp-2);
+    padding: 0 0 6px;
 }
 
 /* ═══════════════════════════════════════════════
@@ -140,6 +112,50 @@ body {
 
 .panel-section:last-of-type {
     margin-bottom: 0;
+}
+
+/* ═══════════════════════════════════════════════
+   Force Toggle Colors
+   ═══════════════════════════════════════════════ */
+.tog-gravity    { --tog-color: var(--text-secondary); }
+.tog-coulomb    { --tog-color: var(--ext-blue); }
+.tog-magnetic   { --tog-color: var(--ext-cyan); }
+.tog-gravitomag { --tog-color: var(--ext-purple); }
+.tog-relativity { --tog-color: var(--accent); }
+
+.ctrl-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+}
+
+.ctrl-row label {
+    font-size: 0.78rem;
+    color: var(--text);
+    cursor: pointer;
+}
+
+/* ═══════════════════════════════════════════════
+   Particle Tooltip & Selection
+   ═══════════════════════════════════════════════ */
+.particle-tooltip {
+    position: fixed;
+    z-index: 200;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    font: 500 0.72rem var(--font-mono);
+    color: var(--text);
+    pointer-events: none;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+#selected-particle-section .stat-value {
+    color: var(--accent);
 }
 
 /* ═══════════════════════════════════════════════
@@ -197,10 +213,6 @@ label {
         height: 32px;
     }
 
-    .topbar-stats {
-        display: none;
-    }
-
     /* Bottom sheet */
     #control-panel {
         top: auto;
@@ -218,11 +230,6 @@ label {
         transform: translateY(0);
     }
 
-    .panel-body {
-        height: auto;
-        max-height: 55vh;
-    }
-
     #hint-bar {
         bottom: var(--sp-2);
     }
@@ -237,7 +244,7 @@ label {
    ═══════════════════════════════════════════════ */
 
 @media (prefers-reduced-motion: reduce) {
-    .panel-body,
+    .tab-panels,
     #preset-dialog,
     .preset-content,
     #topbar,

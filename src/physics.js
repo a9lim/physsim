@@ -10,6 +10,19 @@ function setMomentumFromVel(p, vn, vt, nx, ny, tx, ty) {
 export default class Physics {
     constructor() {
         this.boundary = new Rect(0, 0, 0, 0);
+
+        // Force toggles (default all on)
+        this.gravityEnabled = true;
+        this.coulombEnabled = true;
+        this.magneticEnabled = true;
+        this.gravitomagEnabled = true;
+        this.relativityEnabled = true;
+
+        // Accumulated potential energy (set during force calculation)
+        this.potentialEnergy = 0;
+
+        // Track whether forces have been initialized
+        this._forcesInit = false;
     }
 
     update(particles, dt, collisionMode, boundaryMode, width, height, offX = 0, offY = 0) {
@@ -18,43 +31,74 @@ export default class Physics {
         this.boundary.w = width * 2;
         this.boundary.h = height * 2;
 
-        const qt = new QuadTree(this.boundary, QUADTREE_CAPACITY);
-        for (const p of particles) {
-            qt.insert(p);
+        const n = particles.length;
+
+        // ─── Velocity Verlet (kick-drift-kick) ───
+
+        // First frame: compute initial forces if not yet done
+        if (!this._forcesInit && n > 0) {
+            const qt0 = new QuadTree(this.boundary, QUADTREE_CAPACITY);
+            for (const p of particles) qt0.insert(p);
+            qt0.calculateMassDistribution();
+            this.potentialEnergy = 0;
+            for (const p of particles) {
+                p.force.set(0, 0);
+                this.calculateForce(p, qt0, BH_THETA, p.force);
+            }
+            this._forcesInit = true;
         }
+
+        // Step 1: Half-kick momentum with old forces
+        for (let i = 0; i < n; i++) {
+            const p = particles[i];
+            p.momentum.x += p.force.x * dt * 0.5;
+            p.momentum.y += p.force.y * dt * 0.5;
+        }
+
+        // Step 2: Derive velocity and drift positions
+        for (let i = 0; i < n; i++) {
+            const p = particles[i];
+            const invMG = this.relativityEnabled
+                ? invMassGamma(p.momentum.magSq(), p.mass)
+                : 1 / p.mass;
+
+            p.vel.x = p.momentum.x * invMG;
+            p.vel.y = p.momentum.y * invMG;
+            p.pos.x += p.vel.x * dt;
+            p.pos.y += p.vel.y * dt;
+        }
+
+        // Step 3: Rebuild QuadTree with new positions
+        const qt = new QuadTree(this.boundary, QUADTREE_CAPACITY);
+        for (const p of particles) qt.insert(p);
         qt.calculateMassDistribution();
 
+        // Step 4: Handle collisions
         if (collisionMode !== 'pass') {
             this.handleCollisions(particles, qt, collisionMode);
         }
 
-        const n = particles.length;
-
-        // Calculate all forces before integrating (avoids order-dependent updates)
-        // Reuse array across frames to reduce GC
-        if (!this._forces || this._forces.length !== n) {
-            this._forces = new Array(n);
-            for (let i = 0; i < n; i++) this._forces[i] = new Vec2();
-        }
-        for (let i = 0; i < n; i++) {
-            this._forces[i].set(0, 0);
-            this.calculateForce(particles[i], qt, BH_THETA, this._forces[i]);
+        // Step 5: Calculate new forces and accumulate PE
+        this.potentialEnergy = 0;
+        for (const p of particles) {
+            p.force.set(0, 0);
+            this.calculateForce(p, qt, BH_THETA, p.force);
         }
 
-        for (let i = n - 1; i >= 0; i--) {
+        // Step 6: Half-kick with new forces
+        for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
-            const F = this._forces[i];
+            p.momentum.x += p.force.x * dt * 0.5;
+            p.momentum.y += p.force.y * dt * 0.5;
 
-            p.momentum.x += F.x * dt;
-            p.momentum.y += F.y * dt;
+            // Re-derive velocity after second kick
+            const invMG = this.relativityEnabled
+                ? invMassGamma(p.momentum.magSq(), p.mass)
+                : 1 / p.mass;
+            p.vel.x = p.momentum.x * invMG;
+            p.vel.y = p.momentum.y * invMG;
 
-            const invMGamma = invMassGamma(p.momentum.magSq(), p.mass);
-
-            p.vel.x = p.momentum.x * invMGamma;
-            p.vel.y = p.momentum.y * invMGamma;
-            p.pos.x += p.vel.x * dt;
-            p.pos.y += p.vel.y * dt;
-
+            // Step 7: Handle boundaries
             const left = offX, top = offY;
             const right = offX + width, bottom = offY + height;
 
@@ -76,7 +120,9 @@ export default class Physics {
                 else if (p.pos.y > bottom - p.radius) { p.pos.y = bottom - p.radius; p.momentum.y *= -1; bounced = true; }
 
                 if (bounced) {
-                    const invMG = invMassGamma(p.momentum.magSq(), p.mass);
+                    const invMG = this.relativityEnabled
+                        ? invMassGamma(p.momentum.magSq(), p.mass)
+                        : 1 / p.mass;
                     p.vel.x = p.momentum.x * invMG;
                     p.vel.y = p.momentum.y * invMG;
                 }
@@ -108,7 +154,6 @@ export default class Physics {
         }
 
         if (mode === 'merge') {
-            // Filter dead particles in one pass instead of repeated splice
             let write = 0;
             for (let read = 0; read < particles.length; read++) {
                 if (particles[read].mass !== 0) {
@@ -199,38 +244,10 @@ export default class Physics {
             if (!node.divided) {
                 for (const other of node.points) {
                     if (other === particle) continue;
-
-                    const rx = other.pos.x - particle.pos.x;
-                    const ry = other.pos.y - particle.pos.y;
-                    let rSq = rx * rx + ry * ry;
-                    rSq = rSq < MIN_DIST_SQ ? MIN_DIST_SQ : rSq;
-                    const r = Math.sqrt(rSq);
-                    const invR = 1 / r;
-                    const invRSq = 1 / rSq;
-
-                    const fGravity = particle.mass * other.mass * invRSq;
-                    const fCoulomb = -(particle.charge * other.charge) * invRSq;
-                    const fMagnetic = (particle.charge * particle.spin * other.charge * other.spin) * invRSq * invR;
-                    const fGravitomag = -(particle.mass * particle.spin * other.mass * other.spin) * invRSq * invR;
-
-                    const fTotal = (fGravity + fCoulomb + fMagnetic + fGravitomag) * invR;
-                    out.x += rx * fTotal;
-                    out.y += ry * fTotal;
+                    this._pairForce(particle, other.pos.x, other.pos.y, other.mass, other.charge, other.spin, other.charge * other.spin, other.mass * other.spin, out);
                 }
             } else {
-                let rSq = dSq < MIN_DIST_SQ ? MIN_DIST_SQ : dSq;
-                const r = Math.sqrt(rSq);
-                const invR = 1 / r;
-                const invRSq = 1 / rSq;
-
-                const fGravity = particle.mass * node.totalMass * invRSq;
-                const fCoulomb = -(particle.charge * node.totalCharge) * invRSq;
-                const fMagnetic = (particle.charge * particle.spin * node.totalMagneticMoment) * invRSq * invR;
-                const fGravitomag = -(particle.mass * particle.spin * node.totalAngularMomentum) * invRSq * invR;
-
-                const fTotal = (fGravity + fCoulomb + fMagnetic + fGravitomag) * invR;
-                out.x += dx * fTotal;
-                out.y += dy * fTotal;
+                this._pairForce(particle, node.centerOfMass.x, node.centerOfMass.y, node.totalMass, node.totalCharge, 0, node.totalMagneticMoment, node.totalAngularMomentum, out);
             }
         } else if (node.divided) {
             this.calculateForce(particle, node.northwest, theta, out);
@@ -238,5 +255,49 @@ export default class Physics {
             this.calculateForce(particle, node.southwest, theta, out);
             this.calculateForce(particle, node.southeast, theta, out);
         }
+    }
+
+    /**
+     * Compute force from a source (particle or aggregate node) on a particle.
+     * Also accumulates potential energy (only half to avoid double-counting with aggregates).
+     */
+    _pairForce(p, sx, sy, sMass, sCharge, sSpin, sMagMoment, sAngMomentum, out) {
+        const rx = sx - p.pos.x;
+        const ry = sy - p.pos.y;
+        let rSq = rx * rx + ry * ry;
+        rSq = rSq < MIN_DIST_SQ ? MIN_DIST_SQ : rSq;
+        const r = Math.sqrt(rSq);
+        const invR = 1 / r;
+        const invRSq = 1 / rSq;
+
+        let fTotal = 0;
+
+        if (this.gravityEnabled) {
+            const fGravity = p.mass * sMass * invRSq;
+            fTotal += fGravity;
+            // Gravitational PE: -G*m1*m2/r (G=1)
+            this.potentialEnergy -= p.mass * sMass * invR * 0.5;
+        }
+
+        if (this.coulombEnabled) {
+            const fCoulomb = -(p.charge * sCharge) * invRSq;
+            fTotal += fCoulomb;
+            // Coulomb PE: +k*q1*q2/r (k=1)
+            this.potentialEnergy += p.charge * sCharge * invR * 0.5;
+        }
+
+        if (this.magneticEnabled) {
+            const fMagnetic = (p.charge * p.spin * sMagMoment) * invRSq * invR;
+            fTotal += fMagnetic;
+        }
+
+        if (this.gravitomagEnabled) {
+            const fGravitomag = -(p.mass * p.spin * sAngMomentum) * invRSq * invR;
+            fTotal += fGravitomag;
+        }
+
+        const fDir = fTotal * invR;
+        out.x += rx * fDir;
+        out.y += ry * fDir;
     }
 }

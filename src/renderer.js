@@ -3,6 +3,7 @@ import { MAX_TRAIL_LENGTH } from './config.js';
 const TWO_PI = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
 const _PAL = window._PALETTE;
+const _r = window._r;
 
 // Precomputed spin ring colors: [hue][isLight ? 0 : 1]
 const _spinColors = {
@@ -16,6 +17,8 @@ export default class Renderer {
         this.width = width;
         this.height = height;
         this.trails = false;
+        this.showVelocity = false;
+        this.showForce = false;
         this.isLight = false;
         this.spinAngle = 0;
         this.trailHistory = new Map();
@@ -57,6 +60,10 @@ export default class Renderer {
         ctx.globalCompositeOperation = 'source-over';
         ctx.shadowBlur = 0;
 
+        const invZoom = 1 / (camera ? camera.zoom : 1);
+        if (this.showVelocity) this.drawVelocityVectors(ctx, particles, invZoom, isLight);
+        if (this.showForce) this.drawForceVectors(ctx, particles, invZoom, isLight);
+
         // Drag line drawn in world space (dragStart/currentPos are world coords)
         if (this.input && this.input.isDragging) {
             const start = this.input.dragStart;
@@ -64,7 +71,7 @@ export default class Renderer {
             ctx.beginPath();
             ctx.moveTo(start.x, start.y);
             ctx.lineTo(end.x, end.y);
-            ctx.strokeStyle = isLight ? '#00000066' : '#ffffff80';
+            ctx.strokeStyle = isLight ? _r(_PAL.light.text, 0.4) : _r(_PAL.dark.text, 0.5);
             ctx.lineWidth = 1 / (camera ? camera.zoom : 1);
             ctx.setLineDash([5, 5]);
             ctx.stroke();
@@ -159,7 +166,7 @@ export default class Renderer {
                     ctx.shadowColor = p.color;
                 } else {
                     ctx.shadowBlur = 5;
-                    ctx.shadowColor = '#ffffff80';
+                    ctx.shadowColor = _r(_PAL.dark.text, 0.5);
                 }
             } else {
                 ctx.shadowBlur = 0;
@@ -170,6 +177,51 @@ export default class Renderer {
             if (p.spin !== 0) {
                 this.drawSpinRing(ctx, p, isLight, blendMode);
             }
+        }
+    }
+
+    drawArrow(ctx, x1, y1, x2, y2, invZoom, color) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5 * invZoom;
+        ctx.stroke();
+
+        // Arrowhead
+        const dx = x2 - x1, dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 2 * invZoom) return;
+        const nx = dx / len, ny = dy / len;
+        const headLen = 6 * invZoom;
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - nx * headLen + ny * headLen * 0.4, y2 - ny * headLen - nx * headLen * 0.4);
+        ctx.lineTo(x2 - nx * headLen - ny * headLen * 0.4, y2 - ny * headLen + nx * headLen * 0.4);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+    }
+
+    drawVelocityVectors(ctx, particles, invZoom, isLight) {
+        const scale = 40;
+        const color = isLight ? _r(_PAL.light.text, 0.5) : _r(_PAL.dark.text, 0.6);
+        for (const p of particles) {
+            const vx = p.vel.x * scale, vy = p.vel.y * scale;
+            const mag = Math.sqrt(vx * vx + vy * vy);
+            if (mag < 1 * invZoom) continue;
+            this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + vx, p.pos.y + vy, invZoom, color);
+        }
+    }
+
+    drawForceVectors(ctx, particles, invZoom, isLight) {
+        const scale = 5;
+        const color = isLight ? _r(_PAL.accent, 0.7) : _r(_PAL.accentLight, 0.8);
+        for (const p of particles) {
+            const fx = p.force.x * scale, fy = p.force.y * scale;
+            const mag = Math.sqrt(fx * fx + fy * fy);
+            if (mag < 1 * invZoom) continue;
+            this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
         }
     }
 

@@ -14,10 +14,13 @@
     <script src="/shared-touch.js"></script>
     <script src="/shared-utils.js"></script>
     <script src="/shared-camera.js"></script>
+    <script src="/shared-info.js"></script>
+    <script src="/shared-shortcuts.js"></script>
     <script src="colors.js"></script>
 </head>
 
 <body>
+    <a href="#simCanvas" class="skip-link">Skip to simulation</a>
     <div id="intro-screen">
         <div class="intro-bg"></div>
         <div class="intro-content">
@@ -75,20 +78,15 @@
 
     <canvas id="simCanvas"></canvas>
 
-    <nav id="topbar" class="sim-toolbar glass">
+    <nav id="topbar" class="sim-toolbar glass" role="toolbar" aria-label="Simulation controls">
         <div class="topbar-left">
             <a href="/" class="sim-home" title="a9l.im"><img src="/logo.svg" alt="a9l.im" height="28"></a>
             <h1 class="sim-brand">Relativistic <em>N-Body</em></h1>
-            <div class="topbar-stats">
-                <span class="stat-chip"><span id="particleCount">0</span> particles</span>
-                <span class="stat-chip"><span id="fpsCounter">0</span> fps</span>
-                <span class="stat-chip"><span id="simSpeed">20x</span></span>
-            </div>
         </div>
         <div class="topbar-right sim-toolbar-actions">
             <button id="presetBtn" class="ghost-btn">Presets</button>
             <div class="tool-sep"></div>
-            <button id="pauseBtn" class="tool-btn" title="Pause">
+            <button id="pauseBtn" class="tool-btn" title="Pause" aria-label="Pause">
                 <svg id="pauseIcon" width="18" height="18" viewBox="0 0 24 24">
                     <rect x="6" y="4" width="4" height="16"></rect>
                     <rect x="14" y="4" width="4" height="16"></rect>
@@ -97,20 +95,20 @@
                     <polygon points="5 3 19 12 5 21 5 3"></polygon>
                 </svg>
             </button>
-            <button id="stepBtn" class="tool-btn" title="Step Forward">
+            <button id="stepBtn" class="tool-btn" title="Step Forward" aria-label="Step forward">
                 <svg width="18" height="18" viewBox="0 0 24 24">
                     <polygon points="5 4 15 12 5 20 5 4"></polygon>
                     <line x1="19" y1="5" x2="19" y2="19"></line>
                 </svg>
             </button>
-            <button id="clearBtn" class="tool-btn" title="Reset">
+            <button id="clearBtn" class="tool-btn" title="Reset" aria-label="Reset simulation">
                 <svg width="18" height="18" viewBox="0 0 24 24">
                     <polyline points="1 4 1 10 7 10"></polyline>
                     <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
                 </svg>
             </button>
             <div class="tool-sep"></div>
-            <button id="themeToggleBtn" class="tool-btn" title="Toggle Theme">
+            <button id="themeToggleBtn" class="tool-btn" title="Toggle Theme" aria-label="Toggle theme">
                 <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="5"></circle>
                     <line x1="12" y1="1" x2="12" y2="3"></line>
@@ -126,7 +124,7 @@
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
                 </svg>
             </button>
-            <button id="panelToggle" class="tool-btn" title="Settings">
+            <button id="panelToggle" class="tool-btn" title="Settings" aria-label="Toggle settings panel" aria-expanded="false">
                 <svg width="18" height="18" viewBox="0 0 24 24">
                     <line x1="4" y1="6" x2="20" y2="6"></line>
                     <line x1="4" y1="12" x2="20" y2="12"></line>
@@ -136,89 +134,140 @@
         </div>
     </nav>
 
-    <aside id="control-panel" class="sim-panel glass">
+    <aside id="control-panel" class="sim-panel glass" role="complementary" aria-label="Controls panel">
         <div class="sheet-handle"></div>
-        <div class="panel-body">
-            <div class="stats-header">
-                <h2 class="stats-title">Settings</h2>
-                <button id="panelClose" class="tool-btn" title="Close" aria-label="Close panel">
-                    <svg width="16" height="16" viewBox="0 0 24 24">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                </button>
-            </div>
-            <div class="panel-section">
-                <h2 class="group-label">Particle Properties</h2>
-
-                <div class="control-group">
-                    <label>Mass <span class="slider-value" id="massValue">10</span></label>
-                    <input type="range" id="massInput" min="1" max="200" step="1" value="10">
+        <div class="stats-header">
+            <h2 class="stats-title">Controls</h2>
+            <button id="panelClose" class="tool-btn" title="Close" aria-label="Close panel">
+                <svg width="16" height="16" viewBox="0 0 24 24">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+        <div class="tabs-wrap">
+            <nav class="tab-bar" role="tablist">
+                <button class="tab-btn active" data-tab="settings" role="tab" aria-selected="true">Settings</button>
+                <button class="tab-btn" data-tab="display" role="tab" aria-selected="false">Display</button>
+                <button class="tab-btn" data-tab="stats" role="tab" aria-selected="false">Stats</button>
+            </nav>
+            <div class="tab-panels scrollbar-thin">
+                <!-- ── Settings ── -->
+                <div class="tab-panel active" id="tab-settings" role="tabpanel">
+                    <div class="panel-section">
+                        <h2 class="group-label">Particle Properties <button class="info-trigger" data-info="spin" aria-label="Angular momentum info">?</button></h2>
+                        <div class="control-group">
+                            <label>Mass <span class="slider-value" id="massValue">10</span></label>
+                            <input type="range" id="massInput" min="1" max="200" step="1" value="10">
+                        </div>
+                        <div class="control-group">
+                            <label>Charge <span class="slider-value" id="chargeValue">0</span></label>
+                            <input type="range" id="chargeInput" min="-50" max="50" step="1" value="0">
+                        </div>
+                        <div class="control-group">
+                            <label>Angular Momentum <span class="slider-value" id="spinValue">0</span></label>
+                            <input type="range" id="spinInput" min="-50" max="50" step="1" value="0">
+                        </div>
+                    </div>
+                    <div class="panel-section">
+                        <h2 class="group-label">Interaction <button class="info-trigger" data-info="interaction" aria-label="Interaction modes info">?</button></h2>
+                        <div class="control-group">
+                            <div class="mode-toggles" id="interaction-toggles">
+                                <button class="mode-btn active" data-mode="place">Place</button>
+                                <button class="mode-btn" data-mode="shoot">Shoot</button>
+                                <button class="mode-btn" data-mode="orbit">Orbit</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel-section">
+                        <h2 class="group-label">Forces</h2>
+                        <div class="ctrl-row"><label for="gravity-toggle">Gravity <button class="info-trigger" data-info="gravity" aria-label="Gravity info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="gravity-toggle" checked role="switch" aria-checked="true">
+                            <label for="gravity-toggle" class="tog tog-gravity"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="coulomb-toggle">Coulomb <button class="info-trigger" data-info="coulomb" aria-label="Coulomb info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="coulomb-toggle" checked role="switch" aria-checked="true">
+                            <label for="coulomb-toggle" class="tog tog-coulomb"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="magnetic-toggle">Magnetic <button class="info-trigger" data-info="magnetic" aria-label="Magnetic info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="magnetic-toggle" checked role="switch" aria-checked="true">
+                            <label for="magnetic-toggle" class="tog tog-magnetic"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="gravitomag-toggle">Gravitomagnetic <button class="info-trigger" data-info="gravitomag" aria-label="Gravitomagnetic info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="gravitomag-toggle" checked role="switch" aria-checked="true">
+                            <label for="gravitomag-toggle" class="tog tog-gravitomag"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="relativity-toggle">Relativity <button class="info-trigger" data-info="relativity" aria-label="Relativity info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="relativity-toggle" checked role="switch" aria-checked="true">
+                            <label for="relativity-toggle" class="tog tog-relativity"><span class="tog-thumb"></span></label></div></div>
+                    </div>
+                    <div class="panel-section">
+                        <h2 class="group-label">Physics</h2>
+                        <div class="control-group">
+                            <label>Collision Mode <button class="info-trigger" data-info="collision" aria-label="Collision modes info">?</button></label>
+                            <div class="mode-toggles" id="collision-toggles">
+                                <button class="mode-btn active" data-collision="pass">Pass</button>
+                                <button class="mode-btn" data-collision="bounce">Bounce</button>
+                                <button class="mode-btn" data-collision="merge">Merge</button>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>Boundary Mode <button class="info-trigger" data-info="boundary" aria-label="Boundary modes info">?</button></label>
+                            <div class="mode-toggles" id="boundary-toggles">
+                                <button class="mode-btn active" data-boundary="despawn">Despawn</button>
+                                <button class="mode-btn" data-boundary="loop">Loop</button>
+                                <button class="mode-btn" data-boundary="bounce">Bounce</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-
-                <div class="control-group">
-                    <label>Charge <span class="slider-value" id="chargeValue">0</span></label>
-                    <input type="range" id="chargeInput" min="-50" max="50" step="1" value="0">
+                <!-- ── Display ── -->
+                <div class="tab-panel" id="tab-display" role="tabpanel">
+                    <div class="panel-section">
+                        <h2 class="group-label">Visuals</h2>
+                        <div class="control-group">
+                            <label class="checkbox-label">Show Trails<input type="checkbox" id="trailsToggle"></label>
+                        </div>
+                        <div class="control-group">
+                            <label class="checkbox-label">Show Velocity Vectors<input type="checkbox" id="velocityToggle"></label>
+                        </div>
+                        <div class="control-group">
+                            <label class="checkbox-label">Show Force Vectors<input type="checkbox" id="forceToggle"></label>
+                        </div>
+                        <div class="control-group">
+                            <label>Sim Speed <span class="slider-value" id="speedValue">20</span>x</label>
+                            <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
+                        </div>
+                    </div>
                 </div>
-
-                <div class="control-group">
-                    <label>Angular Momentum <span class="slider-value" id="spinValue">0</span></label>
-                    <input type="range" id="spinInput" min="-50" max="50" step="1" value="0">
-                </div>
-            </div>
-
-            <div class="panel-section">
-                <h2 class="group-label">Interaction</h2>
-
-                <div class="control-group">
-                    <div class="mode-toggles" id="interaction-toggles">
-                        <button class="mode-btn active" data-mode="place">Place</button>
-                        <button class="mode-btn" data-mode="shoot">Shoot</button>
-                        <button class="mode-btn" data-mode="orbit">Orbit</button>
+                <!-- ── Stats ── -->
+                <div class="tab-panel" id="tab-stats" role="tabpanel">
+                    <div class="panel-section" aria-live="polite">
+                        <h2 class="group-label">System</h2>
+                        <div class="stat-row"><span class="stat-label">Particles</span><span class="stat-value" id="particleCount">0</span></div>
+                        <div class="stat-row"><span class="stat-label">FPS</span><span class="stat-value" id="fpsCounter">0</span></div>
+                        <div class="stat-row"><span class="stat-label">Speed</span><span class="stat-value" id="simSpeed">20x</span></div>
+                    </div>
+                    <div class="panel-section" aria-live="polite">
+                        <h2 class="group-label">Energy <button class="info-trigger" data-info="energy" aria-label="Energy info">?</button></h2>
+                        <div class="stat-row"><span class="stat-label">Linear KE</span><span class="stat-value" id="linearKE">0</span></div>
+                        <div class="stat-row"><span class="stat-label">Rotational KE</span><span class="stat-value" id="rotationalKE">0</span></div>
+                        <div class="stat-row"><span class="stat-label">Potential</span><span class="stat-value" id="potentialE">0</span></div>
+                        <div class="stat-row"><span class="stat-label">Total</span><span class="stat-value" id="totalE">0</span></div>
+                        <div class="stat-row"><span class="stat-label">Drift</span><span class="stat-value" id="energyDrift">0%</span></div>
+                    </div>
+                    <div class="panel-section" id="selected-particle-section" hidden>
+                        <h2 class="group-label">Selected Particle</h2>
+                        <div class="stat-row"><span class="stat-label">ID</span><span class="stat-value" id="sel-id">—</span></div>
+                        <div class="stat-row"><span class="stat-label">Mass</span><span class="stat-value" id="sel-mass">—</span></div>
+                        <div class="stat-row"><span class="stat-label">Charge</span><span class="stat-value" id="sel-charge">—</span></div>
+                        <div class="stat-row"><span class="stat-label">Spin</span><span class="stat-value" id="sel-spin">—</span></div>
+                        <div class="stat-row"><span class="stat-label">Speed</span><span class="stat-value" id="sel-speed">—</span></div>
+                        <div class="stat-row"><span class="stat-label">γ (gamma)</span><span class="stat-value" id="sel-gamma">—</span></div>
+                        <div class="stat-row"><span class="stat-label">|Force|</span><span class="stat-value" id="sel-force">—</span></div>
                     </div>
                 </div>
             </div>
-
-            <div class="panel-section">
-                <h2 class="group-label">Physics</h2>
-
-                <div class="control-group">
-                    <label>Collision Mode</label>
-                    <div class="mode-toggles" id="collision-toggles">
-                        <button class="mode-btn active" data-collision="pass">Pass</button>
-                        <button class="mode-btn" data-collision="bounce">Bounce</button>
-                        <button class="mode-btn" data-collision="merge">Merge</button>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <label>Boundary Mode</label>
-                    <div class="mode-toggles" id="boundary-toggles">
-                        <button class="mode-btn active" data-boundary="despawn">Despawn</button>
-                        <button class="mode-btn" data-boundary="loop">Loop</button>
-                        <button class="mode-btn" data-boundary="bounce">Bounce</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="panel-section">
-                <h2 class="group-label">Visuals</h2>
-
-                <div class="control-group">
-                    <label class="checkbox-label">
-                        Show Trails
-                        <input type="checkbox" id="trailsToggle">
-                    </label>
-                </div>
-
-                <div class="control-group">
-                    <label>Sim Speed <span class="slider-value" id="speedValue">20</span>x</label>
-                    <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
-                </div>
-            </div>
-
         </div>
     </aside>
+
+    <div id="particle-tooltip" class="particle-tooltip" hidden></div>
 
     <div id="preset-dialog" class="preset-dialog">
         <div class="preset-backdrop"></div>
@@ -280,6 +329,22 @@
         <p>Left Click to Spawn · Right Click to Remove · Scroll to Zoom</p>
     </div>
 
+    <script>
+    (function () {
+        const btns = document.querySelectorAll('.tab-btn');
+        const panels = document.querySelectorAll('.tab-panel');
+        btns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                btns.forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+                panels.forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                btn.setAttribute('aria-selected', 'true');
+                const target = document.getElementById('tab-' + btn.dataset.tab);
+                if (target) target.classList.add('active');
+            });
+        });
+    })();
+    </script>
     <script type="module" src="main.js?v=3"></script>
 </body>
 

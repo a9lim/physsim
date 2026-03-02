@@ -18,6 +18,13 @@ A high-performance, interactive physics simulation that models gravity, electrom
 - **Boundary Modes** — Despawn off-screen, toroidal wrap, or bounce off edges
 - **Presets** — Solar System, Binary Star, Galaxy, Collision, Magnetic Spin
 - **Visuals** — Particle trails, charge-based dynamic coloring, spin rings, additive glow in dark mode, light/dark theme toggle
+- **Velocity Verlet Integration** — Kick-drift-kick scheme for time-symmetric, energy-conserving integration
+- **Independent Force Toggles** — Enable/disable gravity, Coulomb, magnetic, gravitomagnetic, and relativity independently via sidebar switches
+- **Energy Conservation Display** — Real-time tracking of linear KE (relativistic or classical), rotational KE, gravitational and Coulomb PE, total energy, and drift percentage
+- **Velocity & Force Vectors** — Optional arrow overlays showing particle velocity and net force direction/magnitude
+- **Particle Inspection** — Hover for compact tooltip (mass, charge, spin, speed); click to select and see live stats in sidebar (gamma, force breakdown)
+- **Keyboard Shortcuts** — Space (pause), R (reset), `.` (step), P (presets), 1-5 (load preset), V (velocity vectors), F (force vectors), T (theme), S (sidebar); press `?` for help overlay
+- **Info Tips** — Hover `?` icons next to controls for explanations of physics concepts and simulation parameters
 - **Zoom & Pan** — Scroll to zoom
 
 ## Controls
@@ -61,14 +68,15 @@ Uses the shared design system from [a9lim.github.io](https://github.com/a9lim/a9
 
 ### Technical Details
 
-The simulation uses **relativistic Euler integration** with momentum as the primary state variable:
+The simulation uses **Velocity Verlet** (kick-drift-kick) integration with relativistic momentum as the primary state variable:
 
-1. Forces calculated via Barnes-Hut tree traversal
-2. Momentum update: **p** = **p** + **F** · dt
-3. Velocity derived: **v** = **p** / (m · γ), where γ = √(1 + p²/m²)
-4. Position update: **x** = **x** + **v** · dt
+1. Half-kick momentum with stored forces: **p** += **F** · dt/2
+2. Derive velocity: **v** = **p** / (m · γ), where γ = √(1 + p²/m²)
+3. Drift position: **x** += **v** · dt
+4. Recalculate forces via Barnes-Hut tree traversal
+5. Half-kick momentum with new forces: **p** += **F** · dt/2
 
-Natural units (c = 1, G = 1) throughout. The momentum-based approach provides inherent stability — high-energy interactions cannot produce superluminal velocities.
+Natural units (c = 1, G = 1) throughout. The momentum-based approach provides inherent stability — high-energy interactions cannot produce superluminal velocities. Velocity Verlet is time-symmetric and energy-conserving, producing significantly lower energy drift than forward Euler.
 
 ## Sibling Projects
 

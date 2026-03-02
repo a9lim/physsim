@@ -46,6 +46,8 @@ index.html
 
 - **Natural units**: c=1, G=1 throughout the physics engine. All equations use these conventions.
 - **Momentum-based integration**: Physics uses relativistic momentum (not velocity) as the primary state variable. Velocity is derived via Lorentz factor: `v = p / (m * gamma)` where `gamma = sqrt(1 + p²/m²)`. This naturally enforces the speed-of-light limit.
+- **Velocity Verlet integration**: Kick-drift-kick scheme for time-symmetric, energy-conserving integration. Each step: half-kick momentum (old forces) → drift position → recalculate forces → half-kick momentum (new forces). Stored forces in `particle.force` Vec2.
+- **Force gating**: Each force type (gravity, Coulomb, magnetic, gravitomagnetic) can be independently toggled via `Physics` boolean flags. Relativity toggle switches between relativistic (`invMassGamma`) and classical (`1/mass`) momentum-velocity conversion.
 - **Barnes-Hut approximation**: QuadTree stores aggregate mass, charge, spin, and center-of-mass per node. `BH_THETA` (0.5) controls accuracy vs. performance tradeoff.
 - **Softening parameter**: `MIN_DIST_SQ` (25) prevents force singularities at close range. Other named constants: `BOUNCE_FRICTION` (0.4), `DESPAWN_MARGIN` (100).
 - **Zoom range**: Clamped to 1x–3x in all input paths (mouse wheel, pinch-to-zoom, and zoom buttons).
@@ -57,10 +59,17 @@ index.html
 - Trail history: up to 200 positions per particle, stored as circular buffers (`{ data: Float32Array, len, start }`) in a Map keyed by particle ID.
 - Spin ring colors are precomputed at module scope (`_spinColors`) — 4 hsla strings (2 hues × 2 themes).
 - Particle color is computed from `_PALETTE` charge hues (`chargePos=201` blue, `chargeNeg=7` red, `neutral` from `extended.slate`) with dynamic HSL saturation/lightness based on charge magnitude.
+- **Velocity vectors**: Optional white arrows from particle center in velocity direction, scaled by speed.
+- **Force vectors**: Optional accent-colored arrows from particle center in force direction, scaled by magnitude.
+- **Particle tooltip**: Hover over particles shows compact stats (mass, charge, spin, speed). Click to select and display live stats in a sidebar section (mass, charge, spin, speed, gamma, total force).
+
+### Energy Conservation
+
+Energy stats computed per frame: linear KE (relativistic `(γ-1)mc²` or classical `½mv²`), rotational KE (`½m·spin²`), gravitational PE (`-Gm₁m₂/r`), Coulomb PE (`kq₁q₂/r`). Total energy and drift percentage displayed in sidebar.
 
 ### Force Types
 
-Four force types per particle pair: gravitational, Coulomb (electrostatic), magnetic dipole-dipole, and gravitomagnetic correction. All are inverse-square with different coupling constants.
+Four force types per particle pair: gravitational, Coulomb (electrostatic), magnetic dipole-dipole, and gravitomagnetic correction. All are inverse-square with different coupling constants. Each can be independently toggled on/off via sidebar checkboxes.
 
 ### Collision Modes
 
@@ -111,6 +120,11 @@ JS modules alias as `const _PAL = window._PALETTE`.
 - Physics hot path avoids allocations: `calculateForce()` accumulates into an `out` Vec2 parameter; force array is reused across frames.
 - DOM elements cached in `Simulation.dom`; UI mode state tracked in JS variables — no per-frame DOM queries.
 - `InputHandler` caches DOM refs (`massInput`, `chargeInput`, `spinInput`) and tracks `mode` state directly — no per-spawn DOM queries.
+
+### Keyboard Shortcuts & Info Tips
+
+- **Shortcuts** via `initShortcuts()` from `shared-shortcuts.js`: Space (pause), R (reset), `.` (step), P (presets), 1-5 (load preset), V (velocity vectors), F (force vectors), T (theme), S (sidebar), Esc (close/deselect).
+- **Info tips** via `createInfoTip()` from `shared-info.js`: `?` buttons next to Energy, Particle Properties, each force toggle, Interaction mode, Collision mode, Boundary mode. Data defined inline in `ui.js`.
 
 ### CSS Patterns
 
