@@ -147,6 +147,20 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
+.stat-sub {
+    padding-left: 20px;
+}
+
+.stat-sub .stat-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.stat-sub .stat-value {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
 #selected-particle-section .stat-value {
     color: var(--accent);
 }

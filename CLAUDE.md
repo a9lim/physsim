@@ -63,15 +63,15 @@ index.html
 - **Force vectors**: Optional accent-colored arrows from particle center in net force direction, scaled by magnitude.
 - **Force component vectors**: Optional per-force-type arrows (gravity=slate, Coulomb=blue, magnetic=cyan, gravitomagnetic=purple) showing individual force contributions. Each particle stores `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag` Vec2s accumulated during force calculation.
 - **Torque arcs**: Curved arrows around particles showing spin-orbit torque. Displayed when force vectors or force components are toggled on. Net torque uses accent color; component mode shows magnetic (cyan) and gravitomagnetic (purple) torques separately at opposite angular offsets. Each particle stores `torqueMagnetic` and `torqueGravitomag` scalars.
-- **Particle tooltip**: Hover over particles shows compact stats (mass, charge, spin, speed). Click to select and display live stats in a sidebar section (mass, charge, spin, speed, gamma, total force, torque).
+- **Particle tooltip**: Hover over particles shows compact stats (mass, charge, spin, speed). Click to select and display live stats in a sidebar section (mass, charge, spin as surface velocity in units of c, speed in c, gamma, total force, torque).
 
 ### Energy Conservation
 
-Energy stats computed per frame: linear KE (relativistic `(γ-1)mc²` or classical `½mv²`), rotational KE (relativistic `m(√(1+L²/m²)-1)` where `L=I·S` or classical `½Iω²`, using `I = (2/5)mr²` uniform-density solid sphere via `INERTIA_K`), gravitational PE (`-Gm₁m₂/r`), Coulomb PE (`kq₁q₂/r`), magnetic dipole PE (`+(μ₁μ₂)/r³` with `μ=⅕qωr²`, aligned repels), gravitomagnetic dipole PE (`-(L₁L₂)/r³` with `L=Iω`, co-rotating attracts). All PE computed with Plummer-softened r = √(r²+ε²). Total energy and drift percentage displayed in sidebar.
+Energy stats computed per frame in the sidebar Energy section. Total energy (top-level row) = Linear KE + Spin KE + Potential, with each component and drift shown as indented sub-rows (`.stat-sub`). Linear KE: relativistic `(γ-1)mc²` or classical `½mv²`. Spin KE: relativistic `m(√(1+L²/m²)-1)` where `L=I·S` or classical `½Iω²`, using `I = (2/5)mr²` uniform-density solid sphere via `INERTIA_K`. Potential: gravitational PE (`-Gm₁m₂/r`), Coulomb PE (`kq₁q₂/r`), magnetic dipole PE (`+(μ₁μ₂)/r³` with `μ=⅕qωr²`, aligned repels), gravitomagnetic dipole PE (`-(L₁L₂)/r³` with `L=Iω`, co-rotating attracts). All PE computed with Plummer-softened r = √(r²+ε²). Drift is percentage change from initial total energy.
 
 ### Conserved Quantities
 
-Momentum and angular momentum stats computed per frame. Momentum is `|Σ(mᵢwᵢ)|` (magnitude of total relativistic proper momentum). Angular momentum is computed about the center of mass: orbital `Σ(rᵢ × mᵢwᵢ)` plus spin `Σ(IᵢSᵢ)` where `I = (2/5)mr²`. Both are conserved in closed systems with no external forces. Turning off Barnes-Hut improves conservation by ensuring exact Newton's 3rd law symmetry.
+Momentum and angular momentum stats computed per frame in the sidebar Conserved Quantities section. Momentum is `|Σ(mᵢwᵢ)|` (magnitude of total relativistic proper momentum), with drift sub-row showing percentage change from initial value. Angular momentum is computed about the center of mass with orbital `Σ(rᵢ × mᵢwᵢ)` and spin `Σ(IᵢSᵢ)` shown as separate sub-rows, plus a drift sub-row. `I = (2/5)mr²`. All three quantities (energy, momentum, angular momentum) are conserved in closed systems. Turning off Barnes-Hut improves conservation by ensuring exact Newton's 3rd law symmetry. Initial values for drift tracking reset when particles are added or the simulation is cleared.
 
 ### Sign Conventions (IMPORTANT)
 
@@ -132,6 +132,7 @@ JS modules alias as `const _PAL = window._PALETTE`.
 
 - Spacing tokens (`--sp-*`, `--inset`) — physsim-specific layout system
 - `.panel-section` (has flex layout beyond basic margin)
+- `.stat-sub` — indented stat sub-rows (smaller/muted text) for energy components under Total, angular momentum orbital/spin split, and drift values
 - Global `label` styling (can't share without conflicts)
 - Form controls (moved from shared-base.css): `.slider-value`, `input[type=range]` (WebKit + Moz), `.mode-toggles`/`.mode-btn`, `.checkbox-label`/`input[type="checkbox"]`, `.ghost-btn`
 - Preset dialog (moved from shared-base.css): `.preset-dialog`, `.preset-backdrop`, `.preset-content`, `.preset-title`, `.preset-grid`, `.preset-card`, `.preset-name`, `.preset-desc` (with 600px/440px responsive overrides)

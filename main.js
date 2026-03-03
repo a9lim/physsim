@@ -40,18 +40,24 @@ class Simulation {
             simSpeed: document.getElementById('simSpeed'),
             speedInput: document.getElementById('speedInput'),
             linearKE: document.getElementById('linearKE'),
-            rotationalKE: document.getElementById('rotationalKE'),
+            spinKE: document.getElementById('spinKE'),
             potentialE: document.getElementById('potentialE'),
             totalE: document.getElementById('totalE'),
             energyDrift: document.getElementById('energyDrift'),
             momentum: document.getElementById('momentum'),
+            momentumDrift: document.getElementById('momentumDrift'),
             angularMomentum: document.getElementById('angularMomentum'),
+            orbitalAngMom: document.getElementById('orbitalAngMom'),
+            spinAngMom: document.getElementById('spinAngMom'),
+            angMomDrift: document.getElementById('angMomDrift'),
         };
 
         this.collisionMode = 'pass';
         this.boundaryMode = 'despawn';
         this.speedScale = DEFAULT_SPEED_SCALE;
         this.initialEnergy = null;
+        this.initialMomentum = null;
+        this.initialAngMom = null;
         this.selectedParticle = null;
 
         // Selected particle DOM refs
@@ -94,28 +100,27 @@ class Simulation {
 
     computeEnergy() {
         let linearKE = 0;
-        let rotationalKE = 0;
+        let spinKE = 0;
         let totalMass = 0;
         let comX = 0, comY = 0;
         let px = 0, py = 0;
         const relativity = this.physics.relativityEnabled;
 
-        // First pass: energy, momentum, COM
+        // First pass: linear KE, spin KE, momentum, COM
         for (const p of this.particles) {
+            const rSq = p.radius * p.radius;
             if (relativity) {
                 // Relativistic linear KE: (γ - 1)mc², γ = √(1 + w²)
                 const gamma = Math.sqrt(1 + p.w.magSq());
                 linearKE += (gamma - 1) * p.mass;
-                // Relativistic rotational KE: E = m·(√(1 + L²/m²) - 1), L = I·S
-                const rSq = p.radius * p.radius;
+                // Relativistic spin KE: E = m·(√(1 + L²/m²) - 1), L = I·S
                 const L = INERTIA_K * p.mass * rSq * p.spin;
-                rotationalKE += (Math.sqrt(1 + L * L / (p.mass * p.mass)) - 1) * p.mass;
+                spinKE += (Math.sqrt(1 + L * L / (p.mass * p.mass)) - 1) * p.mass;
             } else {
                 const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
                 linearKE += 0.5 * p.mass * speedSq;
-                // Classical rotational KE: ½Iω² with I = INERTIA_K·m·r²
-                const rSq = p.radius * p.radius;
-                rotationalKE += 0.5 * INERTIA_K * p.mass * rSq * p.angVel * p.angVel;
+                // Classical spin KE: ½Iω² with I = INERTIA_K·m·r²
+                spinKE += 0.5 * INERTIA_K * p.mass * rSq * p.angVel * p.angVel;
             }
 
             // Relativistic momentum: p = mw; classical: p = mv (w = v when relativity off)
@@ -131,42 +136,58 @@ class Simulation {
         // Momentum magnitude
         const pMag = Math.sqrt(px * px + py * py);
 
-        // Angular momentum about COM: L = Σ (r_i - r_com) × (m_i w_i) + Σ m_i r_i² S_i
-        let angMom = 0;
+        // Second pass: orbital + spin angular momentum about COM
+        let orbitalAngMom = 0;
+        let spinAngMom = 0;
         if (totalMass > 0) {
             comX /= totalMass;
             comY /= totalMass;
+
             for (const p of this.particles) {
                 const dx = p.pos.x - comX;
                 const dy = p.pos.y - comY;
-                // Orbital: (r × p)_z = dx * py - dy * px
-                angMom += dx * (p.mass * p.w.y) - dy * (p.mass * p.w.x);
-                // Spin: I * S = INERTIA_K * m * r² * spin (proper angular momentum)
-                angMom += INERTIA_K * p.mass * p.radius * p.radius * p.spin;
+                // Orbital angular momentum: (r × p)_z about COM
+                orbitalAngMom += dx * (p.mass * p.w.y) - dy * (p.mass * p.w.x);
+                // Spin angular momentum: I * S = INERTIA_K * m * r² * spin
+                spinAngMom += INERTIA_K * p.mass * p.radius * p.radius * p.spin;
             }
         }
 
+        const angMom = orbitalAngMom + spinAngMom;
         const pe = this.physics.potentialEnergy;
-        const total = linearKE + rotationalKE + pe;
+        const total = linearKE + spinKE + pe;
 
         if (this.initialEnergy === null && this.particles.length > 0) {
             this.initialEnergy = total;
+            this.initialMomentum = pMag;
+            this.initialAngMom = angMom;
         }
 
-        const drift = this.initialEnergy !== null && this.initialEnergy !== 0
+        const eDrift = this.initialEnergy !== null && this.initialEnergy !== 0
             ? ((total - this.initialEnergy) / Math.abs(this.initialEnergy) * 100)
+            : 0;
+        const pDrift = this.initialMomentum !== null && this.initialMomentum !== 0
+            ? ((pMag - this.initialMomentum) / Math.abs(this.initialMomentum) * 100)
+            : 0;
+        const aDrift = this.initialAngMom !== null && this.initialAngMom !== 0
+            ? ((angMom - this.initialAngMom) / Math.abs(this.initialAngMom) * 100)
             : 0;
 
         // Format numbers
         const fmt = (v) => Math.abs(v) < 0.01 ? '0' : Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(1);
+        const fmtDrift = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
 
         this.dom.linearKE.textContent = fmt(linearKE);
-        this.dom.rotationalKE.textContent = fmt(rotationalKE);
+        this.dom.spinKE.textContent = fmt(spinKE);
         this.dom.potentialE.textContent = fmt(pe);
         this.dom.totalE.textContent = fmt(total);
-        this.dom.energyDrift.textContent = (drift >= 0 ? '+' : '') + drift.toFixed(2) + '%';
+        this.dom.energyDrift.textContent = fmtDrift(eDrift);
         this.dom.momentum.textContent = fmt(pMag);
+        this.dom.momentumDrift.textContent = fmtDrift(pDrift);
         this.dom.angularMomentum.textContent = fmt(angMom);
+        this.dom.orbitalAngMom.textContent = fmt(orbitalAngMom);
+        this.dom.spinAngMom.textContent = fmt(spinAngMom);
+        this.dom.angMomDrift.textContent = fmtDrift(aDrift);
     }
 
     addParticle(x, y, vx, vy, options = {}) {
@@ -191,6 +212,8 @@ class Simulation {
         p.angVel = this.physics.relativityEnabled ? spinToAngVel(p.spin, p.radius) : p.spin;
         this.particles.push(p);
         this.initialEnergy = null;
+        this.initialMomentum = null;
+        this.initialAngMom = null;
         this.physics._forcesInit = false;
     }
 
@@ -244,7 +267,8 @@ class Simulation {
         dom.id.textContent = p.id;
         dom.mass.textContent = fmt(p.mass);
         dom.charge.textContent = fmt(p.charge);
-        dom.spin.textContent = fmt(p.angVel);
+        const surfaceV = p.angVel * p.radius;
+        dom.spin.textContent = surfaceV.toFixed(4) + 'c';
         dom.speed.textContent = speed.toFixed(4) + 'c';
         dom.gamma.textContent = gamma.toFixed(3);
         dom.force.textContent = fmt(forceMag);

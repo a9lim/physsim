@@ -259,16 +259,20 @@
                     </div>
                     <div class="panel-section" aria-live="polite">
                         <h2 class="group-label">Energy <button class="info-trigger" data-info="energy" aria-label="Energy info">?</button></h2>
-                        <div class="stat-row"><span class="stat-label">Linear KE</span><span class="stat-value" id="linearKE">0</span></div>
-                        <div class="stat-row"><span class="stat-label">Rotational KE</span><span class="stat-value" id="rotationalKE">0</span></div>
-                        <div class="stat-row"><span class="stat-label">Potential</span><span class="stat-value" id="potentialE">0</span></div>
                         <div class="stat-row"><span class="stat-label">Total</span><span class="stat-value" id="totalE">0</span></div>
-                        <div class="stat-row"><span class="stat-label">Drift</span><span class="stat-value" id="energyDrift">0%</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Linear KE</span><span class="stat-value" id="linearKE">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Spin KE</span><span class="stat-value" id="spinKE">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Potential</span><span class="stat-value" id="potentialE">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="energyDrift">+0.00%</span></div>
                     </div>
                     <div class="panel-section" aria-live="polite">
                         <h2 class="group-label">Conserved Quantities <button class="info-trigger" data-info="conserved" aria-label="Conserved quantities info">?</button></h2>
                         <div class="stat-row"><span class="stat-label">Momentum</span><span class="stat-value" id="momentum">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="momentumDrift">+0.00%</span></div>
                         <div class="stat-row"><span class="stat-label">Angular Mom.</span><span class="stat-value" id="angularMomentum">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Orbital</span><span class="stat-value" id="orbitalAngMom">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Spin</span><span class="stat-value" id="spinAngMom">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="angMomDrift">+0.00%</span></div>
                     </div>
                     <div class="panel-section" id="selected-particle-section" hidden>
                         <h2 class="group-label">Selected Particle</h2>

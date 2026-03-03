@@ -63,6 +63,8 @@ export function setupUI(sim) {
     document.getElementById('clearBtn').addEventListener('click', () => {
         sim.particles = [];
         sim.initialEnergy = null;
+        sim.initialMomentum = null;
+        sim.initialAngMom = null;
         sim.selectedParticle = null;
         sim.physics._forcesInit = false;
         sim.camera.reset(sim.width / 2, sim.height / 2, 1);
@@ -246,8 +248,8 @@ export function setupUI(sim) {
 
     // ─── Info tips ───
     const infoData = {
-        energy: { title: 'Energy Conservation', body: 'Total energy should remain constant in a closed system. Drift indicates numerical integration error. Rotational KE uses I = (2/5)mr\u00B2 (uniform-density solid sphere).' },
-        conserved: { title: 'Conserved Quantities', body: 'Momentum is the magnitude of total relativistic momentum \u03A3(m\u1D62w\u1D62). Angular momentum is computed about the center of mass: orbital \u03A3(r\u1D62 \u00D7 m\u1D62w\u1D62) plus spin \u03A3(I\u1D62S\u1D62) where I = (2/5)mr\u00B2. Both are conserved in closed systems with no external forces.' },
+        energy: { title: 'Energy Conservation', body: 'Total energy = Linear KE + Spin KE + Potential. Drift indicates numerical integration error. Spin KE uses I = (2/5)mr\u00B2 (uniform-density solid sphere).' },
+        conserved: { title: 'Conserved Quantities', body: 'Momentum is the magnitude of total relativistic momentum \u03A3(m\u1D62w\u1D62). Angular momentum about the center of mass splits into orbital \u03A3(r\u1D62 \u00D7 m\u1D62w\u1D62) and spin \u03A3(I\u1D62S\u1D62) where I = (2/5)mr\u00B2. The total is conserved in closed systems.' },
         spin: { title: 'Spin', body: 'Intrinsic spin of the particle. Affects magnetic and gravitomagnetic forces. Evolves via spin-orbit coupling when enabled. Positive = counter-clockwise, negative = clockwise.' },
         gravity: { title: 'Gravity', body: 'Attractive force between all massive particles. Proportional to m\u2081m\u2082/r\u00B2. In natural units, G=1.' },
         coulomb: { title: 'Coulomb Force', body: 'Electric force between charged particles. Like charges repel, opposites attract. Proportional to q\u2081q\u2082/r\u00B2.' },
