@@ -1,6 +1,7 @@
 import Vec2 from './vec2.js';
 import QuadTree, { Rect } from './quadtree.js';
-import { BH_THETA, QUADTREE_CAPACITY, SOFTENING_SQ, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K } from './config.js';
+import { BH_THETA, QUADTREE_CAPACITY, SOFTENING_SQ, SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, HISTORY_SIZE } from './config.js';
+import Photon from './photon.js';
 import { setVelocity, spinToAngVel } from './relativity.js';
 
 function setVelocityFromVel(p, vn, vt, nx, ny, tx, ty) {
@@ -19,6 +20,12 @@ export default class Physics {
         this.relativityEnabled = true;
         this.barnesHutEnabled = false;
         this.bounceFriction = 0.4;
+        this.radiationEnabled = false;
+        this.tidalEnabled = false;
+        this.retardedEnabled = false;
+
+        this.sim = null; // set externally by Simulation
+        this.simTime = 0; // accumulated simulation time for history
 
         // Accumulated potential energy (set during force calculation)
         this.potentialEnergy = 0;
@@ -36,13 +43,16 @@ export default class Physics {
         const n = particles.length;
         const relOn = this.relativityEnabled;
 
-        // ─── Boris Integrator ───
+        // ─── Boris Integrator with Adaptive Substepping ───
         // Separates position-dependent (E-like) forces from velocity-dependent
         // (B-like) forces. The Boris rotation exactly preserves |v|, giving
         // superior long-term stability for magnetic/gravitomagnetic interactions.
         //
-        // Steps: compute forces+fields → half-kick(E) → Boris rotate(B) →
-        //        half-kick(E) → drift → rebuild tree → collisions → new forces
+        // Steps per sub-step: half-kick(E) → Boris rotate(B) → half-kick(E) →
+        //        drift → rebuild tree → collisions → new forces+fields
+        //
+        // Substep count is determined by max acceleration: dt_safe = √(ε / a_max),
+        // nSteps = ceil(dt / dt_safe), capped at MAX_SUBSTEPS.
 
         // First frame: compute initial forces + B fields if not yet done
         if (!this._forcesInit && n > 0) {
@@ -55,94 +65,182 @@ export default class Physics {
             this._forcesInit = true;
         }
 
-        // Step 1: Half-kick proper velocity with position-dependent (E-like) forces
+        // ─── Determine substep count from max acceleration ───
+        let maxAccelSq = 0;
         for (let i = 0; i < n; i++) {
             const p = particles[i];
-            const halfDtOverM = dt * 0.5 / p.mass;
-            p.w.x += p.force.x * halfDtOverM;
-            p.w.y += p.force.y * halfDtOverM;
+            const aSq = p.force.magSq() / (p.mass * p.mass);
+            if (aSq > maxAccelSq) maxAccelSq = aSq;
         }
+        const aMax = Math.sqrt(maxAccelSq);
+        const dtSafe = aMax > 0 ? Math.sqrt(SOFTENING / aMax) : dt;
+        const nSteps = Math.min(Math.ceil(dt / dtSafe), MAX_SUBSTEPS);
+        const dtSub = dt / nSteps;
 
-        // Step 2: Boris rotation for velocity-dependent (B-like) forces
-        // Handles EM Lorentz and linear gravitomagnetism exactly.
-        // In 2D with fields along z, the rotation is in the xy-plane.
-        //
-        // EM Lorentz: F = q·Bz·(vy, -vx) → dw/dt = (q/m)·Bz/γ · (wy, -wx)
-        // Linear GM:  F = 4m·Bgz·(vy, -vx) → dw/dt = 4·Bgz/γ · (wy, -wx)
-        //
-        // Combined rotation parameter: t = ((q/(2m))·Bz + 2·Bgz) · dt / γ⁻
-        // where γ⁻ = √(1 + |w⁻|²) after the first half-kick.
-        // s = 2t / (1 + t²)
-        // w' = w⁻ + w⁻ × t̂  →  w'x = wx + wy·t,  w'y = wy − wx·t
-        // w⁺ = w⁻ + w' × ŝ  →  w⁺x = wx + w'y·s,  w⁺y = wy − w'x·s
         const hasMagnetic = this.magneticEnabled;
         const hasGM = this.gravitomagEnabled;
-        if (hasMagnetic || hasGM) {
+
+        for (let step = 0; step < nSteps; step++) {
+            // Step 1: Half-kick proper velocity with position-dependent (E-like) forces
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
-                const gamma = relOn ? Math.sqrt(1 + p.w.magSq()) : 1;
-
-                // Combined rotation parameter from EM and GM fields
-                let t = 0;
-                if (hasMagnetic) t += (p.charge / (2 * p.mass)) * p.Bz;
-                if (hasGM) t += 2 * p.Bgz;
-                t *= dt / gamma;
-
-                if (t === 0) continue;
-
-                const s = 2 * t / (1 + t * t);
-                const wx = p.w.x, wy = p.w.y;
-
-                // w' = w⁻ + w⁻ × t̂  (2D: rotation in xy-plane)
-                const wpx = wx + wy * t;
-                const wpy = wy - wx * t;
-
-                // w⁺ = w⁻ + w' × ŝ
-                p.w.x = wx + wpy * s;
-                p.w.y = wy - wpx * s;
+                const halfDtOverM = dtSub * 0.5 / p.mass;
+                p.w.x += p.force.x * halfDtOverM;
+                p.w.y += p.force.y * halfDtOverM;
             }
+
+            // Step 2: Boris rotation for velocity-dependent (B-like) forces
+            // Handles EM Lorentz and linear gravitomagnetism exactly.
+            // Combined rotation parameter: t = ((q/(2m))·Bz + 2·Bgz) · dtSub / γ⁻
+            // s = 2t / (1 + t²)
+            if (hasMagnetic || hasGM) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    const gamma = relOn ? Math.sqrt(1 + p.w.magSq()) : 1;
+
+                    let t = 0;
+                    if (hasMagnetic) t += (p.charge / (2 * p.mass)) * p.Bz;
+                    if (hasGM) t += 2 * p.Bgz;
+                    t *= dtSub / gamma;
+
+                    if (t === 0) continue;
+
+                    const s = 2 * t / (1 + t * t);
+                    const wx = p.w.x, wy = p.w.y;
+
+                    const wpx = wx + wy * t;
+                    const wpy = wy - wx * t;
+
+                    p.w.x = wx + wpy * s;
+                    p.w.y = wy - wpx * s;
+                }
+            }
+
+            // Step 3: Second half-kick with same E-like forces
+            for (let i = 0; i < n; i++) {
+                const p = particles[i];
+                const halfDtOverM = dtSub * 0.5 / p.mass;
+                p.w.x += p.force.x * halfDtOverM;
+                p.w.y += p.force.y * halfDtOverM;
+            }
+
+            // Spin-orbit coupling: dE_spin/dt = -μ · (v · ∇B_z)
+            if (hasMagnetic && relOn) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
+                    const pRSq = p.radius * p.radius;
+                    const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+                    const vDotGradB = p.vel.x * p.dBzdx + p.vel.y * p.dBzdy;
+                    const dEspin = -mu * vDotGradB * dtSub;
+                    const I = INERTIA_K * p.mass * pRSq;
+                    if (Math.abs(I * p.angVel) > 1e-10) {
+                        p.spin += dEspin / (I * p.angVel);
+                        // Re-derive angVel from spin
+                        const sr = p.spin * p.radius;
+                        p.angVel = p.spin / Math.sqrt(1 + sr * sr);
+                    }
+                }
+            }
+
+            // Larmor radiation: accelerating charges radiate energy
+            if (this.radiationEnabled && this.sim) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (Math.abs(p.charge) < 1e-10) continue;
+                    const ax = p.force.x / p.mass;
+                    const ay = p.force.y / p.mass;
+                    const aSq = ax * ax + ay * ay;
+                    if (aSq < 1e-20) continue;
+                    const gamma = relOn ? Math.sqrt(1 + p.w.x * p.w.x + p.w.y * p.w.y) : 1;
+                    const P = LARMOR_K * p.charge * p.charge * aSq;
+                    const dE = relOn ? P * dtSub / (gamma * gamma * gamma) : P * dtSub;
+
+                    if (dE > 0) {
+                        // Reduce |w| to drain kinetic energy
+                        const wMag = Math.sqrt(p.w.x * p.w.x + p.w.y * p.w.y);
+                        if (wMag > 1e-10) {
+                            if (relOn) {
+                                const KE = (gamma - 1) * p.mass;
+                                const newKE = Math.max(0, KE - dE);
+                                const newGamma = newKE / p.mass + 1;
+                                const newWSq = newGamma * newGamma - 1;
+                                const newWMag = Math.sqrt(Math.max(0, newWSq));
+                                const scale = newWMag / wMag;
+                                p.w.x *= scale;
+                                p.w.y *= scale;
+                            } else {
+                                // Classical: KE = ½mv², reduce speed
+                                const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
+                                const KE = 0.5 * p.mass * speedSq;
+                                const newKE = Math.max(0, KE - dE);
+                                const newSpeed = Math.sqrt(2 * newKE / p.mass);
+                                const speed = Math.sqrt(speedSq);
+                                if (speed > 1e-10) {
+                                    const scale = newSpeed / speed;
+                                    p.w.x *= scale;
+                                    p.w.y *= scale;
+                                }
+                            }
+                        }
+                        this.sim.totalRadiated += dE;
+
+                        // Spawn photon if energy exceeds threshold
+                        if (dE > RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
+                            const angle = Math.atan2(ay, ax) + Math.PI + (Math.random() - 0.5) * 1.0;
+                            this.sim.photons.push(new Photon(
+                                p.pos.x, p.pos.y,
+                                Math.cos(angle), Math.sin(angle),
+                                dE
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Step 4: Derive velocity and angular velocity, drift positions
+            for (let i = 0; i < n; i++) {
+                const p = particles[i];
+                const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
+                p.vel.x = p.w.x * invG;
+                p.vel.y = p.w.y * invG;
+                p.angVel = relOn ? spinToAngVel(p.spin, p.radius) : p.spin;
+                p.pos.x += p.vel.x * dtSub;
+                p.pos.y += p.vel.y * dtSub;
+
+                // Record history for retarded potentials
+                if (this.retardedEnabled) {
+                    const h = p.histHead;
+                    p.histX[h] = p.pos.x;
+                    p.histY[h] = p.pos.y;
+                    p.histVx[h] = p.vel.x;
+                    p.histVy[h] = p.vel.y;
+                    p.histTime[h] = this.simTime;
+                    p.histHead = (h + 1) % HISTORY_SIZE;
+                    if (p.histCount < HISTORY_SIZE) p.histCount++;
+                }
+            }
+            this.simTime += dtSub;
+
+            // Step 5: Rebuild QuadTree with new positions
+            const qt = new QuadTree(this.boundary, QUADTREE_CAPACITY);
+            for (const p of particles) qt.insert(p);
+            qt.calculateMassDistribution();
+
+            // Step 6: Handle collisions
+            if (collisionMode !== 'pass') {
+                this.handleCollisions(particles, qt, collisionMode);
+            }
+
+            // Step 7: Calculate new forces, B fields, and accumulate PE
+            this.potentialEnergy = 0;
+            this._resetForces(particles);
+            this._computeAllForces(particles, qt);
         }
 
-        // Step 3: Second half-kick with same E-like forces
-        for (let i = 0; i < n; i++) {
-            const p = particles[i];
-            const halfDtOverM = dt * 0.5 / p.mass;
-            p.w.x += p.force.x * halfDtOverM;
-            p.w.y += p.force.y * halfDtOverM;
-        }
-
-        // Step 4: Derive velocity and angular velocity, drift positions
-        for (let i = 0; i < n; i++) {
-            const p = particles[i];
-            const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
-            p.vel.x = p.w.x * invG;
-            p.vel.y = p.w.y * invG;
-            p.angVel = relOn ? spinToAngVel(p.spin, p.radius) : p.spin;
-            p.pos.x += p.vel.x * dt;
-            p.pos.y += p.vel.y * dt;
-        }
-
-        // Step 5: Rebuild QuadTree with new positions
-        const qt = new QuadTree(this.boundary, QUADTREE_CAPACITY);
-        for (const p of particles) qt.insert(p);
-        qt.calculateMassDistribution();
-
-        // Step 6: Handle collisions
-        if (collisionMode !== 'pass') {
-            this.handleCollisions(particles, qt, collisionMode);
-        }
-
-        // Step 7: Calculate new forces, B fields, and accumulate PE
-        this.potentialEnergy = 0;
-        this._resetForces(particles);
-        this._computeAllForces(particles, qt);
-
-        // Step 7b: Compute velocity-dependent forces for display only.
+        // Compute velocity-dependent forces for display only (after final substep).
         // These are applied via Boris rotation (not kicks), but we add them to the
         // per-type display vectors so force component arrows are accurate.
-        // p.force is NOT modified — it contains only position-dependent (E-like)
-        // forces used by the half-kicks. The net force display in the renderer
-        // and selected particle stats should use the sum of component vectors.
         if (hasMagnetic || hasGM) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
@@ -157,7 +255,7 @@ export default class Physics {
             }
         }
 
-        // Step 8: Handle boundaries
+        // Step 8: Handle boundaries (once per frame, after all substeps)
         for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
             const left = offX, top = offY;
@@ -198,6 +296,8 @@ export default class Physics {
             p.forceGravitomag.set(0, 0);
             p.Bz = 0;
             p.Bgz = 0;
+            p.dBzdx = 0;
+            p.dBzdy = 0;
         }
     }
 
@@ -212,16 +312,33 @@ export default class Physics {
                 this.calculateForce(p, qt, BH_THETA, p.force);
             }
         } else {
+            const useRetarded = this.retardedEnabled && this.relativityEnabled;
             for (let i = 0; i < particles.length; i++) {
                 const p = particles[i];
                 for (let j = 0; j < particles.length; j++) {
                     if (i === j) continue;
                     const o = particles[j];
+
+                    let sx, sy, svx, svy, sAngVel;
+                    if (useRetarded && o.histCount >= 2) {
+                        const ret = this._getRetardedState(o, p);
+                        if (ret) {
+                            sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
+                            sAngVel = o.angVel; // angular velocity not history-tracked
+                        } else {
+                            sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
+                            sAngVel = o.angVel;
+                        }
+                    } else {
+                        sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
+                        sAngVel = o.angVel;
+                    }
+
                     const oRSq = o.radius * o.radius;
-                    this._pairForce(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
-                        o.mass, o.charge, o.angVel,
-                        MAG_MOMENT_K * o.charge * o.angVel * oRSq,
-                        INERTIA_K * o.mass * o.angVel * oRSq, p.force);
+                    this._pairForce(p, sx, sy, svx, svy,
+                        o.mass, o.charge, sAngVel,
+                        MAG_MOMENT_K * o.charge * sAngVel * oRSq,
+                        INERTIA_K * o.mass * sAngVel * oRSq, p.force);
                 }
             }
         }
@@ -511,6 +628,13 @@ export default class Physics {
             // Accumulate EM magnetic field Bz for Boris rotation (Lorentz force)
             // B_z = q_s * (v_s × r̂)_z / r³
             p.Bz += sCharge * crossSV * invR * invRSq;
+
+            // B_z gradient for spin-orbit coupling
+            // B_z ~ q_s * cross/(r³), so dB_z/dr ~ -3 * B_z / r
+            const Bz_contribution = sCharge * crossSV * invR * invRSq;
+            const dBzdr = -3 * Bz_contribution * invR;
+            p.dBzdx += dBzdr * rx * invR;  // rx/r = r̂_x (note: rx = sx - p.pos.x)
+            p.dBzdy += dBzdr * ry * invR;
         }
 
         if (this.gravitomagEnabled) {
@@ -527,5 +651,98 @@ export default class Physics {
             // Bg_z = m_s * (v_s × r̂)_z / r³
             p.Bgz += sMass * crossSV * invR * invRSq;
         }
+    }
+
+    // ─── Retarded Potentials ───
+    // Solve for retarded time t_ret such that |x_source(t_ret) - x_observer(now)| = c·(now - t_ret)
+    // where c = 1 in natural units. Uses Newton-Raphson with 3 iterations.
+    _getRetardedState(source, observer) {
+        const now = this.simTime;
+        const ox = observer.pos.x, oy = observer.pos.y;
+
+        // Initial guess: t_ret = now - |current separation|
+        const dx0 = source.pos.x - ox, dy0 = source.pos.y - oy;
+        let tRet = now - Math.sqrt(dx0 * dx0 + dy0 * dy0);
+
+        for (let iter = 0; iter < 3; iter++) {
+            const sp = this._interpolateHistory(source, tRet);
+            if (!sp) return null;
+
+            const dx = sp.x - ox, dy = sp.y - oy;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const residual = dist - (now - tRet);
+            if (Math.abs(residual) < 0.01) break;
+
+            // Newton step: d(residual)/d(tRet) ≈ -(v·r̂)/r - 1
+            const denom = 1 + (sp.vx * dx + sp.vy * dy) / (dist * dist + 1);
+            tRet += residual / denom;
+        }
+
+        return this._interpolateHistory(source, tRet);
+    }
+
+    // Interpolate position/velocity from circular history buffer at time t
+    _interpolateHistory(p, t) {
+        if (p.histCount < 2) return null;
+
+        // Find bracketing entries via linear scan (buffer is chronological)
+        const N = HISTORY_SIZE;
+        const start = (p.histHead - p.histCount + N) % N;
+
+        // Check bounds
+        const oldest = p.histTime[start];
+        const newest = p.histTime[(p.histHead - 1 + N) % N];
+        if (t < oldest || t > newest) return null;
+
+        // Linear scan from oldest to find bracket
+        let lo = start;
+        for (let k = 0; k < p.histCount - 1; k++) {
+            const idx = (start + k) % N;
+            const nextIdx = (start + k + 1) % N;
+            if (p.histTime[idx] <= t && t <= p.histTime[nextIdx]) {
+                lo = idx;
+                break;
+            }
+        }
+        const hi = (lo + 1) % N;
+        const dt = p.histTime[hi] - p.histTime[lo];
+        if (dt < 1e-12) return { x: p.histX[lo], y: p.histY[lo], vx: p.histVx[lo], vy: p.histVy[lo] };
+
+        const frac = (t - p.histTime[lo]) / dt;
+        return {
+            x:  p.histX[lo]  + frac * (p.histX[hi]  - p.histX[lo]),
+            y:  p.histY[lo]  + frac * (p.histY[hi]  - p.histY[lo]),
+            vx: p.histVx[lo] + frac * (p.histVx[hi] - p.histVx[lo]),
+            vy: p.histVy[lo] + frac * (p.histVy[hi] - p.histVy[lo]),
+        };
+    }
+
+    checkTidalBreakup(particles) {
+        if (!this.tidalEnabled) return [];
+        const fragments = [];
+
+        for (const p of particles) {
+            if (p.mass < MIN_FRAGMENT_MASS * FRAGMENT_COUNT) continue;
+
+            // Find strongest gravitational neighbor
+            let maxTidal = 0;
+            for (const other of particles) {
+                if (other === p) continue;
+                const dx = other.pos.x - p.pos.x, dy = other.pos.y - p.pos.y;
+                const rSq = dx * dx + dy * dy;
+                const r = Math.sqrt(rSq);
+                const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius / (r * rSq);
+                if (tidalAccel > maxTidal) maxTidal = tidalAccel;
+            }
+
+            // Self-gravity at surface: g_self = m / r²
+            const selfGravity = p.mass / (p.radius * p.radius);
+
+            if (maxTidal > selfGravity) {
+                fragments.push(p);
+            }
+        }
+
+        return fragments;
     }
 }
