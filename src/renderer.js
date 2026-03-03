@@ -1,4 +1,4 @@
-import { MAX_TRAIL_LENGTH } from './config.js';
+import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, HISTORY_SIZE } from './config.js';
 
 const TWO_PI = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
@@ -28,8 +28,10 @@ export default class Renderer {
         this.showVelocity = false;
         this.showForce = false;
         this.showForceComponents = false;
+        this.showRetarded = false;
         this.isLight = false;
         this.trailHistory = new Map();
+        this.heatmap = null;  // set externally by Simulation
     }
 
     resize(width, height) {
@@ -41,12 +43,15 @@ export default class Renderer {
         this.isLight = isLight;
     }
 
-    render(particles, dt = 0.016, camera) {
+    render(particles, dt = 0.016, camera, photons) {
         const ctx = this.ctx;
         const isLight = this.isLight;
 
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.width, this.height);
+
+        // Potential field heatmap (drawn in screen space)
+        if (this.heatmap) this.heatmap.draw(ctx, this.width, this.height);
 
         // Apply camera transform
         if (camera) {
@@ -61,7 +66,9 @@ export default class Renderer {
             this.trailHistory.clear();
         }
 
+        if (this.showRetarded) this.drawRetardedPositions(ctx, particles, isLight);
         this.drawParticles(ctx, particles, isLight);
+        if (photons && photons.length) this.drawPhotons(ctx, photons, isLight);
 
         ctx.globalCompositeOperation = 'source-over';
         ctx.shadowBlur = 0;
@@ -191,6 +198,39 @@ export default class Renderer {
         }
     }
 
+    drawRetardedPositions(ctx, particles, isLight) {
+        // Draw ghost circles at each particle's most recent retarded position
+        // (using its own history to show where it "was" when the force was emitted)
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 0.3;
+        for (const p of particles) {
+            if (p.histCount < 2) continue;
+            // Show oldest recorded position as ghost
+            const oldest = (p.histHead - p.histCount + HISTORY_SIZE) % HISTORY_SIZE;
+            const gx = p.histX[oldest], gy = p.histY[oldest];
+
+            // Ghost circle
+            ctx.beginPath();
+            ctx.arc(gx, gy, p.radius, 0, TWO_PI);
+            ctx.strokeStyle = p.color;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Connecting line from ghost to current
+            ctx.beginPath();
+            ctx.moveTo(gx, gy);
+            ctx.lineTo(p.pos.x, p.pos.y);
+            ctx.strokeStyle = isLight ? _r(_PAL.light.textMuted, 0.3) : _r(_PAL.dark.textMuted, 0.3);
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([2, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        ctx.globalAlpha = 1.0;
+    }
+
     drawArrow(ctx, x1, y1, x2, y2, invZoom, color) {
         ctx.beginPath();
         ctx.moveTo(x1, y1);
@@ -293,5 +333,28 @@ export default class Renderer {
         ctx.fill();
 
         ctx.globalCompositeOperation = blendMode;
+    }
+
+    drawPhotons(ctx, photons, isLight) {
+        if (!photons || !photons.length) return;
+        ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
+        ctx.shadowBlur = 0;
+        for (const ph of photons) {
+            const alpha = 1 - ph.lifetime / PHOTON_LIFETIME;
+            if (alpha <= 0) continue;
+            const size = 1.5 + ph.energy * 20;
+            ctx.globalAlpha = alpha * (isLight ? 0.6 : 0.8);
+            ctx.fillStyle = isLight ? '#FE3B01' : '#FFDC64';
+            ctx.beginPath();
+            ctx.arc(ph.pos.x, ph.pos.y, Math.min(size, 5), 0, TWO_PI);
+            ctx.fill();
+            if (!isLight) {
+                ctx.shadowBlur = Math.min(size * 3, 15);
+                ctx.shadowColor = '#FFDC6480';
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+        ctx.globalAlpha = 1;
     }
 }

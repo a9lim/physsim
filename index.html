@@ -196,6 +196,15 @@
                         <div class="ctrl-row"><label for="relativity-toggle">Relativity <button class="info-trigger" data-info="relativity" aria-label="Relativity info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="relativity-toggle" checked role="switch" aria-checked="true">
                             <label for="relativity-toggle" class="tog tog-relativity"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="radiation-toggle">Radiation <button class="info-trigger" data-info="radiation" aria-label="Radiation info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="radiation-toggle" role="switch" aria-checked="false">
+                            <label for="radiation-toggle" class="tog tog-radiation"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="tidal-toggle">Tidal Forces <button class="info-trigger" data-info="tidal" aria-label="Tidal forces info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="tidal-toggle" role="switch" aria-checked="false">
+                            <label for="tidal-toggle" class="tog tog-tidal"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="retarded-toggle">Retarded Potentials <button class="info-trigger" data-info="retarded" aria-label="Retarded potentials info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="retarded-toggle" role="switch" aria-checked="false">
+                            <label for="retarded-toggle" class="tog"><span class="tog-thumb"></span></label></div></div>
                     </div>
                     <div class="panel-section">
                         <h2 class="group-label">Physics</h2>
@@ -241,6 +250,18 @@
                             <label class="checkbox-label">Show Force Components<input type="checkbox" id="forceComponentsToggle"></label>
                         </div>
                         <div class="control-group">
+                            <label class="checkbox-label">Potential Field<input type="checkbox" id="potentialToggle"></label>
+                        </div>
+                        <div class="control-group">
+                            <label class="checkbox-label">Phase Space<input type="checkbox" id="phaseToggle"></label>
+                        </div>
+                        <div class="control-group">
+                            <label class="checkbox-label">Energy Flow<input type="checkbox" id="sankeyToggle"></label>
+                        </div>
+                        <div class="control-group">
+                            <label class="checkbox-label">Light Cone<input type="checkbox" id="lightConeToggle"></label>
+                        </div>
+                        <div class="control-group">
                             <label>Sim Speed <span class="slider-value" id="speedValue">100</span>x</label>
                             <input type="range" id="speedInput" min="0" max="200" step="1" value="100">
                         </div>
@@ -261,6 +282,8 @@
                         <div class="stat-row stat-sub"><span class="stat-label">Spin KE</span><span class="stat-value" id="spinKE">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Potential</span><span class="stat-value" id="potentialE">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="energyDrift">+0.00%</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Field</span><span class="stat-value" id="fieldE">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Radiated</span><span class="stat-value" id="radiatedE">0</span></div>
                     </div>
                     <div class="panel-section" aria-live="polite">
                         <h2 class="group-label">Conserved Quantities <button class="info-trigger" data-info="conserved" aria-label="Conserved quantities info">?</button></h2>

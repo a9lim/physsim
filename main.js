@@ -2,8 +2,11 @@ import Physics from './src/physics.js';
 import Renderer from './src/renderer.js';
 import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
+import Heatmap from './src/heatmap.js';
+import PhasePlot from './src/phase-plot.js';
+import SankeyOverlay from './src/sankey.js';
 import { setupUI } from './src/ui.js';
-import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K } from './src/config.js';
+import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K, SOFTENING_SQ, PHOTON_LIFETIME, FRAGMENT_COUNT } from './src/config.js';
 
 import { setVelocity, spinToAngVel } from './src/relativity.js';
 
@@ -18,6 +21,12 @@ class Simulation {
         this.physics = new Physics();
         this.renderer = new Renderer(this.ctx, this.width, this.height);
         this.renderer.setTheme(true);
+
+        this.heatmap = new Heatmap();
+        this.renderer.heatmap = this.heatmap;
+
+        this.phasePlot = new PhasePlot();
+        this.sankey = new SankeyOverlay();
 
         this.camera = createCamera({
             width: this.width, height: this.height,
@@ -44,6 +53,8 @@ class Simulation {
             potentialE: document.getElementById('potentialE'),
             totalE: document.getElementById('totalE'),
             energyDrift: document.getElementById('energyDrift'),
+            fieldE: document.getElementById('fieldE'),
+            radiatedE: document.getElementById('radiatedE'),
             momentum: document.getElementById('momentum'),
             momentumDrift: document.getElementById('momentumDrift'),
             angularMomentum: document.getElementById('angularMomentum'),
@@ -59,6 +70,9 @@ class Simulation {
         this.initialMomentum = null;
         this.initialAngMom = null;
         this.selectedParticle = null;
+        this.photons = [];
+        this.totalRadiated = 0;
+        this.physics.sim = this; // give physics access to photon array
 
         // Selected particle DOM refs
         this.selDom = {
@@ -154,7 +168,30 @@ class Simulation {
 
         const angMom = orbitalAngMom + spinAngMom;
         const pe = this.physics.potentialEnergy;
-        const total = linearKE + spinKE + pe;
+
+        // Darwin Lagrangian O(v²/c²) correction for velocity-dependent field energy
+        // U_Darwin = -(1/2) Σ_{i<j} (q_i·q_j / r_ij) × [(v_i·v_j) + (v_i·r̂)(v_j·r̂)]
+        let fieldEnergy = 0;
+        if (this.physics.coulombEnabled) {
+            const n = this.particles.length;
+            for (let i = 0; i < n; i++) {
+                const pi = this.particles[i];
+                for (let j = i + 1; j < n; j++) {
+                    const pj = this.particles[j];
+                    const dx = pj.pos.x - pi.pos.x;
+                    const dy = pj.pos.y - pi.pos.y;
+                    const rSq = dx * dx + dy * dy + SOFTENING_SQ;
+                    const invR = 1 / Math.sqrt(rSq);
+                    const rx = dx * invR, ry = dy * invR;
+                    const viDotVj = pi.vel.x * pj.vel.x + pi.vel.y * pj.vel.y;
+                    const viDotR = pi.vel.x * rx + pi.vel.y * ry;
+                    const vjDotR = pj.vel.x * rx + pj.vel.y * ry;
+                    fieldEnergy -= 0.5 * pi.charge * pj.charge * invR * (viDotVj + viDotR * vjDotR);
+                }
+            }
+        }
+
+        const total = linearKE + spinKE + pe + fieldEnergy + this.totalRadiated;
 
         if (this.initialEnergy === null && this.particles.length > 0) {
             this.initialEnergy = total;
@@ -181,6 +218,9 @@ class Simulation {
         this.dom.potentialE.textContent = fmt(pe);
         this.dom.totalE.textContent = fmt(total);
         this.dom.energyDrift.textContent = fmtDrift(eDrift);
+        this.dom.fieldE.textContent = fmt(fieldEnergy);
+        this.dom.radiatedE.textContent = fmt(this.totalRadiated);
+        this.sankey.update(linearKE, spinKE, pe, fieldEnergy, this.totalRadiated);
         this.dom.momentum.textContent = fmt(pMag);
         this.dom.momentumDrift.textContent = fmtDrift(pDrift);
         this.dom.angularMomentum.textContent = fmt(angMom);
@@ -228,9 +268,65 @@ class Simulation {
 
         if (this.running) {
             this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
+
+            // Update photons
+            for (let i = this.photons.length - 1; i >= 0; i--) {
+                const ph = this.photons[i];
+                ph.update(dt);
+
+                // Radiation pressure: check collision with particles
+                if (this.physics.radiationEnabled) {
+                    for (const p of this.particles) {
+                        const dx = ph.pos.x - p.pos.x, dy = ph.pos.y - p.pos.y;
+                        const distSq = dx * dx + dy * dy;
+                        if (distSq < p.radius * p.radius) {
+                            // Absorb photon — transfer momentum E/c = E (natural units, c=1)
+                            const impulse = ph.energy / p.mass;
+                            p.w.x += ph.vel.x * impulse;
+                            p.w.y += ph.vel.y * impulse;
+                            ph.alive = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
+                    this.photons.splice(i, 1);
+                }
+            }
+
+            // Tidal breakup (Roche limit)
+            const toFragment = this.physics.checkTidalBreakup(this.particles);
+            for (const p of toFragment) {
+                const idx = this.particles.indexOf(p);
+                if (idx === -1) continue;
+                this.particles.splice(idx, 1);
+
+                const n = FRAGMENT_COUNT;
+                const fragMass = p.mass / n;
+                const fragCharge = p.charge / n;
+
+                for (let i = 0; i < n; i++) {
+                    const angle = (2 * Math.PI * i) / n;
+                    const offset = p.radius * 1.5;
+                    const fx = p.pos.x + Math.cos(angle) * offset;
+                    const fy = p.pos.y + Math.sin(angle) * offset;
+                    // Each fragment gets parent velocity + tangential kick from spin
+                    const tangVx = -Math.sin(angle) * p.angVel * offset;
+                    const tangVy = Math.cos(angle) * p.angVel * offset;
+                    this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
+                        mass: fragMass, charge: fragCharge, spin: p.spin
+                    });
+                }
+            }
         }
 
-        this.renderer.render(this.particles, dt, cam);
+        this.heatmap.update(this.particles, this.camera, this.width, this.height);
+        this.phasePlot.update(this.particles, this.selectedParticle);
+        this.renderer.render(this.particles, dt, cam, this.photons);
+        // Phase plot draws in screen space (after main render resets transform)
+        this.phasePlot.draw(this.ctx, this.width, this.height, this.renderer.isLight);
+        this.sankey.draw(this.ctx, this.width, this.height, this.renderer.isLight);
         if (this.running) this.computeEnergy();
         this.updateStats();
         this.updateSelectedParticle();

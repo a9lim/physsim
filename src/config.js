@@ -5,7 +5,8 @@ export const BH_THETA = 0.5;
 export const QUADTREE_CAPACITY = 4;
 
 // Plummer softening: rSq_eff = rSq + SOFTENING_SQ, keeps F and PE consistent
-export const SOFTENING_SQ = 25;
+export const SOFTENING = 10;
+export const SOFTENING_SQ = SOFTENING * SOFTENING;
 
 // Moment of inertia: I = INERTIA_K * m * r² (uniform-density solid sphere = 2/5)
 export const INERTIA_K = 0.4;
@@ -24,6 +25,23 @@ export const ZOOM_MIN = 1;
 export const ZOOM_MAX = 3;
 export const WHEEL_ZOOM_IN = 1.1;
 
+// Adaptive substepping
+export const MAX_SUBSTEPS = 16;
+
 // Simulation
 export const DEFAULT_SPEED_SCALE = 100;
 export const MAX_SPEED_RATIO = 0.99;
+
+// Larmor radiation
+export const LARMOR_K = 1 / (6 * Math.PI); // q²a²/(6π) in natural units (c=G=1)
+export const PHOTON_LIFETIME = 300;          // frames before despawn
+export const RADIATION_THRESHOLD = 0.01;     // min energy per frame to emit visible photon
+export const MAX_PHOTONS = 500;              // photon pool cap
+
+// Retarded potentials
+export const HISTORY_SIZE = 512;    // circular buffer capacity per particle
+
+// Tidal breakup
+export const TIDAL_STRENGTH = 2.0;
+export const MIN_FRAGMENT_MASS = 2; // don't fragment below this mass
+export const FRAGMENT_COUNT = 3;    // split into 3 pieces

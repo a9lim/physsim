@@ -67,6 +67,8 @@ export function setupUI(sim) {
         sim.initialAngMom = null;
         sim.selectedParticle = null;
         sim.physics._forcesInit = false;
+        sim.photons = [];
+        sim.totalRadiated = 0;
         sim.camera.reset(sim.width / 2, sim.height / 2, 1);
         showToast('Simulation cleared');
     });
@@ -106,6 +108,9 @@ export function setupUI(sim) {
         { id: 'magnetic-toggle', prop: 'magneticEnabled' },
         { id: 'gravitomag-toggle', prop: 'gravitomagEnabled' },
         { id: 'relativity-toggle', prop: 'relativityEnabled' },
+        { id: 'radiation-toggle', prop: 'radiationEnabled' },
+        { id: 'tidal-toggle', prop: 'tidalEnabled' },
+        { id: 'retarded-toggle', prop: 'retardedEnabled' },
         { id: 'barneshut-toggle', prop: 'barnesHutEnabled' },
     ];
     forceToggles.forEach(({ id, prop }) => {
@@ -128,6 +133,18 @@ export function setupUI(sim) {
     });
     document.getElementById('forceComponentsToggle').addEventListener('change', (e) => {
         sim.renderer.showForceComponents = e.target.checked;
+    });
+    document.getElementById('potentialToggle')?.addEventListener('change', (e) => {
+        sim.heatmap.enabled = e.target.checked;
+    });
+    document.getElementById('phaseToggle')?.addEventListener('change', (e) => {
+        sim.phasePlot.enabled = e.target.checked;
+    });
+    document.getElementById('sankeyToggle')?.addEventListener('change', (e) => {
+        sim.sankey.enabled = e.target.checked;
+    });
+    document.getElementById('lightConeToggle')?.addEventListener('change', (e) => {
+        sim.renderer.showRetarded = e.target.checked;
     });
 
     // ─── Slider value displays ───
@@ -162,7 +179,7 @@ export function setupUI(sim) {
             const halfH = sim.height / (2 * cam.zoom);
             const dt = 0.1 * sim.speedScale;
             sim.physics.update(sim.particles, dt, sim.collisionMode, sim.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
-            sim.renderer.render(sim.particles, 0, cam);
+            sim.renderer.render(sim.particles, 0, cam, sim.photons);
             sim.updateStats();
         }
     });
@@ -200,7 +217,7 @@ export function setupUI(sim) {
             const halfH = sim.height / (2 * cam.zoom);
             const dt = 0.1 * sim.speedScale;
             sim.physics.update(sim.particles, dt, sim.collisionMode, sim.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
-            sim.renderer.render(sim.particles, 0, cam);
+            sim.renderer.render(sim.particles, 0, cam, sim.photons);
             sim.updateStats();
         }
     };
@@ -249,6 +266,8 @@ export function setupUI(sim) {
         magnetic: { title: 'Magnetic Force', body: 'Dipole-dipole force: aligned \u22A5-to-plane dipoles repel (3\u03BC\u2081\u03BC\u2082/r\u2074). Magnetic moment \u03BC = \u2155q\u03C9r\u00B2 (uniform charge density solid sphere). Lorentz force from velocity-dependent B fields is handled by the Boris rotation. Note: velocity-dependent forces don\u2019t conserve momentum/angular momentum without field degrees of freedom.' },
         gravitomag: { title: 'Gravitomagnetic Force', body: 'Dipole force 3L\u2081L\u2082/r\u2074: co-rotating masses attract. Angular momentum L = (2/5)m\u03C9r\u00B2. Linear gravitomagnetism (co-moving masses attract, frame-dragging) is handled by the Boris rotation. Note: velocity-dependent forces don\u2019t conserve momentum/angular momentum without field degrees of freedom.' },
         relativity: { title: 'Relativity', body: 'When enabled, uses proper velocity (w = \u03B3v) and derives v = w/\u221A(1+w\u00B2), naturally enforcing the speed-of-light limit. When off, v = w (classical Newtonian mechanics).' },
+        radiation: { title: 'Larmor Radiation', body: 'Accelerating charges radiate electromagnetic energy (Larmor formula: P = q\u00B2a\u00B2/6\u03C0). Relativistic correction divides by \u03B3\u00B3. Radiated energy is drained from kinetic energy and displayed as visible photons. Creates orbital decay in charge\u2013charge systems.' },
+        tidal: { title: 'Tidal Forces (Roche Limit)', body: 'Tidal forces arise from differential gravity across a body\u2019s diameter. When tidal stress exceeds self-gravity (Roche limit), the body breaks apart into fragments. The tidal acceleration scales as M\u00B7R/r\u00B3 where M is the source mass, R is the body radius, and r is the separation distance.' },
         interaction: { title: 'Interaction Modes', body: '<b>Place</b> \u2014 spawn a particle at rest.<br><b>Shoot</b> \u2014 drag to set velocity (drag distance \u00D7 0.1).<br><b>Orbit</b> \u2014 spawn in circular orbit around the nearest massive body.' },
         barneshut: { title: 'Barnes-Hut Approximation', body: 'When on, uses a quadtree to approximate distant particle groups as single bodies (O(N log N)). When off, computes exact pairwise forces (O(N\u00B2)) \u2014 slower but preserves Newton\u2019s third law exactly, improving conservation of momentum and angular momentum.' },
         collision: { title: 'Collision Modes', body: '<b>Pass</b> \u2014 particles pass through each other.<br><b>Bounce</b> \u2014 elastic collision with spin-friction transfer.<br><b>Merge</b> \u2014 particles combine, conserving mass, charge, and momentum.' },

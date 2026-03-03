@@ -1,0 +1,117 @@
+const BUFFER_LEN = 500;
+const PLOT_SIZE = 180;
+const MARGIN = 24;
+
+export default class PhasePlot {
+    constructor() {
+        this.enabled = false;
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = PLOT_SIZE;
+        this.canvas.height = PLOT_SIZE;
+        this.ctx = this.canvas.getContext('2d');
+        this.rBuf = new Float32Array(BUFFER_LEN);
+        this.vrBuf = new Float32Array(BUFFER_LEN);
+        this.head = 0;
+        this.count = 0;
+        this.trackedId = -1;
+    }
+
+    update(particles, selectedParticle) {
+        if (!this.enabled || !selectedParticle) return;
+
+        const sel = selectedParticle;
+        if (sel.id !== this.trackedId) {
+            this.trackedId = sel.id;
+            this.head = 0;
+            this.count = 0;
+        }
+
+        // Find most massive body as reference
+        let refX = 0, refY = 0, refVx = 0, refVy = 0, maxM = 0;
+        for (const p of particles) {
+            if (p === sel) continue;
+            if (p.mass > maxM) {
+                maxM = p.mass;
+                refX = p.pos.x; refY = p.pos.y;
+                refVx = p.vel.x; refVy = p.vel.y;
+            }
+        }
+
+        const dx = sel.pos.x - refX, dy = sel.pos.y - refY;
+        const r = Math.sqrt(dx * dx + dy * dy) || 1;
+        const rx = dx / r, ry = dy / r;
+        const dvx = sel.vel.x - refVx, dvy = sel.vel.y - refVy;
+        const vr = dvx * rx + dvy * ry; // radial velocity
+
+        this.rBuf[this.head] = r;
+        this.vrBuf[this.head] = vr;
+        this.head = (this.head + 1) % BUFFER_LEN;
+        if (this.count < BUFFER_LEN) this.count++;
+    }
+
+    draw(ctx, width, height, isLight) {
+        if (!this.enabled || this.count < 2) return;
+
+        // Auto-scale
+        let rMin = Infinity, rMax = -Infinity, vrMin = Infinity, vrMax = -Infinity;
+        for (let i = 0; i < this.count; i++) {
+            const idx = (this.head - this.count + i + BUFFER_LEN) % BUFFER_LEN;
+            const r = this.rBuf[idx], vr = this.vrBuf[idx];
+            if (r < rMin) rMin = r; if (r > rMax) rMax = r;
+            if (vr < vrMin) vrMin = vr; if (vr > vrMax) vrMax = vr;
+        }
+        const rRange = (rMax - rMin) || 1;
+        const vrRange = (vrMax - vrMin) || 1;
+
+        // Draw to offscreen canvas
+        const c = this.ctx;
+        const ps = PLOT_SIZE;
+        c.clearRect(0, 0, ps, ps);
+
+        // Background
+        c.fillStyle = isLight ? '#FCF7F244' : '#0C0B0988';
+        c.fillRect(0, 0, ps, ps);
+
+        // Axes
+        c.strokeStyle = isLight ? '#1A161233' : '#E8DED433';
+        c.lineWidth = 0.5;
+        c.beginPath();
+        c.moveTo(MARGIN, 0); c.lineTo(MARGIN, ps);
+        c.moveTo(0, ps - MARGIN); c.lineTo(ps, ps - MARGIN);
+        c.stroke();
+
+        // Labels
+        c.fillStyle = isLight ? '#1A161288' : '#E8DED488';
+        c.font = '9px Noto Sans Mono';
+        c.fillText('r', ps - 12, ps - MARGIN + 12);
+        c.fillText('v\u1D63', MARGIN - 18, 12);
+
+        // Trajectory
+        c.beginPath();
+        c.lineWidth = 1.2;
+        for (let i = 0; i < this.count; i++) {
+            const idx = (this.head - this.count + i + BUFFER_LEN) % BUFFER_LEN;
+            const x = MARGIN + ((this.rBuf[idx] - rMin) / rRange) * (ps - MARGIN - 4);
+            const y = (ps - MARGIN) - ((this.vrBuf[idx] - vrMin) / vrRange) * (ps - MARGIN - 4);
+            if (i === 0) {
+                c.moveTo(x, y);
+            } else {
+                c.lineTo(x, y);
+            }
+        }
+        c.strokeStyle = '#FE3B01CC';
+        c.stroke();
+
+        // Current point
+        const lastIdx = (this.head - 1 + BUFFER_LEN) % BUFFER_LEN;
+        const cx = MARGIN + ((this.rBuf[lastIdx] - rMin) / rRange) * (ps - MARGIN - 4);
+        const cy = (ps - MARGIN) - ((this.vrBuf[lastIdx] - vrMin) / vrRange) * (ps - MARGIN - 4);
+        c.fillStyle = '#FE3B01';
+        c.beginPath();
+        c.arc(cx, cy, 3, 0, Math.PI * 2);
+        c.fill();
+
+        // Composite onto main canvas (bottom-left corner)
+        ctx.drawImage(this.canvas, 12, height - ps - 60);
+    }
+}
