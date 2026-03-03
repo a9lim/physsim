@@ -67,7 +67,7 @@ index.html
 
 ### Energy Conservation
 
-Energy stats computed per frame: linear KE (relativistic `(γ-1)mc²` or classical `½mv²`), rotational KE (relativistic `m(√(1+L²/m²)-1)` where `L=I·S` or classical `½Iω²`, using `I = (2/5)mr²` uniform-density solid sphere via `INERTIA_K`), gravitational PE (`-Gm₁m₂/r`), Coulomb PE (`kq₁q₂/r`), magnetic dipole PE (`+(μ₁μ₂)/(3r³)` with `μ=½qωr²`, aligned repels), gravitomagnetic dipole PE (`-(L₁L₂)/(3r³)` with `L=Iω`, co-rotating attracts). All PE computed with Plummer-softened r = √(r²+ε²). Total energy and drift percentage displayed in sidebar.
+Energy stats computed per frame: linear KE (relativistic `(γ-1)mc²` or classical `½mv²`), rotational KE (relativistic `m(√(1+L²/m²)-1)` where `L=I·S` or classical `½Iω²`, using `I = (2/5)mr²` uniform-density solid sphere via `INERTIA_K`), gravitational PE (`-Gm₁m₂/r`), Coulomb PE (`kq₁q₂/r`), magnetic dipole PE (`+(μ₁μ₂)/r³` with `μ=⅕qωr²`, aligned repels), gravitomagnetic dipole PE (`-(L₁L₂)/r³` with `L=Iω`, co-rotating attracts). All PE computed with Plummer-softened r = √(r²+ε²). Total energy and drift percentage displayed in sidebar.
 
 ### Conserved Quantities
 
@@ -79,7 +79,7 @@ Gravitomagnetism is the gravitational analog of electromagnetism, but **all GEM 
 - **GM dipole**: co-rotating masses **attract** (opposite sign from EM dipole, where aligned dipoles repel).
 - **Linear GM**: co-moving masses **attract** (same qualitative behavior as parallel currents in EM, but the GEM coupling constant has an extra factor of 4 and opposite sign convention).
 
-In code: the GM dipole force coefficient is `+L₁L₂/r⁴` (positive = attractive along separation vector) and the GM Boris rotation parameter is `+2·Bgz`, which produces the same rotational sense as the EM Lorentz force for co-moving particles. Do NOT flip these signs — the intent is that gravitomagnetism always creates attractive corrections between masses.
+In code: the GM dipole force coefficient is `+3L₁L₂/r⁴` (positive = attractive along separation vector) and the GM Boris rotation parameter is `+2·Bgz`, which produces the same rotational sense as the EM Lorentz force for co-moving particles. Do NOT flip these signs — the intent is that gravitomagnetism always creates attractive corrections between masses.
 
 ### Force Types
 
@@ -88,18 +88,18 @@ Six force components per particle pair, organized under five toggles:
 **Radial forces** (along separation vector):
 - **Gravity** (`gravityEnabled`): `m₁m₂/r²`, attractive.
 - **Coulomb** (`coulombEnabled`): `-q₁q₂/r²`, like-repels.
-- **Magnetic dipole** (`magneticEnabled`): `-μ₁μ₂/r⁴` where `μ = ½qωr²` (uniform charge density sphere), aligned ⊥-to-plane dipoles repel (standard 3D result).
-- **Gravitomagnetic dipole** (`gravitomagEnabled`): `+L₁L₂/r⁴` where `L = Iω = (2/5)mr²ω` (angular momentum), co-rotating masses **attract** (GEM flips EM sign). Angular velocity is bounded by relativistic derivation (`angVel = spin/√(1+spin²r²)`), so GM dipole can never overwhelm gravity when relativity is on.
+- **Magnetic dipole** (`magneticEnabled`): `-3μ₁μ₂/r⁴` where `μ = ⅕qωr²` (uniform charge density solid sphere, `MAG_MOMENT_K`), aligned ⊥-to-plane dipoles repel (standard 3D result).
+- **Gravitomagnetic dipole** (`gravitomagEnabled`): `+3L₁L₂/r⁴` where `L = Iω = (2/5)mr²ω` (angular momentum), co-rotating masses **attract** (GEM flips EM sign). Angular velocity is bounded by relativistic derivation (`angVel = spin/√(1+spin²r²)`), so GM dipole can never overwhelm gravity when relativity is on.
 
 **Velocity-dependent forces** (perpendicular to velocity, do no work — handled by Boris rotation):
 - **Lorentz force** (`magneticEnabled`): Moving charges create magnetic fields `B_z = q_s(v_s×r̂)_z/r²` that deflect other moving charges. Accumulated as `p.Bz` and applied via Boris rotation with parameter `t_em = (q/(2m))·Bz·dt/γ`.
 - **Linear gravitomagnetism** (`gravitomagEnabled`): Co-moving masses **attract** (frame-dragging). `Bg_z = m_s(v_s×r̂)_z/r²`. Accumulated as `p.Bgz` and applied via Boris rotation with parameter `t_gm = +2·Bgz·dt/γ` (factor of 4 from standard GEM, sign chosen so co-moving masses attract).
 
-**Spin-orbit coupling** (`spinOrbitEnabled`): B and Bg fields from moving sources drive spin evolution. EM torque: `τ = μ·B`, `d(spin)/dt = τ/I = (½qωr²·B)/(I)`. GM torque: `τ = L·Bg`, `d(spin)/dt = τ/I`. Both torques divided by I = (2/5)mr² to convert to angular acceleration. Integrated via half-kicks alongside proper velocity (not Boris-rotated, as torques are position-dependent). Torque displayed in selected particle stats.
+**Spin-orbit coupling** (`spinOrbitEnabled`): B and Bg fields from moving sources drive spin evolution. EM torque: `τ = μ·B`, `d(spin)/dt = τ/I = (⅕qωr²·B)/(I)`. GM torque: `τ = 2L·Bg_stored`, `d(spin)/dt = τ/I` (factor of 2 accounts for physical Bg = -2·Bg_stored). Both torques divided by I = (2/5)mr² to convert to angular acceleration. Integrated via half-kicks alongside proper velocity (not Boris-rotated, as torques are position-dependent). Torque displayed in selected particle stats.
 
 ### Collision Modes
 
-Three modes in physics.js: `pass` (no-op), `merge` (conserves mass, charge, momentum, and angular momentum — orbital angular momentum about the pair's COM plus spin angular momentum `I·spin` maps to merged particle's spin via `I = (2/5)mr²`), `bounce` (elastic with spin-friction transfer via `Δspin = J/(INERTIA_K·m·r)`, configurable friction coefficient via `Physics.bounceFriction` slider). Bounce uses relativistic proper-velocity collision when relativity is on (conserves m·w), classical when off (conserves m·v).
+Three modes in physics.js: `pass` (no-op), `merge` (conserves mass, charge, momentum, and angular momentum — orbital angular momentum about the pair's COM plus spin angular momentum `I·spin` maps to merged particle's spin via `I = (2/5)mr²`), `bounce` (elastic with spin-friction transfer via `Δspin = J/(INERTIA_K·m·r)`, configurable friction coefficient via `Physics.bounceFriction` slider). Bounce uses relativistic elastic collision when relativity is on (Lorentz boost to COM frame, reversal, boost back — conserves both m·w momentum and m·γ energy), classical elastic collision when off (conserves m·v and ½mv²).
 
 ### Input Modes
 
@@ -167,4 +167,4 @@ JS modules alias as `const _PAL = window._PALETTE`.
 - **Shared CSS at domain root** — `shared-base.css` is loaded via `/shared-base.css` (absolute path). When serving locally, serve from the parent `a9lim.github.io/` directory or the shared file won't resolve.
 - **Preset dialog needs both ID and class** — `#preset-dialog` has `class="preset-dialog"` so both the shared CSS (`.preset-dialog`) and any JS targeting the ID work correctly.
 - **`data-theme="light"` must be on `<html>`** — CSS theme rules depend on it before JS runs.
-- Particle radius is `cbrt(mass)` (uniform density sphere with ρ = 3/(4π)). Moment of inertia `I = INERTIA_K·m·r²` with `INERTIA_K = 0.4` (solid sphere). Magnetic moment `μ = ½qωr²` (uniform charge density sphere). GM moment `L = Iω`. Both linear and rotational state variables use the same derivation pattern: `derived = state / √(1 + state² × scale²)`. Linear: `v = w / √(1 + w²)` where `p.w` is proper velocity (γv). Rotational: `angVel = spin / √(1 + spin² · r²)` where `p.spin` is proper angular velocity. Both naturally cap derived quantities below c. When relativity is off, derivation is identity (`v = w`, `angVel = spin`).
+- Particle radius is `cbrt(mass)` (uniform density sphere with ρ = 3/(4π)). Moment of inertia `I = INERTIA_K·m·r²` with `INERTIA_K = 0.4` (solid sphere). Magnetic moment `μ = MAG_MOMENT_K·q·ω·r²` with `MAG_MOMENT_K = 0.2` (uniform charge density solid sphere). GM moment `L = Iω`. Both linear and rotational state variables use the same derivation pattern: `derived = state / √(1 + state² × scale²)`. Linear: `v = w / √(1 + w²)` where `p.w` is proper velocity (γv). Rotational: `angVel = spin / √(1 + spin² · r²)` where `p.spin` is proper angular velocity. Both naturally cap derived quantities below c. When relativity is off, derivation is identity (`v = w`, `angVel = spin`).

@@ -1,6 +1,6 @@
 import Vec2 from './vec2.js';
 import QuadTree, { Rect } from './quadtree.js';
-import { BH_THETA, QUADTREE_CAPACITY, SOFTENING_SQ, DESPAWN_MARGIN, INERTIA_K } from './config.js';
+import { BH_THETA, QUADTREE_CAPACITY, SOFTENING_SQ, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K } from './config.js';
 import { setVelocity, spinToAngVel } from './relativity.js';
 
 function setVelocityFromVel(p, vn, vt, nx, ny, tx, ty) {
@@ -226,7 +226,7 @@ export default class Physics {
                     const oRSq = o.radius * o.radius;
                     this._pairForce(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
                         o.mass, o.charge, o.angVel,
-                        0.5 * o.charge * o.angVel * oRSq,
+                        MAG_MOMENT_K * o.charge * o.angVel * oRSq,
                         INERTIA_K * o.mass * o.angVel * oRSq, p.force);
                 }
             }
@@ -321,7 +321,10 @@ export default class Physics {
         const mSum = m1 + m2;
 
         if (this.relativityEnabled) {
-            // ─── Relativistic bounce: conserve m·w (proper momentum) ───
+            // ─── Relativistic elastic bounce ───
+            // Conserves both relativistic momentum (m·w) and energy (m·γ).
+            // Uses Lorentz boost to COM frame, reversal, and boost back.
+
             // Decompose proper velocities into normal/tangential
             const w1n = p1.w.x * nx + p1.w.y * ny;
             const w1t = p1.w.x * tx + p1.w.y * ty;
@@ -333,10 +336,32 @@ export default class Physics {
             const v2n = p2.vel.x * nx + p2.vel.y * ny;
             if (v2n - v1n > 0) return;
 
-            // Elastic collision on proper velocity normal components
-            // Conserves relativistic momentum: m1*w1n + m2*w2n = m1*w1n' + m2*w2n'
-            const w1nFinal = (w1n * (m1 - m2) + 2 * m2 * w2n) / mSum;
-            const w2nFinal = (w2n * (m2 - m1) + 2 * m1 * w1n) / mSum;
+            // Full Lorentz factors (including tangential components)
+            const g1 = Math.sqrt(1 + w1n * w1n + w1t * w1t);
+            const g2 = Math.sqrt(1 + w2n * w2n + w2t * w2t);
+
+            // Total normal momentum and energy
+            const Pn = m1 * w1n + m2 * w2n;
+            const E = m1 * g1 + m2 * g2;
+
+            // Invariant mass of the system
+            const MSq = E * E - Pn * Pn;
+            const M = Math.sqrt(MSq);
+
+            // COM boost parameters (along normal direction)
+            const Gc = E / M;   // COM Lorentz factor
+            const Wc = Pn / M;  // COM proper velocity along normal
+
+            // Boost each particle's normal component to COM frame
+            const w1nc = Gc * w1n - Wc * g1;
+            const g1c = Gc * g1 - Wc * w1n;
+            const w2nc = Gc * w2n - Wc * g2;
+
+            // Elastic collision in COM frame: reverse normal proper velocities
+            // Then boost back to lab frame
+            const w1nFinal = -Gc * w1nc + Wc * g1c;
+            // g2c = Gc*g2 - Wc*w2n, but we can use momentum conservation instead
+            const w2nFinal = (Pn - m1 * w1nFinal) / m2;
 
             // Tangential friction using coordinate velocities for surface velocity
             const v1t = p1.vel.x * tx + p1.vel.y * ty;
@@ -414,7 +439,7 @@ export default class Physics {
                 for (const other of node.points) {
                     if (other === particle) continue;
                     const otherRSq = other.radius * other.radius;
-                    this._pairForce(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y, other.mass, other.charge, other.angVel, 0.5 * other.charge * other.angVel * otherRSq, INERTIA_K * other.mass * other.angVel * otherRSq, out);
+                    this._pairForce(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y, other.mass, other.charge, other.angVel, MAG_MOMENT_K * other.charge * other.angVel * otherRSq, INERTIA_K * other.mass * other.angVel * otherRSq, out);
                 }
             } else {
                 const avgVx = node.totalMass > 0 ? node.totalMomentumX / node.totalMass : 0;
@@ -454,9 +479,9 @@ export default class Physics {
         const crossSV = svx * ry - svy * rx;
 
         // Test particle dipole moments (uniform-density solid sphere)
-        // Magnetic moment: μ = ½·q·ω·r²; GM moment (angular momentum): L = I·ω
+        // Magnetic moment: μ = ⅕·q·ω·r²; GM moment (angular momentum): L = I·ω
         const pRSq = p.radius * p.radius;
-        const pMagMoment = 0.5 * p.charge * p.angVel * pRSq;
+        const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
         const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
         // Moment of inertia (for torque → angular acceleration conversion)
         const pI = INERTIA_K * p.mass * pRSq;
@@ -482,21 +507,21 @@ export default class Physics {
         }
 
         if (this.magneticEnabled) {
-            // Dipole radial component: aligned ⊥-to-plane dipoles repel (standard 3D result)
-            const fDir = -(pMagMoment * sMagMoment) * invRSq * invRSq * invR;
+            // Dipole radial component: F = 3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
+            const fDir = -3 * (pMagMoment * sMagMoment) * invRSq * invRSq * invR;
             out.x += rx * fDir;
             out.y += ry * fDir;
             p.forceMagnetic.x += rx * fDir;
             p.forceMagnetic.y += ry * fDir;
-            // Magnetic dipole PE: +(μ₁μ₂) / (3r³), aligned repels
-            this.potentialEnergy += (pMagMoment * sMagMoment) * invR * invRSq / 3 * 0.5;
+            // Magnetic dipole PE: +(μ₁μ₂)/r³, aligned repels (F = -dU/dr = 3μ₁μ₂/r⁴)
+            this.potentialEnergy += (pMagMoment * sMagMoment) * invR * invRSq * 0.5;
 
             // Accumulate EM magnetic field Bz for Boris rotation (Lorentz force)
             // B_z = q_s * (v_s × r̂)_z / r³
             const Bz = sCharge * crossSV * invR * invRSq;
             p.Bz += Bz;
 
-            // Spin-orbit torque (EM): τ = μ·B, d(spin)/dt = τ/I = (½·q·ω·r²·B) / I
+            // Spin-orbit torque (EM): τ = μ·B, d(spin)/dt = τ/I = (⅕·q·ω·r²·B) / I
             if (this.spinOrbitEnabled && pI > 0) {
                 const emTorque = pMagMoment * Bz / pI;
                 p.torque += emTorque;
@@ -505,23 +530,24 @@ export default class Physics {
         }
 
         if (this.gravitomagEnabled) {
-            // Dipole radial component: co-rotating masses attract (GEM flips EM sign)
-            const fDir = (pAngMomentum * sAngMomentum) * invRSq * invRSq * invR;
+            // Dipole radial component: F = 3L₁L₂/r⁴, co-rotating masses attract (GEM flips EM sign)
+            const fDir = 3 * (pAngMomentum * sAngMomentum) * invRSq * invRSq * invR;
             out.x += rx * fDir;
             out.y += ry * fDir;
             p.forceGravitomag.x += rx * fDir;
             p.forceGravitomag.y += ry * fDir;
-            // Gravitomagnetic dipole PE: -(L₁·L₂) / (3r³), co-rotating attracts
-            this.potentialEnergy -= (pAngMomentum * sAngMomentum) * invR * invRSq / 3 * 0.5;
+            // Gravitomagnetic dipole PE: -(L₁·L₂)/r³, co-rotating attracts (F = -dU/dr = 3L₁L₂/r⁴)
+            this.potentialEnergy -= (pAngMomentum * sAngMomentum) * invR * invRSq * 0.5;
 
             // Accumulate GM field Bgz for Boris rotation (linear gravitomagnetism)
             // Bg_z = m_s * (v_s × r̂)_z / r³
             const Bgz = sMass * crossSV * invR * invRSq;
             p.Bgz += Bgz;
 
-            // Spin-orbit torque (GM): τ = L·Bg, d(spin)/dt = τ/I = (L·Bg)/I
+            // Spin-orbit torque (GM): τ = L·Bg_phys, Bg_phys = -2·Bgz_stored
+            // Factor of 2 from GEM; sign convention: co-rotating attracts → use +2
             if (this.spinOrbitEnabled && pI > 0) {
-                const gmTorque = pAngMomentum * Bgz / pI;
+                const gmTorque = 2 * pAngMomentum * Bgz / pI;
                 p.torque += gmTorque;
                 p.torqueGravitomag += gmTorque;
             }

@@ -1,5 +1,5 @@
 import Vec2 from './vec2.js';
-import { INERTIA_K } from './config.js';
+import { INERTIA_K, MAG_MOMENT_K } from './config.js';
 
 class Rect {
     constructor(x, y, w, h) {
@@ -92,8 +92,8 @@ export default class QuadTree {
                 const rSq = p.radius * p.radius;
                 mass += p.mass;
                 charge += p.charge;
-                // Magnetic moment: μ = ½·q·ω·r² (uniform charge density sphere)
-                magMom += 0.5 * p.charge * p.angVel * rSq;
+                // Magnetic moment: μ = ⅕·q·ω·r² (uniform charge density solid sphere)
+                magMom += MAG_MOMENT_K * p.charge * p.angVel * rSq;
                 // Gravitomagnetic moment (angular momentum): L = I·ω = INERTIA_K·m·r²·ω
                 angMom += INERTIA_K * p.mass * p.angVel * rSq;
                 comX += p.pos.x * p.mass;

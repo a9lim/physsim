@@ -10,6 +10,9 @@ export const SOFTENING_SQ = 25;
 // Moment of inertia: I = INERTIA_K * m * r² (uniform-density solid sphere = 2/5)
 export const INERTIA_K = 0.4;
 
+// Magnetic moment: μ = MAG_MOMENT_K * q * ω * r² (uniform charge density solid sphere = 1/5)
+export const MAG_MOMENT_K = 0.2;
+
 // Boundary
 export const DESPAWN_MARGIN = 100;
 
