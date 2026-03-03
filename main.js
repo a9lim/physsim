@@ -3,7 +3,7 @@ import Renderer from './src/renderer.js';
 import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
 import { setupUI } from './src/ui.js';
-import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE } from './src/config.js';
+import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K } from './src/config.js';
 
 import { setVelocity, spinToAngVel } from './src/relativity.js';
 
@@ -106,15 +106,16 @@ class Simulation {
                 // Relativistic linear KE: (γ - 1)mc², γ = √(1 + w²)
                 const gamma = Math.sqrt(1 + p.w.magSq());
                 linearKE += (gamma - 1) * p.mass;
-                // Relativistic rotational KE (thin shell): (γ_rot - 1)mc², γ_rot = √(1 + S²r²)
+                // Relativistic rotational KE: E = m·(√(1 + L²/m²) - 1), L = I·S
                 const rSq = p.radius * p.radius;
-                rotationalKE += (Math.sqrt(1 + p.spin * p.spin * rSq) - 1) * p.mass;
+                const L = INERTIA_K * p.mass * rSq * p.spin;
+                rotationalKE += (Math.sqrt(1 + L * L / (p.mass * p.mass)) - 1) * p.mass;
             } else {
                 const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
                 linearKE += 0.5 * p.mass * speedSq;
-                // Classical rotational KE: ½Iω² with I = mr²
+                // Classical rotational KE: ½Iω² with I = INERTIA_K·m·r²
                 const rSq = p.radius * p.radius;
-                rotationalKE += 0.5 * p.mass * rSq * p.angVel * p.angVel;
+                rotationalKE += 0.5 * INERTIA_K * p.mass * rSq * p.angVel * p.angVel;
             }
 
             // Relativistic momentum: p = mw; classical: p = mv (w = v when relativity off)
@@ -140,8 +141,8 @@ class Simulation {
                 const dy = p.pos.y - comY;
                 // Orbital: (r × p)_z = dx * py - dy * px
                 angMom += dx * (p.mass * p.w.y) - dy * (p.mass * p.w.x);
-                // Spin: I * S = m * r² * spin (proper angular momentum)
-                angMom += p.mass * p.radius * p.radius * p.spin;
+                // Spin: I * S = INERTIA_K * m * r² * spin (proper angular momentum)
+                angMom += INERTIA_K * p.mass * p.radius * p.radius * p.spin;
             }
         }
 
@@ -235,7 +236,10 @@ class Simulation {
         const gamma = this.physics.relativityEnabled
             ? Math.sqrt(1 + p.w.magSq())
             : 1;
-        const forceMag = Math.sqrt(p.force.x * p.force.x + p.force.y * p.force.y);
+        // Sum component vectors for total force (includes Boris display forces)
+        const totalFx = p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x;
+        const totalFy = p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y;
+        const forceMag = Math.sqrt(totalFx * totalFx + totalFy * totalFy);
 
         dom.id.textContent = p.id;
         dom.mass.textContent = fmt(p.mass);

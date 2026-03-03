@@ -18,9 +18,9 @@ A high-performance, interactive physics simulation that models gravity, electrom
 - **Boundary Modes** — Despawn off-screen, toroidal wrap, or bounce off edges
 - **Presets** — Solar System, Binary Star, Galaxy, Collision, Magnetic Spin
 - **Visuals** — Particle trails, charge-based dynamic coloring, spin rings, additive glow in dark mode, light/dark theme toggle
-- **Velocity Verlet Integration** — Kick-drift-kick scheme for time-symmetric, energy-conserving integration
+- **Boris Integrator** — Splits E-like (radial) and B-like (velocity-dependent) forces; Boris rotation exactly preserves |v| for long-term magnetic stability
 - **Independent Force Toggles** — Enable/disable gravity, Coulomb, magnetic, gravitomagnetic, and relativity independently via sidebar switches
-- **Energy Conservation Display** — Real-time tracking of linear KE (relativistic or classical), rotational KE (I=mr² thin shell), gravitational PE, Coulomb PE, magnetic and gravitomagnetic dipole PE, total energy, and drift percentage
+- **Energy Conservation Display** — Real-time tracking of linear KE (relativistic or classical), rotational KE (I=(2/5)mr² solid sphere), gravitational PE, Coulomb PE, magnetic and gravitomagnetic dipole PE, total energy, and drift percentage
 - **Conserved Quantities** — Real-time momentum (|Σmw|) and angular momentum (orbital + spin, computed about COM) tracking
 - **Force Component Vectors** — Per-force-type arrows (gravity, Coulomb, magnetic, gravitomagnetic) in distinct colors alongside net force and velocity vectors
 - **Particle Inspection** — Hover for compact tooltip (mass, charge, spin, speed); click to select and see live stats in sidebar (gamma, force breakdown)
@@ -70,17 +70,20 @@ Uses the shared design system from [a9lim.github.io](https://github.com/a9lim/a9
 
 ### Technical Details
 
-The simulation uses **Velocity Verlet** (kick-drift-kick) integration with proper velocity **w** = γ**v** (celerity) as the primary state variable:
+The simulation uses the **Boris integrator** with proper velocity **w** = γ**v** (celerity) as the primary state variable. It separates position-dependent (E-like) forces from velocity-dependent (B-like) forces:
 
-1. Half-kick proper velocity: **w** += **F**/m · dt/2
-2. Derive velocity: **v** = **w** / √(1 + w²)
-3. Drift position: **x** += **v** · dt
-4. Recalculate forces via Barnes-Hut tree traversal
-5. Half-kick proper velocity: **w** += **F**/m · dt/2
+1. Half-kick with E-like forces: **w** += **F**_E/m · dt/2
+2. Boris rotation for B-like forces: rotate **w** in the B+Bg field plane (preserves |**v**| exactly)
+3. Half-kick with E-like forces: **w** += **F**_E/m · dt/2
+4. Derive velocity: **v** = **w** / √(1 + w²), drift position: **x** += **v** · dt
+5. Rebuild Barnes-Hut tree, handle collisions
+6. Recalculate E-like forces and B/Bg fields
 
-Spin uses the same pattern — `p.spin` stores proper angular velocity, angular velocity is derived via `ω = S / √(1 + S²r²)`, naturally capping surface velocity at *c*.
+The Boris rotation uses combined parameter t = ((q/(2m))·B_z + 2·Bg_z)·dt/γ with s = 2t/(1+t²), giving exact area-preserving rotation. This handles Lorentz and gravitomagnetic forces without energy drift.
 
-Natural units (c = 1, G = 1) throughout. The proper velocity approach provides inherent stability — γ = √(1 + w²) has no singularities unlike 1/√(1 − v²), and high-energy interactions cannot produce superluminal velocities. Velocity Verlet is time-symmetric and energy-conserving, producing significantly lower energy drift than forward Euler.
+Spin uses the same proper-velocity pattern — `p.spin` stores proper angular velocity, angular velocity is derived via `ω = S / √(1 + S²r²)`, naturally capping surface velocity at *c*. Spin-orbit torques are position-dependent and integrated via half-kicks.
+
+Natural units (c = 1, G = 1) throughout. The proper velocity approach provides inherent stability — γ = √(1 + w²) has no singularities unlike 1/√(1 − v²), and high-energy interactions cannot produce superluminal velocities. The Boris integrator exactly preserves kinetic energy through the magnetic rotation step, producing superior long-term stability for charged and spinning particles.
 
 ## Sibling Projects
 

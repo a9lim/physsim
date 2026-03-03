@@ -231,7 +231,10 @@ export default class Renderer {
         const scale = 5;
         const color = isLight ? _r(_PAL.accent, 0.7) : _r(_PAL.accentLight, 0.8);
         for (const p of particles) {
-            const fx = p.force.x * scale, fy = p.force.y * scale;
+            // Sum all component vectors for total force (p.force only has E-like;
+            // component vectors include both E-like and Boris display forces)
+            const fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x) * scale;
+            const fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y) * scale;
             const mag = Math.sqrt(fx * fx + fy * fy);
             if (mag < 1 * invZoom) continue;
             this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);

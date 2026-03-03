@@ -46,10 +46,10 @@ index.html
 
 - **Natural units**: c=1, G=1 throughout the physics engine. All equations use these conventions.
 - **Proper velocity integration**: Physics uses proper velocity `w = γv` (celerity) as the primary linear state variable. Velocity is derived via `v = w / √(1 + w²)`, naturally enforcing the speed-of-light limit without mass in the derivation. Kicks use `Δw = F/m · Δt`. In the classical limit (`w ≈ v`), the derivation becomes identity. Spin uses the same pattern: `p.spin` stores proper angular velocity (unbounded), angular velocity is derived via `angVel = spin / √(1 + spin² · radius²)`, naturally capping surface velocity at c.
-- **Velocity Verlet integration**: Kick-drift-kick scheme for time-symmetric, energy-conserving integration. Each step: half-kick proper velocity (old forces, F/m) → drift position → recalculate forces → half-kick proper velocity (new forces). Stored forces in `particle.force` Vec2. Lorentz factor computed as `γ = √(1 + w²)` — no NaN risk unlike `1/√(1-v²)`.
-- **Force gating**: Each force type (gravity, Coulomb, magnetic, gravitomagnetic, spin-orbit) can be independently toggled via `Physics` boolean flags. Magnetic toggle gates both dipole and Lorentz forces; gravitomagnetic toggle gates both dipole and linear GM forces. Relativity toggle switches between relativistic (`1/√(1+w²)`/`spinToAngVel`) and classical (identity) proper-velocity-to-velocity and spin-to-angVel conversion.
+- **Boris integrator**: Splits forces into position-dependent (E-like: gravity, Coulomb, dipole) and velocity-dependent (B-like: Lorentz, linear GM). E-like forces use half-kick–half-kick; B-like forces use Boris rotation that exactly preserves |v|, giving superior long-term stability for magnetic/gravitomagnetic interactions. Sequence: half-kick(E) → Boris rotate(B) → half-kick(E) → drift → rebuild tree → collisions → new forces+fields. The Boris rotation parameter `t = ((q/(2m))·Bz + 2·Bgz)·dt/γ` combines EM and GM contributions; `s = 2t/(1+t²)` gives the exact rotation. In the proper velocity framework, γ = √(1 + w²) — no NaN risk unlike 1/√(1−v²). Stored forces in `particle.force` Vec2 contain only E-like forces (used by kicks); per-type display vectors (`forceMagnetic`, `forceGravitomag`) include both E-like and B-like contributions for rendering. Accumulated B/Bg field z-components stored in `particle.Bz` and `particle.Bgz`.
+- **Force gating**: Each force type (gravity, Coulomb, magnetic, gravitomagnetic, spin-orbit) can be independently toggled via `Physics` boolean flags. Magnetic toggle gates dipole forces, Lorentz B-field accumulation, and EM spin-orbit torque; gravitomagnetic toggle gates dipole forces, GM B-field accumulation, and GM spin-orbit torque. Both B-field accumulations feed into the Boris rotation step. Relativity toggle switches between relativistic (`1/√(1+w²)`/`spinToAngVel`) and classical (identity) proper-velocity-to-velocity and spin-to-angVel conversion.
 - **Barnes-Hut approximation**: Toggleable via `barnesHutEnabled` (default on). QuadTree stores aggregate mass, charge, angular velocity (magnetic moment, angular momentum), momentum, and center-of-mass per node. `BH_THETA` (0.5) controls accuracy vs. performance tradeoff. Aggregate nodes use average velocity (`totalMomentum/totalMass`) for velocity-dependent forces. When off, computes exact O(N²) pairwise forces — preserves Newton's 3rd law exactly, improving conservation of momentum and angular momentum.
-- **Softening parameter**: `MIN_DIST_SQ` (25) prevents force singularities at close range. Other named constants: `DESPAWN_MARGIN` (100). Bounce friction (`Physics.bounceFriction`, default 0.4) is an instance property adjustable via sidebar slider.
+- **Plummer softening**: `SOFTENING_SQ` (25) prevents force singularities via additive softening `rSq_eff = r² + ε²`, keeping F = -dU/dr consistent (no PE-force mismatch at close range). Other named constants: `DESPAWN_MARGIN` (100). Bounce friction (`Physics.bounceFriction`, default 0.4) is an instance property adjustable via sidebar slider.
 - **Zoom range**: Clamped to 1x–3x in all input paths (mouse wheel, pinch-to-zoom, and zoom buttons).
 - **Minimal global state**: The `Simulation` instance owns all runtime state (`window.sim` for console debugging). Design tokens (`window._PALETTE`, `window._FONT`, `window._r`) are frozen globals set by `colors.js` and consumed by ES modules via `window._PALETTE`.
 
@@ -67,11 +67,19 @@ index.html
 
 ### Energy Conservation
 
-Energy stats computed per frame: linear KE (relativistic `(γ-1)mc²` or classical `½mv²`), rotational KE (relativistic `(√(1+S²r²)-1)·m` or classical `½mr²ω²`, using moment of inertia I=mr² consistent with thin shell), gravitational PE (`-Gm₁m₂/r`), Coulomb PE (`kq₁q₂/r`), magnetic dipole PE (`-(q₁ω₁)(q₂ω₂)/(3r³)`), gravitomagnetic dipole PE (`+(m₁ω₁)(m₂ω₂)/(3r³)`). Total energy and drift percentage displayed in sidebar.
+Energy stats computed per frame: linear KE (relativistic `(γ-1)mc²` or classical `½mv²`), rotational KE (relativistic `m(√(1+L²/m²)-1)` where `L=I·S` or classical `½Iω²`, using `I = (2/5)mr²` uniform-density solid sphere via `INERTIA_K`), gravitational PE (`-Gm₁m₂/r`), Coulomb PE (`kq₁q₂/r`), magnetic dipole PE (`+(μ₁μ₂)/(3r³)` with `μ=½qωr²`, aligned repels), gravitomagnetic dipole PE (`-(L₁L₂)/(3r³)` with `L=Iω`, co-rotating attracts). All PE computed with Plummer-softened r = √(r²+ε²). Total energy and drift percentage displayed in sidebar.
 
 ### Conserved Quantities
 
-Momentum and angular momentum stats computed per frame. Momentum is `|Σ(mᵢwᵢ)|` (magnitude of total relativistic proper momentum). Angular momentum is computed about the center of mass: orbital `Σ(rᵢ × mᵢwᵢ)` plus spin `Σ(mᵢrᵢ²Sᵢ)`. Both are conserved in closed systems with no external forces. Turning off Barnes-Hut improves conservation by ensuring exact Newton's 3rd law symmetry.
+Momentum and angular momentum stats computed per frame. Momentum is `|Σ(mᵢwᵢ)|` (magnitude of total relativistic proper momentum). Angular momentum is computed about the center of mass: orbital `Σ(rᵢ × mᵢwᵢ)` plus spin `Σ(IᵢSᵢ)` where `I = (2/5)mr²`. Both are conserved in closed systems with no external forces. Turning off Barnes-Hut improves conservation by ensuring exact Newton's 3rd law symmetry.
+
+### Sign Conventions (IMPORTANT)
+
+Gravitomagnetism is the gravitational analog of electromagnetism, but **all GEM interactions are attractive** (gravity has only one sign of "charge"):
+- **GM dipole**: co-rotating masses **attract** (opposite sign from EM dipole, where aligned dipoles repel).
+- **Linear GM**: co-moving masses **attract** (same qualitative behavior as parallel currents in EM, but the GEM coupling constant has an extra factor of 4 and opposite sign convention).
+
+In code: the GM dipole force coefficient is `+L₁L₂/r⁴` (positive = attractive along separation vector) and the GM Boris rotation parameter is `+2·Bgz`, which produces the same rotational sense as the EM Lorentz force for co-moving particles. Do NOT flip these signs — the intent is that gravitomagnetism always creates attractive corrections between masses.
 
 ### Force Types
 
@@ -80,18 +88,18 @@ Six force components per particle pair, organized under five toggles:
 **Radial forces** (along separation vector):
 - **Gravity** (`gravityEnabled`): `m₁m₂/r²`, attractive.
 - **Coulomb** (`coulombEnabled`): `-q₁q₂/r²`, like-repels.
-- **Magnetic dipole** (`magneticEnabled`): `(q₁ω₁)(q₂ω₂)/r⁴`, aligned-attracts. Uses derived angular velocity `angVel`.
-- **Gravitomagnetic dipole** (`gravitomagEnabled`): `-(m₁ω₁)(m₂ω₂)/r⁴`, co-rotating-repels. Angular velocity is bounded by relativistic derivation (`angVel = spin/√(1+spin²r²)`), so GM dipole can never overwhelm gravity when relativity is on.
+- **Magnetic dipole** (`magneticEnabled`): `-μ₁μ₂/r⁴` where `μ = ½qωr²` (uniform charge density sphere), aligned ⊥-to-plane dipoles repel (standard 3D result).
+- **Gravitomagnetic dipole** (`gravitomagEnabled`): `+L₁L₂/r⁴` where `L = Iω = (2/5)mr²ω` (angular momentum), co-rotating masses **attract** (GEM flips EM sign). Angular velocity is bounded by relativistic derivation (`angVel = spin/√(1+spin²r²)`), so GM dipole can never overwhelm gravity when relativity is on.
 
-**Velocity-dependent forces** (perpendicular to velocity, do no work):
-- **Lorentz force** (`magneticEnabled`): Moving charges create magnetic fields `B_z = q_s(v_s×r̂)_z/r²` that deflect other moving charges. `F = q·v×B`.
-- **Linear gravitomagnetism** (`gravitomagEnabled`): Same structure for mass currents, opposite sign. Co-moving masses repel via `Bg_z = m_s(v_s×r̂)_z/r²`.
+**Velocity-dependent forces** (perpendicular to velocity, do no work — handled by Boris rotation):
+- **Lorentz force** (`magneticEnabled`): Moving charges create magnetic fields `B_z = q_s(v_s×r̂)_z/r²` that deflect other moving charges. Accumulated as `p.Bz` and applied via Boris rotation with parameter `t_em = (q/(2m))·Bz·dt/γ`.
+- **Linear gravitomagnetism** (`gravitomagEnabled`): Co-moving masses **attract** (frame-dragging). `Bg_z = m_s(v_s×r̂)_z/r²`. Accumulated as `p.Bgz` and applied via Boris rotation with parameter `t_gm = +2·Bgz·dt/γ` (factor of 4 from standard GEM, sign chosen so co-moving masses attract).
 
-**Spin-orbit coupling** (`spinOrbitEnabled`): B and Bg fields from moving sources drive spin evolution. `d(spin)/dt = (q/m)·B_z - Bg_z`. Integrated via Verlet half-kicks alongside proper velocity. Torque displayed in selected particle stats.
+**Spin-orbit coupling** (`spinOrbitEnabled`): B and Bg fields from moving sources drive spin evolution. EM torque: `τ = μ·B`, `d(spin)/dt = τ/I = (½qωr²·B)/(I)`. GM torque: `τ = L·Bg`, `d(spin)/dt = τ/I`. Both torques divided by I = (2/5)mr² to convert to angular acceleration. Integrated via half-kicks alongside proper velocity (not Boris-rotated, as torques are position-dependent). Torque displayed in selected particle stats.
 
 ### Collision Modes
 
-Three modes in physics.js: `pass` (no-op), `merge` (conserves mass, charge, momentum, and angular momentum — orbital angular momentum about the pair's COM plus spin angular momentum maps to merged particle's spin via I=mr²), `bounce` (elastic with spin-friction transfer, configurable friction coefficient via `Physics.bounceFriction` slider).
+Three modes in physics.js: `pass` (no-op), `merge` (conserves mass, charge, momentum, and angular momentum — orbital angular momentum about the pair's COM plus spin angular momentum `I·spin` maps to merged particle's spin via `I = (2/5)mr²`), `bounce` (elastic with spin-friction transfer via `Δspin = J/(INERTIA_K·m·r)`, configurable friction coefficient via `Physics.bounceFriction` slider). Bounce uses relativistic proper-velocity collision when relativity is on (conserves m·w), classical when off (conserves m·v).
 
 ### Input Modes
 
@@ -159,4 +167,4 @@ JS modules alias as `const _PAL = window._PALETTE`.
 - **Shared CSS at domain root** — `shared-base.css` is loaded via `/shared-base.css` (absolute path). When serving locally, serve from the parent `a9lim.github.io/` directory or the shared file won't resolve.
 - **Preset dialog needs both ID and class** — `#preset-dialog` has `class="preset-dialog"` so both the shared CSS (`.preset-dialog`) and any JS targeting the ID work correctly.
 - **`data-theme="light"` must be on `<html>`** — CSS theme rules depend on it before JS runs.
-- Particle radius is `cbrt(mass)` (uniform density sphere with ρ = 3/(4π)). Both linear and rotational state variables use the same derivation pattern: `derived = state / √(1 + state² × scale²)`. Linear: `v = w / √(1 + w²)` where `p.w` is proper velocity (γv). Rotational: `angVel = spin / √(1 + spin² · r²)` where `p.spin` is proper angular velocity. Both naturally cap derived quantities below c. When relativity is off, derivation is identity (`v = w`, `angVel = spin`).
+- Particle radius is `cbrt(mass)` (uniform density sphere with ρ = 3/(4π)). Moment of inertia `I = INERTIA_K·m·r²` with `INERTIA_K = 0.4` (solid sphere). Magnetic moment `μ = ½qωr²` (uniform charge density sphere). GM moment `L = Iω`. Both linear and rotational state variables use the same derivation pattern: `derived = state / √(1 + state² × scale²)`. Linear: `v = w / √(1 + w²)` where `p.w` is proper velocity (γv). Rotational: `angVel = spin / √(1 + spin² · r²)` where `p.spin` is proper angular velocity. Both naturally cap derived quantities below c. When relativity is off, derivation is identity (`v = w`, `angVel = spin`).

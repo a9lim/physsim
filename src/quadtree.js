@@ -1,4 +1,5 @@
 import Vec2 from './vec2.js';
+import { INERTIA_K } from './config.js';
 
 class Rect {
     constructor(x, y, w, h) {
@@ -65,9 +66,9 @@ export default class QuadTree {
             this.subdivide();
             for (const p of this.points) {
                 this.northwest.insert(p) ||
-                this.northeast.insert(p) ||
-                this.southwest.insert(p) ||
-                this.southeast.insert(p);
+                    this.northeast.insert(p) ||
+                    this.southwest.insert(p) ||
+                    this.southeast.insert(p);
             }
             this.points = [];
         }
@@ -88,10 +89,13 @@ export default class QuadTree {
             let momX = 0, momY = 0;
 
             for (const p of pts) {
+                const rSq = p.radius * p.radius;
                 mass += p.mass;
                 charge += p.charge;
-                magMom += p.charge * p.angVel;
-                angMom += p.mass * p.angVel;
+                // Magnetic moment: μ = ½·q·ω·r² (uniform charge density sphere)
+                magMom += 0.5 * p.charge * p.angVel * rSq;
+                // Gravitomagnetic moment (angular momentum): L = I·ω = INERTIA_K·m·r²·ω
+                angMom += INERTIA_K * p.mass * p.angVel * rSq;
                 comX += p.pos.x * p.mass;
                 comY += p.pos.y * p.mass;
                 momX += p.mass * p.w.x;

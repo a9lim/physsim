@@ -4,8 +4,11 @@
 export const BH_THETA = 0.5;
 export const QUADTREE_CAPACITY = 4;
 
-// Force softening
-export const MIN_DIST_SQ = 25;
+// Plummer softening: rSq_eff = rSq + SOFTENING_SQ, keeps F and PE consistent
+export const SOFTENING_SQ = 25;
+
+// Moment of inertia: I = INERTIA_K * m * r² (uniform-density solid sphere = 2/5)
+export const INERTIA_K = 0.4;
 
 // Boundary
 export const DESPAWN_MARGIN = 100;

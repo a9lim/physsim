@@ -24,6 +24,10 @@ export default class Particle {
         this.torqueMagnetic = 0;
         this.torqueGravitomag = 0;
 
+        // Accumulated magnetic field z-components (for Boris rotation)
+        this.Bz = 0;            // EM magnetic field from moving charges
+        this.Bgz = 0;           // Gravitomagnetic field from moving masses
+
         this.radius = Math.cbrt(this.mass);
         this.color = this.getColor();
     }
