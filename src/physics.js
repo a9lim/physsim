@@ -725,8 +725,7 @@ export default class Physics {
             p.dBgzdy += dBgzdr * ry * invR;
 
             // Frame-dragging torque: drives spins toward co-rotation
-            const Ip = INERTIA_K * p.mass * p.radius * p.radius;
-            const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
+            const torque = FRAME_DRAG_K * sMass * (sSpin - p.angVel) * invR * invRSq;
             p._frameDragTorque = (p._frameDragTorque || 0) + torque;
         }
     }
