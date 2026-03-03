@@ -47,7 +47,7 @@ index.html
 - **Natural units**: c=1, G=1 throughout the physics engine. All equations use these conventions.
 - **Proper velocity integration**: Physics uses proper velocity `w = γv` (celerity) as the primary linear state variable. Velocity is derived via `v = w / √(1 + w²)`, naturally enforcing the speed-of-light limit without mass in the derivation. Kicks use `Δw = F/m · Δt`. In the classical limit (`w ≈ v`), the derivation becomes identity. Spin uses the same pattern: `p.spin` stores proper angular velocity (unbounded), angular velocity is derived via `angVel = spin / √(1 + spin² · radius²)`, naturally capping surface velocity at c.
 - **Boris integrator**: Splits forces into position-dependent (E-like: gravity, Coulomb, dipole) and velocity-dependent (B-like: Lorentz, linear GM). E-like forces use half-kick–half-kick; B-like forces use Boris rotation that exactly preserves |v|, giving superior long-term stability for magnetic/gravitomagnetic interactions. Sequence: half-kick(E) → Boris rotate(B) → half-kick(E) → drift → rebuild tree → collisions → new forces+fields. The Boris rotation parameter `t = ((q/(2m))·Bz + 2·Bgz)·dt/γ` combines EM and GM contributions; `s = 2t/(1+t²)` gives the exact rotation. In the proper velocity framework, γ = √(1 + w²) — no NaN risk unlike 1/√(1−v²). Stored forces in `particle.force` Vec2 contain only E-like forces (used by kicks); per-type display vectors (`forceMagnetic`, `forceGravitomag`) include both E-like and B-like contributions for rendering. Accumulated B/Bg field z-components stored in `particle.Bz` and `particle.Bgz`.
-- **Force gating**: Each force type (gravity, Coulomb, magnetic, gravitomagnetic, spin-orbit) can be independently toggled via `Physics` boolean flags. Magnetic toggle gates dipole forces, Lorentz B-field accumulation, and EM spin-orbit torque; gravitomagnetic toggle gates dipole forces, GM B-field accumulation, and GM spin-orbit torque. Both B-field accumulations feed into the Boris rotation step. Relativity toggle switches between relativistic (`1/√(1+w²)`/`spinToAngVel`) and classical (identity) proper-velocity-to-velocity and spin-to-angVel conversion.
+- **Force gating**: Each force type (gravity, Coulomb, magnetic, gravitomagnetic) can be independently toggled via `Physics` boolean flags. Magnetic toggle gates dipole forces and Lorentz B-field accumulation; gravitomagnetic toggle gates dipole forces and GM B-field accumulation. Both B-field accumulations feed into the Boris rotation step. Relativity toggle switches between relativistic (`1/√(1+w²)`/`spinToAngVel`) and classical (identity) proper-velocity-to-velocity and spin-to-angVel conversion.
 - **Barnes-Hut approximation**: Toggleable via `barnesHutEnabled` (default on). QuadTree stores aggregate mass, charge, angular velocity (magnetic moment, angular momentum), momentum, and center-of-mass per node. `BH_THETA` (0.5) controls accuracy vs. performance tradeoff. Aggregate nodes use average velocity (`totalMomentum/totalMass`) for velocity-dependent forces. When off, computes exact O(N²) pairwise forces — preserves Newton's 3rd law exactly, improving conservation of momentum and angular momentum.
 - **Plummer softening**: `SOFTENING_SQ` (25) prevents force singularities via additive softening `rSq_eff = r² + ε²`, keeping F = -dU/dr consistent (no PE-force mismatch at close range). Other named constants: `DESPAWN_MARGIN` (100). Bounce friction (`Physics.bounceFriction`, default 0.4) is an instance property adjustable via sidebar slider.
 - **Zoom range**: Clamped to 1x–3x in all input paths (mouse wheel, pinch-to-zoom, and zoom buttons).
@@ -62,8 +62,7 @@ index.html
 - **Velocity vectors**: Optional white arrows from particle center in velocity direction, scaled by speed.
 - **Force vectors**: Optional accent-colored arrows from particle center in net force direction, scaled by magnitude.
 - **Force component vectors**: Optional per-force-type arrows (gravity=slate, Coulomb=blue, magnetic=cyan, gravitomagnetic=purple) showing individual force contributions. Each particle stores `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag` Vec2s accumulated during force calculation.
-- **Torque arcs**: Curved arrows around particles showing spin-orbit torque. Displayed when force vectors or force components are toggled on. Net torque uses accent color; component mode shows magnetic (cyan) and gravitomagnetic (purple) torques separately at opposite angular offsets. Each particle stores `torqueMagnetic` and `torqueGravitomag` scalars.
-- **Particle tooltip**: Hover over particles shows compact stats (mass, charge, spin, speed). Click to select and display live stats in a sidebar section (mass, charge, spin as surface velocity in units of c, speed in c, gamma, total force, torque).
+- **Particle tooltip**: Hover over particles shows compact stats (mass, charge, spin, speed). Click to select and display live stats in a sidebar section (mass, charge, spin as surface velocity in units of c, speed in c, gamma, total force).
 
 ### Energy Conservation
 
@@ -71,7 +70,7 @@ Energy stats computed per frame in the sidebar Energy section. Total energy (top
 
 ### Conserved Quantities
 
-Momentum and angular momentum stats computed per frame in the sidebar Conserved Quantities section. Momentum is `|Σ(mᵢwᵢ)|` (magnitude of total relativistic proper momentum), with drift sub-row showing percentage change from initial value. Angular momentum is computed about the center of mass with orbital `Σ(rᵢ × mᵢwᵢ)` and spin `Σ(IᵢSᵢ)` shown as separate sub-rows, plus a drift sub-row. `I = (2/5)mr²`. All three quantities (energy, momentum, angular momentum) are conserved in closed systems. Turning off Barnes-Hut improves conservation by ensuring exact Newton's 3rd law symmetry. Initial values for drift tracking reset when particles are added or the simulation is cleared.
+Momentum and angular momentum stats computed per frame in the sidebar Conserved Quantities section. Momentum is `|Σ(mᵢwᵢ)|` (magnitude of total relativistic proper momentum), with drift sub-row showing percentage change from initial value. Angular momentum is computed about the center of mass with orbital `Σ(rᵢ × mᵢwᵢ)` and spin `Σ(IᵢSᵢ)` shown as separate sub-rows, plus a drift sub-row. `I = (2/5)mr²`. Conserved with gravity and Coulomb only. Velocity-dependent forces (Lorentz, linear GM) break Newton's 3rd law — see Force Types section. Turning off Barnes-Hut improves conservation by ensuring exact pairwise symmetry for radial forces. Initial values for drift tracking reset when particles are added or the simulation is cleared.
 
 ### Sign Conventions (IMPORTANT)
 
@@ -95,7 +94,9 @@ Six force components per particle pair, organized under five toggles:
 - **Lorentz force** (`magneticEnabled`): Moving charges create magnetic fields `B_z = q_s(v_s×r̂)_z/r²` that deflect other moving charges. Accumulated as `p.Bz` and applied via Boris rotation with parameter `t_em = (q/(2m))·Bz·dt/γ`.
 - **Linear gravitomagnetism** (`gravitomagEnabled`): Co-moving masses **attract** (frame-dragging). `Bg_z = m_s(v_s×r̂)_z/r²`. Accumulated as `p.Bgz` and applied via Boris rotation with parameter `t_gm = +2·Bgz·dt/γ` (factor of 4 from standard GEM, sign chosen so co-moving masses attract).
 
-**Spin-orbit coupling** (`spinOrbitEnabled`): B and Bg fields from moving sources drive spin evolution. EM torque: `τ = μ·B`, `d(spin)/dt = τ/I = (⅕qωr²·B)/(I)`. GM torque: `τ = 2L·Bg_stored`, `d(spin)/dt = τ/I` (factor of 2 accounts for physical Bg = -2·Bg_stored). Both torques divided by I = (2/5)mr² to convert to angular acceleration. Integrated via half-kicks alongside proper velocity (not Boris-rotated, as torques are position-dependent). Torque displayed in selected particle stats.
+**Known limitation:** Velocity-dependent forces (Lorentz, linear GM) do not satisfy Newton's 3rd law between particles — the force on A from B's field is not equal and opposite to the force on B from A's field. In real physics, the missing momentum/angular momentum is carried by the EM/GEM field. This particle-only simulation has no field degrees of freedom, so momentum and angular momentum are not exactly conserved when magnetic or gravitomagnetic forces are active. Radial forces (gravity, Coulomb, dipole) are central and conserve momentum/angular momentum exactly in pairwise mode.
+
+Particle spin is conserved (no spin-orbit coupling) — spin only changes via collision angular momentum transfer (merge or bounce friction).
 
 ### Collision Modes
 
@@ -150,8 +151,8 @@ JS modules alias as `const _PAL = window._PALETTE`.
 
 ### Keyboard Shortcuts & Info Tips
 
-- **Shortcuts** via `initShortcuts()` from `shared-shortcuts.js`: Space (pause), R (reset), `.` (step), P (presets), 1-5 (load preset), V (velocity vectors), F (force vectors), C (force components), T (theme), S (sidebar), O (spin-orbit toggle), Esc (close/deselect).
-- **Info tips** via `createInfoTip()` from `shared-info.js`: `?` buttons next to Energy, Conserved Quantities, Particle Properties (spin), each force toggle (gravity, Coulomb, magnetic, gravitomagnetic, spin-orbit, Barnes-Hut), Interaction mode, Collision mode, Boundary mode. Data defined inline in `ui.js`.
+- **Shortcuts** via `initShortcuts()` from `shared-shortcuts.js`: Space (pause), R (reset), `.` (step), P (presets), 1-5 (load preset), V (velocity vectors), F (force vectors), C (force components), T (theme), S (sidebar), Esc (close/deselect).
+- **Info tips** via `createInfoTip()` from `shared-info.js`: `?` buttons next to Energy, Conserved Quantities, Particle Properties (spin), each force toggle (gravity, Coulomb, magnetic, gravitomagnetic, Barnes-Hut), Interaction mode, Collision mode, Boundary mode. Data defined inline in `ui.js`.
 
 ### CSS Patterns
 

@@ -174,7 +174,8 @@ export default class InputHandler {
         this.hoveredParticle = hit;
         if (hit) {
             const speed = Math.sqrt(hit.vel.x * hit.vel.x + hit.vel.y * hit.vel.y);
-            this.tooltip.textContent = `m=${hit.mass.toFixed(1)}  q=${hit.charge.toFixed(1)}  v=${speed.toFixed(3)}`;
+            const spin = (hit.angVel * hit.radius).toFixed(3);
+            this.tooltip.textContent = `m=${hit.mass.toFixed(1)}  q=${hit.charge.toFixed(1)}  s=${spin}c  v=${speed.toFixed(3)}c`;
             this.tooltip.style.left = (e.clientX + 14) + 'px';
             this.tooltip.style.top = (e.clientY - 10) + 'px';
             this.tooltip.hidden = false;
@@ -225,7 +226,7 @@ export default class InputHandler {
         const spin = parseFloat(this.spinInput.value);
 
         if (mode === 'shoot') {
-            const velocity = dragVector.scale(0.1);
+            const velocity = dragVector.scale(0.02);
             this.sim.addParticle(this.dragStart.x, this.dragStart.y, velocity.x, velocity.y, { mass, charge, spin });
         } else if (mode === 'orbit') {
             let bestBody = null;

@@ -106,7 +106,6 @@ export function setupUI(sim) {
         { id: 'magnetic-toggle', prop: 'magneticEnabled' },
         { id: 'gravitomag-toggle', prop: 'gravitomagEnabled' },
         { id: 'relativity-toggle', prop: 'relativityEnabled' },
-        { id: 'spinorbit-toggle', prop: 'spinOrbitEnabled' },
         { id: 'barneshut-toggle', prop: 'barnesHutEnabled' },
     ];
     forceToggles.forEach(({ id, prop }) => {
@@ -233,12 +232,6 @@ export function setupUI(sim) {
         }},
         { key: 'T', label: 'Toggle theme', group: 'View', action: toggleTheme },
         { key: 'S', label: 'Toggle sidebar', group: 'View', action: togglePanel },
-        { key: 'O', label: 'Toggle spin-orbit', group: 'Simulation', action: () => {
-            const el = document.getElementById('spinorbit-toggle');
-            el.checked = !el.checked;
-            sim.physics.spinOrbitEnabled = el.checked;
-            el.setAttribute('aria-checked', el.checked);
-        }},
         { key: 'Escape', label: 'Close dialogs', group: 'View', action: closePresetDialog },
     ];
 
@@ -249,13 +242,12 @@ export function setupUI(sim) {
     // ─── Info tips ───
     const infoData = {
         energy: { title: 'Energy Conservation', body: 'Total energy = Linear KE + Spin KE + Potential. Drift indicates numerical integration error. Spin KE uses I = (2/5)mr\u00B2 (uniform-density solid sphere).' },
-        conserved: { title: 'Conserved Quantities', body: 'Momentum is the magnitude of total relativistic momentum \u03A3(m\u1D62w\u1D62). Angular momentum about the center of mass splits into orbital \u03A3(r\u1D62 \u00D7 m\u1D62w\u1D62) and spin \u03A3(I\u1D62S\u1D62) where I = (2/5)mr\u00B2. The total is conserved in closed systems.' },
-        spin: { title: 'Spin', body: 'Intrinsic spin of the particle. Affects magnetic and gravitomagnetic forces. Evolves via spin-orbit coupling when enabled. Positive = counter-clockwise, negative = clockwise.' },
+        conserved: { title: 'Conserved Quantities', body: 'Momentum is the magnitude of total relativistic momentum \u03A3(m\u1D62w\u1D62). Angular momentum about the center of mass splits into orbital \u03A3(r\u1D62 \u00D7 m\u1D62w\u1D62) and spin \u03A3(I\u1D62S\u1D62) where I = (2/5)mr\u00B2. Conserved with gravity and Coulomb only. Velocity-dependent forces (Lorentz, linear gravitomagnetism) do not obey Newton\u2019s third law between particles \u2014 in real physics, the missing momentum is carried by the field.' },
+        spin: { title: 'Spin', body: 'Intrinsic spin of the particle. Determines magnetic moment and angular momentum, affecting dipole forces. Conserved unless collisions transfer angular momentum. Positive = counter-clockwise, negative = clockwise.' },
         gravity: { title: 'Gravity', body: 'Attractive force between all massive particles. Proportional to m\u2081m\u2082/r\u00B2. In natural units, G=1.' },
         coulomb: { title: 'Coulomb Force', body: 'Electric force between charged particles. Like charges repel, opposites attract. Proportional to q\u2081q\u2082/r\u00B2.' },
-        magnetic: { title: 'Magnetic Force', body: 'Dipole-dipole force: aligned \u22A5-to-plane dipoles repel (3\u03BC\u2081\u03BC\u2082/r\u2074). Magnetic moment \u03BC = \u2155q\u03C9r\u00B2 (uniform charge density solid sphere). Lorentz force from velocity-dependent B fields is handled by the Boris rotation.' },
-        gravitomag: { title: 'Gravitomagnetic Force', body: 'Dipole force 3L\u2081L\u2082/r\u2074: co-rotating masses attract. Angular momentum L = (2/5)m\u03C9r\u00B2. Linear gravitomagnetism (co-moving masses attract, frame-dragging) is handled by the Boris rotation.' },
-        spinorbit: { title: 'Spin-Orbit Coupling', body: 'Magnetic and gravitomagnetic fields exert torques on particle spin. EM torque \u03C4 = \u03BC\u00B7B drives spin; GM torque \u03C4 = 2L\u00B7Bg (factor of 2 from GEM). Both converted to angular acceleration via \u03C4/I.' },
+        magnetic: { title: 'Magnetic Force', body: 'Dipole-dipole force: aligned \u22A5-to-plane dipoles repel (3\u03BC\u2081\u03BC\u2082/r\u2074). Magnetic moment \u03BC = \u2155q\u03C9r\u00B2 (uniform charge density solid sphere). Lorentz force from velocity-dependent B fields is handled by the Boris rotation. Note: velocity-dependent forces don\u2019t conserve momentum/angular momentum without field degrees of freedom.' },
+        gravitomag: { title: 'Gravitomagnetic Force', body: 'Dipole force 3L\u2081L\u2082/r\u2074: co-rotating masses attract. Angular momentum L = (2/5)m\u03C9r\u00B2. Linear gravitomagnetism (co-moving masses attract, frame-dragging) is handled by the Boris rotation. Note: velocity-dependent forces don\u2019t conserve momentum/angular momentum without field degrees of freedom.' },
         relativity: { title: 'Relativity', body: 'When enabled, uses proper velocity (w = \u03B3v) and derives v = w/\u221A(1+w\u00B2), naturally enforcing the speed-of-light limit. When off, v = w (classical Newtonian mechanics).' },
         interaction: { title: 'Interaction Modes', body: '<b>Place</b> \u2014 spawn a particle at rest.<br><b>Shoot</b> \u2014 drag to set velocity (drag distance \u00D7 0.1).<br><b>Orbit</b> \u2014 spawn in circular orbit around the nearest massive body.' },
         barneshut: { title: 'Barnes-Hut Approximation', body: 'When on, uses a quadtree to approximate distant particle groups as single bodies (O(N log N)). When off, computes exact pairwise forces (O(N\u00B2)) \u2014 slower but preserves Newton\u2019s third law exactly, improving conservation of momentum and angular momentum.' },

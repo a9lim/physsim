@@ -196,14 +196,11 @@
                         <div class="ctrl-row"><label for="relativity-toggle">Relativity <button class="info-trigger" data-info="relativity" aria-label="Relativity info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="relativity-toggle" checked role="switch" aria-checked="true">
                             <label for="relativity-toggle" class="tog tog-relativity"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="spinorbit-toggle">Spin-Orbit <button class="info-trigger" data-info="spinorbit" aria-label="Spin-orbit coupling info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="spinorbit-toggle" checked role="switch" aria-checked="true">
-                            <label for="spinorbit-toggle" class="tog tog-spinorbit"><span class="tog-thumb"></span></label></div></div>
                     </div>
                     <div class="panel-section">
                         <h2 class="group-label">Physics</h2>
                         <div class="ctrl-row"><label for="barneshut-toggle">Barnes-Hut <button class="info-trigger" data-info="barneshut" aria-label="Barnes-Hut info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="barneshut-toggle" checked role="switch" aria-checked="true">
+                            <div class="tog-wrap"><input type="checkbox" id="barneshut-toggle" role="switch" aria-checked="false">
                             <label for="barneshut-toggle" class="tog"><span class="tog-thumb"></span></label></div></div>
                         <div class="control-group">
                             <label>Collision Mode <button class="info-trigger" data-info="collision" aria-label="Collision modes info">?</button></label>
@@ -232,7 +229,7 @@
                     <div class="panel-section">
                         <h2 class="group-label">Visuals</h2>
                         <div class="control-group">
-                            <label class="checkbox-label">Show Trails<input type="checkbox" id="trailsToggle"></label>
+                            <label class="checkbox-label">Show Trails<input type="checkbox" id="trailsToggle" checked></label>
                         </div>
                         <div class="control-group">
                             <label class="checkbox-label">Show Velocity Vectors<input type="checkbox" id="velocityToggle"></label>
@@ -244,8 +241,8 @@
                             <label class="checkbox-label">Show Force Components<input type="checkbox" id="forceComponentsToggle"></label>
                         </div>
                         <div class="control-group">
-                            <label>Sim Speed <span class="slider-value" id="speedValue">20</span>x</label>
-                            <input type="range" id="speedInput" min="0" max="100" step="1" value="20">
+                            <label>Sim Speed <span class="slider-value" id="speedValue">100</span>x</label>
+                            <input type="range" id="speedInput" min="0" max="200" step="1" value="100">
                         </div>
                     </div>
                 </div>
@@ -283,7 +280,6 @@
                         <div class="stat-row"><span class="stat-label">Speed</span><span class="stat-value" id="sel-speed">—</span></div>
                         <div class="stat-row"><span class="stat-label">γ (gamma)</span><span class="stat-value" id="sel-gamma">—</span></div>
                         <div class="stat-row"><span class="stat-label">|Force|</span><span class="stat-value" id="sel-force">—</span></div>
-                        <div class="stat-row"><span class="stat-label">Torque</span><span class="stat-value" id="sel-torque">—</span></div>
                     </div>
                 </div>
             </div>
