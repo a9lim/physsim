@@ -24,7 +24,7 @@ export default class Renderer {
         this.ctx = ctx;
         this.width = width;
         this.height = height;
-        this.trails = false;
+        this.trails = true;
         this.showVelocity = false;
         this.showForce = false;
         this.showForceComponents = false;
@@ -70,11 +70,9 @@ export default class Renderer {
         if (this.showVelocity) this.drawVelocityVectors(ctx, particles, invZoom, isLight);
         if (this.showForce) {
             this.drawForceVectors(ctx, particles, invZoom, isLight);
-            this.drawTorqueArcs(ctx, particles, invZoom, isLight);
         }
         if (this.showForceComponents) {
             this.drawForceComponentVectors(ctx, particles, invZoom, isLight);
-            this.drawTorqueComponentArcs(ctx, particles, invZoom, isLight);
         }
 
         // Drag line drawn in world space (dragStart/currentPos are world coords)
@@ -238,56 +236,6 @@ export default class Renderer {
             const mag = Math.sqrt(fx * fx + fy * fy);
             if (mag < 1 * invZoom) continue;
             this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
-        }
-    }
-
-    _drawTorqueArc(ctx, p, torque, invZoom, color, angleOffset) {
-        const mag = Math.abs(torque);
-        if (mag < 0.01) return;
-
-        const dir = Math.sign(torque);
-        const radius = p.radius + 8;
-        const arcLen = Math.min(mag * 0.4, Math.PI * 2);
-        const startAngle = -HALF_PI + angleOffset;
-        const endAngle = startAngle - dir * arcLen;
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5 * invZoom;
-        ctx.beginPath();
-        ctx.arc(p.pos.x, p.pos.y, radius, startAngle, endAngle, dir > 0);
-        ctx.stroke();
-
-        // Arrowhead extending past arc end in sweep direction
-        const ax = p.pos.x + Math.cos(endAngle) * radius;
-        const ay = p.pos.y + Math.sin(endAngle) * radius;
-        const sweepDir = endAngle - dir * HALF_PI;
-        const h = 4 * invZoom;
-        const tipX = ax + Math.cos(sweepDir) * h;
-        const tipY = ay + Math.sin(sweepDir) * h;
-        const spread = h * 0.4;
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(ax + Math.cos(endAngle) * spread, ay + Math.sin(endAngle) * spread);
-        ctx.lineTo(ax - Math.cos(endAngle) * spread, ay - Math.sin(endAngle) * spread);
-        ctx.closePath();
-        ctx.fillStyle = color;
-        ctx.fill();
-    }
-
-    drawTorqueArcs(ctx, particles, invZoom, isLight) {
-        const color = isLight ? _r(_PAL.accent, 0.7) : _r(_PAL.accentLight, 0.8);
-        for (const p of particles) {
-            this._drawTorqueArc(ctx, p, p.torque, invZoom, color, 0);
-        }
-    }
-
-    drawTorqueComponentArcs(ctx, particles, invZoom, isLight) {
-        const theme = isLight ? 'light' : 'dark';
-        const magColor = _forceCompColors.magnetic[theme];
-        const gmColor = _forceCompColors.gravitomag[theme];
-        for (const p of particles) {
-            this._drawTorqueArc(ctx, p, p.torqueMagnetic, invZoom, magColor, 0);
-            this._drawTorqueArc(ctx, p, p.torqueGravitomag, invZoom, gmColor, Math.PI);
         }
     }
 

@@ -81,9 +81,11 @@ The simulation uses the **Boris integrator** with proper velocity **w** = γ**v*
 
 The Boris rotation uses combined parameter t = ((q/(2m))·B_z + 2·Bg_z)·dt/γ with s = 2t/(1+t²), giving exact area-preserving rotation. This handles Lorentz and gravitomagnetic forces without energy drift.
 
-Spin uses the same proper-velocity pattern — `p.spin` stores proper angular velocity, angular velocity is derived via `ω = S / √(1 + S²r²)`, naturally capping surface velocity at *c*. Spin-orbit torques are position-dependent and integrated via half-kicks.
+Spin uses the same proper-velocity pattern — `p.spin` stores proper angular velocity, angular velocity is derived via `ω = S / √(1 + S²r²)`, naturally capping surface velocity at *c*. Spin determines magnetic moment (μ = ⅕qωr²) and angular momentum (L = ⅖mωr²), affecting dipole forces.
 
 Natural units (c = 1, G = 1) throughout. The proper velocity approach provides inherent stability — γ = √(1 + w²) has no singularities unlike 1/√(1 − v²), and high-energy interactions cannot produce superluminal velocities. The Boris integrator exactly preserves kinetic energy through the magnetic rotation step, producing superior long-term stability for charged and spinning particles.
+
+**Note on conservation:** Velocity-dependent forces (Lorentz, linear gravitomagnetism) do not satisfy Newton's third law between particles — in real physics, the missing momentum is carried by the electromagnetic/gravitoelectromagnetic field. This particle-only simulation has no field degrees of freedom, so momentum and angular momentum are not exactly conserved when magnetic or gravitomagnetic forces are active. Radial dipole forces and all other force types conserve momentum exactly (in pairwise mode with Barnes-Hut off).
 
 ## Sibling Projects
 

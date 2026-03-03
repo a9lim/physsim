@@ -70,7 +70,6 @@ class Simulation {
             speed: document.getElementById('sel-speed'),
             gamma: document.getElementById('sel-gamma'),
             force: document.getElementById('sel-force'),
-            torque: document.getElementById('sel-torque'),
         };
 
         this.init();
@@ -272,7 +271,6 @@ class Simulation {
         dom.speed.textContent = speed.toFixed(4) + 'c';
         dom.gamma.textContent = gamma.toFixed(3);
         dom.force.textContent = fmt(forceMag);
-        dom.torque.textContent = fmt(p.torque);
     }
 
     updateStats() {

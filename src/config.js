@@ -25,5 +25,5 @@ export const ZOOM_MAX = 3;
 export const WHEEL_ZOOM_IN = 1.1;
 
 // Simulation
-export const DEFAULT_SPEED_SCALE = 20;
+export const DEFAULT_SPEED_SCALE = 100;
 export const MAX_SPEED_RATIO = 0.99;

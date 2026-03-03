@@ -17,8 +17,7 @@ export default class Physics {
         this.magneticEnabled = true;
         this.gravitomagEnabled = true;
         this.relativityEnabled = true;
-        this.spinOrbitEnabled = true;
-        this.barnesHutEnabled = true;
+        this.barnesHutEnabled = false;
         this.bounceFriction = 0.4;
 
         // Accumulated potential energy (set during force calculation)
@@ -62,7 +61,6 @@ export default class Physics {
             const halfDtOverM = dt * 0.5 / p.mass;
             p.w.x += p.force.x * halfDtOverM;
             p.w.y += p.force.y * halfDtOverM;
-            if (this.spinOrbitEnabled) p.spin += p.torque * dt * 0.5;
         }
 
         // Step 2: Boris rotation for velocity-dependent (B-like) forces
@@ -111,7 +109,6 @@ export default class Physics {
             const halfDtOverM = dt * 0.5 / p.mass;
             p.w.x += p.force.x * halfDtOverM;
             p.w.y += p.force.y * halfDtOverM;
-            if (this.spinOrbitEnabled) p.spin += p.torque * dt * 0.5;
         }
 
         // Step 4: Derive velocity and angular velocity, drift positions
@@ -199,9 +196,6 @@ export default class Physics {
             p.forceCoulomb.set(0, 0);
             p.forceMagnetic.set(0, 0);
             p.forceGravitomag.set(0, 0);
-            p.torque = 0;
-            p.torqueMagnetic = 0;
-            p.torqueGravitomag = 0;
             p.Bz = 0;
             p.Bgz = 0;
         }
@@ -459,7 +453,7 @@ export default class Physics {
      * Also accumulates potential energy (only half to avoid double-counting with aggregates).
      *
      * Position-dependent (E-like) forces are accumulated into `out` and per-type vectors:
-     * gravity, Coulomb, magnetic dipole, gravitomagnetic dipole, spin-orbit torques.
+     * gravity, Coulomb, magnetic dipole, gravitomagnetic dipole.
      *
      * Velocity-dependent (B-like) forces (Lorentz, linear GM) are NOT computed here.
      * Instead, the B and Bg field z-components are accumulated on the particle for use
@@ -483,8 +477,6 @@ export default class Physics {
         const pRSq = p.radius * p.radius;
         const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
         const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
-        // Moment of inertia (for torque → angular acceleration conversion)
-        const pI = INERTIA_K * p.mass * pRSq;
 
         if (this.gravityEnabled) {
             const fDir = p.mass * sMass * invRSq * invR;
@@ -518,15 +510,7 @@ export default class Physics {
 
             // Accumulate EM magnetic field Bz for Boris rotation (Lorentz force)
             // B_z = q_s * (v_s × r̂)_z / r³
-            const Bz = sCharge * crossSV * invR * invRSq;
-            p.Bz += Bz;
-
-            // Spin-orbit torque (EM): τ = μ·B, d(spin)/dt = τ/I = (⅕·q·ω·r²·B) / I
-            if (this.spinOrbitEnabled && pI > 0) {
-                const emTorque = pMagMoment * Bz / pI;
-                p.torque += emTorque;
-                p.torqueMagnetic += emTorque;
-            }
+            p.Bz += sCharge * crossSV * invR * invRSq;
         }
 
         if (this.gravitomagEnabled) {
@@ -541,16 +525,7 @@ export default class Physics {
 
             // Accumulate GM field Bgz for Boris rotation (linear gravitomagnetism)
             // Bg_z = m_s * (v_s × r̂)_z / r³
-            const Bgz = sMass * crossSV * invR * invRSq;
-            p.Bgz += Bgz;
-
-            // Spin-orbit torque (GM): τ = L·Bg_phys, Bg_phys = -2·Bgz_stored
-            // Factor of 2 from GEM; sign convention: co-rotating attracts → use +2
-            if (this.spinOrbitEnabled && pI > 0) {
-                const gmTorque = 2 * pAngMomentum * Bgz / pI;
-                p.torque += gmTorque;
-                p.torqueGravitomag += gmTorque;
-            }
+            p.Bgz += sMass * crossSV * invR * invRSq;
         }
     }
 }

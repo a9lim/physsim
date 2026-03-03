@@ -20,9 +20,6 @@ export default class Particle {
         this.charge = charge;
         this.spin = 0;      // proper angular velocity (unbounded state variable)
         this.angVel = 0;    // angular velocity (derived, like vel from w)
-        this.torque = 0;
-        this.torqueMagnetic = 0;
-        this.torqueGravitomag = 0;
 
         // Accumulated magnetic field z-components (for Boris rotation)
         this.Bz = 0;            // EM magnetic field from moving charges
