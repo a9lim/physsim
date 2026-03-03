@@ -1,6 +1,6 @@
 import Vec2 from './vec2.js';
 import QuadTree, { Rect } from './quadtree.js';
-import { BH_THETA, QUADTREE_CAPACITY, SOFTENING_SQ, SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, HISTORY_SIZE } from './config.js';
+import { BH_THETA, QUADTREE_CAPACITY, SOFTENING_SQ, SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, LL_FORCE_CLAMP, FRAME_DRAG_K, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, HISTORY_SIZE } from './config.js';
 import Photon from './photon.js';
 import { setVelocity, spinToAngVel } from './relativity.js';
 
@@ -140,6 +140,36 @@ export default class Physics {
                         const sr = p.spin * p.radius;
                         p.angVel = p.spin / Math.sqrt(1 + sr * sr);
                     }
+                }
+            }
+
+            // GM Spin-orbit coupling: dE_spin/dt = -L · (v · ∇Bgz)
+            if (hasGM && relOn) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (Math.abs(p.angVel) < 1e-10) continue;
+                    const pRSq = p.radius * p.radius;
+                    const L = INERTIA_K * p.mass * p.angVel * pRSq;
+                    const vDotGradBg = p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy;
+                    const dEspin = -L * vDotGradBg * dtSub;
+                    const I = INERTIA_K * p.mass * pRSq;
+                    if (Math.abs(I * p.angVel) > 1e-10) {
+                        p.spin += dEspin / (I * p.angVel);
+                        const sr = p.spin * p.radius;
+                        p.angVel = p.spin / Math.sqrt(1 + sr * sr);
+                    }
+                }
+            }
+
+            // Frame-dragging spin alignment torque
+            if (hasGM) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (!p._frameDragTorque) continue;
+                    const I = INERTIA_K * p.mass * p.radius * p.radius;
+                    p.spin += p._frameDragTorque * dtSub / I;
+                    const sr = p.spin * p.radius;
+                    p.angVel = relOn ? p.spin / Math.sqrt(1 + sr * sr) : p.spin;
                 }
             }
 
@@ -332,6 +362,9 @@ export default class Physics {
             p.Bgz = 0;
             p.dBzdx = 0;
             p.dBzdy = 0;
+            p.dBgzdx = 0;
+            p.dBgzdy = 0;
+            p._frameDragTorque = 0;
         }
     }
 
@@ -684,6 +717,17 @@ export default class Physics {
             // Accumulate GM field Bgz for Boris rotation (linear gravitomagnetism)
             // Bg_z = m_s * (v_s × r̂)_z / r³
             p.Bgz += sMass * crossSV * invR * invRSq;
+
+            // Bgz gradient for GM spin-orbit coupling (same pattern as EM dBz)
+            const Bgz_contribution = sMass * crossSV * invR * invRSq;
+            const dBgzdr = -3 * Bgz_contribution * invR;
+            p.dBgzdx += dBgzdr * rx * invR;
+            p.dBgzdy += dBgzdr * ry * invR;
+
+            // Frame-dragging torque: drives spins toward co-rotation
+            const Ip = INERTIA_K * p.mass * p.radius * p.radius;
+            const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
+            p._frameDragTorque = (p._frameDragTorque || 0) + torque;
         }
     }
 

@@ -28,6 +28,8 @@ export default class Particle {
         this.Bgz = 0;           // Gravitomagnetic field from moving masses
         this.dBzdx = 0;         // B_z gradient x-component (for spin-orbit coupling)
         this.dBzdy = 0;         // B_z gradient y-component
+        this.dBgzdx = 0;        // Gravitomagnetic field gradient x-component
+        this.dBgzdy = 0;        // Gravitomagnetic field gradient y-component
 
         // History buffers for retarded potentials
         this.histX = new Float64Array(HISTORY_SIZE);

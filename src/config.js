@@ -43,6 +43,8 @@ export const LL_FORCE_CLAMP = 0.5;           // max |F_rad·dt/m| as fraction of
 export const HISTORY_SIZE = 512;    // circular buffer capacity per particle
 
 // Tidal breakup
+export const FRAME_DRAG_K = 0.1;             // frame-dragging spin alignment strength
+
 export const TIDAL_STRENGTH = 2.0;
 export const MIN_FRAGMENT_MASS = 2; // don't fragment below this mass
 export const FRAGMENT_COUNT = 3;    // split into 3 pieces
