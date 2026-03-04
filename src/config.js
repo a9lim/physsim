@@ -33,13 +33,13 @@ export const DEFAULT_SPEED_SCALE = 100;
 export const MAX_SPEED_RATIO = 0.99;
 
 // Larmor radiation
-export const LARMOR_K = 1 / (6 * Math.PI); // q²a²/(6π) in natural units (c=G=1)
+export const LARMOR_K = 1 / 3; // τ = 2·LARMOR_K·q²/m = 2q²/(3m), P = 2q²a²/3 (c=G=1, ε₀=1/(4π))
 export const PHOTON_LIFETIME = 300;          // frames before despawn
 export const RADIATION_THRESHOLD = 0.01;     // min energy per frame to emit visible photon
 export const MAX_PHOTONS = 500;              // photon pool cap
 export const LL_FORCE_CLAMP = 0.5;           // max |F_rad·dt/m| as fraction of |w|
 
-// Retarded potentials
+// Signal delay
 export const HISTORY_SIZE = 512;    // circular buffer capacity per particle
 
 // Tidal breakup
