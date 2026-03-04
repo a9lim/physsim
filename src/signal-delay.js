@@ -1,9 +1,9 @@
 // ─── Signal Delay ───
-// Retarded potentials: solve for delayed time t_del such that
+// Signal delay: solve for delayed time t_del such that
 // |x_source(t_del) - x_observer(now)| = c·(now - t_del) where c = 1.
 // Uses Newton-Raphson with 3 iterations.
 
-import { HISTORY_SIZE } from './config.js';
+import { HISTORY_SIZE, SOFTENING } from './config.js';
 
 /**
  * Solve light-cone equation for delayed state of source as seen by observer.
@@ -29,7 +29,7 @@ export function getDelayedState(source, observer, simTime) {
         if (Math.abs(residual) < 0.01) break;
 
         // Newton step: d(residual)/d(tDel) ≈ -(v·r̂)/r - 1
-        const denom = 1 + (sp.vx * dx + sp.vy * dy) / (dist * dist + 1);
+        const denom = 1 + (sp.vx * dx + sp.vy * dy) / (dist + SOFTENING);
         tDel += residual / denom;
     }
 
