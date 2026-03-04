@@ -11,6 +11,7 @@ const _forceCompColors = {
     coulomb:     { light: _r(_PAL.extended.blue, 0.7),   dark: _r(_PAL.extended.blue, 0.8) },
     magnetic:    { light: _r(_PAL.extended.cyan, 0.7),   dark: _r(_PAL.extended.cyan, 0.8) },
     gravitomag:  { light: _r(_PAL.extended.purple, 0.7), dark: _r(_PAL.extended.purple, 0.8) },
+    onepn:       { light: _r(_PAL.extended.yellow, 0.7), dark: _r(_PAL.extended.yellow, 0.8) },
 };
 
 // Precomputed spin ring colors: [hue][isLight ? 0 : 1]
@@ -271,8 +272,8 @@ export default class Renderer {
         for (const p of particles) {
             // Sum all component vectors for total force (p.force only has E-like;
             // component vectors include both E-like and Boris display forces)
-            const fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x) * scale;
-            const fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y) * scale;
+            const fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x) * scale;
+            const fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y) * scale;
             const mag = Math.sqrt(fx * fx + fy * fy);
             if (mag < 1 * invZoom) continue;
             this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
@@ -287,6 +288,7 @@ export default class Renderer {
             { key: 'forceCoulomb', color: _forceCompColors.coulomb[theme] },
             { key: 'forceMagnetic', color: _forceCompColors.magnetic[theme] },
             { key: 'forceGravitomag', color: _forceCompColors.gravitomag[theme] },
+            { key: 'force1PN', color: _forceCompColors.onepn[theme] },
         ];
         for (const { key, color } of forces) {
             for (const p of particles) {
