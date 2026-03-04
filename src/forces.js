@@ -154,6 +154,13 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const Bz_contribution = sCharge * crossSV * invR * invRSq;
         p.dBzdx += 3 * Bz_contribution * rx * invRSq + sCharge * svy * invR * invRSq;
         p.dBzdy += 3 * Bz_contribution * ry * invRSq - sCharge * svx * invR * invRSq;
+
+        // Dipole-sourced Bz: static magnetic field from spinning charged body
+        // Bz_dipole = +mu_source / r^3 (equatorial field of z-aligned dipole)
+        p.Bz += sMagMoment * invR * invRSq;
+        // Gradient: d(mu/r^3)/dpx = +3*mu*rx/r^5
+        p.dBzdx += 3 * sMagMoment * rx * invRSq * invRSq * invR;
+        p.dBzdy += 3 * sMagMoment * ry * invRSq * invRSq * invR;
     }
 
     if (toggles.gravitomagEnabled) {
@@ -165,13 +172,20 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p.forceGravitomag.y += ry * fDir;
 
         // Accumulate GM field Bgz for Boris rotation (linear gravitomagnetism)
-        // Bg_z = m_s * (v_s × r̂)_z / r³
-        p.Bgz += sMass * crossSV * invR * invRSq;
+        // Bg_z = -m_s * (v_s × r̂)_z / r³  (sign from r̂ = source−observer convention)
+        p.Bgz -= sMass * crossSV * invR * invRSq;
 
         // ∇Bgz w.r.t. observer position (radial + angular terms)
-        const Bgz_contribution = sMass * crossSV * invR * invRSq;
-        p.dBgzdx += 3 * Bgz_contribution * rx * invRSq + sMass * svy * invR * invRSq;
-        p.dBgzdy += 3 * Bgz_contribution * ry * invRSq - sMass * svx * invR * invRSq;
+        const Bgz_contribution = -sMass * crossSV * invR * invRSq;
+        p.dBgzdx += 3 * Bgz_contribution * rx * invRSq - sMass * svy * invR * invRSq;
+        p.dBgzdy += 3 * Bgz_contribution * ry * invRSq + sMass * svx * invR * invRSq;
+
+        // Spin-sourced Bgz: gravitomagnetic field from spinning massive body
+        // Bgz_spin = -2 * L_source / r^3 (GEM analog of dipole field)
+        p.Bgz -= 2 * sAngMomentum * invR * invRSq;
+        // Gradient: d(-2*L/r^3)/dpx = -6*L*rx/r^5
+        p.dBgzdx -= 6 * sAngMomentum * rx * invRSq * invRSq * invR;
+        p.dBgzdy -= 6 * sAngMomentum * ry * invRSq * invRSq * invR;
 
         // Frame-dragging torque: drives spins toward co-rotation
         const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
