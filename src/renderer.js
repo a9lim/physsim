@@ -5,7 +5,7 @@ const HALF_PI = Math.PI / 2;
 const _PAL = window._PALETTE;
 const _r = window._r;
 
-// Per-force component vector colors (matching force toggle colors)
+// Per-force component colors (matching toggle colors in styles.css)
 const _forceCompColors = {
     gravity:     { light: _r(_PAL.extended.red, 0.7),    dark: _r(_PAL.extended.red, 0.8) },
     coulomb:     { light: _r(_PAL.extended.blue, 0.7),   dark: _r(_PAL.extended.blue, 0.8) },
@@ -18,7 +18,7 @@ const _forceCompColors = {
     torqueFD:    { light: _PAL.extended.purple, dark: _PAL.extended.purple },
 };
 
-// Precomputed spin ring colors: [hue][isLight ? 0 : 1]
+// Spin ring colors by sign
 const _spinColors = {
     pos: { light: `hsla(${_PAL.spinPos},80%,60%,0.8)`, dark: `hsla(${_PAL.spinPos},80%,60%,0.9)` },
     neg: { light: `hsla(${_PAL.spinNeg},80%,60%,0.8)`, dark: `hsla(${_PAL.spinNeg},80%,60%,0.9)` },
@@ -38,7 +38,7 @@ export default class Renderer {
         this.accelScaling = false;
         this.isLight = false;
         this.trailHistory = new Map();
-        this.heatmap = null;  // set externally by Simulation
+        this.heatmap = null;
     }
 
     resize(width, height) {
@@ -57,10 +57,9 @@ export default class Renderer {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.width, this.height);
 
-        // Potential field heatmap (drawn in screen space)
         if (this.heatmap) this.heatmap.draw(ctx, this.width, this.height);
 
-        // Apply camera transform
+        // Camera transform: all subsequent drawing is in world space
         if (camera) {
             const z = camera.zoom;
             ctx.setTransform(z, 0, 0, z, this.width / 2 - camera.x * z, this.height / 2 - camera.y * z);
@@ -91,7 +90,6 @@ export default class Renderer {
             this.drawTorqueArcs(ctx, particles, invZoom, isLight);
         }
 
-        // Drag line drawn in world space (dragStart/currentPos are world coords)
         if (this.input && this.input.isDragging) {
             const start = this.input.dragStart;
             const end = this.input.currentPos;
@@ -105,13 +103,12 @@ export default class Renderer {
             ctx.setLineDash([]);
         }
 
-        // Reset transform
         ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
     updateTrails(particles) {
         const history = this.trailHistory;
-        const capacity = MAX_TRAIL_LENGTH * 2; // flat x,y pairs
+        const capacity = MAX_TRAIL_LENGTH * 2;
         const activeIds = new Set();
 
         for (const p of particles) {
@@ -122,13 +119,11 @@ export default class Renderer {
                 history.set(p.id, trail);
             }
             if (trail.len < capacity) {
-                // Buffer not full yet — append at (start + len) % capacity
                 const writeIdx = (trail.start + trail.len) % capacity;
                 trail.data[writeIdx] = p.pos.x;
                 trail.data[writeIdx + 1] = p.pos.y;
                 trail.len += 2;
             } else {
-                // Buffer full — overwrite oldest, advance start
                 trail.data[trail.start] = p.pos.x;
                 trail.data[trail.start + 1] = p.pos.y;
                 trail.start = (trail.start + 2) % capacity;
@@ -146,7 +141,7 @@ export default class Renderer {
         const alphaMax = isLight ? 0.7 : 0.9;
         ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
 
-        // Wrap-detection threshold: half the fixed domain
+        // Skip segment if position jumps > half domain (periodic wrap)
         const wrapThreshX = this.domainW * 0.5;
         const wrapThreshY = this.domainH * 0.5;
 
@@ -228,7 +223,6 @@ export default class Renderer {
         ctx.lineWidth = 2 * invZoom;
         ctx.stroke();
 
-        // Arrowhead
         const dx = x2 - x1, dy = y2 - y1;
         const len = Math.sqrt(dx * dx + dy * dy);
         if (len < 2 * invZoom) return;
@@ -258,8 +252,7 @@ export default class Renderer {
         const scale = 5;
         const color = isLight ? _r(_PAL.accent, 0.7) : _r(_PAL.accentLight, 0.8);
         for (const p of particles) {
-            // Sum all component vectors for total force (p.force only has E-like;
-            // component vectors include both E-like and Boris display forces)
+            // Sum all 7 component vectors (includes Boris display forces)
             const s = this.accelScaling ? scale * 100 / p.mass : scale;
             const fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.forceSpinCurv.x + p.forceRadiation.x) * s;
             const fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.forceSpinCurv.y + p.forceRadiation.y) * s;
@@ -347,7 +340,7 @@ export default class Renderer {
     drawSpinRing(ctx, p, isLight, blendMode) {
         ctx.shadowBlur = 0;
         const dir = Math.sign(p.angVel);
-        // Surface velocity |ω·r| < c=1, so this naturally caps at 2π
+        // Arc length proportional to surface speed; caps at full circle
         const arcLen = Math.min(Math.abs(p.angVel) * p.radius * Math.PI * 2, Math.PI * 2);
         const ringRadius = p.radius + 2;
         const colors = p.angVel > 0 ? _spinColors.pos : _spinColors.neg;

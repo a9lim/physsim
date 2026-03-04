@@ -1,4 +1,5 @@
 // ─── Collision Detection & Resolution ───
+// Quadtree-accelerated overlap detection with merge or bounce resolution.
 
 import { INERTIA_K } from './config.js';
 import { setVelocity, angwToAngVel, angVelToAngw } from './relativity.js';
@@ -6,24 +7,12 @@ import { TORUS, minImage, wrapPosition } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 
-/**
- * Helper: set particle velocity from normal/tangential components.
- * Only used by resolveBounce (classical path).
- */
+/** Reconstruct velocity from (n,t) components. Used by classical bounce path. */
 function setVelocityFromVel(p, vn, vt, nx, ny, tx, ty) {
     setVelocity(p, nx * vn + tx * vt, ny * vn + ty * vt);
 }
 
-/**
- * Detect and resolve collisions between all particle pairs.
- *
- * @param {Array} particles
- * @param {Object} pool - QuadTreePool
- * @param {number} root - Root node index
- * @param {string} mode - 'merge' or 'bounce'
- * @param {number} bounceFriction - Tangential friction coefficient
- * @param {boolean} relativityEnabled
- */
+/** Detect overlaps via quadtree query and resolve as merge or bounce. */
 export function handleCollisions(particles, pool, root, mode, bounceFriction, relativityEnabled, periodic, domW, domH, topology = TORUS) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
@@ -34,11 +23,10 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
         const candidates = pool.query(root, p1.pos.x, p1.pos.y, p1.radius * 2, p1.radius * 2);
 
         for (const p2 of candidates) {
-            // Ghost resolution: collide with the original, not the ghost
+            // Ghosts are periodic images; resolve against the real particle
             const real2 = p2.isGhost ? p2.original : p2;
             if (p1 === real2 || real2.mass === 0 || p1.id >= real2.id) continue;
 
-            // Minimum-image distance
             let dx, dy;
             if (periodic) {
                 minImage(p1.pos.x, p1.pos.y, p2.pos.x, p2.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
@@ -52,7 +40,6 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
             if (dist < minDist) {
                 if (mode === 'merge') {
                     resolveMerge(p1, real2, relativityEnabled, periodic, dx, dy);
-                    // Wrap merged position to keep inside domain
                     if (periodic) {
                         wrapPosition(p1, topology, domW, domH);
                     }
@@ -74,26 +61,18 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
     }
 }
 
-/**
- * Merge two overlapping particles, conserving mass, charge, momentum, and angular momentum.
- *
- * @param {Object} p1 - Surviving particle
- * @param {Object} p2 - Absorbed particle (mass set to 0)
- * @param {boolean} relativityEnabled
- */
+/** Merge p2 into p1, conserving mass, charge, linear and angular momentum. */
 export function resolveMerge(p1, p2, relativityEnabled, periodic, miDx, miDy) {
     const totalMass = p1.mass + p2.mass;
-    // Conserve linear momentum: p = m*w, so w_new = (m1*w1 + m2*w2) / totalMass
     const newWx = (p1.mass * p1.w.x + p2.mass * p2.w.x) / totalMass;
     const newWy = (p1.mass * p1.w.y + p2.mass * p2.w.y) / totalMass;
-    // Use minimum-image offset for p2 relative to p1
+    // Use minimum-image offset so periodic p2 position is relative to p1
     const p2miX = p1.pos.x + miDx;
     const p2miY = p1.pos.y + miDy;
     const newX = (p1.pos.x * p1.mass + p2miX * p2.mass) / totalMass;
     const newY = (p1.pos.y * p1.mass + p2miY * p2.mass) / totalMass;
 
-    // Conserve angular momentum: orbital(about pair COM) + spin → merged spin
-    // I = INERTIA_K * m * r² (uniform-density solid sphere)
+    // Orbital L about merged COM + spin L -> new spin
     const dx1 = p1.pos.x - newX, dy1 = p1.pos.y - newY;
     const dx2 = p2miX - newX, dy2 = p2miY - newY;
     const Lorb = dx1 * (p1.mass * p1.w.y) - dy1 * (p1.mass * p1.w.x)
@@ -105,13 +84,12 @@ export function resolveMerge(p1, p2, relativityEnabled, periodic, miDx, miDy) {
     p1.charge = p1.charge + p2.charge;
     p1.w.set(newWx, newWy);
     p1.pos.set(newX, newY);
-    p1.updateColor(); // updates radius = cbrt(totalMass)
+    p1.updateColor();
 
     const newI = INERTIA_K * totalMass * p1.radius * p1.radius;
     p1.angw = (Lorb + Lspin) / newI;
     p1.angVel = relativityEnabled ? angwToAngVel(p1.angw, p1.radius) : p1.angw;
 
-    // Re-derive velocity from proper velocity
     const invG = relativityEnabled ? 1 / Math.sqrt(1 + p1.w.magSq()) : 1;
     p1.vel.x = p1.w.x * invG;
     p1.vel.y = p1.w.y * invG;
@@ -119,17 +97,7 @@ export function resolveMerge(p1, p2, relativityEnabled, periodic, miDx, miDy) {
     p2.mass = 0;
 }
 
-/**
- * Elastic bounce between two particles with spin friction.
- * Relativistic path uses Lorentz boost to COM frame; classical path uses standard elastic formulas.
- *
- * @param {Object} p1 - First particle
- * @param {Object} p2 - Second particle
- * @param {number} minDist - Sum of radii
- * @param {number} dist - Current distance
- * @param {number} bounceFriction - Tangential friction coefficient
- * @param {boolean} relativityEnabled
- */
+/** Elastic bounce with spin friction. Relativistic: Lorentz boost to COM frame. */
 export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityEnabled, miDx, miDy) {
     const safeDist = dist === 0 ? 0.0001 : dist;
 
@@ -150,48 +118,36 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
 
     if (relativityEnabled) {
         // ─── Relativistic elastic bounce ───
-        // Conserves both relativistic momentum (m·w) and energy (m·γ).
-        // Uses Lorentz boost to COM frame, reversal, and boost back.
-
-        // Decompose proper velocities into normal/tangential
+        // Boost to COM frame along collision normal, reverse, boost back.
         const w1n = p1.w.x * nx + p1.w.y * ny;
         const w1t = p1.w.x * tx + p1.w.y * ty;
         const w2n = p2.w.x * nx + p2.w.y * ny;
         const w2t = p2.w.x * tx + p2.w.y * ty;
 
-        // Approaching check using coordinate velocity
+        // Only resolve if approaching
         const v1n = p1.vel.x * nx + p1.vel.y * ny;
         const v2n = p2.vel.x * nx + p2.vel.y * ny;
         if (v2n - v1n > 0) return;
 
-        // Full Lorentz factors (including tangential components)
         const g1 = Math.sqrt(1 + w1n * w1n + w1t * w1t);
         const g2 = Math.sqrt(1 + w2n * w2n + w2t * w2t);
 
-        // Total normal momentum and energy
         const Pn = m1 * w1n + m2 * w2n;
         const E = m1 * g1 + m2 * g2;
+        const M = Math.sqrt(E * E - Pn * Pn); // invariant mass
 
-        // Invariant mass of the system
-        const MSq = E * E - Pn * Pn;
-        const M = Math.sqrt(MSq);
+        // COM frame boost parameters along normal
+        const Gc = E / M;
+        const Wc = Pn / M;
 
-        // COM boost parameters (along normal direction)
-        const Gc = E / M;   // COM Lorentz factor
-        const Wc = Pn / M;  // COM proper velocity along normal
-
-        // Boost each particle's normal component to COM frame
+        // Boost -> reverse normal -> boost back
         const w1nc = Gc * w1n - Wc * g1;
         const g1c = Gc * g1 - Wc * w1n;
         const w2nc = Gc * w2n - Wc * g2;
-
-        // Elastic collision in COM frame: reverse normal proper velocities
-        // Then boost back to lab frame
         const w1nFinal = -Gc * w1nc + Wc * g1c;
-        // g2c = Gc*g2 - Wc*w2n, but we can use momentum conservation instead
-        const w2nFinal = (Pn - m1 * w1nFinal) / m2;
+        const w2nFinal = (Pn - m1 * w1nFinal) / m2; // momentum conservation
 
-        // Tangential friction using coordinate velocities for surface velocity
+        // Tangential friction: surface velocity = v_tan + omega*r
         const v1t = p1.vel.x * tx + p1.vel.y * ty;
         const v2t = p2.vel.x * tx + p2.vel.y * ty;
         const surfaceV1 = v1t + p1.angVel * p1.radius;
@@ -199,11 +155,10 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
         const effectiveMass = (m1 * m2) / mSum;
         const tangentialImpulse = bounceFriction * (surfaceV1 - surfaceV2) * effectiveMass;
 
-        // Apply tangential impulse to proper velocity
         const w1tFinal = w1t - tangentialImpulse / m1;
         const w2tFinal = w2t + tangentialImpulse / m2;
 
-        // Spin friction: compute new coordinate ω, then convert to angular celerity
+        // Spin impulse: update omega, convert back to angw
         const I1 = INERTIA_K * m1 * p1.radius * p1.radius;
         const I2 = INERTIA_K * m2 * p2.radius * p2.radius;
         const omega1New = p1.angVel - tangentialImpulse / I1;
@@ -213,7 +168,6 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
         p1.angVel = angwToAngVel(p1.angw, p1.radius);
         p2.angVel = angwToAngVel(p2.angw, p2.radius);
 
-        // Set proper velocity, derive coordinate velocity
         p1.w.set(nx * w1nFinal + tx * w1tFinal, ny * w1nFinal + ty * w1tFinal);
         p2.w.set(nx * w2nFinal + tx * w2tFinal, ny * w2nFinal + ty * w2tFinal);
         const invG1 = 1 / Math.sqrt(1 + p1.w.magSq());
@@ -221,7 +175,7 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
         p1.vel.set(p1.w.x * invG1, p1.w.y * invG1);
         p2.vel.set(p2.w.x * invG2, p2.w.y * invG2);
     } else {
-        // ─── Classical bounce: conserve m·v ───
+        // ─── Classical elastic bounce ───
         const v1n = p1.vel.x * nx + p1.vel.y * ny;
         const v1t = p1.vel.x * tx + p1.vel.y * ty;
         const v2n = p2.vel.x * nx + p2.vel.y * ny;

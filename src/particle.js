@@ -10,7 +10,7 @@ export default class Particle {
         this.id = Particle.nextId++;
         this.pos = new Vec2(x, y);
         this.vel = new Vec2(0, 0);
-        this.w = new Vec2(0, 0);    // proper velocity (γv, unbounded state variable)
+        this.w = new Vec2(0, 0);    // proper velocity (gamma*v)
         this.force = new Vec2(0, 0);
         this.prevForce = new Vec2(0, 0);
         this.forceGravity = new Vec2(0, 0);
@@ -26,18 +26,18 @@ export default class Particle {
 
         this.mass = mass;
         this.charge = charge;
-        this.angw = 0;      // angular celerity (proper angular velocity, unbounded)
-        this.angVel = 0;    // angular velocity (derived, like vel from w)
+        this.angw = 0;      // angular celerity (unbounded)
+        this.angVel = 0;    // angular velocity (derived)
 
-        // Accumulated magnetic field z-components (for Boris rotation)
-        this.Bz = 0;            // EM magnetic field from moving charges
-        this.Bgz = 0;           // Gravitomagnetic field from moving masses
-        this.dBzdx = 0;         // B_z gradient x-component (for spin-orbit coupling)
-        this.dBzdy = 0;         // B_z gradient y-component
-        this.dBgzdx = 0;        // Gravitomagnetic field gradient x-component
-        this.dBgzdy = 0;        // Gravitomagnetic field gradient y-component
+        // Accumulated B fields (Boris rotation) and gradients (spin-orbit)
+        this.Bz = 0;
+        this.Bgz = 0;
+        this.dBzdx = 0;
+        this.dBzdy = 0;
+        this.dBgzdx = 0;
+        this.dBgzdy = 0;
 
-        // History buffers for signal delay (lazy-allocated)
+        // Signal delay history (lazy-allocated)
         this.histX = null;
         this.histY = null;
         this.histVx = null;

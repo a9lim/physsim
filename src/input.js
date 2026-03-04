@@ -16,13 +16,11 @@ export default class InputHandler {
         this.chargeInput = document.getElementById('chargeInput');
         this.spinInput = document.getElementById('spinInput');
 
-        // Tooltip and selection
         this.tooltip = document.getElementById('particle-tooltip');
         this.hoveredParticle = null;
         this._screenX = 0;
         this._screenY = 0;
 
-        // Multi-touch state
         this._pinching = false;
         this._wasPinching = false;
         this._lastPinchDist = 0;
@@ -54,7 +52,6 @@ export default class InputHandler {
             this.tooltip.hidden = true;
         });
 
-        // Wheel zoom via shared camera (preserves world point under cursor)
         this.sim.camera.bindWheel(this.canvas);
 
         this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
@@ -72,9 +69,8 @@ export default class InputHandler {
         e.preventDefault();
 
         if (e.touches.length === 2) {
-            // Start pinch-to-zoom
             this._pinching = true;
-            this.isDragging = false; // cancel any single-finger drag
+            this.isDragging = false;
             const t0 = e.touches[0], t1 = e.touches[1];
             this._lastPinchDist = this._pinchDist(t0, t1);
             this._lastPinchCenterX = (t0.clientX + t1.clientX) / 2;
@@ -83,7 +79,6 @@ export default class InputHandler {
         }
 
         if (e.touches.length === 1 && !this._wasPinching) {
-            // Single finger — start drag for spawn
             const t = e.touches[0];
             this.isDragging = true;
             this.dragStart = this.getPos(t.clientX, t.clientY);
@@ -102,11 +97,9 @@ export default class InputHandler {
             const sx = cx - this.canvasRect.left;
             const sy = cy - this.canvasRect.top;
 
-            // Pinch zoom via shared camera (preserves world point under pinch center)
             const factor = dist / this._lastPinchDist;
             this.sim.camera.zoomBy(factor, sx, sy);
 
-            // Two-finger pan
             this.sim.camera.panBy(cx - this._lastPinchCenterX, cy - this._lastPinchCenterY);
 
             this._lastPinchDist = dist;
@@ -125,11 +118,10 @@ export default class InputHandler {
         e.preventDefault();
 
         if (e.touches.length === 0) {
-            // All fingers lifted
             if (this._pinching) {
                 this._pinching = false;
                 this._wasPinching = true;
-                // Clear wasPinching after a short delay to prevent accidental spawn
+                // 300ms guard prevents accidental spawn after pinch
                 setTimeout(() => { this._wasPinching = false; }, 300);
                 return;
             }
@@ -143,8 +135,7 @@ export default class InputHandler {
 
             this.isDragging = false;
         } else if (e.touches.length === 1 && this._pinching) {
-            // Went from 2 fingers to 1 — still in pinch mode, don't start drag
-            // Just update state to avoid jump when remaining finger moves
+            // Still in pinch mode; don't start drag from remaining finger
         }
     }
 
@@ -152,7 +143,6 @@ export default class InputHandler {
         if (e.button === 2) {
             const pos = this.getPos(e.clientX, e.clientY);
             this.sim.particles = this.sim.particles.filter(p => p.pos.dist(pos) > p.radius + 5);
-            // Deselect if selected particle was removed
             if (this.sim.selectedParticle && !this.sim.particles.includes(this.sim.selectedParticle)) {
                 this.sim.selectedParticle = null;
             }
@@ -169,7 +159,6 @@ export default class InputHandler {
         this._screenX = e.clientX;
         this._screenY = e.clientY;
 
-        // Hover detection for tooltip
         const hit = this.findParticleAt(this.currentPos);
         this.hoveredParticle = hit;
         if (hit) {
@@ -192,7 +181,7 @@ export default class InputHandler {
         const endPos = this.getPos(e.clientX, e.clientY);
         const dragDist = this.dragStart.dist(endPos);
 
-        // Short click on a particle → select it instead of spawning
+        // Short click on a particle selects it instead of spawning
         if (dragDist < 5) {
             const hit = this.findParticleAt(endPos);
             if (hit) {

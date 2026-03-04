@@ -1,31 +1,19 @@
 // ─── Signal Delay ───
-// Signal delay: solve for delayed time t_ret such that
-// |x_source(t_ret) - x_observer(now)| = c·(now - t_ret) where c = 1.
-//
-// Three-phase solver:
-//   1. Newton-Raphson on g(t) = |x_s(t)−x_obs| − (now−t) to converge into
-//      the correct history segment. Guaranteed convergent for |v| < c.
-//   2. Exact quadratic solve on that segment (piecewise-linear trajectory
-//      makes the light-cone equation a quadratic with closed-form roots).
-//   3. If t_ret predates the buffer, extrapolate backward from the oldest
-//      sample at constant velocity (same quadratic, s ≤ 0).
+// Solves the light-cone equation |x_src(t_ret) - x_obs| = now - t_ret (c=1)
+// via NR convergence to segment, exact quadratic on that segment, and
+// constant-velocity extrapolation past the buffer.
 
 import { HISTORY_SIZE } from './config.js';
 import { TORUS, minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 
-// Pre-allocated return object — caller must consume before next call
+// Shared return object -- caller must read before next call
 const _delayedOut = { x: 0, y: 0, vx: 0, vy: 0 };
 
 const NR_MAX_ITER = 6;
 
-/**
- * Solve light-cone equation for delayed state of source as seen by observer.
- *
- * Returns a shared object (overwritten on every call) or null.
- * Caller must read fields before the next invocation.
- */
+/** Solve light-cone equation; returns shared {x,y,vx,vy} or null. */
 export function getDelayedState(source, observer, simTime, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
     if (!source.histX || source.histCount < 2) return null;
 
@@ -53,23 +41,21 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     const distSq = cdx * cdx + cdy * cdy;
 
     // ─── Buffer search: NR + quadratic on recorded history ───
-    // Skip to extrapolation if solution clearly outside recorded range.
+    // Skip if current distance > 2x buffer time span (solution predates buffer).
     buffer: {
     if (distSq > 4 * timeSpan * timeSpan) break buffer;
 
-    // ─── Phase 1: Newton-Raphson to locate the segment containing t_ret ───
-    // g(t) = |x_s(t) − x_obs| − (now − t),  g' = (d̂ · v_eff) + 1
-    // Convergent for subluminal sources: |d̂ · v| < 1 ⇒ g' > 0.
+    // ─── Phase 1: Newton-Raphson to locate the correct history segment ───
+    // g' = d_hat.v + 1 > 0 for |v| < c, guaranteeing convergence.
 
     let t = simTime - Math.sqrt(distSq);   // initial guess: light travel time
     if (t < tOldest) t = tOldest;
     if (t > tNewest) t = tNewest;
 
-    // Proportional segment estimate (O(1), assumes roughly uniform time spacing)
+    // O(1) proportional estimate + short walk for non-uniform spacing
     let segK = Math.floor((t - tOldest) / (tNewest - tOldest) * (count - 1));
     if (segK > count - 2) segK = count - 2;
     if (segK < 0) segK = 0;
-    // Short walk to correct for any non-uniformity
     while (segK < count - 2 && source.histTime[(start + segK + 1) % N] <= t) segK++;
     while (segK > 0 && source.histTime[(start + segK) % N] > t) segK--;
 
@@ -87,7 +73,6 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             break buffer;
         }
 
-        // Effective velocity (consistent with linear position interpolation)
         const xLo = source.histX[loIdx], yLo = source.histY[loIdx];
         let vxEff, vyEff;
         if (periodic) {
@@ -100,12 +85,10 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             vyEff = (source.histY[hiIdx] - yLo) / segDt;
         }
 
-        // Interpolated source position at t
         const s = t - tLo;
         const sx = xLo + vxEff * s;
         const sy = yLo + vyEff * s;
 
-        // Separation
         let dx, dy;
         if (periodic) {
             minImage(ox, oy, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
@@ -117,24 +100,21 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 1e-12) break;               // source ≈ observer, skip to quadratic
 
-        const g  = dist - (simTime - t);        // residual
-        const gp = (dx * vxEff + dy * vyEff) / dist + 1;   // derivative
+        const g  = dist - (simTime - t);
+        const gp = (dx * vxEff + dy * vyEff) / dist + 1;
         if (Math.abs(gp) < 1e-12) break;
 
         t -= g / gp;
 
-        // Clamp to history range
         if (t < tOldest) t = tOldest;
         if (t > tNewest) t = tNewest;
 
-        // Walk segment index to contain new t
         while (segK < count - 2 && source.histTime[(start + segK + 1) % N] <= t) segK++;
         while (segK > 0 && source.histTime[(start + segK) % N] > t) segK--;
     }
 
-    // ─── Phase 2: Exact quadratic solve on converged segment (± 1 neighbor) ───
-    // Within a segment, x_s(tLo+s) = x_lo + v_eff·s is linear, so the
-    // light-cone |x_s − x_obs|² = (now − tLo − s)² is a quadratic in s.
+    // ─── Phase 2: Exact quadratic on converged segment (and +/- 1 neighbor) ───
+    // Piecewise-linear trajectory makes the light-cone equation a quadratic in s.
     const center = segK;
     for (let offset = 0; offset <= 1; offset++) {
         for (let dir = (offset === 0 ? 1 : -1); dir <= 1; dir += 2) {
@@ -147,7 +127,6 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             const segDt = source.histTime[hiIdx] - tLo;
             if (segDt < 1e-12) continue;
 
-            // Separation at segment start: source(tLo) − observer
             let dx, dy;
             if (periodic) {
                 minImage(ox, oy, source.histX[loIdx], source.histY[loIdx],
@@ -158,7 +137,6 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
                 dy = source.histY[loIdx] - oy;
             }
 
-            // Effective velocity (matches linear interpolation between recorded points)
             let vx, vy;
             if (periodic) {
                 minImage(source.histX[loIdx], source.histY[loIdx],
@@ -176,7 +154,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             const dDotV = dx * vx + dy * vy;
             const T = simTime - tLo;
 
-            // (v²−1)s² + 2(d·v + T)s + (r² − T²) = 0   [half-b form: h = b/2]
+            // (v^2 - 1)s^2 + 2(d.v + T)s + (r^2 - T^2) = 0, half-b form
             const a = vSq - 1;
             const h = dDotV + T;
             const c = rSq - T * T;
@@ -187,13 +165,13 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             const sqrtDisc = Math.sqrt(disc);
             let s;
             if (Math.abs(a) < 1e-12) {
-                // v ≈ c: degenerate to linear 2h·s + c = 0
+                // v ~ c: degenerate linear case
                 if (Math.abs(h) < 1e-12) continue;
                 s = -c / (2 * h);
             } else {
                 const s1 = (-h + sqrtDisc) / a;
                 const s2 = (-h - sqrtDisc) / a;
-                // Pick valid root in [0, segDt]; prefer most recent (largest s)
+                // Prefer most recent valid root (largest s in [0, segDt])
                 const ok1 = s1 >= -1e-9 && s1 <= segDt + 1e-9;
                 const ok2 = s2 >= -1e-9 && s2 <= segDt + 1e-9;
                 if (ok1 && ok2) s = Math.max(s1, s2);
@@ -202,11 +180,9 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
                 else continue;
             }
 
-            // Clamp to segment
             if (s < 0) s = 0;
             else if (s > segDt) s = segDt;
 
-            // Linearly interpolate state at t_ret = tLo + s
             const frac = s / segDt;
             _delayedOut.x  = source.histX[loIdx]  + frac * (source.histX[hiIdx]  - source.histX[loIdx]);
             _delayedOut.y  = source.histY[loIdx]  + frac * (source.histY[hiIdx]  - source.histY[loIdx]);
@@ -218,9 +194,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
     } // buffer
 
-    // ─── Extrapolation: constant-velocity backward projection from oldest sample ───
-    // When the light-cone intersection predates recorded history, linearly
-    // extrapolate from the oldest buffer entry.  Same quadratic, but s ≤ 0.
+    // ─── Extrapolation: backward from oldest sample at constant velocity ───
     {
         let dx, dy;
         if (periodic) {
@@ -238,7 +212,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         const dDotV = dx * vx + dy * vy;
         const T = timeSpan;
 
-        // (v²−1)s² + 2(d·v + T)s + (r² − T²) = 0,  s ≤ 0
+        // Same quadratic, s <= 0 (backward in time)
         const a = vSq - 1;
         const h = dDotV + T;
         const c = rSq - T * T;
@@ -254,7 +228,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         } else {
             const s1 = (-h + sqrtDisc) / a;
             const s2 = (-h - sqrtDisc) / a;
-            // s ≤ 0 (backward in time from oldest entry); pick closest to 0
+            // Pick s <= 0 root closest to 0 (most recent past)
             const ok1 = s1 <= 1e-9;
             const ok2 = s2 <= 1e-9;
             if (ok1 && ok2) s = Math.max(s1, s2);
@@ -273,13 +247,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     }
 }
 
-/**
- * Interpolate position/velocity from circular history buffer at time t.
- * Uses binary search to find the bracketing segment.
- * @param {Object} p - Particle with history buffers
- * @param {number} t - Time to interpolate at
- * @returns {Object|null} {x, y, vx, vy} or null if out of range
- */
+/** Binary-search interpolation on a particle's circular history buffer. */
 export function interpolateHistory(p, t) {
     if (!p.histX) return null;
     if (p.histCount < 2) return null;
@@ -287,12 +255,10 @@ export function interpolateHistory(p, t) {
     const N = HISTORY_SIZE;
     const start = (p.histHead - p.histCount + N) % N;
 
-    // Check bounds
     const oldest = p.histTime[start];
     const newest = p.histTime[(p.histHead - 1 + N) % N];
     if (t < oldest || t > newest) return null;
 
-    // Binary search for segment containing t
     let lo = 0, hi = p.histCount - 2;
     while (lo < hi) {
         const mid = (lo + hi + 1) >> 1;

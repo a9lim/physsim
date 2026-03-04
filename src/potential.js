@@ -1,23 +1,12 @@
 // ─── Potential Energy Computation ───
+// Mirrors force calculation structure (BH tree or pairwise) for consistent PE.
 
 import { BH_THETA, SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K } from './config.js';
 import { TORUS, minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 
-/**
- * Compute total potential energy using same tree/pairwise method as forces.
- * When BH is on: traverses tree per-particle with BH_THETA, divides by 2.
- * When BH is off: exact pairwise i<j (no double-counting).
- *
- * @param {Array} particles
- * @param {Object} toggles - { gravityEnabled, coulombEnabled, magneticEnabled, gravitomagEnabled }
- * @param {Object} pool - QuadTreePool
- * @param {number} root - Root node index
- * @param {boolean} barnesHutEnabled
- * @param {number} bhTheta - Barnes-Hut opening angle (typically BH_THETA)
- * @returns {number} Total potential energy
- */
+/** Total PE via BH tree traversal (halved to avoid double-counting) or exact pairwise. */
 export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTheta, periodic, domW, domH, topology = TORUS) {
     let pe = 0;
     const halfDomW = domW * 0.5;
@@ -27,7 +16,7 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
         for (const p of particles) {
             pe += treePE(p, pool, root, bhTheta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
         }
-        pe *= 0.5; // Each pair counted from both sides
+        pe *= 0.5; // tree counts each pair from both sides
     } else {
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -46,15 +35,7 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
     return pe;
 }
 
-/**
- * Recursively compute PE contribution from a Barnes-Hut tree node.
- * @param {Object} particle - Test particle
- * @param {Object} pool - QuadTreePool
- * @param {number} nodeIdx - Current tree node index
- * @param {number} theta - Opening angle threshold
- * @param {Object} toggles - { gravityEnabled, coulombEnabled, magneticEnabled, gravitomagEnabled }
- * @returns {number} PE contribution
- */
+/** Recursive BH tree walk for PE; same theta criterion as force calculation. */
 export function treePE(particle, pool, nodeIdx, theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
     if (pool.totalMass[nodeIdx] === 0) return 0;
 
@@ -104,21 +85,7 @@ export function treePE(particle, pool, nodeIdx, theta, toggles, periodic, domW, 
     return 0;
 }
 
-/**
- * Compute pairwise PE between a test particle and a source.
- * @param {Object} p - Test particle
- * @param {number} sx - Source x position
- * @param {number} sy - Source y position
- * @param {number} svx - Source x velocity
- * @param {number} svy - Source y velocity
- * @param {number} sMass - Source mass
- * @param {number} sCharge - Source charge
- * @param {number} sAngVel - Source angular velocity
- * @param {number} sMagMoment - Source magnetic moment
- * @param {number} sAngMomentum - Source angular momentum
- * @param {Object} toggles - { gravityEnabled, coulombEnabled, magneticEnabled, gravitomagEnabled }
- * @returns {number} PE contribution
- */
+/** Pairwise PE: gravity + Coulomb + magnetic dipole + GM dipole + 1PN correction. */
 export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
     let rx, ry;
     if (periodic) {
@@ -141,7 +108,6 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
     if (toggles.magneticEnabled) pe += (pMagMoment * sMagMoment) * invR * invRSq;
     if (toggles.gravitomagEnabled) pe -= (pAngMomentum * sAngMomentum) * invR * invRSq;
     if (toggles.onePNEnabled) {
-        // 1PN PE: -(m1*m2/r) * [3(v1^2+v2^2)/2 - 7(v1.v2)/2 - (v1.n)(v2.n)/2 + m1/r + m2/r]
         const pvx = p.vel.x, pvy = p.vel.y;
         const v1Sq = pvx * pvx + pvy * pvy;
         const v2Sq = svx * svx + svy * svy;

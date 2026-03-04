@@ -1,7 +1,6 @@
 // ─── Boris Integrator ───
-// Adaptive-substep Boris integrator with spin-orbit, frame-drag, and radiation.
-// Delegates force computation, collision resolution, PE, and signal delay
-// to focused modules.
+// Adaptive-substep Boris integrator. Separates E-like (position-dependent) and
+// B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
 import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE } from './config.js';
@@ -18,7 +17,6 @@ export default class Physics {
         this.boundary = new Rect(0, 0, 0, 0);
         this.pool = new QuadTreePool(QUADTREE_CAPACITY);
 
-        // Force toggles (default all on)
         this.gravityEnabled = true;
         this.coulombEnabled = true;
         this.magneticEnabled = true;
@@ -32,25 +30,18 @@ export default class Physics {
         this.spinOrbitEnabled = true;
         this.onePNEnabled = true;
 
-        this.sim = null; // set externally by Simulation
-        this.simTime = 0; // accumulated simulation time for history
+        this.sim = null;
+        this.simTime = 0;
 
-        // Periodic boundary state (set each update())
         this.domainW = 0;
         this.domainH = 0;
         this.periodic = false;
         this._topologyConst = TORUS;
-
-        // Accumulated potential energy (set during force calculation)
         this.potentialEnergy = 0;
-
-        // Track whether forces have been initialized
         this._forcesInit = false;
-
-        // History recording stride counter (record every HISTORY_STRIDE updates)
         this._histStride = 0;
 
-        // Reusable toggles object passed to extracted force/PE functions (avoids per-frame allocation)
+        // Reusable across frames to avoid per-call allocation
         this._toggles = {
             gravityEnabled: true,
             coulombEnabled: true,
@@ -59,13 +50,12 @@ export default class Physics {
             onePNEnabled: true,
         };
 
-        // Ghost particle pool for periodic BH
         this._ghostPool = [];
         this._ghostCount = 0;
         this._treeParticles = [];
     }
 
-    /** Sync cached toggles object with current toggle state. Call once per update(). */
+    /** Copy current toggle booleans into reusable object (once per frame). */
     _syncToggles() {
         this._toggles.gravityEnabled = this.gravityEnabled;
         this._toggles.coulombEnabled = this.coulombEnabled;
@@ -74,7 +64,7 @@ export default class Physics {
         this._toggles.onePNEnabled = this.onePNEnabled;
     }
 
-    /** Create or reuse a ghost particle shifted to (sx, sy) from original p. */
+    /** Pool-allocate a ghost at (sx, sy) mirroring p. Flips for non-orientable topologies. */
     _addGhost(p, sx, sy, flipVx = false, flipVy = false) {
         let g;
         if (this._ghostCount < this._ghostPool.length) {
@@ -97,7 +87,7 @@ export default class Physics {
         return g;
     }
 
-    /** Generate ghosts for all particles near domain edges. */
+    /** Generate periodic image ghosts for particles within BH_THETA margin of edges. */
     _generateGhosts(particles) {
         this._ghostCount = 0;
         const W = this.domainW, H = this.domainH;
@@ -111,7 +101,6 @@ export default class Physics {
             const nearT = y < margin, nearB = y > H - margin;
 
             if (topo === TORUS) {
-                // Standard torus: 8 neighbours, no flips
                 if (nearL) this._addGhost(p, x + W, y);
                 if (nearR) this._addGhost(p, x - W, y);
                 if (nearT) this._addGhost(p, x, y + H);
@@ -121,27 +110,21 @@ export default class Physics {
                 if (nearR && nearT) this._addGhost(p, x - W, y + H);
                 if (nearR && nearB) this._addGhost(p, x - W, y - H);
             } else if (topo === KLEIN) {
-                // Klein bottle: x wraps normally, y-wrap flips x (and vx)
-                // Left/right edges: normal shift
+                // Klein: x wraps normally; y-wrap flips x and negates vx
                 if (nearL) this._addGhost(p, x + W, y);
                 if (nearR) this._addGhost(p, x - W, y);
-                // Top/bottom edges: y-glide (x → W-x), flipVx
                 if (nearT) this._addGhost(p, W - x, y + H, true, false);
                 if (nearB) this._addGhost(p, W - x, y - H, true, false);
-                // Corners: combine x-shift with y-glide
                 if (nearL && nearT) this._addGhost(p, W - x + W, y + H, true, false);
                 if (nearL && nearB) this._addGhost(p, W - x + W, y - H, true, false);
                 if (nearR && nearT) this._addGhost(p, W - x - W, y + H, true, false);
                 if (nearR && nearB) this._addGhost(p, W - x - W, y - H, true, false);
             } else {
-                // RP²: x-wrap flips y (flipVy), y-wrap flips x (flipVx)
-                // Left/right edges: x-glide (y → H-y), flipVy
+                // RP²: x-wrap flips y, y-wrap flips x
                 if (nearL) this._addGhost(p, x + W, H - y, false, true);
                 if (nearR) this._addGhost(p, x - W, H - y, false, true);
-                // Top/bottom edges: y-glide (x → W-x), flipVx
                 if (nearT) this._addGhost(p, W - x, y + H, true, false);
                 if (nearB) this._addGhost(p, W - x, y - H, true, false);
-                // Corners: combine both glides
                 if (nearL && nearT) this._addGhost(p, W - x + W, y + H, true, false);
                 if (nearL && nearB) this._addGhost(p, W - x + W, y - H, true, false);
                 if (nearR && nearT) this._addGhost(p, W - x - W, y + H, true, false);
@@ -150,11 +133,10 @@ export default class Physics {
         }
     }
 
-    /** Build tree, adding ghosts if periodic. Returns root index. */
+    /** Build quadtree, including periodic ghosts if applicable. Returns root index. */
     _buildTree(particles) {
         if (this.periodic) {
             this._generateGhosts(particles);
-            // Combine real + ghost into _treeParticles
             const tp = this._treeParticles;
             const nReal = particles.length;
             const nGhost = this._ghostCount;
@@ -184,24 +166,16 @@ export default class Physics {
         const toggles = this._toggles;
 
         // ─── Boris Integrator with Adaptive Substepping ───
-        // Separates position-dependent (E-like) forces from velocity-dependent
-        // (B-like) forces. The Boris rotation exactly preserves |v|, giving
-        // superior long-term stability for magnetic/gravitomagnetic interactions.
-        //
-        // Steps per sub-step: half-kick(E) → Boris rotate(B) → half-kick(E) →
-        //        drift → rebuild tree → collisions → new forces+fields
-        //
-        // Substep count is determined by max acceleration (dt_safe = √(ε / a_max))
-        // and cyclotron frequency (≥8 steps per orbit). nSteps = ceil(dt / dt_safe),
-        // capped at MAX_SUBSTEPS.
+        // Per substep: half-kick(E) → Boris rotate(B) → half-kick(E) → drift
+        // → rebuild tree → collisions → recompute forces.
+        // dtSafe from max acceleration (√(ε/a_max)) and cyclotron period (T/8).
 
-        // First frame: compute initial forces + B fields if not yet done
+        // First frame: bootstrap initial forces + B fields
         if (!this._forcesInit && n > 0) {
             for (const p of particles) {
                 p.angVel = relOn ? angwToAngVel(p.angw, p.radius) : p.angw;
             }
             resetForces(particles);
-            // Build tree for BH mode (subsequent substeps rebuild in the loop)
             const initRoot = this.barnesHutEnabled
                 ? this._buildTree(particles)
                 : -1;
@@ -212,10 +186,8 @@ export default class Physics {
         const hasMagnetic = this.magneticEnabled;
         const hasGM = this.gravitomagEnabled;
 
-        // Preliminary force pass when velocity-dependent forces are active.
-        // Ensures B fields reflect the current particle set (handles newly
-        // added particles whose Bz/Bgz would otherwise be stale/zero) so
-        // the adaptive substep count accounts for cyclotron frequencies.
+        // Preliminary force pass: ensures Bz/Bgz are current for cyclotron
+        // frequency estimation in the adaptive substep loop below.
         if ((hasMagnetic || hasGM) && this._forcesInit) {
             resetForces(particles);
             const prelimRoot = this.barnesHutEnabled
@@ -224,15 +196,12 @@ export default class Physics {
             computeAllForces(particles, toggles, this.pool, prelimRoot, this.barnesHutEnabled, this.signalDelayEnabled, this.relativityEnabled, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
         }
 
-        // ─── Adaptive substepping with per-step re-evaluation ───
-        // Instead of fixing nSteps up front, we consume `dtRemain` in steps
-        // whose size is re-evaluated after each force computation, so the
-        // substep count adapts to changing B fields (not just the initial ones).
+        // ─── Adaptive substepping ───
+        // Re-evaluates dtSafe each iteration so substep size tracks changing fields.
         let dtRemain = dt;
         let totalSteps = 0;
         let lastRoot = -1;
         while (dtRemain > 1e-15 && totalSteps < MAX_SUBSTEPS) {
-            // Compute dtSafe from current forces and B fields
             let maxAccelSq = 0;
             let maxCyclotron = 0;
             for (let i = 0; i < n; i++) {
@@ -244,6 +213,7 @@ export default class Physics {
                     if (wc > maxCyclotron) maxCyclotron = wc;
                 }
                 if (hasGM && Math.abs(p.Bgz) > 0) {
+                    // GM cyclotron: factor of 4 from F = 4m(v × Bg)
                     const wc = 4 * Math.abs(p.Bgz);
                     if (wc > maxCyclotron) maxCyclotron = wc;
                 }
@@ -251,18 +221,18 @@ export default class Physics {
             const aMax = Math.sqrt(maxAccelSq);
             let dtSafe = aMax > 0 ? Math.sqrt(SOFTENING / aMax) : dtRemain;
             if (maxCyclotron > 0) {
+                // At least 8 substeps per cyclotron orbit
                 const dtCyclotron = (2 * Math.PI / maxCyclotron) / 8;
                 if (dtCyclotron < dtSafe) dtSafe = dtCyclotron;
             }
-            // Use the smaller of dtSafe and remaining time; if we'd overshoot,
-            // split remaining time evenly across the budget we have left.
             const budgetLeft = MAX_SUBSTEPS - totalSteps;
             const stepsNeeded = Math.min(Math.ceil(dtRemain / dtSafe), budgetLeft);
             const dtSub = dtRemain / stepsNeeded;
 
             totalSteps++;
             dtRemain -= dtSub;
-            // Store 1PN forces for velocity-Verlet correction (recomputed after drift)
+
+            // Save pre-drift 1PN force for velocity-Verlet correction
             const has1PN = toggles.onePNEnabled;
             if (has1PN) {
                 for (let i = 0; i < n; i++) {
@@ -272,7 +242,7 @@ export default class Physics {
                 }
             }
 
-            // Step 1: Half-kick proper velocity with position-dependent (E-like) forces
+            // Step 1: Half-kick w with E-like forces
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 const halfDtOverM = dtSub * 0.5 / p.mass;
@@ -280,10 +250,8 @@ export default class Physics {
                 p.w.y += p.force.y * halfDtOverM;
             }
 
-            // Step 2: Boris rotation for velocity-dependent (B-like) forces
-            // Handles EM Lorentz and linear gravitomagnetism exactly.
-            // Combined rotation parameter: t = ((q/(2m))·Bz + 2·Bgz) · dtSub / γ⁻
-            // s = 2t / (1 + t²)
+            // Step 2: Boris rotation (Lorentz + linear GM)
+            // t = ((q/(2m))·Bz + 2·Bgz)·dt/γ,  s = 2t/(1+t²)
             if (hasMagnetic || hasGM) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
@@ -307,7 +275,7 @@ export default class Physics {
                 }
             }
 
-            // Step 3: Second half-kick with same E-like forces
+            // Step 3: Second half-kick (same E-like forces)
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 const halfDtOverM = dtSub * 0.5 / p.mass;
@@ -315,7 +283,7 @@ export default class Physics {
                 p.w.y += p.force.y * halfDtOverM;
             }
 
-            // Spin-orbit coupling: dE_spin/dt = -μ · (v · ∇B_z)
+            // EM spin-orbit: dE_spin = −μ·(v·∇Bz)·dt, transferred to/from angw
             if (hasMagnetic && relOn && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
@@ -327,14 +295,13 @@ export default class Physics {
                     const I = INERTIA_K * p.mass * pRSq;
                     if (Math.abs(I * p.angVel) > 1e-10) {
                         p.angw += dEspin / (I * p.angVel);
-                        // Re-derive angVel from angw
                         const sr = p.angw * p.radius;
                         p.angVel = p.angw / Math.sqrt(1 + sr * sr);
                     }
                 }
             }
 
-            // GM Spin-orbit coupling: dE_spin/dt = -L · (v · ∇Bgz)
+            // GM spin-orbit: dE_spin = −L·(v·∇Bgz)·dt
             if (hasGM && relOn && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
@@ -352,16 +319,15 @@ export default class Physics {
                 }
             }
 
-            // Stern-Gerlach / Mathisson-Papapetrou force: center-of-mass kick from
-            // spin-field gradient coupling. Uses the same gradients as spin-orbit
-            // but applies a translational force instead of a spin torque.
+            // Stern-Gerlach (EM) and Mathisson-Papapetrou (GM) translational kicks
+            // from spin-field gradient coupling
             if (hasMagnetic && relOn && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
                     const pRSq = p.radius * p.radius;
                     const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
-                    // F_SG = +mu * grad(Bz)
+                    // F_SG = +μ·∇Bz
                     p.w.x += mu * p.dBzdx * dtSub / p.mass;
                     p.w.y += mu * p.dBzdy * dtSub / p.mass;
                 }
@@ -372,13 +338,13 @@ export default class Physics {
                     if (Math.abs(p.angVel) < 1e-10) continue;
                     const pRSq = p.radius * p.radius;
                     const L = INERTIA_K * p.mass * p.angVel * pRSq;
-                    // F_MP = -L * grad(Bgz)  (GEM sign flip)
+                    // F_MP = −L·∇Bgz (GEM sign flip)
                     p.w.x -= L * p.dBgzdx * dtSub / p.mass;
                     p.w.y -= L * p.dBgzdy * dtSub / p.mass;
                 }
             }
 
-            // Frame-dragging spin alignment torque
+            // Frame-dragging torque: aligns spins toward co-rotation
             if (hasGM) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
@@ -390,8 +356,7 @@ export default class Physics {
                 }
             }
 
-            // Abraham-Lorentz radiation reaction via Landau-Lifshitz approximation
-            // Jerk term only: τ · dF/dt / γ³ (missing Schott damping −τ·F²v/m²)
+            // Landau-Lifshitz radiation reaction (jerk term only, no Schott damping)
             if (this.radiationEnabled && this.sim) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
@@ -407,20 +372,17 @@ export default class Physics {
                     const gamma = relOn ? Math.sqrt(1 + wMagSq) : 1;
                     const qSq = p.charge * p.charge;
                     const tau = 2 * LARMOR_K * qSq / p.mass;
-
-                    // Jerk term: τ · dF/dt ≈ τ · (F - F_prev) / dt
                     const invDt = 1 / dtSub;
                     let fRadX = tau * (p.force.x - p.prevForce.x) * invDt;
                     let fRadY = tau * (p.force.y - p.prevForce.y) * invDt;
 
-                    // Relativistic correction: divide by γ³
                     if (relOn && gamma > 1) {
                         const invG3 = 1 / (gamma * gamma * gamma);
                         fRadX *= invG3;
                         fRadY *= invG3;
                     }
 
-                    // Clamp to prevent instability: |F_rad · dt / m| ≤ LL_FORCE_CLAMP · |w|
+                    // Clamp: |F_rad·dt/m| ≤ LL_FORCE_CLAMP·|w| to prevent runaway
                     const impulseX = fRadX * dtSub / p.mass;
                     const impulseY = fRadY * dtSub / p.mass;
                     const impulseMag = Math.sqrt(impulseX * impulseX + impulseY * impulseY);
@@ -433,45 +395,39 @@ export default class Physics {
                         fRadY *= scale;
                     }
 
-                    // Measure KE before applying
                     const keBefore = relOn ? (gamma - 1) * p.mass : 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y);
 
-                    // Apply as kick to proper velocity
                     p.w.x += fRadX * dtSub / p.mass;
                     p.w.y += fRadY * dtSub / p.mass;
                     p.forceRadiation.x += fRadX;
                     p.forceRadiation.y += fRadY;
 
-                    // NaN guard
                     if (isNaN(p.w.x) || isNaN(p.w.y)) {
                         p.w.x = 0; p.w.y = 0;
                     }
 
-                    // Measure KE after for energy tracking
                     const wMagSqAfter = p.w.x * p.w.x + p.w.y * p.w.y;
                     const gammaAfter = relOn ? Math.sqrt(1 + wMagSqAfter) : 1;
                     const keAfter = relOn ? (gammaAfter - 1) * p.mass : 0.5 * p.mass * wMagSqAfter / (gammaAfter * gammaAfter);
                     const dE = Math.max(0, keBefore - keAfter);
                     this.sim.totalRadiated += dE;
 
-                    // Accumulate radiated momentum (deterministic anti-acceleration direction)
                     if (dE > 0) {
                         const ax = p.force.x / p.mass, ay = p.force.y / p.mass;
                         const radAngle = Math.atan2(ay, ax) + Math.PI;
                         this.sim.totalRadiatedPx += dE * Math.cos(radAngle);
                         this.sim.totalRadiatedPy += dE * Math.sin(radAngle);
 
-                        // Accumulate energy for photon emission across substeps
                         p._radAccum = (p._radAccum || 0) + dE;
                         if (p._radAccum >= RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
-                            // Sample emission angle from sin²θ (Larmor pattern: peak ⊥ to accel)
+                            // sin²θ dipole pattern: peak emission ⊥ to acceleration
                             const accelAngle = Math.atan2(ay, ax);
                             let theta;
                             do { theta = Math.random() * 6.283185307; }
                             while (Math.random() > Math.sin(theta) * Math.sin(theta));
                             let emitAngle = accelAngle + theta;
 
-                            // Relativistic aberration: beam toward velocity direction
+                            // Relativistic aberration: beam forward at high γ
                             if (gamma > 1.01) {
                                 const beta = Math.sqrt(1 - 1 / (gamma * gamma));
                                 const velAngle = Math.atan2(p.vel.y, p.vel.x);
@@ -492,13 +448,12 @@ export default class Physics {
                         }
                     }
 
-                    // Store force for next step's jerk computation
                     p.prevForce.x = p.force.x;
                     p.prevForce.y = p.force.y;
                 }
             }
 
-            // Step 4: Derive velocity and angular velocity, drift positions
+            // Step 4: Derive coordinate velocity from w, then drift positions
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
@@ -508,23 +463,18 @@ export default class Physics {
                 p.pos.x += p.vel.x * dtSub;
                 p.pos.y += p.vel.y * dtSub;
 
-                // History recording moved to strided post-loop (see below substep loop)
             }
             this.simTime += dtSub;
 
-            // 1PN velocity-Verlet correction: recompute 1PN at new positions/velocities
-            // and apply half the difference as a correction kick for second-order accuracy
+            // 1PN velocity-Verlet correction: w += (F_new − F_old)·dt/(2m)
             if (has1PN) {
-                // Derive coordinate velocities from updated proper velocities
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
                     p.vel.x = p.w.x * invG;
                     p.vel.y = p.w.y * invG;
                 }
-                // Recompute 1PN forces at new state (always pairwise for correction)
                 compute1PNPairwise(particles, SOFTENING_SQ, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst);
-                // Apply correction kick: w += (F_1PN_new - F_1PN_old) * dt/2 / m
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const halfDtOverM = dtSub * 0.5 / p.mass;
@@ -533,16 +483,16 @@ export default class Physics {
                 }
             }
 
-            // Step 5: Rebuild QuadTree with new positions
+            // Step 5: Rebuild quadtree at new positions
             const root = this._buildTree(particles);
             lastRoot = root;
 
-            // Step 6: Handle collisions
+            // Step 6: Collisions
             if (collisionMode !== 'pass') {
                 handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled, this.periodic, this.domainW, this.domainH, this._topologyConst);
             }
 
-            // Photon absorption: transfer momentum from photons to particles
+            // Photon absorption: p = E/c = E (natural units)
             if (this.radiationEnabled && this.sim && this.sim.photons.length > 0) {
                 const photons = this.sim.photons;
                 for (let pi = photons.length - 1; pi >= 0; pi--) {
@@ -554,39 +504,36 @@ export default class Physics {
                         ph.pos.x, ph.pos.y, SOFTENING, SOFTENING);
                     for (const target of candidates) {
                         if (target.isGhost) continue;
-                        // Self-absorption guard: skip emitter for first 2 substeps
-                        if (target.id === ph.emitterId && ph.age < 3) continue;
+                        if (target.id === ph.emitterId && ph.age < 3) continue; // self-absorption guard
                         const dx = ph.pos.x - target.pos.x;
                         const dy = ph.pos.y - target.pos.y;
                         if (dx * dx + dy * dy < target.radius * target.radius) {
-                            // Absorb: transfer photon momentum to particle
-                            const impulse = ph.energy; // p = E/c = E (c=1)
+                            const impulse = ph.energy;
                             target.w.x += impulse * ph.vel.x / target.mass;
                             target.w.y += impulse * ph.vel.y / target.mass;
-                            // Fix energy bookkeeping
                             this.sim.totalRadiated -= ph.energy;
                             this.sim.totalRadiatedPx -= ph.energy * ph.vel.x;
                             this.sim.totalRadiatedPy -= ph.energy * ph.vel.y;
                             ph.alive = false;
-                            break; // photon absorbed, stop checking particles
+                            break;
                         }
                     }
                 }
             }
 
-            // Save radiation display force before reset (can't recompute from final state)
+            // Snapshot radiation display force before resetForces() clears it
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 p._radDisplayX = p.forceRadiation.x;
                 p._radDisplayY = p.forceRadiation.y;
             }
 
-            // Step 7: Calculate new forces and B fields
+            // Step 7: Recompute forces and B fields for next substep
             resetForces(particles);
             computeAllForces(particles, toggles, this.pool, root, this.barnesHutEnabled, this.signalDelayEnabled, this.relativityEnabled, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
         }
 
-        // Record history for signal delay (strided: once every HISTORY_STRIDE updates)
+        // Record signal delay history (strided to extend buffer reach ~30x)
         if (this.signalDelayEnabled && n > 0 && ++this._histStride >= HISTORY_STRIDE) {
             this._histStride = 0;
             for (let i = 0; i < n; i++) {
@@ -603,12 +550,11 @@ export default class Physics {
             }
         }
 
-        // Compute PE (once per frame, using last substep's tree)
+        // PE once per frame, reusing last substep's tree
         this.potentialEnergy = computePE(particles, toggles, this.pool, lastRoot, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst);
 
-        // Compute velocity-dependent forces for display only (after final substep).
-        // These are applied via Boris rotation (not kicks), but we add them to the
-        // per-type display vectors so force component arrows are accurate.
+        // Reconstruct B-like display forces from final-substep fields.
+        // Boris rotation applied these implicitly; we reconstruct for arrow rendering.
         if (hasMagnetic || hasGM) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
@@ -623,9 +569,7 @@ export default class Physics {
             }
         }
 
-        // Recompute spin-orbit display values from final substep fields.
-        // Like the velocity-dependent display forces above, these were zeroed by
-        // the last resetForces() but the underlying fields are still valid.
+        // Reconstruct spin-orbit display values from final-substep fields
         if (hasMagnetic && relOn && this.spinOrbitEnabled) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
@@ -655,7 +599,7 @@ export default class Physics {
             }
         }
 
-        // Restore radiation display force from last substep (saved before resetForces)
+        // Restore radiation display force from snapshot
         if (this.radiationEnabled) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
@@ -664,7 +608,7 @@ export default class Physics {
             }
         }
 
-        // Step 8: Handle boundaries (once per frame, after all substeps)
+        // Step 8: Boundary handling (once per frame)
         let writeIdx = 0;
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -674,7 +618,7 @@ export default class Physics {
             if (boundaryMode === 'despawn') {
                 if (p.pos.x < left - DESPAWN_MARGIN || p.pos.x > right + DESPAWN_MARGIN ||
                     p.pos.y < top - DESPAWN_MARGIN || p.pos.y > bottom + DESPAWN_MARGIN) {
-                    continue; // skip — don't copy to output
+                    continue;
                 }
             } else if (boundaryMode === 'loop') {
                 wrapPosition(p, this._topologyConst, width, height);
@@ -697,11 +641,7 @@ export default class Physics {
         particles.length = writeIdx;
     }
 
-    /**
-     * Compute PE and store it on this.potentialEnergy.
-     * Called externally by main.js (via computeEnergy → energy.js reads physics.potentialEnergy).
-     * Also called at end of update() — but may be called independently (e.g. after preset load).
-     */
+    /** Recompute PE independently (e.g. after preset load). */
     computePE(particles, root) {
         this._syncToggles();
         const toggles = this._toggles;
@@ -717,22 +657,16 @@ export default class Physics {
 
             const rSq = p.radius * p.radius;
 
-            // Self-gravity binding force at surface: F_bind = m / r²
-            const selfGravity = p.mass / rSq;
-
-            // Per-particle self-disruption forces (no neighbor needed)
-            // Centrifugal: F = ω² · r
-            const centrifugal = p.angVel * p.angVel * p.radius;
-            // Coulomb self-repulsion: uniform charge sphere surface field
-            // F = q² / (4·r²) in natural units (k=1)
-            const coulombSelf = (p.charge * p.charge) / (4 * rSq);
+            const selfGravity = p.mass / rSq;      // binding: m/r²
+            const centrifugal = p.angVel * p.angVel * p.radius;  // ω²r
+            const coulombSelf = (p.charge * p.charge) / (4 * rSq); // q²/(4r²)
 
             if (centrifugal + coulombSelf > selfGravity) {
                 fragments.push(p);
                 continue;
             }
 
-            // Tidal stretching from nearby bodies
+            // Tidal stretching from neighbors: TIDAL_STRENGTH·M·r/d³
             let maxTidal = 0;
             const _periodic = this.periodic;
             const _halfDomW = this.domainW * 0.5, _halfDomH = this.domainH * 0.5;
@@ -752,7 +686,7 @@ export default class Physics {
                 if (tidalAccel > maxTidal) maxTidal = tidalAccel;
             }
 
-            // Combined: all outward forces vs binding
+            // Fragment if combined outward forces exceed binding
             if (maxTidal + centrifugal + coulombSelf > selfGravity) {
                 fragments.push(p);
             }

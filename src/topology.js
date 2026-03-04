@@ -1,27 +1,21 @@
 // ─── Topology Module ───
-// Minimum-image separation and position wrapping for torus, Klein bottle,
-// and real projective plane boundary topologies.
+// Minimum-image separation and boundary wrapping for T^2, Klein bottle, and RP^2.
 
 export const TORUS = 0;
 export const KLEIN = 1;
 export const RP2   = 2;
 
-// Reusable scratch objects for candidate computation (zero alloc)
 const _c = { x: 0, y: 0 };
 
-/** Torus-wrap a single axis value into [-half, +half]. */
+/** Wrap a signed displacement into [-half, +half]. */
 function torusWrap(d, full, half) {
     if (d > half) d -= full; else if (d < -half) d += full;
     return d;
 }
 
 /**
- * Minimum-image separation from observer (ox,oy) to source (sx,sy).
- * Writes result into out.x, out.y.
- *
- * Torus: 1 candidate (standard periodic wrap).
- * Klein bottle: 2 candidates (identity + y-glide).
- * RP²: 4 candidates (identity + y-glide + x-glide + both).
+ * Minimum-image separation from (ox,oy) to (sx,sy). Writes into out.
+ * Klein/RP^2 need absolute source coords because glide reflections are position-dependent.
  */
 export function minImage(ox, oy, sx, sy, topology, W, H, halfW, halfH, out) {
     let dx = sx - ox;
@@ -33,13 +27,12 @@ export function minImage(ox, oy, sx, sy, topology, W, H, halfW, halfH, out) {
         return;
     }
 
-    // Candidate 0: standard torus wrap
+    // Candidate 0: identity (torus wrap)
     let bx = torusWrap(dx, W, halfW);
     let by = torusWrap(dy, H, halfH);
     let bestDx = bx, bestDy = by, bestSq = bx * bx + by * by;
 
     // Candidate 1: y-glide  (x,y) ~ (W-x, y+H)
-    // Glide image of source: (W - sx, sy + H)
     _c.x = torusWrap((W - sx) - ox, W, halfW);
     _c.y = torusWrap((sy + H) - oy, H, halfH);
     let sq = _c.x * _c.x + _c.y * _c.y;
@@ -52,8 +45,7 @@ export function minImage(ox, oy, sx, sy, topology, W, H, halfW, halfH, out) {
         sq = _c.x * _c.x + _c.y * _c.y;
         if (sq < bestSq) { bestDx = _c.x; bestDy = _c.y; bestSq = sq; }
 
-        // Candidate 3: both glides  (x,y) ~ (W-x+W, H-y+H) = (2W-x, 2H-y)
-        // But 2W-x wraps same as -x mod W, so just (W-x, H-y) shifted differently
+        // Candidate 3: both glides
         _c.x = torusWrap((2 * W - sx) - ox, W, halfW);
         _c.y = torusWrap((2 * H - sy) - oy, H, halfH);
         sq = _c.x * _c.x + _c.y * _c.y;
@@ -65,13 +57,7 @@ export function minImage(ox, oy, sx, sy, topology, W, H, halfW, halfH, out) {
 }
 
 /**
- * Wrap particle position into domain [0,W]×[0,H], applying velocity/spin
- * flips for non-orientable topologies.
- *
- * Torus: simple modular wrap.
- * Klein: x wraps normally; y-wrap flips x, negates w.x, vel.x, angw, angVel.
- * RP²: x-wrap flips y (negates w.y, vel.y, angw, angVel);
- *       y-wrap flips x (negates w.x, vel.x, angw, angVel).
+ * Wrap position into [0,W]x[0,H], flipping velocity/spin for non-orientable crossings.
  */
 export function wrapPosition(p, topology, W, H) {
     if (topology === TORUS) {
@@ -83,10 +69,9 @@ export function wrapPosition(p, topology, W, H) {
     }
 
     if (topology === KLEIN) {
-        // x wraps normally
         if (p.pos.x < 0) p.pos.x += W;
         else if (p.pos.x > W) p.pos.x -= W;
-        // y-wrap flips x
+        // y-wrap: glide reflection mirrors x-position and negates x-velocity
         if (p.pos.y < 0) {
             p.pos.y += H;
             p.pos.x = W - p.pos.x;
@@ -101,8 +86,7 @@ export function wrapPosition(p, topology, W, H) {
         return;
     }
 
-    // RP2: both axes flip
-    // x-wrap flips y
+    // RP2: both axes carry glide reflections
     if (p.pos.x < 0) {
         p.pos.x += W;
         p.pos.y = H - p.pos.y;
@@ -114,7 +98,6 @@ export function wrapPosition(p, topology, W, H) {
         p.w.y = -p.w.y; p.vel.y = -p.vel.y;
         p.angw = -p.angw; p.angVel = -p.angVel;
     }
-    // y-wrap flips x
     if (p.pos.y < 0) {
         p.pos.y += H;
         p.pos.x = W - p.pos.x;

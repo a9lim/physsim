@@ -1,4 +1,5 @@
 // ─── UI Setup ───
+// Wires all panel controls, toggles, presets, shortcuts, and info tips to the sim.
 import { loadPreset } from './presets.js';
 import { PHYSICS_DT } from './config.js';
 
@@ -20,7 +21,6 @@ export function setupUI(sim) {
                 panelToggle.classList.add('active');
             }));
             setTimeout(() => { introScreen.style.display = 'none'; }, 850);
-            // Hint fade
             const hint = document.getElementById('hint-bar');
             if (hint) setTimeout(() => hint.classList.add('fade-out'), HINT_FADE_DELAY);
         });
@@ -129,7 +129,7 @@ export function setupUI(sim) {
     });
 
     // ─── Force toggle dependency helper ───
-    // When a parent is off, disable the sub-toggle AND turn it off
+    // Disabling a parent also unchecks and disables its children
     const setDepState = (el, prop, disabled) => {
         el.disabled = disabled;
         el.closest('.ctrl-row').classList.toggle('ctrl-disabled', disabled);

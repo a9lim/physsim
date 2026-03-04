@@ -1,4 +1,5 @@
 // ─── Preset Definitions ───
+// Each preset clears particles and spawns a scenario via sim.addParticle().
 
 export const PRESETS = {
     solar(sim) {

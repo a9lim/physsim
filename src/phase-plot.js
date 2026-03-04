@@ -1,3 +1,6 @@
+// ─── Phase Space Plot ───
+// r vs v_r relative to the most massive body; 500-sample ring buffer.
+
 const BUFFER_LEN = 500;
 const MARGIN = 24;
 
@@ -23,7 +26,7 @@ export default class PhasePlot {
             this.count = 0;
         }
 
-        // Find most massive body as reference
+        // Radial quantities measured relative to most massive body
         let refX = 0, refY = 0, refVx = 0, refVy = 0, maxM = 0;
         for (const p of particles) {
             if (p === sel) continue;
@@ -38,7 +41,7 @@ export default class PhasePlot {
         const r = Math.sqrt(dx * dx + dy * dy) || 1;
         const rx = dx / r, ry = dy / r;
         const dvx = sel.vel.x - refVx, dvy = sel.vel.y - refVy;
-        const vr = dvx * rx + dvy * ry; // radial velocity
+        const vr = dvx * rx + dvy * ry;
 
         this.rBuf[this.head] = r;
         this.vrBuf[this.head] = vr;
@@ -51,7 +54,7 @@ export default class PhasePlot {
 
         const dpr = devicePixelRatio || 1;
         const cssW = this.canvas.clientWidth || 180;
-        const ps = cssW; // square plot uses CSS width
+        const ps = cssW;
         const pxW = Math.round(cssW * dpr);
         if (this.canvas.width !== pxW || this.canvas.height !== pxW) {
             this.canvas.width = pxW;
@@ -61,7 +64,6 @@ export default class PhasePlot {
         const c = this.ctx;
         c.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        // Auto-scale
         let rMin = Infinity, rMax = -Infinity, vrMin = Infinity, vrMax = -Infinity;
         for (let i = 0; i < this.count; i++) {
             const idx = (this.head - this.count + i + BUFFER_LEN) % BUFFER_LEN;
@@ -74,11 +76,9 @@ export default class PhasePlot {
 
         c.clearRect(0, 0, ps, ps);
 
-        // Background
         c.fillStyle = isLight ? '#FCF7F244' : '#0C0B0988';
         c.fillRect(0, 0, ps, ps);
 
-        // Axes
         c.strokeStyle = isLight ? '#1A161233' : '#E8DED433';
         c.lineWidth = 0.5;
         c.beginPath();
@@ -86,13 +86,11 @@ export default class PhasePlot {
         c.moveTo(0, ps - MARGIN); c.lineTo(ps, ps - MARGIN);
         c.stroke();
 
-        // Labels
         c.fillStyle = isLight ? '#1A161288' : '#E8DED488';
         c.font = '9px Noto Sans Mono';
         c.fillText('r', ps - 12, ps - MARGIN + 12);
         c.fillText('v\u1D63', MARGIN - 18, 12);
 
-        // Trajectory
         c.beginPath();
         c.lineWidth = 1.2;
         for (let i = 0; i < this.count; i++) {
@@ -108,7 +106,6 @@ export default class PhasePlot {
         c.strokeStyle = '#FE3B01CC';
         c.stroke();
 
-        // Current point
         const lastIdx = (this.head - 1 + BUFFER_LEN) % BUFFER_LEN;
         const cx = MARGIN + ((this.rBuf[lastIdx] - rMin) / rRange) * (ps - MARGIN - 4);
         const cy = (ps - MARGIN) - ((this.vrBuf[lastIdx] - vrMin) / vrRange) * (ps - MARGIN - 4);

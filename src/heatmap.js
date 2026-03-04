@@ -1,7 +1,10 @@
+// ─── Potential Field Heatmap ───
+// 48x48 offscreen canvas, diverging colormap, updates every 6 frames.
+
 import { SOFTENING_SQ } from './config.js';
 
 const GRID_SIZE = 48;
-const UPDATE_INTERVAL = 6; // update every 6 frames
+const UPDATE_INTERVAL = 6;
 
 export default class Heatmap {
     constructor() {
@@ -38,8 +41,8 @@ export default class Heatmap {
                     const dx = wx - p.pos.x, dy = wy - p.pos.y;
                     const rSq = dx * dx + dy * dy + SOFTENING_SQ;
                     const invR = 1 / Math.sqrt(rSq);
-                    phi -= p.mass * invR;        // gravitational (attractive = negative)
-                    phi += p.charge * invR;      // electrostatic (repulsive same-sign = positive)
+                    phi -= p.mass * invR;
+                    phi += p.charge * invR;
                 }
 
                 this.potential[gy * GRID_SIZE + gx] = phi;
@@ -48,7 +51,6 @@ export default class Heatmap {
             }
         }
 
-        // Render to offscreen canvas with diverging colormap
         const imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
         const range = Math.max(Math.abs(minPhi), Math.abs(maxPhi)) || 1;
 
@@ -56,13 +58,11 @@ export default class Heatmap {
             const norm = this.potential[i] / range; // -1 to 1
             const idx = i * 4;
             if (norm < 0) {
-                // Negative (gravity well) → blue
                 imgData.data[idx] = 40;
                 imgData.data[idx + 1] = 80;
                 imgData.data[idx + 2] = 200;
                 imgData.data[idx + 3] = Math.round(Math.abs(norm) * 80);
             } else {
-                // Positive (repulsive) → red
                 imgData.data[idx] = 200;
                 imgData.data[idx + 1] = 60;
                 imgData.data[idx + 2] = 40;
