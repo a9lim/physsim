@@ -14,21 +14,26 @@ Must serve from parent `a9lim.github.io/` directory — shared files (`/shared-b
 
 ```
 main.js (Simulation class, window.sim)
-├── src/config.js      — named constants (BH_THETA, SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, LARMOR_K, etc.)
-├── src/relativity.js  — angwToAngVel, angVelToAngw, setVelocity
-├── src/energy.js      — computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field energy
-├── src/physics.js     — forces, Boris integration, collisions, computePE()
-│     ├── src/quadtree.js  — Barnes-Hut quadtree (aggregate mass, charge, angVel, magnetic moment, angular momentum)
-│     └── src/vec2.js
-├── src/renderer.js    — Canvas 2D, trails, glow, force vectors, themes
-├── src/input.js       — mouse/touch, Place/Shoot/Orbit modes
-├── src/particle.js    — entity (pos, vel, w, angw, angVel, mass, charge, radius, force vectors)
-├── src/heatmap.js     — density heatmap
-├── src/phase-plot.js  — phase space plot (sidebar canvas)
-├── src/sankey.js      — energy breakdown bar chart (sidebar canvas)
-├── src/photon.js      — radiation photon entity
-├── src/presets.js     — preset definitions
-└── src/ui.js          — setupUI, event binding, info tips (infoData object)
+├── src/config.js          — named constants (BH_THETA, SOFTENING_SQ, PHYSICS_DT, INERTIA_K, MAG_MOMENT_K, LARMOR_K, etc.)
+├── src/relativity.js      — angwToAngVel, angVelToAngw, setVelocity
+├── src/energy.js          — computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field energy
+├── src/integrator.js      — Physics class: adaptive Boris substep loop, spin-orbit, frame-drag, radiation, tidal breakup
+│     ├── src/forces.js        — resetForces, computeAllForces, pairForce, calculateForce (BH walk)
+│     ├── src/collisions.js    — handleCollisions, resolveMerge, resolveBounce
+│     ├── src/potential.js     — computePE, treePE, pairPE
+│     ├── src/signal-delay.js  — getDelayedState, interpolateHistory (retarded potentials)
+│     ├── src/quadtree.js      — QuadTreePool: SoA pool-based Barnes-Hut quadtree (zero per-frame allocation)
+│     └── src/photon.js        — radiation photon entity
+├── src/stats-display.js   — StatsDisplay: energy/momentum/drift DOM updates, selected particle info
+│     └── src/energy.js
+├── src/renderer.js        — Canvas 2D, trails, glow, force vectors, themes
+├── src/input.js           — mouse/touch, Place/Shoot/Orbit modes
+├── src/particle.js        — entity (pos, vel, w, angw, angVel, mass, charge, radius, force vectors)
+├── src/heatmap.js         — density heatmap
+├── src/phase-plot.js      — phase space plot (sidebar canvas)
+├── src/sankey.js          — energy breakdown bar chart (sidebar canvas)
+├── src/presets.js         — preset definitions
+└── src/ui.js              — setupUI, event binding, info tips (infoData object)
 ```
 
 Shared scripts loaded in `<head>` before modules: `/shared-tokens.js` → `/shared-utils.js` → `/shared-camera.js` → `colors.js` → `/shared-info.js` → `/shared-shortcuts.js`.
@@ -106,7 +111,11 @@ Conserved exactly with gravity+Coulomb only, pairwise mode (BH off). Velocity-de
 
 ### Barnes-Hut
 
-Toggleable (`barnesHutEnabled`). QuadTree aggregates mass, charge, angVel, magnetic moment, angular momentum, momentum, COM. `BH_THETA = 0.5`. When off: exact pairwise, better conservation. Adaptive substepping: `nSteps = min(ceil(dt/√(ε/a_max)), MAX_SUBSTEPS)`.
+Toggleable (`barnesHutEnabled`). QuadTreePool (SoA, pre-allocated, zero per-frame GC) aggregates mass, charge, angVel, magnetic moment, angular momentum, momentum, COM. `BH_THETA = 0.5`. When off: exact pairwise, better conservation. Adaptive substepping: `dtSafe = min(√(ε/a_max), T_cyclotron/8)`, `nSteps = min(ceil(dt/dtSafe), MAX_SUBSTEPS)`.
+
+### Fixed-Timestep Loop
+
+`PHYSICS_DT = 1/120`. Accumulator in `main.js` collects `rawDt * speedScale` per frame. While loop drains in fixed-size `PHYSICS_DT` steps. Capped by `MAX_SUBSTEPS * PHYSICS_DT * 4`. Photon updates and tidal breakup inside the fixed-step loop; energy/rendering/DOM outside.
 
 ## Toggle Dependencies
 
@@ -134,8 +143,9 @@ Disabled toggles get `.ctrl-disabled` (opacity 0.4, pointer-events none). Toggle
 ## Key Patterns
 
 - `Vec2` for all vector math. `vec.set(x,y)` in hot paths; `Vec2.add(a,b)` elsewhere.
-- Physics hot path: `_pairForce()` accumulates into `out` Vec2 parameter, no allocations.
-- DOM cached in `Simulation.dom` and `Simulation.selDom`. No per-frame DOM queries.
+- Physics hot path: `pairForce()` in `forces.js` accumulates into `out` Vec2 parameter, no allocations. Toggle flags passed as reusable `_toggles` object (synced once per `update()`, not per-frame allocation).
+- QuadTreePool: SoA flat typed arrays, pre-allocated 512 nodes. `pool.reset()` + `pool.build()` per substep, zero GC.
+- DOM cached in `Simulation.dom` and `Simulation.selDom`. Shared by reference with `StatsDisplay`. No per-frame DOM queries.
 - `InputHandler` caches DOM refs and tracks mode state directly.
 - `window.sim` for console debugging. `window._PALETTE`/`window._FONT` frozen by `colors.js`.
 - Shortcuts via `initShortcuts()`: Space, R, `.`, P, 1-5, V, F, C, T, S, Esc, `?`.
@@ -147,4 +157,4 @@ Disabled toggles get `.ctrl-disabled` (opacity 0.4, pointer-events none). Toggle
 
 - Serve from `a9lim.github.io/` parent — `/shared-base.css` and `/shared-tokens.js` use absolute paths
 - `#preset-dialog` needs both ID and `class="preset-dialog"` (shared CSS uses class, JS uses ID)
-- `photon.js` is imported by `physics.js` for radiation — not related to input modes
+- `photon.js` is imported by `integrator.js` for radiation — not related to input modes

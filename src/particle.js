@@ -31,12 +31,12 @@ export default class Particle {
         this.dBgzdx = 0;        // Gravitomagnetic field gradient x-component
         this.dBgzdy = 0;        // Gravitomagnetic field gradient y-component
 
-        // History buffers for signal delay
-        this.histX = new Float64Array(HISTORY_SIZE);
-        this.histY = new Float64Array(HISTORY_SIZE);
-        this.histVx = new Float64Array(HISTORY_SIZE);
-        this.histVy = new Float64Array(HISTORY_SIZE);
-        this.histTime = new Float64Array(HISTORY_SIZE);
+        // History buffers for signal delay (lazy-allocated)
+        this.histX = null;
+        this.histY = null;
+        this.histVx = null;
+        this.histVy = null;
+        this.histTime = null;
         this.histHead = 0;
         this.histCount = 0;
 
@@ -58,5 +58,16 @@ export default class Particle {
     updateColor() {
         this.radius = Math.cbrt(this.mass);
         this.color = this.getColor();
+    }
+
+    _initHistory() {
+        if (this.histX) return;
+        this.histX = new Float64Array(HISTORY_SIZE);
+        this.histY = new Float64Array(HISTORY_SIZE);
+        this.histVx = new Float64Array(HISTORY_SIZE);
+        this.histVy = new Float64Array(HISTORY_SIZE);
+        this.histTime = new Float64Array(HISTORY_SIZE);
+        this.histHead = 0;
+        this.histCount = 0;
     }
 }
