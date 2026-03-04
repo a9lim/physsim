@@ -1,4 +1,4 @@
-import Physics from './src/physics.js';
+import Physics from './src/integrator.js';
 import Renderer from './src/renderer.js';
 import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
