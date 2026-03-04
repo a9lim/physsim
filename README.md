@@ -1,92 +1,79 @@
 # Relativistic N-Body Physics Simulation
 
-A high-performance, interactive physics simulation that models gravity, electromagnetism, magnetic dipole interactions, and gravitomagnetic corrections with relativistic effects. Uses the **Barnes-Hut algorithm** for O(N log N) force calculation, enabling simulations with thousands of particles.
+Interactive physics simulation modeling gravity, electromagnetism, magnetic dipoles, and gravitomagnetic corrections with relativistic effects. Uses the **Barnes-Hut algorithm** for O(N log N) force calculation.
 
 **[Live Demo →](https://a9l.im/physsim)** · Part of the [a9l.im](https://a9l.im) portfolio
 
 ## Features
 
-- **Relativistic Physics** — Proper velocity integration naturally enforces the speed-of-light limit. Both linear and rotational state use the same pattern: `derived = state / √(1 + state² × scale²)`, so no particle can ever exceed *c*.
-- **Forces** — Two parent–child force groups:
-  - **Gravity** → **Gravitomagnetic** — Mass attraction (inverse-square) with relativistic correction coupling mass currents and angular momentum
-  - **Coulomb** → **Magnetic** — Electrostatic force with magnetic dipole interaction between spinning, charged particles
-- **Physics**
-  - **Relativity** → **Radiation** → **Signal Delay** → **Spin-Orbit** — Proper velocity integration, Larmor radiation with visible photons, finite-speed force propagation, and spin-orbit energy transfer (Radiation, Signal Delay, and Spin-Orbit are sub-toggles of Relativity)
-  - **Tidal Forces** — Roche limit breakup when tidal stress exceeds self-gravity
-- **Barnes-Hut Optimization** — QuadTree spatial partitioning approximates long-range forces at O(N log N). Toggleable — disable for exact O(N²) pairwise forces that preserve Newton's 3rd law exactly
-- **Interaction Modes** — Place (spawn at rest), Shoot (drag to set velocity), Orbit (auto-calculates circular orbit around nearest massive body)
-- **Collision Modes** — Pass-through, elastic bounce with spin-friction transfer (configurable friction), or merge (conserves mass, charge, momentum, and angular momentum)
-- **Boundary Modes** — Despawn off-screen, toroidal wrap, or bounce off edges
-- **Presets** — Solar System, Binary Star, Galaxy, Collision, Magnetic Spin
-- **Visuals** — Particle trails, charge-based dynamic coloring, spin rings, additive glow in dark mode, light/dark theme toggle
-- **Boris Integrator** — Splits E-like (radial) and B-like (velocity-dependent) forces; Boris rotation exactly preserves |v| for long-term magnetic stability
-- **Energy Conservation Display** — Real-time tracking of linear KE, spin KE, potential, field energy, radiated energy, total, and drift percentage
-- **Conserved Quantities** — Momentum = |p_particle + p_field + p_radiated| with field and radiated sub-rows; angular momentum (orbital + spin about COM) with drift tracking
-- **Force Component Vectors** — Per-force-type arrows (gravity, Coulomb, magnetic, gravitomagnetic) in distinct colors alongside net force and velocity vectors
-- **Particle Inspection** — Hover for compact tooltip (mass, charge, spin, speed); click to select and see live stats in sidebar (gamma, force breakdown)
-- **Sidebar Tabs** — Settings (particle properties, forces, physics), Engine (Barnes-Hut, collision/boundary modes, visuals, sim speed), Stats (energy breakdown bar chart, energy, conserved quantities), Particle (selected particle details, phase space plot)
-- **Keyboard Shortcuts** — Space (pause), R (reset), `.` (step), P (presets), 1-5 (load preset), V (velocity vectors), F (force vectors), T (theme), S (sidebar); press `?` for help overlay
-- **Info Tips** — Hover `?` icons next to controls for explanations of physics concepts and simulation parameters
-- **Zoom & Pan** — Scroll to zoom
+- **Relativistic mechanics** — Proper velocity `w = γv` as state variable; velocity derived via `v = w/√(1+w²)`, naturally enforcing the speed-of-light limit. Same pattern for spin: angular celerity caps surface velocity below *c*.
+- **Boris integrator** — Splits E-like (radial) and B-like (velocity-dependent) forces; Boris rotation exactly preserves |v| for long-term magnetic stability
+- **6 force types** — Gravity, Coulomb, magnetic dipole, gravitomagnetic dipole, Lorentz, and linear gravitomagnetic (frame-dragging)
+- **Larmor radiation** — Accelerating charges emit visible photons with orbital decay via Landau-Lifshitz force
+- **Signal delay** — Finite-speed force propagation via retarded potentials (pairwise mode only)
+- **Spin-orbit coupling** — Energy transfer between translational and rotational KE via B-field gradients
+- **Tidal breakup** — Roche limit fragmentation when tidal/centrifugal/Coulomb stress exceeds self-gravity
+- **Barnes-Hut** — Toggleable O(N log N) quadtree approximation vs exact O(N²) pairwise forces
+- **Collisions** — Pass-through, elastic bounce with spin-friction transfer, or merge (conserves mass, charge, momentum, angular momentum)
+- **5 presets** — Solar System, Binary Star, Galaxy, Collision, Magnetic Spin
+- **Real-time diagnostics** — Energy breakdown (KE, spin KE, PE, field, radiated), momentum (particle + field + radiated), angular momentum (orbital + spin), all with drift tracking
+- **Visuals** — Trails, force component vectors, charge-based coloring, spin rings, additive glow, light/dark theme
 
 ## Controls
 
 | Input | Action |
 |-------|--------|
-| Left click | Spawn particle |
+| Left click | Spawn particle (Place/Shoot/Orbit modes) |
 | Right click | Remove particle |
 | Scroll wheel | Zoom in/out |
-| Topbar buttons | Play/Pause, Step, Reset |
-| Sidebar panel | Settings (forces, physics), Engine (collision, visuals), Stats, Particle |
+| `Space` | Pause/resume |
+| `P` / `1-5` | Open presets / load preset directly |
+| `?` | Keyboard shortcut help |
 
 ## Running Locally
 
-Serve the directory to avoid CORS issues with ES6 modules:
-
 ```bash
-python -m http.server
-# Navigate to http://localhost:8000
+# Serve from parent directory for shared design system files
+cd path/to/a9lim.github.io && python -m http.server
+# Navigate to http://localhost:8000/physsim/
 ```
 
-No build step, no dependencies. Shared design system files (`shared-tokens.js`, `shared-base.css`) load from the root site — serve from the parent `a9lim.github.io/` directory for full functionality.
+No build step, no dependencies. ES6 modules require an HTTP server (no `file://`).
 
 ## Architecture
 
 ```
-index.html
-  ├── colors.js          — extends shared palette with particle hues, CSS vars
-  └── main.js            — Simulation class (ES module entry)
-        ├── src/physics.js    — force calculation, integration, collisions
-        │     ├── src/quadtree.js  — Barnes-Hut spatial partitioning
-        │     └── src/vec2.js      — 2D vector math
-        ├── src/renderer.js   — Canvas 2D drawing, trails, themes
-        ├── src/input.js      — mouse/touch interaction, particle spawning
-        ├── src/relativity.js — relativistic helpers (proper velocity, angular celerity)
-        ├── src/particle.js   — entity definition
-        ├── src/presets.js    — preset definitions + loadPreset function
-        └── src/ui.js         — setupUI, DOM cache, all event binding
+main.js                — Simulation class (entry point)
+├── src/physics.js     — forces, Boris integration, collisions, PE
+│     ├── src/quadtree.js  — Barnes-Hut spatial partitioning
+│     └── src/vec2.js      — 2D vector math
+├── src/energy.js      — energy, momentum, angular momentum computation
+├── src/relativity.js  — proper velocity / angular celerity conversions
+├── src/renderer.js    — Canvas 2D drawing, trails, themes
+├── src/input.js       — mouse/touch interaction, particle spawning
+├── src/particle.js    — entity definition
+├── src/heatmap.js     — density heatmap overlay
+├── src/phase-plot.js  — phase space visualization
+├── src/sankey.js      — energy breakdown bar chart
+├── src/photon.js      — radiation photon entity
+├── src/presets.js     — preset scenario definitions
+├── src/config.js      — named constants
+└── src/ui.js          — DOM setup, event binding, info tips
 ```
-
-Uses the shared design system from [a9lim.github.io](https://github.com/a9lim/a9lim.github.io) — glass panels, tool buttons, intro screen, preset dialog, slider values, and responsive breakpoints.
 
 ### Technical Details
 
-The simulation uses the **Boris integrator** with proper velocity **w** = γ**v** (celerity) as the primary state variable. It separates position-dependent (E-like) forces from velocity-dependent (B-like) forces:
+Natural units (c = 1, G = 1) throughout. The Boris integrator sequence per substep:
 
-1. Half-kick with E-like forces: **w** += **F**_E/m · dt/2
-2. Boris rotation for B-like forces: rotate **w** in the B+Bg field plane (preserves |**v**| exactly)
-3. Half-kick with E-like forces: **w** += **F**_E/m · dt/2
-4. Derive velocity: **v** = **w** / √(1 + w²), drift position: **x** += **v** · dt
-5. Rebuild Barnes-Hut tree, handle collisions
-6. Recalculate E-like forces and B/Bg fields
+1. Half-kick: **w** += **F**_E/m · dt/2
+2. Boris rotation: rotate **w** in B+Bg field plane (preserves |**v**| exactly)
+3. Half-kick: **w** += **F**_E/m · dt/2
+4. Derive **v** = **w**/√(1+w²), drift **x** += **v**·dt
+5. Rebuild tree, handle collisions, recalculate forces
 
-The Boris rotation uses combined parameter t = ((q/(2m))·B_z + 2·Bg_z)·dt/γ with s = 2t/(1+t²), giving exact area-preserving rotation. This handles Lorentz and gravitomagnetic forces without energy drift.
+Spin uses the same proper-velocity pattern — `angw` (angular celerity) derives `angVel = angw/√(1+angw²r²)` via `angwToAngVel()`, capping surface velocity at *c*. Determines magnetic moment (μ = ⅕qωr²) and angular momentum (L = ⅖mωr²).
 
-Spin uses the same proper-velocity pattern — `p.angw` stores angular celerity (proper angular velocity), angular velocity is derived via `ω = W / √(1 + W²r²)` using `angwToAngVel()`, naturally capping surface velocity at *c*. Spin determines magnetic moment (μ = ⅕qωr²) and angular momentum (L = ⅖mωr²), affecting dipole forces.
-
-Natural units (c = 1, G = 1) throughout. The proper velocity approach provides inherent stability — γ = √(1 + w²) has no singularities unlike 1/√(1 − v²), and high-energy interactions cannot produce superluminal velocities. The Boris integrator exactly preserves kinetic energy through the magnetic rotation step, producing superior long-term stability for charged and spinning particles.
-
-**Note on conservation:** Velocity-dependent forces (Lorentz, linear gravitomagnetism) do not satisfy Newton's third law between particles — in real physics, the missing momentum is carried by the electromagnetic/gravitoelectromagnetic field. This particle-only simulation has no field degrees of freedom, so momentum and angular momentum are not exactly conserved when magnetic or gravitomagnetic forces are active. Radial dipole forces and all other force types conserve momentum exactly (in pairwise mode with Barnes-Hut off).
+**Conservation note:** Velocity-dependent forces (Lorentz, linear gravitomagnetism) don't satisfy Newton's third law — the missing momentum is carried by fields not modeled here. Momentum and angular momentum are exactly conserved only with radial forces in pairwise mode (Barnes-Hut off).
 
 ## Sibling Projects
 
