@@ -6,9 +6,10 @@ import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
 import SankeyOverlay from './src/sankey.js';
 import { setupUI } from './src/ui.js';
-import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K, SOFTENING_SQ, PHOTON_LIFETIME, FRAGMENT_COUNT } from './src/config.js';
+import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K, PHOTON_LIFETIME, FRAGMENT_COUNT } from './src/config.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
+import { computeEnergies } from './src/energy.js';
 
 class Simulation {
     constructor() {
@@ -117,97 +118,16 @@ class Simulation {
     }
 
     computeEnergy() {
-        let linearKE = 0;
-        let spinKE = 0;
-        let totalMass = 0;
-        let comX = 0, comY = 0;
-        let px = 0, py = 0;
-        const relativity = this.physics.relativityEnabled;
+        const e = computeEnergies(this.particles, this.physics, this);
 
-        // First pass: linear KE, spin KE, momentum, COM
-        for (const p of this.particles) {
-            const rSq = p.radius * p.radius;
-            if (relativity) {
-                // Relativistic linear KE: (γ - 1)mc², γ = √(1 + w²)
-                const gamma = Math.sqrt(1 + p.w.magSq());
-                linearKE += (gamma - 1) * p.mass;
-                // Relativistic spin KE: E = m·(√(1 + L²/m²) - 1), L = I·S
-                const L = INERTIA_K * p.mass * rSq * p.angw;
-                spinKE += (Math.sqrt(1 + L * L / (p.mass * p.mass)) - 1) * p.mass;
-            } else {
-                const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
-                linearKE += 0.5 * p.mass * speedSq;
-                // Classical spin KE: ½Iω² with I = INERTIA_K·m·r²
-                spinKE += 0.5 * INERTIA_K * p.mass * rSq * p.angVel * p.angVel;
-            }
-
-            // Relativistic momentum: p = mw; classical: p = mv (w = v when relativity off)
-            px += p.mass * p.w.x;
-            py += p.mass * p.w.y;
-
-            // Accumulate for COM
-            totalMass += p.mass;
-            comX += p.mass * p.pos.x;
-            comY += p.mass * p.pos.y;
-        }
-
-        // Second pass: orbital + spin angular momentum about COM
-        let orbitalAngMom = 0;
-        let spinAngMom = 0;
-        if (totalMass > 0) {
-            comX /= totalMass;
-            comY /= totalMass;
-
-            for (const p of this.particles) {
-                const dx = p.pos.x - comX;
-                const dy = p.pos.y - comY;
-                // Orbital angular momentum: (r × p)_z about COM
-                orbitalAngMom += dx * (p.mass * p.w.y) - dy * (p.mass * p.w.x);
-                // Spin angular momentum: I * W = INERTIA_K * m * r² * angw
-                spinAngMom += INERTIA_K * p.mass * p.radius * p.radius * p.angw;
-            }
-        }
-
-        const angMom = orbitalAngMom + spinAngMom;
-        const pe = this.physics.potentialEnergy;
-
-        // Darwin Lagrangian O(v²/c²) correction for velocity-dependent field energy and momentum
-        // U_Darwin = -(1/2) Σ_{i<j} (q_i·q_j / r_ij) × [(v_i·v_j) + (v_i·r̂)(v_j·r̂)]
-        // p_field = Σ_{i<j} (q_i·q_j/(2r)) × [(v_i+v_j) + r̂·(r̂·(v_i+v_j))]
-        let fieldEnergy = 0;
-        let fieldPx = 0, fieldPy = 0;
-        if (this.physics.coulombEnabled) {
-            const n = this.particles.length;
-            for (let i = 0; i < n; i++) {
-                const pi = this.particles[i];
-                for (let j = i + 1; j < n; j++) {
-                    const pj = this.particles[j];
-                    const dx = pj.pos.x - pi.pos.x;
-                    const dy = pj.pos.y - pi.pos.y;
-                    const rSq = dx * dx + dy * dy + SOFTENING_SQ;
-                    const invR = 1 / Math.sqrt(rSq);
-                    const rx = dx * invR, ry = dy * invR;
-                    const viDotVj = pi.vel.x * pj.vel.x + pi.vel.y * pj.vel.y;
-                    const viDotR = pi.vel.x * rx + pi.vel.y * ry;
-                    const vjDotR = pj.vel.x * rx + pj.vel.y * ry;
-                    const qqInvR = pi.charge * pj.charge * invR;
-                    fieldEnergy -= 0.5 * qqInvR * (viDotVj + viDotR * vjDotR);
-                    // Field momentum
-                    const coeff = qqInvR * 0.5;
-                    const svx = pi.vel.x + pj.vel.x, svy = pi.vel.y + pj.vel.y;
-                    const svDotR = svx * rx + svy * ry;
-                    fieldPx += coeff * (svx + rx * svDotR);
-                    fieldPy += coeff * (svy + ry * svDotR);
-                }
-            }
-        }
+        const angMom = e.orbitalAngMom + e.spinAngMom;
 
         // Total momentum = particle + field + radiated (vector sum)
-        const totalPx = px + fieldPx + this.totalRadiatedPx;
-        const totalPy = py + fieldPy + this.totalRadiatedPy;
+        const totalPx = e.px + e.fieldPx + this.totalRadiatedPx;
+        const totalPy = e.py + e.fieldPy + this.totalRadiatedPy;
         const pMag = Math.sqrt(totalPx * totalPx + totalPy * totalPy);
 
-        const total = linearKE + spinKE + pe + fieldEnergy + this.totalRadiated;
+        const total = e.linearKE + e.spinKE + e.pe + e.fieldEnergy + this.totalRadiated;
 
         if (this.initialEnergy === null && this.particles.length > 0) {
             this.initialEnergy = total;
@@ -225,25 +145,24 @@ class Simulation {
             ? ((angMom - this.initialAngMom) / Math.abs(this.initialAngMom) * 100)
             : 0;
 
-        // Format numbers
         const fmt = (v) => Math.abs(v) < 0.01 ? '0' : Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(1);
         const fmtDrift = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
 
-        this.dom.linearKE.textContent = fmt(linearKE);
-        this.dom.spinKE.textContent = fmt(spinKE);
-        this.dom.potentialE.textContent = fmt(pe);
+        this.dom.linearKE.textContent = fmt(e.linearKE);
+        this.dom.spinKE.textContent = fmt(e.spinKE);
+        this.dom.potentialE.textContent = fmt(e.pe);
         this.dom.totalE.textContent = fmt(total);
         this.dom.energyDrift.textContent = fmtDrift(eDrift);
-        this.dom.fieldE.textContent = fmt(fieldEnergy);
+        this.dom.fieldE.textContent = fmt(e.fieldEnergy);
         this.dom.radiatedE.textContent = fmt(this.totalRadiated);
-        this.sankey.update(linearKE, spinKE, pe, fieldEnergy, this.totalRadiated);
+        this.sankey.update(e.linearKE, e.spinKE, e.pe, e.fieldEnergy, this.totalRadiated);
         this.dom.momentum.textContent = fmt(pMag);
-        this.dom.fieldMom.textContent = fmt(Math.sqrt(fieldPx * fieldPx + fieldPy * fieldPy));
+        this.dom.fieldMom.textContent = fmt(Math.sqrt(e.fieldPx * e.fieldPx + e.fieldPy * e.fieldPy));
         this.dom.radiatedMom.textContent = fmt(Math.sqrt(this.totalRadiatedPx * this.totalRadiatedPx + this.totalRadiatedPy * this.totalRadiatedPy));
         this.dom.momentumDrift.textContent = fmtDrift(pDrift);
         this.dom.angularMomentum.textContent = fmt(angMom);
-        this.dom.orbitalAngMom.textContent = fmt(orbitalAngMom);
-        this.dom.spinAngMom.textContent = fmt(spinAngMom);
+        this.dom.orbitalAngMom.textContent = fmt(e.orbitalAngMom);
+        this.dom.spinAngMom.textContent = fmt(e.spinAngMom);
         this.dom.angMomDrift.textContent = fmtDrift(aDrift);
     }
 
