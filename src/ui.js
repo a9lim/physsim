@@ -108,6 +108,7 @@ export function setupUI(sim) {
         { id: 'coulomb-toggle', prop: 'coulombEnabled' },
         { id: 'magnetic-toggle', prop: 'magneticEnabled' },
         { id: 'gravitomag-toggle', prop: 'gravitomagEnabled' },
+        { id: 'onepn-toggle', prop: 'onePNEnabled' },
         { id: 'relativity-toggle', prop: 'relativityEnabled' },
         { id: 'radiation-toggle', prop: 'radiationEnabled' },
         { id: 'tidal-toggle', prop: 'tidalEnabled' },
@@ -152,6 +153,18 @@ export function setupUI(sim) {
     bhEl.addEventListener('change', updateBhDeps);
     relativityEl.addEventListener('change', updateBhDeps);
     updateBhDeps();
+
+    // ─── 1PN dependency: requires Gravity + Relativity ───
+    const gravEl = document.getElementById('gravity-toggle');
+    const pnEl = document.getElementById('onepn-toggle');
+    const updatePnDeps = () => {
+        const ok = gravEl.checked && relativityEl.checked;
+        pnEl.disabled = !ok;
+        pnEl.closest('.ctrl-row').classList.toggle('ctrl-disabled', !ok);
+    };
+    gravEl.addEventListener('change', updatePnDeps);
+    relativityEl.addEventListener('change', updatePnDeps);
+    updatePnDeps();
 
     // ─── Visual toggles ───
     document.getElementById('trailsToggle').addEventListener('change', (e) => {
@@ -295,6 +308,7 @@ export function setupUI(sim) {
         barneshut: { title: 'Barnes-Hut Approximation', body: 'When on, uses a quadtree to approximate distant particle groups as single bodies (O(N log N)). When off, computes exact pairwise forces (O(N\u00B2)) \u2014 slower but preserves Newton\u2019s third law exactly, improving conservation of momentum and angular momentum.' },
         collision: { title: 'Collision Modes', body: '<b>Pass</b> \u2014 particles pass through each other.<br><b>Bounce</b> \u2014 elastic collision with spin-friction transfer.<br><b>Merge</b> \u2014 particles combine, conserving mass, charge, and momentum.' },
         boundary: { title: 'Boundary Modes', body: '<b>Despawn</b> \u2014 particles are removed when they leave the viewport.<br><b>Loop</b> \u2014 particles wrap around to the opposite side.<br><b>Bounce</b> \u2014 particles reflect off the viewport edges.' },
+        onepn: { title: '1PN Correction', body: 'First post-Newtonian correction to gravity (Einstein\u2013Infeld\u2013Hoffmann equations). Adds O(v\u00B2/c\u00B2) velocity- and mass-dependent terms to the gravitational force. Produces perihelion precession (~6\u03C0M/a(1\u2212e\u00B2) rad/orbit). Integrated with velocity-Verlet for second-order accuracy on velocity-dependent terms. Requires Gravity and Relativity.' },
     };
 
     if (typeof createInfoTip === 'function') {

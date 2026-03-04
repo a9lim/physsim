@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Relativistic N-Body Physics</title>
+    <title>No-Hair</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Noto+Sans+Mono:wght@300;400;500;600;700&family=Noto+Serif:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
@@ -25,7 +25,7 @@
         <div class="intro-bg"></div>
         <div class="intro-content">
             <span class="intro-overline">Interactive Simulation</span>
-            <h1 class="intro-title">Relativistic<br>N-Body</h1>
+            <h1 class="intro-title">No-Hair</h1>
             <p class="intro-desc">Watch gravity, electromagnetism, and spin shape the cosmos.<br>
                 Spawn particles, launch them, and observe relativistic dynamics in real time.</p>
             <div class="intro-cards">
@@ -81,7 +81,7 @@
     <nav id="topbar" class="sim-toolbar glass" role="toolbar" aria-label="Simulation controls">
         <div class="topbar-left">
             <a href="/" class="sim-home" title="a9l.im"><img src="/logo.svg" alt="a9l.im" height="28"></a>
-            <h1 class="sim-brand">Relativistic <em>N-Body</em></h1>
+            <h1 class="sim-brand">No-Hair</h1>
         </div>
         <div class="topbar-right sim-toolbar-actions">
             <button id="presetBtn" class="ghost-btn">Presets</button>
@@ -188,6 +188,9 @@
                         <div class="ctrl-row ctrl-sub"><label for="gravitomag-toggle">Gravitomagnetic <button class="info-trigger" data-info="gravitomag" aria-label="Gravitomagnetic info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="gravitomag-toggle" checked role="switch" aria-checked="true">
                             <label for="gravitomag-toggle" class="tog tog-gravitomag"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row ctrl-sub"><label for="onepn-toggle">1PN <button class="info-trigger" data-info="onepn" aria-label="1PN info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="onepn-toggle" role="switch" aria-checked="false">
+                            <label for="onepn-toggle" class="tog tog-onepn"><span class="tog-thumb"></span></label></div></div>
                         <div class="ctrl-row"><label for="coulomb-toggle">Coulomb <button class="info-trigger" data-info="coulomb" aria-label="Coulomb info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="coulomb-toggle" checked role="switch" aria-checked="true">
                             <label for="coulomb-toggle" class="tog tog-coulomb"><span class="tog-thumb"></span></label></div></div>
@@ -219,10 +222,10 @@
                     <div class="panel-section">
                         <h2 class="group-label">Simulation</h2>
                         <div class="control-group">
-                            <label class="checkbox-label">Barnes-Hut <button class="info-trigger" data-info="barneshut" aria-label="Barnes-Hut info">?</button><input type="checkbox" id="barneshut-toggle"></label>
+                            <label class="checkbox-label"><span>Barnes-Hut <button class="info-trigger" data-info="barneshut" aria-label="Barnes-Hut info">?</button></span> <input type="checkbox" id="barneshut-toggle"></label>
                         </div>
                         <div class="control-group">
-                            <label>Collision Mode <button class="info-trigger" data-info="collision" aria-label="Collision modes info">?</button></label>
+                            <label><span>Collision Mode <button class="info-trigger" data-info="collision" aria-label="Collision modes info">?</button></span></label>
                             <div class="mode-toggles" id="collision-toggles">
                                 <button class="mode-btn active" data-collision="pass">Pass</button>
                                 <button class="mode-btn" data-collision="bounce">Bounce</button>
@@ -234,7 +237,7 @@
                             <input type="range" id="frictionInput" min="0" max="1" step="0.01" value="0.4">
                         </div>
                         <div class="control-group">
-                            <label>Boundary Mode <button class="info-trigger" data-info="boundary" aria-label="Boundary modes info">?</button></label>
+                            <label><span>Boundary Mode <button class="info-trigger" data-info="boundary" aria-label="Boundary modes info">?</button></span></label>
                             <div class="mode-toggles" id="boundary-toggles">
                                 <button class="mode-btn active" data-boundary="despawn">Despawn</button>
                                 <button class="mode-btn" data-boundary="loop">Loop</button>
@@ -267,13 +270,9 @@
                 </div>
                 <!-- ── Stats ── -->
                 <div class="tab-panel" id="tab-stats" role="tabpanel">
-                    <div class="panel-section">
-                        <h2 class="group-label">Energy Breakdown</h2>
-                        <div id="energy-bars-container"></div>
-                    </div>
                     <div class="panel-section" aria-live="polite">
                         <h2 class="group-label">Energy <button class="info-trigger" data-info="energy" aria-label="Energy info">?</button></h2>
-                        <div class="stat-row"><span class="stat-label">Total</span><span class="stat-value" id="totalE">0</span></div>
+                        <div class="stat-row"><span class="stat-label">Total Energy</span><span class="stat-value" id="totalE">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Linear KE</span><span class="stat-value" id="linearKE">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Spin KE</span><span class="stat-value" id="spinKE">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Potential</span><span class="stat-value" id="potentialE">0</span></div>
@@ -284,6 +283,7 @@
                     <div class="panel-section" aria-live="polite">
                         <h2 class="group-label">Conserved Quantities <button class="info-trigger" data-info="conserved" aria-label="Conserved quantities info">?</button></h2>
                         <div class="stat-row"><span class="stat-label">Momentum</span><span class="stat-value" id="momentum">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Particle</span><span class="stat-value" id="particleMom">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Field</span><span class="stat-value" id="fieldMom">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Radiated</span><span class="stat-value" id="radiatedMom">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="momentumDrift">+0.00%</span></div>

@@ -118,6 +118,7 @@ body {
 .tog-signaldelay { --tog-color: var(--ext-yellow); }
 .tog-spinorbit   { --tog-color: var(--ext-yellow); }
 .tog-tidal       { --tog-color: var(--ext-red); }
+.tog-onepn      { --tog-color: var(--ext-slate); }
 
 .ctrl-row {
     display: flex;
