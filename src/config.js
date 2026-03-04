@@ -31,7 +31,7 @@ export const LL_FORCE_CLAMP = 0.5; // max |F_rad*dt/m| as fraction of |w|
 
 // Signal delay history buffer
 export const HISTORY_SIZE = 1024;
-export const HISTORY_STRIDE = 30; // record every N updates (~30x buffer reach)
+export const HISTORY_STRIDE = 200; // record every N updates; ~60 snapshots/sec at 100× speed
 
 export const FRAME_DRAG_K = 0.1;
 export const TIDAL_STRENGTH = 2.0;

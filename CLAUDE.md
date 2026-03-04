@@ -161,7 +161,7 @@ Per substep (inside `Physics.update()` while loop):
 14. Photon absorption
 15. Save radiation display force, then reset forces + compute new forces for next substep
 
-After all substeps: record signal-delay history (strided, once per HISTORY_STRIDE=30 calls), compute PE, reconstruct velocity-dependent display forces from final-substep fields.
+After all substeps: record signal-delay history (strided, once per HISTORY_STRIDE=200 calls), compute PE, reconstruct velocity-dependent display forces from final-substep fields.
 
 ### Adaptive Substepping
 
@@ -254,7 +254,7 @@ Requires Relativity + Barnes-Hut off (pairwise only).
 
 Light-cone equation: `|x_source(t_ret) - x_obs(now)| = now - t_ret` (c = 1).
 
-Three-phase solver on per-particle circular history buffers (`Float64Array[HISTORY_SIZE=1024]` each for x, y, vx, vy, time; recorded every `HISTORY_STRIDE=30` physics updates, covering approximately 256 time units at PHYSICS_DT=1/120):
+Three-phase solver on per-particle circular history buffers (`Float64Array[HISTORY_SIZE=1024]` each for x, y, vx, vy, time; recorded every `HISTORY_STRIDE=200` physics updates, ~60 snapshots/sec at 100× speed, covering approximately 1707 time units at PHYSICS_DT=1/120):
 
 1. **Newton-Raphson** (up to NR_MAX_ITER=6 iterations) on `g(t) = |x_s(t) - x_obs| - (now - t)` to locate the correct history segment. Uses proportional segment estimate + short walk for initial segment. Guaranteed convergent for subluminal sources (`g' = d_hat . v_eff + 1 > 0`).
 2. **Exact quadratic solve** on the converged segment +/- 1 neighbor. Piecewise-linear trajectory makes the light-cone equation a quadratic: `(v^2 - 1)*s^2 + 2*(d.v + T)*s + (r^2 - T^2) = 0` with closed-form roots.
@@ -496,6 +496,6 @@ Particle color: neutral = `_PAL.neutral` (extended.slate). Charged: hue from `ch
 - Spin-orbit, Stern-Gerlach, and Mathisson-Papapetrou are all gated by the same `spinOrbitEnabled` toggle
 - `compute1PNPairwise()` zeroes `force1PN` before accumulating -- do not mix with `pairForce()` 1PN output in the same step
 - Preliminary force pass runs before adaptive substep loop when magnetic or GM forces are active (ensures B fields are current for cyclotron frequency estimation)
-- History recording is strided (HISTORY_STRIDE=30) and happens after the substep loop, not inside each substep
+- History recording is strided (HISTORY_STRIDE=200) and happens after the substep loop, not inside each substep
 - Tab switching logic is in an inline `<script>` in index.html, not in ui.js or main.js
 - `shared-touch.js` is loaded in the HTML head (between shared-tokens.js and shared-utils.js) but not documented in the parent CLAUDE.md loading order

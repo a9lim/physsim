@@ -533,7 +533,7 @@ export default class Physics {
             computeAllForces(particles, toggles, this.pool, root, this.barnesHutEnabled, this.signalDelayEnabled, this.relativityEnabled, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
         }
 
-        // Record signal delay history (strided to extend buffer reach ~30x)
+        // Record signal delay history (strided: ~60 snapshots/sec at 100× speed)
         if (this.signalDelayEnabled && n > 0 && ++this._histStride >= HISTORY_STRIDE) {
             this._histStride = 0;
             for (let i = 0; i < n; i++) {
