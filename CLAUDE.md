@@ -18,10 +18,10 @@ main.js (Simulation class, window.sim)
 ├── src/relativity.js      — angwToAngVel, angVelToAngw, setVelocity
 ├── src/energy.js          — computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field energy
 ├── src/integrator.js      — Physics class: adaptive Boris substep loop, spin-orbit, frame-drag, radiation, tidal breakup
-│     ├── src/forces.js        — resetForces, computeAllForces, pairForce, calculateForce (BH walk)
+│     ├── src/forces.js        — resetForces, computeAllForces, compute1PNPairwise, pairForce, calculateForce (BH walk)
 │     ├── src/collisions.js    — handleCollisions, resolveMerge, resolveBounce
 │     ├── src/potential.js     — computePE, treePE, pairPE
-│     ├── src/signal-delay.js  — getDelayedState, interpolateHistory (retarded potentials)
+│     ├── src/signal-delay.js  — getDelayedState, interpolateHistory (signal delay)
 │     ├── src/quadtree.js      — QuadTreePool: SoA pool-based Barnes-Hut quadtree (zero per-frame allocation)
 │     └── src/photon.js        — radiation photon entity
 ├── src/stats-display.js   — StatsDisplay: energy/momentum/drift DOM updates, selected particle info
@@ -69,14 +69,18 @@ Per substep: half-kick(E) → Boris rotate(B) → half-kick(E) → drift → reb
 - **GM dipole** (`gravitomagEnabled`): `+3L₁L₂/r⁴`, co-rotating masses **attract** (GEM flips EM sign)
 
 **Velocity-dependent** (Boris rotation, perpendicular to v):
-- **Lorentz** (`magneticEnabled`): `Bz = q_s·(v_s×r̂)_z/r²`
-- **Linear GM** (`gravitomagEnabled`): `Bgz = m_s·(v_s×r̂)_z/r²`, `t_gm = +2·Bgz·dt/γ`. Also accumulates `∇Bgz` for spin-orbit and frame-dragging torque.
+- **Lorentz** (`magneticEnabled`): `Bz = q_s·(v_s×r̂)_z/r²`. Also includes spin-sourced dipole Bz: `Bz_spin = +μ_source/r³`, gradient `+3μrx/r⁵`.
+- **Linear GM** (`gravitomagEnabled`): `Bgz = -m_s·(v_s×r̂)_z/r²` (sign from r̂ = source−observer convention), `t_gm = +2·Bgz·dt/γ`. Also accumulates `∇Bgz` for spin-orbit and frame-dragging torque. Also includes spin-sourced Bgz: `Bgz_spin = -2L_source/r³`, gradient `-6Lrx/r⁵`.
+
+**1PN Correction** (`onePNEnabled`, requires Gravity + Relativity): Einstein-Infeld-Hoffmann O(v²/c²) correction to gravity. Velocity-dependent terms produce perihelion precession (~6πM/a(1-e²) rad/orbit). Integrated with velocity-Verlet correction for second-order accuracy: pre-step force stored, recomputed after drift, correction kick `(F_new - F_old)·dt/2m` applied. Uses coordinate velocities per EIH formulation. `compute1PNPairwise()` helper for Verlet correction (always pairwise, even in BH mode).
 
 **Radiation** (`radiationEnabled`, requires Relativity): Landau-Lifshitz approximation. Larmor power P = 2q²a²/3. Force = `τ·(dF/dt - |F|²·v/m)` where `τ = 2q²/(3m)` (`LARMOR_K = 1/3`). Divided by γ³. Clamped by `LL_FORCE_CLAMP`. Photons spawned when `dE > RADIATION_THRESHOLD`, tracked in `sim.totalRadiated` and `sim.totalRadiatedPx/Py`.
 
-**Signal Delay** (`signalDelayEnabled`, requires Relativity + BH off): Retarded potentials via Newton-Raphson light-cone solve on per-particle history buffers (`HISTORY_SIZE`).
+**Signal Delay** (`signalDelayEnabled`, requires Relativity + BH off): Finite-speed force propagation via Newton-Raphson light-cone solve on per-particle history buffers (`HISTORY_SIZE`).
 
-**Spin-orbit** (`spinOrbitEnabled` + Relativity): `dE = -μ·(v·∇Bz)·dt` for EM (requires `magneticEnabled`), same with `L` and `∇Bgz` for GM. Gradient `∇Bz` has radial (`+3·Bz·r̂/r²`) and angular (`q_s·v_s⊥/r³`) terms. Frame-dragging torque: `τ = FRAME_DRAG_K·m_s·(ω_s - ω_p)/r³`.
+**Radiation pressure** (part of Radiation toggle): Photon absorption transfers momentum `p = E·dir` (c=1) to absorbing particles. O(P·logN) via quadtree query. Self-absorption guard: emitter skipped for 2 substeps. Energy/momentum bookkeeping corrected on absorption.
+
+**Spin-orbit** (`spinOrbitEnabled` + Relativity): `dE = -μ·(v·∇Bz)·dt` for EM (requires `magneticEnabled`), same with `L` and `∇Bgz` for GM. Gradient `∇Bz` has radial (`+3·Bz·r̂/r²`) and angular (`+q_s·v_s⊥/r³`) terms. `∇Bgz` has radial (`+3·Bgz·r̂/r²`) and angular (`-m_s·v_s⊥/r³`) terms (signs match Bgz sign flip). Frame-dragging torque: `τ = FRAME_DRAG_K·m_s·(ω_s - ω_p)/r³`. Also applies Stern-Gerlach force `F = +μ·∇Bz` (EM) and Mathisson-Papapetrou force `F = -L·∇Bgz` (GM) as center-of-mass kicks from spin-curvature coupling.
 
 **Tidal breakup** (`tidalEnabled`): fragments when tidal (`M·r/d³`) + centrifugal (`ω²r`) + Coulomb self-repulsion (`q²/4r²`) > self-gravity (`m/r²`). Splits into `FRAGMENT_COUNT` (3) pieces.
 
@@ -85,6 +89,7 @@ Per substep: half-kick(E) → Boris rotate(B) → half-kick(E) → drift → reb
 All GEM interactions are **attractive** (gravity has one sign of "charge"):
 - GM dipole coefficient `+3L₁L₂/r⁴` (positive = attractive)
 - GM Boris parameter `+2·Bgz` (co-moving masses attract)
+- Bgz field: `Bgz = -m_s·(v_s×r̂)_z/r²` (negative sign from r̂ = source−observer convention in `crossSV`)
 
 Do NOT flip these signs.
 
@@ -121,10 +126,12 @@ Toggleable (`barnesHutEnabled`). QuadTreePool (SoA, pre-allocated, zero per-fram
 
 ```
 Gravity → Gravitomagnetic (sub-toggle)
+        → 1PN (sub-toggle, requires Gravity + Relativity)
 Coulomb → Magnetic (sub-toggle)
-Relativity → Radiation (sub-toggle)
-            → Spin-Orbit (sub-toggle)
+Relativity → Radiation (sub-toggle, now includes photon absorption)
+            → Spin-Orbit (sub-toggle, now includes MP/SG force)
 Relativity + BH off → Signal Delay
+Tidal (independent)
 ```
 
 Disabled toggles get `.ctrl-disabled` (opacity 0.4, pointer-events none). Toggle colors: Gravity/GM = slate, Coulomb/Magnetic = blue, Relativity chain = yellow, Tidal = red.
