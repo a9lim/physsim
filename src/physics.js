@@ -137,7 +137,7 @@ export default class Physics {
                     const I = INERTIA_K * p.mass * pRSq;
                     if (Math.abs(I * p.angVel) > 1e-10) {
                         p.angw += dEspin / (I * p.angVel);
-                        // Re-derive angVel from spin
+                        // Re-derive angVel from angw
                         const sr = p.angw * p.radius;
                         p.angVel = p.angw / Math.sqrt(1 + sr * sr);
                     }
