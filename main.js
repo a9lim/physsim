@@ -5,11 +5,11 @@ import Particle from './src/particle.js';
 import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
 import SankeyOverlay from './src/sankey.js';
+import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS } from './src/config.js';
+import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS } from './src/config.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
-import { computeEnergies } from './src/energy.js';
 
 class Simulation {
     constructor() {
@@ -65,9 +65,6 @@ class Simulation {
         this.collisionMode = 'pass';
         this.boundaryMode = 'despawn';
         this.speedScale = DEFAULT_SPEED_SCALE;
-        this.initialEnergy = null;
-        this.initialMomentum = null;
-        this.initialAngMom = null;
         this.selectedParticle = null;
         this.photons = [];
         this.totalRadiated = 0;
@@ -92,6 +89,8 @@ class Simulation {
         // Mount visualization canvases into sidebar containers
         document.getElementById('phase-plot-container').appendChild(this.phasePlot.canvas);
         document.getElementById('energy-bars-container').appendChild(this.sankey.canvas);
+
+        this.stats = new StatsDisplay(this.dom, this.selDom, this.sankey);
 
         this.init();
     }
@@ -118,55 +117,6 @@ class Simulation {
         this.camera.viewportH = this.height;
     }
 
-    computeEnergy() {
-        const e = computeEnergies(this.particles, this.physics, this);
-
-        const angMom = e.orbitalAngMom + e.spinAngMom;
-
-        // Total momentum = particle + field + radiated (vector sum)
-        const totalPx = e.px + e.fieldPx + this.totalRadiatedPx;
-        const totalPy = e.py + e.fieldPy + this.totalRadiatedPy;
-        const pMag = Math.sqrt(totalPx * totalPx + totalPy * totalPy);
-
-        const total = e.linearKE + e.spinKE + e.pe + e.fieldEnergy + this.totalRadiated;
-
-        if (this.initialEnergy === null && this.particles.length > 0) {
-            this.initialEnergy = total;
-            this.initialMomentum = pMag;
-            this.initialAngMom = angMom;
-        }
-
-        const eDrift = this.initialEnergy !== null && this.initialEnergy !== 0
-            ? ((total - this.initialEnergy) / Math.abs(this.initialEnergy) * 100)
-            : 0;
-        const pDrift = this.initialMomentum !== null && this.initialMomentum !== 0
-            ? ((pMag - this.initialMomentum) / Math.abs(this.initialMomentum) * 100)
-            : 0;
-        const aDrift = this.initialAngMom !== null && this.initialAngMom !== 0
-            ? ((angMom - this.initialAngMom) / Math.abs(this.initialAngMom) * 100)
-            : 0;
-
-        const fmt = (v) => Math.abs(v) < 0.01 ? '0' : Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(1);
-        const fmtDrift = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
-
-        this.dom.linearKE.textContent = fmt(e.linearKE);
-        this.dom.spinKE.textContent = fmt(e.spinKE);
-        this.dom.potentialE.textContent = fmt(e.pe);
-        this.dom.totalE.textContent = fmt(total);
-        this.dom.energyDrift.textContent = fmtDrift(eDrift);
-        this.dom.fieldE.textContent = fmt(e.fieldEnergy);
-        this.dom.radiatedE.textContent = fmt(this.totalRadiated);
-        this.sankey.update(e.linearKE, e.spinKE, e.pe, e.fieldEnergy, this.totalRadiated);
-        this.dom.momentum.textContent = fmt(pMag);
-        this.dom.fieldMom.textContent = fmt(Math.sqrt(e.fieldPx * e.fieldPx + e.fieldPy * e.fieldPy));
-        this.dom.radiatedMom.textContent = fmt(Math.sqrt(this.totalRadiatedPx * this.totalRadiatedPx + this.totalRadiatedPy * this.totalRadiatedPy));
-        this.dom.momentumDrift.textContent = fmtDrift(pDrift);
-        this.dom.angularMomentum.textContent = fmt(angMom);
-        this.dom.orbitalAngMom.textContent = fmt(e.orbitalAngMom);
-        this.dom.spinAngMom.textContent = fmt(e.spinAngMom);
-        this.dom.angMomDrift.textContent = fmtDrift(aDrift);
-    }
-
     addParticle(x, y, vx, vy, options = {}) {
         const p = new Particle(x, y);
 
@@ -188,9 +138,7 @@ class Simulation {
         setVelocity(p, vx, vy);
         p.angVel = this.physics.relativityEnabled ? angwToAngVel(p.angw, p.radius) : p.angw;
         this.particles.push(p);
-        this.initialEnergy = null;
-        this.initialMomentum = null;
-        this.initialAngMom = null;
+        this.stats.resetBaseline();
         this.physics._forcesInit = false;
     }
 
@@ -270,50 +218,13 @@ class Simulation {
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);
         this.phasePlot.draw(this.renderer.isLight);
         this.sankey.draw(this.renderer.isLight);
-        if (this.running) this.computeEnergy();
-        this.updateSelectedParticle();
+        if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);
+        const sel = this.stats.updateSelected(this.selectedParticle, this.particles, this.physics);
+        if (!sel && this.selectedParticle) this.selectedParticle = null;
 
         requestAnimationFrame((t) => this.loop(t));
     }
 
-    updateSelectedParticle() {
-        const p = this.selectedParticle;
-        const dom = this.selDom;
-
-        // Clear if particle was removed
-        if (p && !this.particles.includes(p)) {
-            this.selectedParticle = null;
-        }
-
-        if (!this.selectedParticle) {
-            dom.details.hidden = true;
-            dom.hint.hidden = false;
-            dom.phaseSection.hidden = true;
-            return;
-        }
-
-        dom.details.hidden = false;
-        dom.hint.hidden = true;
-        dom.phaseSection.hidden = false;
-        const fmt = (v) => Math.abs(v) < 0.01 ? '0' : Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(2);
-        const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
-        const gamma = this.physics.relativityEnabled
-            ? Math.sqrt(1 + p.w.magSq())
-            : 1;
-        // Sum component vectors for total force (includes Boris display forces)
-        const totalFx = p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x;
-        const totalFy = p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y;
-        const forceMag = Math.sqrt(totalFx * totalFx + totalFy * totalFy);
-
-        dom.id.textContent = p.id;
-        dom.mass.textContent = fmt(p.mass);
-        dom.charge.textContent = fmt(p.charge);
-        const surfaceV = p.angVel * p.radius;
-        dom.spin.textContent = surfaceV.toFixed(4) + 'c';
-        dom.speed.textContent = speed.toFixed(4) + 'c';
-        dom.gamma.textContent = gamma.toFixed(3);
-        dom.force.textContent = fmt(forceMag);
-    }
 
 }
 

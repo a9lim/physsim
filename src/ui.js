@@ -63,9 +63,7 @@ export function setupUI(sim) {
     // ─── Clear ───
     document.getElementById('clearBtn').addEventListener('click', () => {
         sim.particles = [];
-        sim.initialEnergy = null;
-        sim.initialMomentum = null;
-        sim.initialAngMom = null;
+        sim.stats.resetBaseline();
         sim.selectedParticle = null;
         sim.physics._forcesInit = false;
         sim.photons = [];
