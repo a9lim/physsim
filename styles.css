@@ -109,11 +109,15 @@ body {
 /* ═══════════════════════════════════════════════
    Force Toggle Colors
    ═══════════════════════════════════════════════ */
-.tog-gravity    { --tog-color: var(--text-secondary); }
-.tog-coulomb    { --tog-color: var(--ext-blue); }
-.tog-magnetic   { --tog-color: var(--ext-cyan); }
-.tog-gravitomag { --tog-color: var(--ext-purple); }
-.tog-relativity { --tog-color: var(--accent); }
+.tog-gravity     { --tog-color: var(--ext-slate); }
+.tog-gravitomag  { --tog-color: var(--ext-slate); }
+.tog-coulomb     { --tog-color: var(--ext-blue); }
+.tog-magnetic    { --tog-color: var(--ext-blue); }
+.tog-relativity  { --tog-color: var(--ext-yellow); }
+.tog-radiation   { --tog-color: var(--ext-yellow); }
+.tog-signaldelay { --tog-color: var(--ext-yellow); }
+.tog-spinorbit   { --tog-color: var(--ext-yellow); }
+.tog-tidal       { --tog-color: var(--ext-red); }
 
 .ctrl-row {
     display: flex;
@@ -127,6 +131,10 @@ body {
     color: var(--text);
     cursor: pointer;
 }
+
+.ctrl-sub { padding-left: 20px; }
+.ctrl-sub label { font-size: 0.72rem; color: var(--text-secondary); }
+.ctrl-disabled { opacity: 0.4; pointer-events: none; }
 
 /* ═══════════════════════════════════════════════
    Particle Tooltip & Selection
@@ -162,6 +170,17 @@ body {
 
 #selected-particle-section .stat-value {
     color: var(--accent);
+}
+
+#phase-plot-container canvas,
+#energy-bars-container canvas {
+    display: block;
+    width: 100%;
+    border-radius: var(--radius-sm);
+}
+
+#phase-plot-container canvas {
+    aspect-ratio: 1;
 }
 
 /* ═══════════════════════════════════════════════

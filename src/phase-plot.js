@@ -1,13 +1,10 @@
 const BUFFER_LEN = 500;
-const PLOT_SIZE = 180;
 const MARGIN = 24;
 
 export default class PhasePlot {
     constructor() {
-        this.enabled = false;
+        this.enabled = true;
         this.canvas = document.createElement('canvas');
-        this.canvas.width = PLOT_SIZE;
-        this.canvas.height = PLOT_SIZE;
         this.ctx = this.canvas.getContext('2d');
         this.rBuf = new Float32Array(BUFFER_LEN);
         this.vrBuf = new Float32Array(BUFFER_LEN);
@@ -49,8 +46,20 @@ export default class PhasePlot {
         if (this.count < BUFFER_LEN) this.count++;
     }
 
-    draw(ctx, width, height, isLight) {
+    draw(isLight) {
         if (!this.enabled || this.count < 2) return;
+
+        const dpr = devicePixelRatio || 1;
+        const cssW = this.canvas.clientWidth || 180;
+        const ps = cssW; // square plot uses CSS width
+        const pxW = Math.round(cssW * dpr);
+        if (this.canvas.width !== pxW || this.canvas.height !== pxW) {
+            this.canvas.width = pxW;
+            this.canvas.height = pxW;
+        }
+
+        const c = this.ctx;
+        c.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         // Auto-scale
         let rMin = Infinity, rMax = -Infinity, vrMin = Infinity, vrMax = -Infinity;
@@ -63,9 +72,6 @@ export default class PhasePlot {
         const rRange = (rMax - rMin) || 1;
         const vrRange = (vrMax - vrMin) || 1;
 
-        // Draw to offscreen canvas
-        const c = this.ctx;
-        const ps = PLOT_SIZE;
         c.clearRect(0, 0, ps, ps);
 
         // Background
@@ -110,8 +116,5 @@ export default class PhasePlot {
         c.beginPath();
         c.arc(cx, cy, 3, 0, Math.PI * 2);
         c.fill();
-
-        // Composite onto main canvas (bottom-left corner)
-        ctx.drawImage(this.canvas, 12, height - ps - 60);
     }
 }

@@ -1,6 +1,4 @@
 import Vec2 from './vec2.js';
-import Photon from './photon.js';
-import { MAX_PHOTONS } from './config.js';
 
 export default class InputHandler {
     constructor(canvas, sim) {
@@ -10,7 +8,6 @@ export default class InputHandler {
         this.isDragging = false;
         this.dragStart = new Vec2(0, 0);
         this.currentPos = new Vec2(0, 0);
-        this.prevMouseWorld = new Vec2(0, 0);
         this.mode = 'place';
 
         this.canvasRect = canvas.getBoundingClientRect();
@@ -168,8 +165,6 @@ export default class InputHandler {
     }
 
     onMouseMove(e) {
-        this.prevMouseWorld.x = this.currentPos.x;
-        this.prevMouseWorld.y = this.currentPos.y;
         this.currentPos = this.getPos(e.clientX, e.clientY);
         this._screenX = e.clientX;
         this._screenY = e.clientY;
@@ -223,26 +218,6 @@ export default class InputHandler {
     }
 
     spawnParticle(endPos) {
-        if (this.mode === 'photon') {
-            if (this.sim.photons.length >= MAX_PHOTONS) return;
-            let dx = this.currentPos.x - this.prevMouseWorld.x;
-            let dy = this.currentPos.y - this.prevMouseWorld.y;
-            const mag = Math.sqrt(dx * dx + dy * dy);
-            if (mag < 1e-6) {
-                const angle = Math.random() * 2 * Math.PI;
-                dx = Math.cos(angle);
-                dy = Math.sin(angle);
-            } else {
-                dx /= mag;
-                dy /= mag;
-            }
-            this.sim.photons.push(new Photon(
-                this.dragStart.x, this.dragStart.y,
-                dx, dy, 1.0
-            ));
-            return;
-        }
-
         const dragVector = Vec2.sub(this.dragStart, endPos);
 
         const mode = this.mode;

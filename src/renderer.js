@@ -28,7 +28,7 @@ export default class Renderer {
         this.showVelocity = false;
         this.showForce = false;
         this.showForceComponents = false;
-        this.showRetarded = false;
+        this.showSignalDelay = false;
         this.isLight = false;
         this.trailHistory = new Map();
         this.heatmap = null;  // set externally by Simulation
@@ -66,7 +66,7 @@ export default class Renderer {
             this.trailHistory.clear();
         }
 
-        if (this.showRetarded) this.drawRetardedPositions(ctx, particles, isLight);
+        if (this.showSignalDelay) this.drawDelayedPositions(ctx, particles, isLight);
         this.drawParticles(ctx, particles, isLight);
         if (photons && photons.length) this.drawPhotons(ctx, photons, isLight);
 
@@ -198,8 +198,8 @@ export default class Renderer {
         }
     }
 
-    drawRetardedPositions(ctx, particles, isLight) {
-        // Draw ghost circles at each particle's most recent retarded position
+    drawDelayedPositions(ctx, particles, isLight) {
+        // Draw ghost circles at each particle's most recent delayed position
         // (using its own history to show where it "was" when the force was emitted)
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 0.3;

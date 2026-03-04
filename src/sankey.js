@@ -1,111 +1,98 @@
-// ─── Energy Flow Sankey Overlay ───
+// ─── Energy Bar Chart ───
+
+const BAR_H = 14;
+const GAP = 6;
+const LABEL_W = 56;
+const PAD = 8;
+
+const CATEGORIES = [
+    { key: 'linearKE', label: 'Linear KE', color: '#CC8E4E' },
+    { key: 'spinKE',   label: 'Spin KE',   color: '#9C7EB0' },
+    { key: 'pe',       label: 'Potential',  color: '#5C92A8' },
+    { key: 'fieldE',   label: 'Field',      color: '#4AACA0' },
+    { key: 'radiated', label: 'Radiated',   color: '#CCA84C' },
+];
+
+const CSS_H = PAD * 2 + CATEGORIES.length * (BAR_H + GAP) - GAP;
 
 export default class SankeyOverlay {
     constructor() {
-        this.enabled = false;
-        this.prevEnergy = { linearKE: 0, spinKE: 0, pe: 0, fieldE: 0, radiated: 0 };
-        this.flows = { keToPe: 0, peToKe: 0, keToRad: 0, spinToOrbit: 0 };
-        this.smoothing = 0.92;
-        this.initialized = false;
+        this.enabled = true;
+        this.canvas = document.createElement('canvas');
+        this.canvas.style.height = CSS_H + 'px';
+        this.ctx = this.canvas.getContext('2d');
+        this.values = { linearKE: 0, spinKE: 0, pe: 0, fieldE: 0, radiated: 0 };
     }
 
     update(linearKE, spinKE, pe, fieldE, radiated) {
         if (!this.enabled) return;
-        if (!this.initialized) {
-            this.prevEnergy = { linearKE, spinKE, pe, fieldE, radiated };
-            this.initialized = true;
-            return;
-        }
-
-        const dKE = linearKE - this.prevEnergy.linearKE;
-        const dPE = pe - this.prevEnergy.pe;
-        const dRad = radiated - this.prevEnergy.radiated;
-        const dSpin = spinKE - this.prevEnergy.spinKE;
-
-        const s = this.smoothing;
-        this.flows.keToPe = s * this.flows.keToPe + (1 - s) * Math.max(0, dPE);
-        this.flows.peToKe = s * this.flows.peToKe + (1 - s) * Math.max(0, -dPE);
-        this.flows.keToRad = s * this.flows.keToRad + (1 - s) * Math.max(0, dRad);
-        this.flows.spinToOrbit = s * this.flows.spinToOrbit + (1 - s) * Math.max(0, -dSpin);
-
-        this.prevEnergy = { linearKE, spinKE, pe, fieldE, radiated };
+        this.values = { linearKE, spinKE, pe, fieldE, radiated };
     }
 
-    draw(ctx, width, height, isLight) {
+    draw(isLight) {
         if (!this.enabled) return;
 
-        const x = width - 230, y = 12, w = 210, h = 150;
-
-        ctx.save();
-        ctx.fillStyle = isLight ? '#FCF7F2CC' : '#0C0B09CC';
-        ctx.strokeStyle = isLight ? '#1A161222' : '#E8DED422';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(x, y, w, h, 8);
-        ctx.fill();
-        ctx.stroke();
-
-        const nodes = {
-            KE:    { x: x + 35,  y: y + 40, color: '#CC8E4E' },
-            PE:    { x: x + 105, y: y + 40, color: '#5C92A8' },
-            Rad:   { x: x + 175, y: y + 40, color: '#CCA84C' },
-            Spin:  { x: x + 35,  y: y + 100, color: '#9C7EB0' },
-            Field: { x: x + 105, y: y + 100, color: '#4AACA0' },
-        };
-
-        // Draw nodes
-        const textColor = isLight ? '#1A1612' : '#E8DED4';
-        ctx.font = '9px Geist, sans-serif';
-        ctx.textAlign = 'center';
-        for (const [name, n] of Object.entries(nodes)) {
-            ctx.fillStyle = n.color;
-            ctx.beginPath();
-            ctx.arc(n.x, n.y, 12, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = textColor;
-            ctx.fillText(name, n.x, n.y + 24);
+        const dpr = devicePixelRatio || 1;
+        const cssW = this.canvas.clientWidth || 280;
+        const cssH = CSS_H;
+        const pxW = Math.round(cssW * dpr);
+        const pxH = Math.round(cssH * dpr);
+        if (this.canvas.width !== pxW || this.canvas.height !== pxH) {
+            this.canvas.width = pxW;
+            this.canvas.height = pxH;
         }
 
-        // Draw flow arrows
-        const maxFlow = Math.max(
-            this.flows.keToRad, this.flows.keToPe, this.flows.peToKe, this.flows.spinToOrbit, 0.001
-        );
+        const ctx = this.ctx;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, cssW, cssH);
 
-        this._drawFlow(ctx, nodes.KE, nodes.PE, this.flows.keToPe / maxFlow, '#CC8E4E88');
-        this._drawFlow(ctx, nodes.PE, nodes.KE, this.flows.peToKe / maxFlow, '#5C92A888');
-        this._drawFlow(ctx, nodes.KE, nodes.Rad, this.flows.keToRad / maxFlow, '#CCA84C88');
-        this._drawFlow(ctx, nodes.Spin, nodes.KE, this.flows.spinToOrbit / maxFlow, '#9C7EB088');
+        const barW = cssW - LABEL_W - PAD * 2;
 
-        // Title
-        ctx.fillStyle = textColor;
-        ctx.font = '10px Geist, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText('Energy Flow', x + 8, y + 14);
+        // Find max absolute value for scaling
+        let maxAbs = 0;
+        for (const cat of CATEGORIES) {
+            const v = Math.abs(this.values[cat.key]);
+            if (v > maxAbs) maxAbs = v;
+        }
+        if (maxAbs < 0.01) maxAbs = 1;
 
-        ctx.restore();
-    }
+        const textColor = isLight ? '#1A1612' : '#E8DED4';
+        const mutedColor = isLight ? '#1A161266' : '#E8DED466';
 
-    _drawFlow(ctx, from, to, magnitude, color) {
-        if (magnitude < 0.01) return;
-        const lineWidth = 1 + magnitude * 6;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = lineWidth;
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(to.x, to.y);
-        ctx.stroke();
+        ctx.textBaseline = 'middle';
 
-        // Arrowhead
-        const dx = to.x - from.x, dy = to.y - from.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 1) return;
-        const nx = dx / len, ny = dy / len;
-        const ax = to.x - nx * 14, ay = to.y - ny * 14;
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(to.x - nx * 2, to.y - ny * 2);
-        ctx.lineTo(ax - ny * 4, ay + nx * 4);
-        ctx.lineTo(ax + ny * 4, ay - nx * 4);
-        ctx.fill();
+        for (let i = 0; i < CATEGORIES.length; i++) {
+            const cat = CATEGORIES[i];
+            const val = this.values[cat.key];
+            const y = PAD + i * (BAR_H + GAP);
+
+            // Label
+            ctx.fillStyle = textColor;
+            ctx.font = '9px Noto Sans, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText(cat.label, LABEL_W, y + BAR_H / 2);
+
+            // Track background
+            const bx = LABEL_W + 6;
+            ctx.fillStyle = mutedColor;
+            ctx.beginPath();
+            ctx.roundRect(bx, y, barW, BAR_H, 3);
+            ctx.fill();
+
+            // Bar
+            const ratio = Math.abs(val) / maxAbs;
+            const barLen = Math.max(2, ratio * barW);
+            ctx.fillStyle = cat.color;
+            ctx.beginPath();
+            ctx.roundRect(bx, y, barLen, BAR_H, 3);
+            ctx.fill();
+
+            // Value text
+            const fmt = Math.abs(val) < 0.01 ? '0' : Math.abs(val) > 999 ? val.toExponential(1) : val.toFixed(1);
+            ctx.fillStyle = textColor;
+            ctx.font = '8px Noto Sans Mono, monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(fmt, bx + barLen + 4, y + BAR_H / 2);
+        }
     }
 }

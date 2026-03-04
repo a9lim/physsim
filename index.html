@@ -148,8 +148,9 @@
         <div class="tabs-wrap">
             <nav class="tab-bar" role="tablist">
                 <button class="tab-btn active" data-tab="settings" role="tab" aria-selected="true">Settings</button>
-                <button class="tab-btn" data-tab="display" role="tab" aria-selected="false">Display</button>
+                <button class="tab-btn" data-tab="engine" role="tab" aria-selected="false">Engine</button>
                 <button class="tab-btn" data-tab="stats" role="tab" aria-selected="false">Stats</button>
+                <button class="tab-btn" data-tab="particle" role="tab" aria-selected="false">Particle</button>
             </nav>
             <div class="tab-panels scrollbar-thin">
                 <!-- ── Settings ── -->
@@ -176,7 +177,6 @@
                                 <button class="mode-btn active" data-mode="place">Place</button>
                                 <button class="mode-btn" data-mode="shoot">Shoot</button>
                                 <button class="mode-btn" data-mode="orbit">Orbit</button>
-                                <button class="mode-btn" data-mode="photon">Photon</button>
                             </div>
                         </div>
                     </div>
@@ -185,33 +185,42 @@
                         <div class="ctrl-row"><label for="gravity-toggle">Gravity <button class="info-trigger" data-info="gravity" aria-label="Gravity info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="gravity-toggle" checked role="switch" aria-checked="true">
                             <label for="gravity-toggle" class="tog tog-gravity"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row ctrl-sub"><label for="gravitomag-toggle">Gravitomagnetic <button class="info-trigger" data-info="gravitomag" aria-label="Gravitomagnetic info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="gravitomag-toggle" checked role="switch" aria-checked="true">
+                            <label for="gravitomag-toggle" class="tog tog-gravitomag"><span class="tog-thumb"></span></label></div></div>
                         <div class="ctrl-row"><label for="coulomb-toggle">Coulomb <button class="info-trigger" data-info="coulomb" aria-label="Coulomb info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="coulomb-toggle" checked role="switch" aria-checked="true">
                             <label for="coulomb-toggle" class="tog tog-coulomb"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="magnetic-toggle">Magnetic <button class="info-trigger" data-info="magnetic" aria-label="Magnetic info">?</button></label>
+                        <div class="ctrl-row ctrl-sub"><label for="magnetic-toggle">Magnetic <button class="info-trigger" data-info="magnetic" aria-label="Magnetic info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="magnetic-toggle" checked role="switch" aria-checked="true">
                             <label for="magnetic-toggle" class="tog tog-magnetic"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="gravitomag-toggle">Gravitomagnetic <button class="info-trigger" data-info="gravitomag" aria-label="Gravitomagnetic info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="gravitomag-toggle" checked role="switch" aria-checked="true">
-                            <label for="gravitomag-toggle" class="tog tog-gravitomag"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="relativity-toggle">Relativity <button class="info-trigger" data-info="relativity" aria-label="Relativity info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="relativity-toggle" checked role="switch" aria-checked="true">
-                            <label for="relativity-toggle" class="tog tog-relativity"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="radiation-toggle">Radiation <button class="info-trigger" data-info="radiation" aria-label="Radiation info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="radiation-toggle" role="switch" aria-checked="false">
-                            <label for="radiation-toggle" class="tog tog-radiation"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="tidal-toggle">Tidal Forces <button class="info-trigger" data-info="tidal" aria-label="Tidal forces info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="tidal-toggle" role="switch" aria-checked="false">
-                            <label for="tidal-toggle" class="tog tog-tidal"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="retarded-toggle">Retarded Potentials <button class="info-trigger" data-info="retarded" aria-label="Retarded potentials info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="retarded-toggle" role="switch" aria-checked="false">
-                            <label for="retarded-toggle" class="tog"><span class="tog-thumb"></span></label></div></div>
                     </div>
                     <div class="panel-section">
                         <h2 class="group-label">Physics</h2>
-                        <div class="ctrl-row"><label for="barneshut-toggle">Barnes-Hut <button class="info-trigger" data-info="barneshut" aria-label="Barnes-Hut info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="barneshut-toggle" role="switch" aria-checked="false">
-                            <label for="barneshut-toggle" class="tog"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="relativity-toggle">Relativity <button class="info-trigger" data-info="relativity" aria-label="Relativity info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="relativity-toggle" checked role="switch" aria-checked="true">
+                            <label for="relativity-toggle" class="tog tog-relativity"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row ctrl-sub"><label for="radiation-toggle">Radiation <button class="info-trigger" data-info="radiation" aria-label="Radiation info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="radiation-toggle" role="switch" aria-checked="false">
+                            <label for="radiation-toggle" class="tog tog-radiation"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row ctrl-sub"><label for="signaldelay-toggle">Signal Delay <button class="info-trigger" data-info="signaldelay" aria-label="Signal delay info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="signaldelay-toggle" role="switch" aria-checked="false">
+                            <label for="signaldelay-toggle" class="tog tog-signaldelay"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row ctrl-sub"><label for="spinorbit-toggle">Spin-Orbit <button class="info-trigger" data-info="spinorbit" aria-label="Spin-orbit coupling info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="spinorbit-toggle" role="switch" aria-checked="false">
+                            <label for="spinorbit-toggle" class="tog tog-spinorbit"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="tidal-toggle">Tidal Forces <button class="info-trigger" data-info="tidal" aria-label="Tidal forces info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="tidal-toggle" role="switch" aria-checked="false">
+                            <label for="tidal-toggle" class="tog tog-tidal"><span class="tog-thumb"></span></label></div></div>
+                    </div>
+                </div>
+                <!-- ── Engine ── -->
+                <div class="tab-panel" id="tab-engine" role="tabpanel">
+                    <div class="panel-section">
+                        <h2 class="group-label">Simulation</h2>
+                        <div class="control-group">
+                            <label class="checkbox-label">Barnes-Hut <button class="info-trigger" data-info="barneshut" aria-label="Barnes-Hut info">?</button><input type="checkbox" id="barneshut-toggle"></label>
+                        </div>
                         <div class="control-group">
                             <label>Collision Mode <button class="info-trigger" data-info="collision" aria-label="Collision modes info">?</button></label>
                             <div class="mode-toggles" id="collision-toggles">
@@ -233,34 +242,22 @@
                             </div>
                         </div>
                     </div>
-                </div>
-                <!-- ── Display ── -->
-                <div class="tab-panel" id="tab-display" role="tabpanel">
                     <div class="panel-section">
                         <h2 class="group-label">Visuals</h2>
                         <div class="control-group">
-                            <label class="checkbox-label">Show Trails<input type="checkbox" id="trailsToggle" checked></label>
+                            <label class="checkbox-label">Trails<input type="checkbox" id="trailsToggle" checked></label>
                         </div>
                         <div class="control-group">
-                            <label class="checkbox-label">Show Velocity Vectors<input type="checkbox" id="velocityToggle"></label>
+                            <label class="checkbox-label">Velocity Vectors<input type="checkbox" id="velocityToggle"></label>
                         </div>
                         <div class="control-group">
-                            <label class="checkbox-label">Show Force Vectors<input type="checkbox" id="forceToggle"></label>
+                            <label class="checkbox-label">Force Vectors<input type="checkbox" id="forceToggle"></label>
                         </div>
                         <div class="control-group">
-                            <label class="checkbox-label">Show Force Components<input type="checkbox" id="forceComponentsToggle"></label>
+                            <label class="checkbox-label">Force Components<input type="checkbox" id="forceComponentsToggle"></label>
                         </div>
                         <div class="control-group">
                             <label class="checkbox-label">Potential Field<input type="checkbox" id="potentialToggle"></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label">Phase Space<input type="checkbox" id="phaseToggle"></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label">Energy Flow<input type="checkbox" id="sankeyToggle"></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label">Light Cone<input type="checkbox" id="lightConeToggle"></label>
                         </div>
                         <div class="control-group">
                             <label>Sim Speed <span class="slider-value" id="speedValue">100</span>x</label>
@@ -270,11 +267,9 @@
                 </div>
                 <!-- ── Stats ── -->
                 <div class="tab-panel" id="tab-stats" role="tabpanel">
-                    <div class="panel-section" aria-live="polite">
-                        <h2 class="group-label">System</h2>
-                        <div class="stat-row"><span class="stat-label">Particles</span><span class="stat-value" id="particleCount">0</span></div>
-                        <div class="stat-row"><span class="stat-label">FPS</span><span class="stat-value" id="fpsCounter">0</span></div>
-                        <div class="stat-row"><span class="stat-label">Speed</span><span class="stat-value" id="simSpeed">20x</span></div>
+                    <div class="panel-section">
+                        <h2 class="group-label">Energy Breakdown</h2>
+                        <div id="energy-bars-container"></div>
                     </div>
                     <div class="panel-section" aria-live="polite">
                         <h2 class="group-label">Energy <button class="info-trigger" data-info="energy" aria-label="Energy info">?</button></h2>
@@ -282,28 +277,40 @@
                         <div class="stat-row stat-sub"><span class="stat-label">Linear KE</span><span class="stat-value" id="linearKE">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Spin KE</span><span class="stat-value" id="spinKE">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Potential</span><span class="stat-value" id="potentialE">0</span></div>
-                        <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="energyDrift">+0.00%</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Field</span><span class="stat-value" id="fieldE">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Radiated</span><span class="stat-value" id="radiatedE">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="energyDrift">+0.00%</span></div>
                     </div>
                     <div class="panel-section" aria-live="polite">
                         <h2 class="group-label">Conserved Quantities <button class="info-trigger" data-info="conserved" aria-label="Conserved quantities info">?</button></h2>
                         <div class="stat-row"><span class="stat-label">Momentum</span><span class="stat-value" id="momentum">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Field</span><span class="stat-value" id="fieldMom">0</span></div>
+                        <div class="stat-row stat-sub"><span class="stat-label">Radiated</span><span class="stat-value" id="radiatedMom">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="momentumDrift">+0.00%</span></div>
                         <div class="stat-row"><span class="stat-label">Angular Mom.</span><span class="stat-value" id="angularMomentum">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Orbital</span><span class="stat-value" id="orbitalAngMom">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Spin</span><span class="stat-value" id="spinAngMom">0</span></div>
                         <div class="stat-row stat-sub"><span class="stat-label">Drift</span><span class="stat-value" id="angMomDrift">+0.00%</span></div>
                     </div>
-                    <div class="panel-section" id="selected-particle-section" hidden>
-                        <h2 class="group-label">Selected Particle</h2>
-                        <div class="stat-row"><span class="stat-label">ID</span><span class="stat-value" id="sel-id">—</span></div>
-                        <div class="stat-row"><span class="stat-label">Mass</span><span class="stat-value" id="sel-mass">—</span></div>
-                        <div class="stat-row"><span class="stat-label">Charge</span><span class="stat-value" id="sel-charge">—</span></div>
-                        <div class="stat-row"><span class="stat-label">Spin</span><span class="stat-value" id="sel-spin">—</span></div>
-                        <div class="stat-row"><span class="stat-label">Speed</span><span class="stat-value" id="sel-speed">—</span></div>
-                        <div class="stat-row"><span class="stat-label">γ (gamma)</span><span class="stat-value" id="sel-gamma">—</span></div>
-                        <div class="stat-row"><span class="stat-label">|Force|</span><span class="stat-value" id="sel-force">—</span></div>
+                </div>
+                <!-- ── Particle ── -->
+                <div class="tab-panel" id="tab-particle" role="tabpanel">
+                    <div class="panel-section" id="selected-particle-section">
+                        <h2 class="group-label">Details</h2>
+                        <p class="panel-hint" id="particle-hint">Select a particle to view details</p>
+                        <div id="particle-details" hidden>
+                            <div class="stat-row"><span class="stat-label">ID</span><span class="stat-value" id="sel-id">—</span></div>
+                            <div class="stat-row"><span class="stat-label">Mass</span><span class="stat-value" id="sel-mass">—</span></div>
+                            <div class="stat-row"><span class="stat-label">Charge</span><span class="stat-value" id="sel-charge">—</span></div>
+                            <div class="stat-row"><span class="stat-label">Spin</span><span class="stat-value" id="sel-spin">—</span></div>
+                            <div class="stat-row"><span class="stat-label">Speed</span><span class="stat-value" id="sel-speed">—</span></div>
+                            <div class="stat-row"><span class="stat-label">γ (gamma)</span><span class="stat-value" id="sel-gamma">—</span></div>
+                            <div class="stat-row"><span class="stat-label">|Force|</span><span class="stat-value" id="sel-force">—</span></div>
+                        </div>
+                    </div>
+                    <div class="panel-section" id="phase-plot-section" hidden>
+                        <h2 class="group-label">Phase Space</h2>
+                        <div id="phase-plot-container"></div>
                     </div>
                 </div>
             </div>
