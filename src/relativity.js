@@ -3,11 +3,25 @@
 import { MAX_SPEED_RATIO } from './config.js';
 
 /**
- * Derive angular velocity from proper angular velocity via rotational Lorentz factor.
- * ω = S / √(1 + S²r²), naturally caps surface velocity |ωr| < c.
+ * Derive angular velocity from angular celerity via rotational Lorentz factor.
+ * ω = W / √(1 + W²r²), naturally caps surface velocity |ωr| < c.
  */
-export function spinToAngVel(spin, radius) {
-    return spin / Math.sqrt(1 + spin * spin * radius * radius);
+export function angwToAngVel(angw, radius) {
+    return angw / Math.sqrt(1 + angw * angw * radius * radius);
+}
+
+/**
+ * Derive angular celerity from angular velocity (inverse of angwToAngVel).
+ * W = ω / √(1 - ω²r²), analogous to w = v / √(1 - v²).
+ */
+export function angVelToAngw(angVel, radius) {
+    const sr = angVel * radius;
+    const srSq = sr * sr;
+    if (srSq >= 1) {
+        const clampedSr = MAX_SPEED_RATIO;
+        return Math.sign(angVel) * clampedSr / (radius * Math.sqrt(1 - clampedSr * clampedSr));
+    }
+    return angVel / Math.sqrt(1 - srSq);
 }
 
 /**

@@ -20,7 +20,7 @@ export default class Particle {
 
         this.mass = mass;
         this.charge = charge;
-        this.spin = 0;      // proper angular velocity (unbounded state variable)
+        this.angw = 0;      // angular celerity (proper angular velocity, unbounded)
         this.angVel = 0;    // angular velocity (derived, like vel from w)
 
         // Accumulated magnetic field z-components (for Boris rotation)
@@ -31,7 +31,7 @@ export default class Particle {
         this.dBgzdx = 0;        // Gravitomagnetic field gradient x-component
         this.dBgzdy = 0;        // Gravitomagnetic field gradient y-component
 
-        // History buffers for retarded potentials
+        // History buffers for signal delay
         this.histX = new Float64Array(HISTORY_SIZE);
         this.histY = new Float64Array(HISTORY_SIZE);
         this.histVx = new Float64Array(HISTORY_SIZE);
