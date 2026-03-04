@@ -8,7 +8,7 @@ import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMO
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
-import { resetForces, computeAllForces } from './forces.js';
+import { resetForces, computeAllForces, compute1PNPairwise } from './forces.js';
 import { handleCollisions } from './collisions.js';
 import { computePE } from './potential.js';
 
@@ -149,6 +149,17 @@ export default class Physics {
 
             totalSteps++;
             dtRemain -= dtSub;
+            // Store 1PN forces for velocity-Verlet correction (recomputed after drift)
+            const has1PN = toggles.onePNEnabled;
+            if (has1PN) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (!p._f1pnOld) p._f1pnOld = { x: 0, y: 0 };
+                    p._f1pnOld.x = p.force1PN.x;
+                    p._f1pnOld.y = p.force1PN.y;
+                }
+            }
+
             // Step 1: Half-kick proper velocity with position-dependent (E-like) forces
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
@@ -387,6 +398,27 @@ export default class Physics {
                 }
             }
             this.simTime += dtSub;
+
+            // 1PN velocity-Verlet correction: recompute 1PN at new positions/velocities
+            // and apply half the difference as a correction kick for second-order accuracy
+            if (has1PN) {
+                // Derive coordinate velocities from updated proper velocities
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
+                    p.vel.x = p.w.x * invG;
+                    p.vel.y = p.w.y * invG;
+                }
+                // Recompute 1PN forces at new state (always pairwise for correction)
+                compute1PNPairwise(particles, SOFTENING_SQ);
+                // Apply correction kick: w += (F_1PN_new - F_1PN_old) * dt/2 / m
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    const halfDtOverM = dtSub * 0.5 / p.mass;
+                    p.w.x += (p.force1PN.x - p._f1pnOld.x) * halfDtOverM;
+                    p.w.y += (p.force1PN.y - p._f1pnOld.y) * halfDtOverM;
+                }
+            }
 
             // Step 5: Rebuild QuadTree with new positions
             const root = this.pool.build(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h, particles);

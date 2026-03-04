@@ -227,6 +227,46 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 }
 
 /**
+ * Recompute 1PN forces on all particles (pairwise, O(N^2)).
+ * Used by the velocity-Verlet correction step — only needs 1PN, not all forces.
+ * Resets force1PN before accumulating.
+ */
+export function compute1PNPairwise(particles, SOFTENING_SQ_VAL) {
+    for (let i = 0; i < particles.length; i++) {
+        particles[i].force1PN.set(0, 0);
+    }
+    for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        for (let j = 0; j < particles.length; j++) {
+            if (i === j) continue;
+            const o = particles[j];
+            const rx = o.pos.x - p.pos.x;
+            const ry = o.pos.y - p.pos.y;
+            const rSq = rx * rx + ry * ry + SOFTENING_SQ_VAL;
+            const r = Math.sqrt(rSq);
+            const invR = 1 / r;
+            const invRSq = 1 / rSq;
+            const pvx = p.vel.x, pvy = p.vel.y;
+            const svx = o.vel.x, svy = o.vel.y;
+            const v1Sq = pvx * pvx + pvy * pvy;
+            const v2Sq = svx * svx + svy * svy;
+            const v1DotV2 = pvx * svx + pvy * svy;
+            const nx = rx * invR, ny = ry * invR;
+            const nDotV1 = nx * pvx + ny * pvy;
+            const nDotV2 = nx * svx + ny * svy;
+            const radial = -v1Sq - 2 * v2Sq + 4 * v1DotV2
+                + 1.5 * nDotV2 * nDotV2
+                + 5 * p.mass * invR + 4 * o.mass * invR;
+            const tangential = 4 * nDotV1 - 3 * nDotV2;
+            const dvx = pvx - svx, dvy = pvy - svy;
+            const base = o.mass * invRSq * invR;
+            p.force1PN.x += base * (rx * radial + dvx * tangential * r);
+            p.force1PN.y += base * (ry * radial + dvy * tangential * r);
+        }
+    }
+}
+
+/**
  * Recursively compute force on a particle from a Barnes-Hut tree node.
  * @param {Object} particle - Test particle
  * @param {Object} pool - QuadTreePool
