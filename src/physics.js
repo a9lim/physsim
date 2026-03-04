@@ -704,12 +704,12 @@ export default class Physics {
             // B_z = q_s * (v_s × r̂)_z / r³
             p.Bz += sCharge * crossSV * invR * invRSq;
 
-            // B_z gradient for spin-orbit coupling
-            // B_z ~ q_s * cross/(r³), so dB_z/dr ~ -3 * B_z / r
+            // ∇Bz w.r.t. observer position (radial + angular terms)
+            // ∂Bz/∂px = +3·Bz·rx/r² + q_s·vsy/r³
+            // ∂Bz/∂py = +3·Bz·ry/r² - q_s·vsx/r³
             const Bz_contribution = sCharge * crossSV * invR * invRSq;
-            const dBzdr = -3 * Bz_contribution * invR;
-            p.dBzdx += dBzdr * rx * invR;  // rx/r = r̂_x (note: rx = sx - p.pos.x)
-            p.dBzdy += dBzdr * ry * invR;
+            p.dBzdx += 3 * Bz_contribution * rx * invRSq + sCharge * svy * invR * invRSq;
+            p.dBzdy += 3 * Bz_contribution * ry * invRSq - sCharge * svx * invR * invRSq;
         }
 
         if (this.gravitomagEnabled) {
@@ -726,11 +726,10 @@ export default class Physics {
             // Bg_z = m_s * (v_s × r̂)_z / r³
             p.Bgz += sMass * crossSV * invR * invRSq;
 
-            // Bgz gradient for GM spin-orbit coupling (same pattern as EM dBz)
+            // ∇Bgz w.r.t. observer position (radial + angular terms)
             const Bgz_contribution = sMass * crossSV * invR * invRSq;
-            const dBgzdr = -3 * Bgz_contribution * invR;
-            p.dBgzdx += dBgzdr * rx * invR;
-            p.dBgzdy += dBgzdr * ry * invR;
+            p.dBgzdx += 3 * Bgz_contribution * rx * invRSq + sMass * svy * invR * invRSq;
+            p.dBgzdy += 3 * Bgz_contribution * ry * invRSq - sMass * svx * invR * invRSq;
 
             // Frame-dragging torque: drives spins toward co-rotation
             const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
