@@ -1,13 +1,12 @@
 // ─── Energy & Momentum Computation ───
+// Three-pass accumulator: KE + momentum, angular momentum about COM, Darwin field corrections.
+
 import { INERTIA_K, SOFTENING_SQ } from './config.js';
 import { TORUS, minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 
-/**
- * Compute all energy, momentum, and angular momentum quantities.
- * Returns object with all values needed for display.
- */
+/** Compute all conserved quantities for the stats display. */
 export function computeEnergies(particles, physics, sim) {
     let linearKE = 0;
     let spinKE = 0;
@@ -20,20 +19,18 @@ export function computeEnergies(particles, physics, sim) {
     for (const p of particles) {
         const rSq = p.radius * p.radius;
         if (relOn) {
-            // Relativistic linear KE: (γ - 1)mc², γ = √(1 + w²)
             const gamma = Math.sqrt(1 + p.w.magSq());
             linearKE += (gamma - 1) * p.mass;
-            // Relativistic spin KE: m_rot·(γ_rot - 1) where m_rot = I/r² = INERTIA_K·m
+            // Spin KE via rotational Lorentz factor: I/r²·(γ_rot − 1)
             const srSq = p.angw * p.angw * rSq;
             spinKE += INERTIA_K * p.mass * (Math.sqrt(1 + srSq) - 1);
         } else {
             const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
             linearKE += 0.5 * p.mass * speedSq;
-            // Classical spin KE: ½Iω²
             spinKE += 0.5 * INERTIA_K * p.mass * rSq * p.angVel * p.angVel;
         }
 
-        // Momentum: p = m·w (relativistic or classical, since w = v when rel off)
+        // w = v when rel off, so m·w works for both regimes
         px += p.mass * p.w.x;
         py += p.mass * p.w.y;
 
@@ -58,8 +55,8 @@ export function computeEnergies(particles, physics, sim) {
     }
 
     // ─── Pass 3: Darwin field energy & momentum (O(v²/c²) correction) ───
-    // EM: U = -(1/2) Σ_{i<j} (qi·qj/r) [(vi·vj) + (vi·r̂)(vj·r̂)]
-    // Grav: U = +(1/2) Σ_{i<j} (mi·mj/r) [(vi·vj) + (vi·r̂)(vj·r̂)]  (opposite sign)
+    // Accounts for momentum stored in EM and gravitational fields.
+    // EM and GM have opposite signs (GEM attractive convention).
     let fieldEnergy = 0;
     let fieldPx = 0, fieldPy = 0;
     const n = particles.length;
@@ -93,7 +90,6 @@ export function computeEnergies(particles, physics, sim) {
                 const vjDotR = pj.vel.x * rx + pj.vel.y * ry;
                 const velTerm = viDotVj + viDotR * vjDotR;
 
-                // Sum velocity for field momentum
                 const svx = pi.vel.x + pj.vel.x, svy = pi.vel.y + pj.vel.y;
                 const svDotR = svx * rx + svy * ry;
 

@@ -1,4 +1,5 @@
 // ─── Energy Bar Chart ───
+// Horizontal bar chart showing energy breakdown (orphaned -- not currently imported).
 
 const BAR_H = 14;
 const GAP = 6;
@@ -48,7 +49,6 @@ export default class SankeyOverlay {
 
         const barW = cssW - LABEL_W - PAD * 2;
 
-        // Find max absolute value for scaling
         let maxAbs = 0;
         for (const cat of CATEGORIES) {
             const v = Math.abs(this.values[cat.key]);
@@ -66,20 +66,17 @@ export default class SankeyOverlay {
             const val = this.values[cat.key];
             const y = PAD + i * (BAR_H + GAP);
 
-            // Label
             ctx.fillStyle = textColor;
             ctx.font = '9px Noto Sans, sans-serif';
             ctx.textAlign = 'right';
             ctx.fillText(cat.label, LABEL_W, y + BAR_H / 2);
 
-            // Track background
             const bx = LABEL_W + 6;
             ctx.fillStyle = mutedColor;
             ctx.beginPath();
             ctx.roundRect(bx, y, barW, BAR_H, 3);
             ctx.fill();
 
-            // Bar
             const ratio = Math.abs(val) / maxAbs;
             const barLen = Math.max(2, ratio * barW);
             ctx.fillStyle = cat.color;
@@ -87,7 +84,6 @@ export default class SankeyOverlay {
             ctx.roundRect(bx, y, barLen, BAR_H, 3);
             ctx.fill();
 
-            // Value text
             const fmt = Math.abs(val) < 0.01 ? '0' : Math.abs(val) > 999 ? val.toExponential(1) : val.toFixed(1);
             ctx.fillStyle = textColor;
             ctx.font = '8px Noto Sans Mono, monospace';

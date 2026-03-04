@@ -20,7 +20,7 @@ class Simulation {
         this.particles = [];
         this.physics = new Physics();
         this.renderer = new Renderer(this.ctx, this.width, this.height);
-        this.renderer.domainW = this.width;
+        this.renderer.domainW = this.width; // for trail wrap-detection threshold
         this.renderer.domainH = this.height;
         this.renderer.setTheme(true);
 
@@ -74,7 +74,7 @@ class Simulation {
         this.totalRadiated = 0;
         this.totalRadiatedPx = 0;
         this.totalRadiatedPy = 0;
-        this.physics.sim = this; // give physics access to photon array
+        this.physics.sim = this;
 
         // Selected particle DOM refs
         this.selDom = {
@@ -90,7 +90,7 @@ class Simulation {
             force: document.getElementById('sel-force'),
         };
 
-        // Mount visualization canvases into sidebar containers
+        // Mount sidebar canvases
         document.getElementById('phase-plot-container').appendChild(this.phasePlot.canvas);
 
         this.stats = new StatsDisplay(this.dom, this.selDom);
@@ -113,7 +113,7 @@ class Simulation {
         this.canvas.height = this.height;
         this.renderer.resize(this.width, this.height);
         this.input.updateRect();
-        // Shift camera center so top-left world position is preserved
+        // Preserve top-left world position across resize
         this.camera.x += (this.width - oldW) / 2;
         this.camera.y += (this.height - oldH) / 2;
         this.camera.viewportW = this.width;
@@ -129,11 +129,10 @@ class Simulation {
         const baseCharge = options.charge ?? 0;
         p.charge = baseCharge !== 0 ? baseCharge + (Math.random() - 0.5) * baseCharge * 0.2 : 0;
 
-        // Spin option is surface velocity as fraction of c
+        // Spin is surface velocity as fraction of c; convert to angular celerity
         const baseSV = options.spin ?? 0;
         let sv = baseSV !== 0 ? baseSV + (Math.random() - 0.5) * baseSV * 0.2 : 0;
         sv = Math.max(-0.99, Math.min(0.99, sv));
-        // Convert surface velocity to angular celerity: angw = v_s / (r * √(1 - v_s²))
         const absSV = Math.abs(sv);
         p.angw = absSV > 0 ? Math.sign(sv) * absSV / (p.radius * Math.sqrt(1 - absSV * absSV)) : 0;
 
@@ -157,8 +156,6 @@ class Simulation {
             while (this.accumulator >= PHYSICS_DT) {
                 this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
 
-                // Update photons (inside fixed step for time consistency)
-                // Absorption handled in integrator (quadtree + self-absorption guard)
                 for (let i = this.photons.length - 1; i >= 0; i--) {
                     const ph = this.photons[i];
                     ph.update(PHYSICS_DT);
@@ -167,7 +164,6 @@ class Simulation {
                     }
                 }
 
-                // Tidal breakup (inside fixed step)
                 const toFragment = this.physics.checkTidalBreakup(this.particles);
                 for (const p of toFragment) {
                     const idx = this.particles.indexOf(p);

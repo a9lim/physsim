@@ -1,19 +1,14 @@
-// ─── Relativistic Helpers (c = 1) ───
+// ─── Relativistic Helpers ───
+// Conversions between celerity (unbounded state variable) and velocity (capped at c=1).
 
 import { MAX_SPEED_RATIO } from './config.js';
 
-/**
- * Derive angular velocity from angular celerity via rotational Lorentz factor.
- * ω = W / √(1 + W²r²), naturally caps surface velocity |ωr| < c.
- */
+/** angw -> angVel: omega = W / sqrt(1 + W^2 r^2). */
 export function angwToAngVel(angw, radius) {
     return angw / Math.sqrt(1 + angw * angw * radius * radius);
 }
 
-/**
- * Derive angular celerity from angular velocity (inverse of angwToAngVel).
- * W = ω / √(1 - ω²r²), analogous to w = v / √(1 - v²).
- */
+/** angVel -> angw: W = omega / sqrt(1 - omega^2 r^2). Clamps at MAX_SPEED_RATIO. */
 export function angVelToAngw(angVel, radius) {
     const sr = angVel * radius;
     const srSq = sr * sr;
@@ -24,10 +19,7 @@ export function angVelToAngw(angVel, radius) {
     return angVel / Math.sqrt(1 - srSq);
 }
 
-/**
- * Set particle proper velocity from velocity components.
- * Clamps |v| < MAX_SPEED_RATIO, then sets p.vel and p.w = γv.
- */
+/** Set p.vel and p.w from (vx,vy), clamping |v| < MAX_SPEED_RATIO. */
 export function setVelocity(p, vx, vy) {
     const speedSq = vx * vx + vy * vy;
     if (speedSq >= 1) {

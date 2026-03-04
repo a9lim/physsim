@@ -1,18 +1,15 @@
 // ─── Force Computation ───
-// Extracted from physics.js: force reset, pairwise force, tree traversal,
-// and top-level force accumulation.
+// Pairwise and Barnes-Hut force accumulation. Separates E-like (position-dependent)
+// from B-like (velocity-dependent) forces for the Boris integrator.
 
 import { BH_THETA, SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, FRAME_DRAG_K } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { TORUS, minImage } from './topology.js';
 
-// Module-level reusable object for minImage output (zero alloc)
+// Reused by minImage() to avoid per-call allocation
 const _miOut = { x: 0, y: 0 };
 
-/**
- * Reset all per-particle force accumulators and field values to zero.
- * @param {Array} particles
- */
+/** Zero all per-particle force accumulators and field values before a new substep. */
 export function resetForces(particles) {
     for (const p of particles) {
         p.force.set(0, 0);
@@ -36,23 +33,15 @@ export function resetForces(particles) {
 }
 
 /**
- * Compute all forces on all particles, using either Barnes-Hut tree traversal
- * or exact pairwise summation.
- *
- * @param {Array} particles
- * @param {Object} toggles - { gravityEnabled, coulombEnabled, magneticEnabled, gravitomagEnabled }
- * @param {Object} pool - QuadTreePool instance
- * @param {number} root - Root node index in pool (-1 if no tree built)
- * @param {boolean} barnesHutEnabled
- * @param {boolean} signalDelayEnabled
- * @param {boolean} relativityEnabled
- * @param {number} simTime - Current simulation time (for signal delay)
+ * Top-level force dispatch: Barnes-Hut tree walk or exact pairwise O(N^2).
+ * In pairwise mode with signal delay, source positions are evaluated on the
+ * past light cone rather than at the current time.
  */
 export function computeAllForces(particles, toggles, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology = TORUS) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
     if (barnesHutEnabled) {
-        if (root < 0) return; // No tree available
+        if (root < 0) return;
         for (const p of particles) {
             calculateForce(p, pool, root, BH_THETA, p.force, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
         }
@@ -69,7 +58,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
                     const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
                     if (ret) {
                         sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
-                        sAngVel = o.angVel; // angular velocity not history-tracked
+                        sAngVel = o.angVel; // not history-tracked; use current value
                     } else {
                         sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
                         sAngVel = o.angVel;
@@ -91,27 +80,11 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
 }
 
 /**
- * Compute force from a source (particle or aggregate node) on a particle.
+ * Pairwise force between test particle p and a source at (sx, sy).
  *
- * Position-dependent (E-like) forces are accumulated into `out` and per-type vectors:
- * gravity, Coulomb, magnetic dipole, gravitomagnetic dipole.
- *
- * Velocity-dependent (B-like) forces (Lorentz, linear GM) are NOT computed here.
- * Instead, the B and Bg field z-components are accumulated on the particle for use
- * in the Boris rotation step, which handles these forces exactly.
- *
- * @param {Object} p - Test particle
- * @param {number} sx - Source x position
- * @param {number} sy - Source y position
- * @param {number} svx - Source x velocity
- * @param {number} svy - Source y velocity
- * @param {number} sMass - Source mass
- * @param {number} sCharge - Source charge
- * @param {number} sAngVel - Source angular velocity
- * @param {number} sMagMoment - Source magnetic moment
- * @param {number} sAngMomentum - Source angular momentum
- * @param {Object} out - Vec2 to accumulate force into
- * @param {Object} toggles - { gravityEnabled, coulombEnabled, magneticEnabled, gravitomagEnabled }
+ * E-like (position-dependent) forces go into `out` + per-type display vectors.
+ * B-like (velocity-dependent) forces are NOT applied here; instead Bz/Bgz
+ * and their gradients are accumulated for the Boris rotation step.
  */
 export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
     let rx, ry;
@@ -122,17 +95,16 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         rx = sx - p.pos.x; ry = sy - p.pos.y;
     }
     const rawRSq = rx * rx + ry * ry;
-    // Plummer softening: rSq_eff = r² + ε², keeps F = -dU/dr consistent
+    // Plummer softening: r²_eff = r² + ε² (consistent with PE in potential.js)
     const rSq = rawRSq + SOFTENING_SQ;
     const r = Math.sqrt(rSq);
     const invR = 1 / r;
     const invRSq = 1 / rSq;
 
-    // Cross product of source velocity with separation: (v_s × r̂)_z component
+    // (v_s × r)_z — enters Biot-Savart-like field expressions
     const crossSV = svx * ry - svy * rx;
 
     // Test particle dipole moments (uniform-density solid sphere)
-    // Magnetic moment: μ = ⅕·q·ω·r²; GM moment (angular momentum): L = I·ω
     const pRSq = p.radius * p.radius;
     const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
     const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
@@ -154,8 +126,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     if (toggles.onePNEnabled && toggles.gravityEnabled) {
-        // 1PN Einstein-Infeld-Hoffmann correction (natural units, G=c=1)
-        // Uses coordinate velocities (not proper velocity) per EIH formulation
+        // 1PN EIH correction: O(v²/c²) gravity. Uses coordinate velocities per EIH formulation.
         const pvx = p.vel.x, pvy = p.vel.y;
         const v1Sq = pvx * pvx + pvy * pvy;
         const v2Sq = svx * svx + svy * svy;
@@ -164,21 +135,19 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const nDotV1 = nx * pvx + ny * pvy;
         const nDotV2 = nx * svx + ny * svy;
 
-        // Radial term coefficient
         const radial = -v1Sq - 2 * v2Sq + 4 * v1DotV2
             + 1.5 * nDotV2 * nDotV2
             + 5 * p.mass * invR + 4 * sMass * invR;
 
-        // Tangential term coefficient (along v1 - v2)
         const tangential = 4 * nDotV1 - 3 * nDotV2;
         const dvx = pvx - svx, dvy = pvy - svy;
 
-        // a_1PN = (m2/r^2) * { n * radial + (v1-v2) * tangential }
+        // a_1PN = (m2/r²) * { n̂·radial + (v1−v2)·tangential }
+        // Tangential term multiplied by r to convert n̂ → r direction vector
         const base = sMass * invRSq * invR;
         const fx = base * (rx * radial + dvx * tangential * r);
         const fy = base * (ry * radial + dvy * tangential * r);
 
-        // Accumulate into total force (for kicks) and per-type display vector
         out.x += fx;
         out.y += fy;
         p.force1PN.x += fx;
@@ -186,66 +155,57 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     if (toggles.magneticEnabled) {
-        // Dipole radial component: F = 3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
+        // Dipole-dipole radial: F = −3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
         const fDir = -3 * (pMagMoment * sMagMoment) * invRSq * invRSq * invR;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceMagnetic.x += rx * fDir;
         p.forceMagnetic.y += ry * fDir;
 
-        // Accumulate EM magnetic field Bz for Boris rotation (Lorentz force)
-        // B_z = q_s * (v_s × r̂)_z / r³
+        // Bz from moving charge (Biot-Savart): B_z = q_s(v_s × r̂)_z / r²
         p.Bz += sCharge * crossSV * invR * invRSq;
 
-        // ∇Bz w.r.t. observer position (radial + angular terms)
-        // ∂Bz/∂px = +3·Bz·rx/r² + q_s·vsy/r³
-        // ∂Bz/∂py = +3·Bz·ry/r² - q_s·vsx/r³
+        // ∇Bz for spin-orbit coupling (radial + angular terms)
         const Bz_contribution = sCharge * crossSV * invR * invRSq;
         p.dBzdx += 3 * Bz_contribution * rx * invRSq + sCharge * svy * invR * invRSq;
         p.dBzdy += 3 * Bz_contribution * ry * invRSq - sCharge * svx * invR * invRSq;
 
-        // Dipole-sourced Bz: static magnetic field from spinning charged body
-        // Bz_dipole = +mu_source / r^3 (equatorial field of z-aligned dipole)
+        // Dipole-sourced Bz: equatorial field of z-aligned dipole, +μ/r³
         p.Bz += sMagMoment * invR * invRSq;
-        // Gradient: d(mu/r^3)/dpx = +3*mu*rx/r^5
         p.dBzdx += 3 * sMagMoment * rx * invRSq * invRSq * invR;
         p.dBzdy += 3 * sMagMoment * ry * invRSq * invRSq * invR;
     }
 
     if (toggles.gravitomagEnabled) {
-        // Dipole radial component: F = 3L₁L₂/r⁴, co-rotating masses attract (GEM flips EM sign)
+        // GM dipole: F = +3L₁L₂/r⁴ (GEM sign flip: co-rotating masses attract)
         const fDir = 3 * (pAngMomentum * sAngMomentum) * invRSq * invRSq * invR;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceGravitomag.x += rx * fDir;
         p.forceGravitomag.y += ry * fDir;
 
-        // Accumulate GM field Bgz for Boris rotation (linear gravitomagnetism)
-        // Bg_z = -m_s * (v_s × r̂)_z / r³  (sign from r̂ = source−observer convention)
+        // Bgz from moving mass: −m_s(v_s × r̂)_z / r² (negative: GEM convention)
         p.Bgz -= sMass * crossSV * invR * invRSq;
 
-        // ∇Bgz w.r.t. observer position (radial + angular terms)
+        // ∇Bgz for spin-orbit coupling
         const Bgz_contribution = -sMass * crossSV * invR * invRSq;
         p.dBgzdx += 3 * Bgz_contribution * rx * invRSq - sMass * svy * invR * invRSq;
         p.dBgzdy += 3 * Bgz_contribution * ry * invRSq + sMass * svx * invR * invRSq;
 
-        // Spin-sourced Bgz: gravitomagnetic field from spinning massive body
-        // Bgz_spin = -2 * L_source / r^3 (GEM analog of dipole field)
+        // Spin-sourced Bgz: −2L/r³ (GEM analog of magnetic dipole field)
         p.Bgz -= 2 * sAngMomentum * invR * invRSq;
-        // Gradient: d(-2*L/r^3)/dpx = -6*L*rx/r^5
         p.dBgzdx -= 6 * sAngMomentum * rx * invRSq * invRSq * invR;
         p.dBgzdy -= 6 * sAngMomentum * ry * invRSq * invRSq * invR;
 
-        // Frame-dragging torque: drives spins toward co-rotation
+        // Frame-dragging torque: aligns spins toward co-rotation
         const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
         p._frameDragTorque = (p._frameDragTorque || 0) + torque;
     }
 }
 
 /**
- * Recompute 1PN forces on all particles (pairwise, O(N^2)).
- * Used by the velocity-Verlet correction step — only needs 1PN, not all forces.
- * Resets force1PN before accumulating.
+ * Recompute 1PN forces pairwise O(N²) for velocity-Verlet correction.
+ * Called after drift to get F_1PN(new) for the correction kick.
  */
 export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
     for (let i = 0; i < particles.length; i++) {
@@ -288,13 +248,8 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
 }
 
 /**
- * Recursively compute force on a particle from a Barnes-Hut tree node.
- * @param {Object} particle - Test particle
- * @param {Object} pool - QuadTreePool
- * @param {number} nodeIdx - Current tree node index
- * @param {number} theta - Opening angle threshold
- * @param {Object} out - Vec2 to accumulate force into
- * @param {Object} toggles - { gravityEnabled, coulombEnabled, magneticEnabled, gravitomagEnabled }
+ * Recursive Barnes-Hut tree walk. Uses aggregate multipole data for distant
+ * nodes (size/d < theta), individual particles for nearby leaves.
  */
 export function calculateForce(particle, pool, nodeIdx, theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
     if (pool.totalMass[nodeIdx] === 0) return;

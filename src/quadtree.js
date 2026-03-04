@@ -1,3 +1,6 @@
+// ─── Barnes-Hut Quadtree ───
+// SoA flat typed-array pool: pre-allocated, doubles on overflow, zero GC per frame.
+
 import { INERTIA_K, MAG_MOMENT_K } from './config.js';
 
 export class Rect {
@@ -27,7 +30,6 @@ export default class QuadTreePool {
         this.nodeCapacity = capacity;
         this.maxNodes = maxNodes;
 
-        // Pre-allocate flat arrays for all node fields
         this.bx = new Float64Array(maxNodes);
         this.by = new Float64Array(maxNodes);
         this.bw = new Float64Array(maxNodes);
@@ -42,13 +44,11 @@ export default class QuadTreePool {
         this.comX = new Float64Array(maxNodes);
         this.comY = new Float64Array(maxNodes);
 
-        // Children indices (NONE = no child)
         this.nw = new Int32Array(maxNodes).fill(NONE);
         this.ne = new Int32Array(maxNodes).fill(NONE);
         this.sw = new Int32Array(maxNodes).fill(NONE);
         this.se = new Int32Array(maxNodes).fill(NONE);
 
-        // Leaf point storage: fixed-size per node
         this.points = new Array(maxNodes * capacity).fill(null);
         this.pointCount = new Uint8Array(maxNodes);
 

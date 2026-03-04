@@ -4,7 +4,6 @@
    =================================================================== */
 
 // ---------- Project-specific palette keys ----------
-// Derive particle hues from extended palette colors
 const _hueOf = (hex) => Math.round(_rgb2hsl(..._parseHex(hex))[0]);
 _PALETTE.neutral   = _PALETTE.extended.slate;  // zero-charge particle fill
 _PALETTE.chargePos = _hueOf(_PALETTE.extended.red);     // hue — positive charge
@@ -17,9 +16,6 @@ Object.freeze(_PALETTE.light);
 Object.freeze(_PALETTE.dark);
 Object.freeze(_FONT);
 Object.freeze(_PALETTE);
-
-// ---------- Project-specific CSS vars ----------
-// (none currently needed — shared tokens cover all physsim styles)
 
 // ---------- Expose for ES modules ----------
 window._PALETTE = _PALETTE;
