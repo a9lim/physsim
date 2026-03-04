@@ -363,7 +363,7 @@ export default class Physics {
                             this.sim.photons.push(new Photon(
                                 p.pos.x, p.pos.y,
                                 Math.cos(spawnAngle), Math.sin(spawnAngle),
-                                dE
+                                dE, p.id
                             ));
                         }
                     }
@@ -427,6 +427,37 @@ export default class Physics {
             // Step 6: Handle collisions
             if (collisionMode !== 'pass') {
                 handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled);
+            }
+
+            // Photon absorption: transfer momentum from photons to particles
+            if (this.radiationEnabled && this.sim && this.sim.photons.length > 0) {
+                const photons = this.sim.photons;
+                for (let pi = photons.length - 1; pi >= 0; pi--) {
+                    const ph = photons[pi];
+                    if (!ph.alive) continue;
+                    ph.age++;
+                    // Query quadtree for nearby particles
+                    const candidates = this.pool.query(root,
+                        ph.pos.x, ph.pos.y, SOFTENING, SOFTENING);
+                    for (const target of candidates) {
+                        // Self-absorption guard: skip emitter for first 2 substeps
+                        if (target.id === ph.emitterId && ph.age < 3) continue;
+                        const dx = ph.pos.x - target.pos.x;
+                        const dy = ph.pos.y - target.pos.y;
+                        if (dx * dx + dy * dy < target.radius * target.radius) {
+                            // Absorb: transfer photon momentum to particle
+                            const impulse = ph.energy; // p = E/c = E (c=1)
+                            target.w.x += impulse * ph.vel.x / target.mass;
+                            target.w.y += impulse * ph.vel.y / target.mass;
+                            // Fix energy bookkeeping
+                            this.sim.totalRadiated -= ph.energy;
+                            this.sim.totalRadiatedPx -= ph.energy * ph.vel.x;
+                            this.sim.totalRadiatedPy -= ph.energy * ph.vel.y;
+                            ph.alive = false;
+                            break; // photon absorbed, stop checking particles
+                        }
+                    }
+                }
             }
 
             // Step 7: Calculate new forces and B fields
