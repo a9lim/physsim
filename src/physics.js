@@ -613,7 +613,7 @@ export default class Physics {
             setVelocityFromVel(p2, v2nFinal, v2tFinal, nx, ny, tx, ty);
         }
 
-        const overlap = (minDist - safeDist) / 2 + 0.25;
+        const overlap = (minDist - safeDist) / 2 + minDist * 0.01;
         p1.pos.x -= nx * overlap;
         p1.pos.y -= ny * overlap;
         p2.pos.x += nx * overlap;
