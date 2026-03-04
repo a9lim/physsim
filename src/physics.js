@@ -282,6 +282,7 @@ export default class Physics {
 
                 // Record history for signal delay
                 if (this.signalDelayEnabled) {
+                    p._initHistory();
                     const h = p.histHead;
                     p.histX[h] = p.pos.x;
                     p.histY[h] = p.pos.y;
@@ -767,6 +768,7 @@ export default class Physics {
 
     // Interpolate position/velocity from circular history buffer at time t
     _interpolateHistory(p, t) {
+        if (!p.histX) return null;
         if (p.histCount < 2) return null;
 
         // Find bracketing entries via linear scan (buffer is chronological)
