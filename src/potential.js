@@ -29,7 +29,7 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
             for (let j = i + 1; j < particles.length; j++) {
                 const o = particles[j];
                 const oRSq = o.radius * o.radius;
-                pe += pairPE(p, o.pos.x, o.pos.y,
+                pe += pairPE(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
                     o.mass, o.charge, o.angVel,
                     MAG_MOMENT_K * o.charge * o.angVel * oRSq,
                     INERTIA_K * o.mass * o.angVel * oRSq, toggles);
@@ -66,15 +66,18 @@ export function treePE(particle, pool, nodeIdx, theta, toggles) {
                 const other = pool.points[base + i];
                 if (other === particle) continue;
                 const oRSq = other.radius * other.radius;
-                pe += pairPE(particle, other.pos.x, other.pos.y,
+                pe += pairPE(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y,
                     other.mass, other.charge, other.angVel,
                     MAG_MOMENT_K * other.charge * other.angVel * oRSq,
                     INERTIA_K * other.mass * other.angVel * oRSq, toggles);
             }
             return pe;
         } else {
-            return pairPE(particle, pool.comX[nodeIdx], pool.comY[nodeIdx],
-                pool.totalMass[nodeIdx], pool.totalCharge[nodeIdx], 0,
+            const nodeMass = pool.totalMass[nodeIdx];
+            const avgVx = nodeMass > 0 ? pool.totalMomentumX[nodeIdx] / nodeMass : 0;
+            const avgVy = nodeMass > 0 ? pool.totalMomentumY[nodeIdx] / nodeMass : 0;
+            return pairPE(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy,
+                nodeMass, pool.totalCharge[nodeIdx], 0,
                 pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], toggles);
         }
     } else if (pool.divided[nodeIdx]) {
@@ -91,6 +94,8 @@ export function treePE(particle, pool, nodeIdx, theta, toggles) {
  * @param {Object} p - Test particle
  * @param {number} sx - Source x position
  * @param {number} sy - Source y position
+ * @param {number} svx - Source x velocity
+ * @param {number} svy - Source y velocity
  * @param {number} sMass - Source mass
  * @param {number} sCharge - Source charge
  * @param {number} sAngVel - Source angular velocity
@@ -99,7 +104,7 @@ export function treePE(particle, pool, nodeIdx, theta, toggles) {
  * @param {Object} toggles - { gravityEnabled, coulombEnabled, magneticEnabled, gravitomagEnabled }
  * @returns {number} PE contribution
  */
-export function pairPE(p, sx, sy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, toggles) {
+export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, toggles) {
     const rx = sx - p.pos.x;
     const ry = sy - p.pos.y;
     const rSq = rx * rx + ry * ry + SOFTENING_SQ;
@@ -115,5 +120,19 @@ export function pairPE(p, sx, sy, sMass, sCharge, sAngVel, sMagMoment, sAngMomen
     if (toggles.coulombEnabled)  pe += p.charge * sCharge * invR;
     if (toggles.magneticEnabled) pe += (pMagMoment * sMagMoment) * invR * invRSq;
     if (toggles.gravitomagEnabled) pe -= (pAngMomentum * sAngMomentum) * invR * invRSq;
+    if (toggles.onePNEnabled) {
+        // 1PN PE: -(m1*m2/r) * [3(v1^2+v2^2)/2 - 7(v1.v2)/2 - (v1.n)(v2.n)/2 + m1/r + m2/r]
+        const pvx = p.vel.x, pvy = p.vel.y;
+        const v1Sq = pvx * pvx + pvy * pvy;
+        const v2Sq = svx * svx + svy * svy;
+        const v1DotV2 = pvx * svx + pvy * svy;
+        const nx = rx * invR, ny = ry * invR;
+        const v1DotN = pvx * nx + pvy * ny;
+        const v2DotN = svx * nx + svy * ny;
+        pe -= p.mass * sMass * invR * (
+            1.5 * (v1Sq + v2Sq) - 3.5 * v1DotV2 - 0.5 * v1DotN * v2DotN
+            + p.mass * invR + sMass * invR
+        );
+    }
     return pe;
 }
