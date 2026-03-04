@@ -1,5 +1,5 @@
 import Vec2 from './vec2.js';
-import QuadTree, { Rect } from './quadtree.js';
+import QuadTreePool, { Rect } from './quadtree.js';
 import { BH_THETA, QUADTREE_CAPACITY, SOFTENING_SQ, SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, LL_FORCE_CLAMP, FRAME_DRAG_K, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, HISTORY_SIZE } from './config.js';
 import Photon from './photon.js';
 import { setVelocity, angwToAngVel, angVelToAngw } from './relativity.js';
@@ -11,6 +11,7 @@ function setVelocityFromVel(p, vn, vt, nx, ny, tx, ty) {
 export default class Physics {
     constructor() {
         this.boundary = new Rect(0, 0, 0, 0);
+        this.pool = new QuadTreePool(QUADTREE_CAPACITY);
 
         // Force toggles (default all on)
         this.gravityEnabled = true;
@@ -96,7 +97,7 @@ export default class Physics {
         const nSteps = Math.min(Math.ceil(dt / dtSafe), MAX_SUBSTEPS);
         const dtSub = dt / nSteps;
 
-        let lastQt = null;
+        let lastRoot = -1;
         for (let step = 0; step < nSteps; step++) {
             // Step 1: Half-kick proper velocity with position-dependent (E-like) forces
             for (let i = 0; i < n; i++) {
@@ -312,23 +313,21 @@ export default class Physics {
             this.simTime += dtSub;
 
             // Step 5: Rebuild QuadTree with new positions
-            const qt = new QuadTree(this.boundary, QUADTREE_CAPACITY);
-            for (const p of particles) qt.insert(p);
-            qt.calculateMassDistribution();
-            lastQt = qt;
+            const root = this.pool.build(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h, particles);
+            lastRoot = root;
 
             // Step 6: Handle collisions
             if (collisionMode !== 'pass') {
-                this.handleCollisions(particles, qt, collisionMode);
+                this.handleCollisions(particles, this.pool, root, collisionMode);
             }
 
             // Step 7: Calculate new forces and B fields
             this._resetForces(particles);
-            this._computeAllForces(particles, qt);
+            this._computeAllForces(particles, root);
         }
 
         // Compute PE (once per frame, using last substep's tree)
-        this.computePE(particles, lastQt);
+        this.computePE(particles, lastRoot);
 
         // Compute velocity-dependent forces for display only (after final substep).
         // These are applied via Boris rotation (not kicks), but we add them to the
@@ -400,15 +399,13 @@ export default class Physics {
         }
     }
 
-    _computeAllForces(particles, qt) {
+    _computeAllForces(particles, root = -1) {
         if (this.barnesHutEnabled) {
-            if (!qt) {
-                qt = new QuadTree(this.boundary, QUADTREE_CAPACITY);
-                for (const p of particles) qt.insert(p);
-                qt.calculateMassDistribution();
+            if (root < 0) {
+                root = this.pool.build(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h, particles);
             }
             for (const p of particles) {
-                this.calculateForce(p, qt, BH_THETA, p.force);
+                this.calculateForce(p, this.pool, root, BH_THETA, p.force);
             }
         } else {
             const useSignalDelay = this.signalDelayEnabled && this.relativityEnabled;
@@ -443,12 +440,11 @@ export default class Physics {
         }
     }
 
-    handleCollisions(particles, qt, mode) {
+    handleCollisions(particles, pool, root, mode) {
         for (const p1 of particles) {
             if (p1.mass === 0) continue;
 
-            const range = new Rect(p1.pos.x, p1.pos.y, p1.radius * 2, p1.radius * 2);
-            const candidates = qt.query(range);
+            const candidates = pool.query(root, p1.pos.x, p1.pos.y, p1.radius * 2, p1.radius * 2);
 
             for (const p2 of candidates) {
                 if (p1 === p2 || p2.mass === 0 || p1.id >= p2.id) continue;
@@ -640,32 +636,34 @@ export default class Physics {
         p2.pos.y += ny * overlap;
     }
 
-    calculateForce(particle, node, theta, out) {
-        if (node.totalMass === 0) return;
+    calculateForce(particle, pool, nodeIdx, theta, out) {
+        if (pool.totalMass[nodeIdx] === 0) return;
 
-        const dx = node.centerOfMass.x - particle.pos.x;
-        const dy = node.centerOfMass.y - particle.pos.y;
+        const dx = pool.comX[nodeIdx] - particle.pos.x;
+        const dy = pool.comY[nodeIdx] - particle.pos.y;
         const dSq = dx * dx + dy * dy;
         const d = Math.sqrt(dSq);
-        const size = node.boundary.w * 2;
+        const size = pool.bw[nodeIdx] * 2;
 
-        if ((!node.divided && node.points.length > 0) || (node.divided && (size / d < theta))) {
-            if (!node.divided) {
-                for (const other of node.points) {
+        if ((!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) || (pool.divided[nodeIdx] && (size / d < theta))) {
+            if (!pool.divided[nodeIdx]) {
+                const base = nodeIdx * pool.nodeCapacity;
+                for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
+                    const other = pool.points[base + i];
                     if (other === particle) continue;
                     const otherRSq = other.radius * other.radius;
                     this._pairForce(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y, other.mass, other.charge, other.angVel, MAG_MOMENT_K * other.charge * other.angVel * otherRSq, INERTIA_K * other.mass * other.angVel * otherRSq, out);
                 }
             } else {
-                const avgVx = node.totalMass > 0 ? node.totalMomentumX / node.totalMass : 0;
-                const avgVy = node.totalMass > 0 ? node.totalMomentumY / node.totalMass : 0;
-                this._pairForce(particle, node.centerOfMass.x, node.centerOfMass.y, avgVx, avgVy, node.totalMass, node.totalCharge, 0, node.totalMagneticMoment, node.totalAngularMomentum, out);
+                const avgVx = pool.totalMass[nodeIdx] > 0 ? pool.totalMomentumX[nodeIdx] / pool.totalMass[nodeIdx] : 0;
+                const avgVy = pool.totalMass[nodeIdx] > 0 ? pool.totalMomentumY[nodeIdx] / pool.totalMass[nodeIdx] : 0;
+                this._pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, pool.totalMass[nodeIdx], pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out);
             }
-        } else if (node.divided) {
-            this.calculateForce(particle, node.northwest, theta, out);
-            this.calculateForce(particle, node.northeast, theta, out);
-            this.calculateForce(particle, node.southwest, theta, out);
-            this.calculateForce(particle, node.southeast, theta, out);
+        } else if (pool.divided[nodeIdx]) {
+            this.calculateForce(particle, pool, pool.nw[nodeIdx], theta, out);
+            this.calculateForce(particle, pool, pool.ne[nodeIdx], theta, out);
+            this.calculateForce(particle, pool, pool.sw[nodeIdx], theta, out);
+            this.calculateForce(particle, pool, pool.se[nodeIdx], theta, out);
         }
     }
 
@@ -828,12 +826,12 @@ export default class Physics {
      * When BH is on: traverses tree per-particle with BH_THETA, divides by 2.
      * When BH is off: exact pairwise i<j (no double-counting).
      */
-    computePE(particles, qt) {
+    computePE(particles, root) {
         let pe = 0;
 
-        if (this.barnesHutEnabled && qt) {
+        if (this.barnesHutEnabled && root >= 0) {
             for (const p of particles) {
-                pe += this._treePE(p, qt, BH_THETA);
+                pe += this._treePE(p, this.pool, root, BH_THETA);
             }
             pe *= 0.5; // Each pair counted from both sides
         } else {
@@ -853,19 +851,21 @@ export default class Physics {
         this.potentialEnergy = pe;
     }
 
-    _treePE(particle, node, theta) {
-        if (node.totalMass === 0) return 0;
+    _treePE(particle, pool, nodeIdx, theta) {
+        if (pool.totalMass[nodeIdx] === 0) return 0;
 
-        const dx = node.centerOfMass.x - particle.pos.x;
-        const dy = node.centerOfMass.y - particle.pos.y;
+        const dx = pool.comX[nodeIdx] - particle.pos.x;
+        const dy = pool.comY[nodeIdx] - particle.pos.y;
         const dSq = dx * dx + dy * dy;
         const d = Math.sqrt(dSq);
-        const size = node.boundary.w * 2;
+        const size = pool.bw[nodeIdx] * 2;
 
-        if ((!node.divided && node.points.length > 0) || (node.divided && (size / d < theta))) {
-            if (!node.divided) {
+        if ((!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) || (pool.divided[nodeIdx] && (size / d < theta))) {
+            if (!pool.divided[nodeIdx]) {
                 let pe = 0;
-                for (const other of node.points) {
+                const base = nodeIdx * pool.nodeCapacity;
+                for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
+                    const other = pool.points[base + i];
                     if (other === particle) continue;
                     const oRSq = other.radius * other.radius;
                     pe += this._pairPE(particle, other.pos.x, other.pos.y,
@@ -875,15 +875,15 @@ export default class Physics {
                 }
                 return pe;
             } else {
-                return this._pairPE(particle, node.centerOfMass.x, node.centerOfMass.y,
-                    node.totalMass, node.totalCharge, 0,
-                    node.totalMagneticMoment, node.totalAngularMomentum);
+                return this._pairPE(particle, pool.comX[nodeIdx], pool.comY[nodeIdx],
+                    pool.totalMass[nodeIdx], pool.totalCharge[nodeIdx], 0,
+                    pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx]);
             }
-        } else if (node.divided) {
-            return this._treePE(particle, node.northwest, theta)
-                + this._treePE(particle, node.northeast, theta)
-                + this._treePE(particle, node.southwest, theta)
-                + this._treePE(particle, node.southeast, theta);
+        } else if (pool.divided[nodeIdx]) {
+            return this._treePE(particle, pool, pool.nw[nodeIdx], theta)
+                + this._treePE(particle, pool, pool.ne[nodeIdx], theta)
+                + this._treePE(particle, pool, pool.sw[nodeIdx], theta)
+                + this._treePE(particle, pool, pool.se[nodeIdx], theta);
         }
         return 0;
     }
