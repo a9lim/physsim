@@ -29,6 +29,7 @@ export default class Physics {
         this.tidalEnabled = false;
         this.signalDelayEnabled = false;
         this.spinOrbitEnabled = false;
+        this.onePNEnabled = false;
 
         this.sim = null; // set externally by Simulation
         this.simTime = 0; // accumulated simulation time for history
@@ -45,6 +46,7 @@ export default class Physics {
             coulombEnabled: true,
             magneticEnabled: true,
             gravitomagEnabled: true,
+            onePNEnabled: false,
         };
     }
 
@@ -54,6 +56,7 @@ export default class Physics {
         this._toggles.coulombEnabled = this.coulombEnabled;
         this._toggles.magneticEnabled = this.magneticEnabled;
         this._toggles.gravitomagEnabled = this.gravitomagEnabled;
+        this._toggles.onePNEnabled = this.onePNEnabled;
     }
 
     update(particles, dt, collisionMode, boundaryMode, width, height, offX = 0, offY = 0) {

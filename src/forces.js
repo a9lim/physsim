@@ -16,6 +16,7 @@ export function resetForces(particles) {
         p.forceCoulomb.set(0, 0);
         p.forceMagnetic.set(0, 0);
         p.forceGravitomag.set(0, 0);
+        p.force1PN.set(0, 0);
         p.Bz = 0;
         p.Bgz = 0;
         p.dBzdx = 0;
