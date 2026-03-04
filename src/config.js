@@ -28,6 +28,9 @@ export const WHEEL_ZOOM_IN = 1.1;
 // Adaptive substepping
 export const MAX_SUBSTEPS = 16;
 
+// Fixed physics timestep (seconds, before speedScale)
+export const PHYSICS_DT = 1 / 120;
+
 // Simulation
 export const DEFAULT_SPEED_SCALE = 100;
 export const MAX_SPEED_RATIO = 0.99;

@@ -1,5 +1,6 @@
 // ─── UI Setup ───
 import { loadPreset } from './presets.js';
+import { PHYSICS_DT } from './config.js';
 
 const HINT_FADE_DELAY = 5000;
 
@@ -201,7 +202,7 @@ export function setupUI(sim) {
             const cam = sim.camera;
             const halfW = sim.width / (2 * cam.zoom);
             const halfH = sim.height / (2 * cam.zoom);
-            const dt = 0.1 * sim.speedScale;
+            const dt = PHYSICS_DT;
             sim.physics.update(sim.particles, dt, sim.collisionMode, sim.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
             sim.renderer.render(sim.particles, 0, cam, sim.photons);
         }
@@ -238,7 +239,7 @@ export function setupUI(sim) {
             const cam = sim.camera;
             const halfW = sim.width / (2 * cam.zoom);
             const halfH = sim.height / (2 * cam.zoom);
-            const dt = 0.1 * sim.speedScale;
+            const dt = PHYSICS_DT;
             sim.physics.update(sim.particles, dt, sim.collisionMode, sim.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
             sim.renderer.render(sim.particles, 0, cam, sim.photons);
         }

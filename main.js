@@ -6,7 +6,7 @@ import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
 import SankeyOverlay from './src/sankey.js';
 import { setupUI } from './src/ui.js';
-import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K, PHOTON_LIFETIME, FRAGMENT_COUNT } from './src/config.js';
+import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS } from './src/config.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
 import { computeEnergies } from './src/energy.js';
@@ -41,6 +41,7 @@ class Simulation {
 
         this.lastTime = 0;
         this.running = true;
+        this.accumulator = 0;
 
         this.dom = {
             speedInput: document.getElementById('speedInput'),
@@ -194,77 +195,79 @@ class Simulation {
     }
 
     loop(timestamp) {
-        const rawDt = (timestamp - this.lastTime) / 1000;
+        const rawDt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
         this.lastTime = timestamp;
 
-        const dt = Math.min(rawDt, 0.1) * this.speedScale;
-
-        const cam = this.camera;
-        const halfW = this.width / (2 * cam.zoom);
-        const halfH = this.height / (2 * cam.zoom);
-
         if (this.running) {
-            this.physics.update(this.particles, dt, this.collisionMode, this.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
+            this.accumulator += rawDt * this.speedScale;
+            const maxAccum = PHYSICS_DT * MAX_SUBSTEPS * 4;
+            if (this.accumulator > maxAccum) this.accumulator = maxAccum;
 
-            // Update photons
-            for (let i = this.photons.length - 1; i >= 0; i--) {
-                const ph = this.photons[i];
-                ph.update(dt);
+            const cam = this.camera;
+            const halfW = this.width / (2 * cam.zoom);
+            const halfH = this.height / (2 * cam.zoom);
 
-                // Radiation pressure: check collision with particles
-                if (this.physics.radiationEnabled) {
-                    for (const p of this.particles) {
-                        const dx = ph.pos.x - p.pos.x, dy = ph.pos.y - p.pos.y;
-                        const distSq = dx * dx + dy * dy;
-                        if (distSq < p.radius * p.radius) {
-                            // Absorb photon — transfer momentum E/c = E (natural units, c=1)
-                            const impulse = ph.energy / p.mass;
-                            p.w.x += ph.vel.x * impulse;
-                            p.w.y += ph.vel.y * impulse;
-                            ph.alive = false;
-                            // Subtract absorbed energy from radiated totals
-                            this.totalRadiated = Math.max(0, this.totalRadiated - ph.energy);
-                            this.totalRadiatedPx -= ph.vel.x * ph.energy;
-                            this.totalRadiatedPy -= ph.vel.y * ph.energy;
-                            break;
+            while (this.accumulator >= PHYSICS_DT) {
+                this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, halfW * 2, halfH * 2, cam.x - halfW, cam.y - halfH);
+
+                // Update photons (inside fixed step for time consistency)
+                for (let i = this.photons.length - 1; i >= 0; i--) {
+                    const ph = this.photons[i];
+                    ph.update(PHYSICS_DT);
+
+                    if (this.physics.radiationEnabled) {
+                        for (const p of this.particles) {
+                            const dx = ph.pos.x - p.pos.x, dy = ph.pos.y - p.pos.y;
+                            const distSq = dx * dx + dy * dy;
+                            if (distSq < p.radius * p.radius) {
+                                const impulse = ph.energy / p.mass;
+                                p.w.x += ph.vel.x * impulse;
+                                p.w.y += ph.vel.y * impulse;
+                                ph.alive = false;
+                                this.totalRadiated = Math.max(0, this.totalRadiated - ph.energy);
+                                this.totalRadiatedPx -= ph.vel.x * ph.energy;
+                                this.totalRadiatedPy -= ph.vel.y * ph.energy;
+                                break;
+                            }
                         }
+                    }
+
+                    if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
+                        this.photons.splice(i, 1);
                     }
                 }
 
-                if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
-                    this.photons.splice(i, 1);
+                // Tidal breakup (inside fixed step)
+                const toFragment = this.physics.checkTidalBreakup(this.particles);
+                for (const p of toFragment) {
+                    const idx = this.particles.indexOf(p);
+                    if (idx === -1) continue;
+                    this.particles.splice(idx, 1);
+
+                    const n = FRAGMENT_COUNT;
+                    const fragMass = p.mass / n;
+                    const fragCharge = p.charge / n;
+
+                    for (let i = 0; i < n; i++) {
+                        const angle = (2 * Math.PI * i) / n;
+                        const offset = p.radius * 1.5;
+                        const fx = p.pos.x + Math.cos(angle) * offset;
+                        const fy = p.pos.y + Math.sin(angle) * offset;
+                        const tangVx = -Math.sin(angle) * p.angVel * offset;
+                        const tangVy = Math.cos(angle) * p.angVel * offset;
+                        this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
+                            mass: fragMass, charge: fragCharge, spin: p.angw
+                        });
+                    }
                 }
-            }
 
-            // Tidal breakup (Roche limit)
-            const toFragment = this.physics.checkTidalBreakup(this.particles);
-            for (const p of toFragment) {
-                const idx = this.particles.indexOf(p);
-                if (idx === -1) continue;
-                this.particles.splice(idx, 1);
-
-                const n = FRAGMENT_COUNT;
-                const fragMass = p.mass / n;
-                const fragCharge = p.charge / n;
-
-                for (let i = 0; i < n; i++) {
-                    const angle = (2 * Math.PI * i) / n;
-                    const offset = p.radius * 1.5;
-                    const fx = p.pos.x + Math.cos(angle) * offset;
-                    const fy = p.pos.y + Math.sin(angle) * offset;
-                    // Each fragment gets parent velocity + tangential kick from spin
-                    const tangVx = -Math.sin(angle) * p.angVel * offset;
-                    const tangVy = Math.cos(angle) * p.angVel * offset;
-                    this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
-                        mass: fragMass, charge: fragCharge, spin: p.angw
-                    });
-                }
+                this.accumulator -= PHYSICS_DT;
             }
         }
 
         this.heatmap.update(this.particles, this.camera, this.width, this.height);
         this.phasePlot.update(this.particles, this.selectedParticle);
-        this.renderer.render(this.particles, dt, cam, this.photons);
+        this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);
         this.phasePlot.draw(this.renderer.isLight);
         this.sankey.draw(this.renderer.isLight);
         if (this.running) this.computeEnergy();
