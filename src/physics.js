@@ -916,7 +916,7 @@ export default class Physics {
             for (const other of particles) {
                 if (other === p) continue;
                 const dx = other.pos.x - p.pos.x, dy = other.pos.y - p.pos.y;
-                const distSq = dx * dx + dy * dy;
+                const distSq = dx * dx + dy * dy + SOFTENING_SQ;
                 const r = Math.sqrt(distSq);
                 const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius / (r * distSq);
                 if (tidalAccel > maxTidal) maxTidal = tidalAccel;
