@@ -8,33 +8,33 @@ Part of the **a9l.im** portfolio. See parent `site-meta/CLAUDE.md` for the share
 cd path/to/a9lim.github.io && python -m http.server
 ```
 
-Must serve from parent `a9lim.github.io/` directory — shared files (`/shared-base.css`, `/shared-tokens.js`, etc.) load via absolute paths. ES6 modules require HTTP server (no `file://`). No build step, test framework, or linter.
+Serve from the parent `a9lim.github.io/` directory — shared files (`/shared-base.css`, `/shared-tokens.js`, etc.) load via absolute paths. ES6 modules require HTTP (no `file://`). No build step, test framework, or linter.
 
 ## Module Graph
 
 ```
 main.js (Simulation class, window.sim)
-├── src/config.js          — named constants (BH_THETA, SOFTENING_SQ, PHYSICS_DT, INERTIA_K, MAG_MOMENT_K, LARMOR_K, etc.)
+├── src/config.js          — Named constants
 ├── src/relativity.js      — angwToAngVel, angVelToAngw, setVelocity
-├── src/topology.js        — TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
+├── src/topology.js        — TORUS/KLEIN/RP2, minImage(), wrapPosition()
 ├── src/energy.js          — computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field energy
-├── src/integrator.js      — Physics class: adaptive Boris substep loop, spin-orbit, frame-drag, radiation, tidal breakup
-│     ├── src/forces.js        — resetForces, computeAllForces, compute1PNPairwise, pairForce, calculateForce (BH walk)
-│     ├── src/collisions.js    — handleCollisions, resolveMerge, resolveBounce
-│     ├── src/potential.js     — computePE, treePE, pairPE
-│     ├── src/signal-delay.js  — getDelayedState, interpolateHistory (signal delay)
-│     ├── src/quadtree.js      — QuadTreePool: SoA pool-based Barnes-Hut quadtree (zero per-frame allocation)
-│     ├── src/topology.js      — topology-aware minimum-image separation and boundary wrapping
-│     └── src/photon.js        — radiation photon entity
+├── src/integrator.js      — Physics class: adaptive Boris substep loop
+│   ├── src/forces.js      — resetForces, computeAllForces, compute1PNPairwise, pairForce, calculateForce (BH walk)
+│   ├── src/collisions.js  — handleCollisions, resolveMerge, resolveBounce
+│   ├── src/potential.js   — computePE, treePE, pairPE
+│   ├── src/signal-delay.js— getDelayedState, interpolateHistory
+│   ├── src/topology.js    — (shared) minimum-image separation and boundary wrapping
+│   ├── src/quadtree.js    — QuadTreePool: SoA pool-based Barnes-Hut tree (zero per-frame alloc)
+│   └── src/photon.js      — Radiation photon entity
 ├── src/stats-display.js   — StatsDisplay: energy/momentum/drift DOM updates, selected particle info
-│     └── src/energy.js
-├── src/renderer.js        — Canvas 2D, trails, glow, force vectors, themes
-├── src/input.js           — mouse/touch, Place/Shoot/Orbit modes
-├── src/particle.js        — entity (pos, vel, w, angw, angVel, mass, charge, radius, force vectors)
-├── src/heatmap.js         — density heatmap
-├── src/phase-plot.js      — phase space plot (sidebar canvas)
-├── src/sankey.js          — energy breakdown bar chart (sidebar canvas)
-├── src/presets.js         — preset definitions
+│   └── src/energy.js
+├── src/renderer.js        — Canvas 2D, trails, glow, force/torque vectors, themes
+├── src/input.js           — Mouse/touch, Place/Shoot/Orbit modes
+├── src/particle.js        — Entity (pos, vel, w, angw, angVel, mass, charge, radius, per-type force vectors)
+├── src/heatmap.js         — Gravitational potential field overlay (48×48 grid, updates every 6 frames)
+├── src/phase-plot.js      — Phase space plot (sidebar canvas, selected particle)
+├── src/sankey.js          — Energy breakdown bar chart (sidebar canvas)
+├── src/presets.js         — Preset definitions (Solar System, Binary Star, Galaxy, Collision, Magnetic Spin)
 └── src/ui.js              — setupUI, event binding, info tips (infoData object)
 ```
 
@@ -42,148 +42,333 @@ Shared scripts loaded in `<head>` before modules: `/shared-tokens.js` → `/shar
 
 ## Physics Engine
 
+### Natural Units
+
+c = 1, G = 1 throughout. All velocities are fractions of c. All forces are dimensionless.
+
 ### State Variables
 
-Natural units: c = 1, G = 1. Both linear and rotational state use the same pattern:
+Both linear and rotational state use the same proper-velocity pattern:
 
-| State | Derived | Formula | Cap |
-|-------|---------|---------|-----|
-| `p.w` (proper velocity, γv) | `p.vel` | `v = w / √(1 + w²)` | |v| < c |
-| `p.angw` (angular celerity) | `p.angVel` | `ω = W / √(1 + W²r²)` | surface vel < c |
+| State variable | Derived | Formula | Cap |
+|---|---|---|---|
+| `p.w` (proper velocity, γv) | `p.vel` | **v** = **w** / √(1 + w²) | \|v\| < c |
+| `p.angw` (angular celerity) | `p.angVel` | ω = W / √(1 + W²r²) | surface vel < c |
 
-When relativity is off, derivation is identity (`v = w`, `angVel = angw`). Kicks use `Δw = F/m · Δt`. Particle radius = `cbrt(mass)` (ρ = 3/(4π)). `I = INERTIA_K·m·r²` (0.4, solid sphere). `μ = MAG_MOMENT_K·q·ω·r²` (0.2). `L = I·ω`.
+When relativity is off: `vel = w`, `angVel = angw` (identity).
 
-Per-particle display vectors: `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag`, `force1PN`, `forceSpinCurv`. All reset each substep; `forceSpinCurv` accumulates both Stern-Gerlach (`+μ·∇Bz`) and Mathisson-Papapetrou (`-L·∇Bgz`) contributions.
+Derived quantities from spin:
+- Moment of inertia: `I = INERTIA_K · m · r²` (0.4 = 2/5, solid sphere)
+- Magnetic moment: `μ = MAG_MOMENT_K · q · ω · r²` (0.2 = 1/5, uniform charge sphere)
+- Angular momentum: `L = I · ω`
+- Particle radius: `r = cbrt(mass)` (density ρ = 3/(4π))
 
-Per-particle torque display scalars: `torqueSpinOrbit` (EM + GM spin-orbit power, `dE/dt`), `torqueFrameDrag` (frame-drag torque). Both reset each substep. Rendered as circular arc arrows around particles when force components are visible — orange for spin-orbit, purple for frame-drag.
+### Per-Particle Force/Torque Display Vectors
+
+Each particle stores per-type force vectors for component visualization: `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag`, `force1PN`, `forceSpinCurv`, `forceRadiation`. All reset each substep. `forceSpinCurv` accumulates both Stern-Gerlach (+μ·∇Bz) and Mathisson-Papapetrou (−L·∇Bgz).
+
+Torque display scalars: `torqueSpinOrbit` (EM + GM spin-orbit power) and `torqueFrameDrag`. Rendered as circular arc arrows around particles — orange for spin-orbit, purple for frame-drag.
 
 ### Boris Integrator
 
-Per substep: half-kick(E) → Boris rotate(B) → half-kick(E) → drift → rebuild tree → collisions → new forces.
+Per substep:
 
-- **E-like forces** (position-dependent, stored in `p.force`): gravity, Coulomb, magnetic dipole, GM dipole
-- **B-like forces** (velocity-dependent, Boris rotation): Lorentz `p.Bz`, linear GM `p.Bgz`
-- Boris parameter: `t = ((q/(2m))·Bz + 2·Bgz)·dt/γ`, rotation `s = 2t/(1+t²)`
-- Per-type display vectors (`forceMagnetic`, `forceGravitomag`) include both E-like and B-like contributions; `p.force` contains only E-like
+1. Store `_f1pnOld` (if 1PN enabled)
+2. **Half-kick**: w += F/m · dt/2 (E-like forces only)
+3. **Boris rotation**: rotate w in combined Bz + Bgz plane
+   - `t = ((q/(2m))·Bz + 2·Bgz) · dt/γ`
+   - `s = 2t/(1+t²)`
+   - `w' = w + (w + w×t) × s` (preserves |v| exactly)
+4. **Half-kick**: w += F/m · dt/2
+5. Spin-orbit energy coupling
+6. Stern-Gerlach / Mathisson-Papapetrou center-of-mass kicks
+7. Frame-dragging torque
+8. Radiation reaction (Landau-Lifshitz)
+9. **Drift**: derive vel = w/√(1+w²), pos += vel · dt
+10. Record signal-delay history
+11. **1PN velocity-Verlet correction**: recompute 1PN at new positions, kick w += (F_new − F_old)·dt/(2m)
+12. Rebuild quadtree
+13. Handle collisions
+14. Photon absorption
+15. Compute forces for next substep
 
-### Force Types
+### Adaptive Substepping
 
-**Radial** (along separation):
-- **Gravity**: `+m₁m₂/r²` attractive
-- **Coulomb**: `-q₁q₂/r²` like-repels
-- **Magnetic dipole** (`magneticEnabled`): `-3μ₁μ₂/r⁴`, aligned ⊥-to-plane dipoles repel
-- **GM dipole** (`gravitomagEnabled`): `+3L₁L₂/r⁴`, co-rotating masses **attract** (GEM flips EM sign)
+- `dtSafe_accel = √(SOFTENING / a_max)`
+- `dtSafe_cyclotron = (2π / ω_c) / 8` where ω_c = max(|q·Bz/m|, 4·|Bgz|)
+- `dtSub = dtRemain / min(ceil(dtRemain / dtSafe), budget)`
+- Capped at MAX_SUBSTEPS = 16 per frame
 
-**Velocity-dependent** (Boris rotation, perpendicular to v):
-- **Lorentz** (`magneticEnabled`): `Bz = q_s·(v_s×r̂)_z/r²`. Also includes spin-sourced dipole Bz: `Bz_spin = +μ_source/r³`, gradient `+3μrx/r⁵`.
-- **Linear GM** (`gravitomagEnabled`): `Bgz = -m_s·(v_s×r̂)_z/r²` (sign from r̂ = source−observer convention), `t_gm = +2·Bgz·dt/γ`. Also accumulates `∇Bgz` for spin-orbit and frame-dragging torque. Also includes spin-sourced Bgz: `Bgz_spin = -2L_source/r³`, gradient `-6Lrx/r⁵`.
+### Fixed-Timestep Loop (main.js)
 
-**1PN Correction** (`onePNEnabled`, requires Gravity + Relativity): Einstein-Infeld-Hoffmann O(v²/c²) correction to gravity. Velocity-dependent terms produce perihelion precession (~6πM/a(1-e²) rad/orbit). Integrated with velocity-Verlet correction for second-order accuracy: pre-step force stored, recomputed after drift, correction kick `(F_new - F_old)·dt/2m` applied. Uses coordinate velocities per EIH formulation. `compute1PNPairwise()` helper for Verlet correction (always pairwise, even in BH mode).
+`PHYSICS_DT = 1/120`. Accumulator collects `rawDt × speedScale` per animation frame. Drained in fixed-step chunks, capped at `MAX_SUBSTEPS × PHYSICS_DT × 4`. Photon updates and tidal breakup inside the loop; energy/rendering/DOM outside.
 
-**Radiation** (`radiationEnabled`, requires Relativity): Landau-Lifshitz approximation. Larmor power P = 2q²a²/3. Force = `τ·(dF/dt - |F|²·v/m)` where `τ = 2q²/(3m)` (`LARMOR_K = 1/3`). Divided by γ³. Clamped by `LL_FORCE_CLAMP`. Photons spawned when `dE > RADIATION_THRESHOLD`, tracked in `sim.totalRadiated` and `sim.totalRadiatedPx/Py`.
+## Force Types
 
-**Signal Delay** (`signalDelayEnabled`, requires Relativity + BH off): Finite-speed force propagation via Newton-Raphson light-cone solve on per-particle history buffers (`HISTORY_SIZE`).
+### E-like Forces (radial, position-dependent)
 
-**Radiation pressure** (part of Radiation toggle): Photon absorption transfers momentum `p = E·dir` (c=1) to absorbing particles. O(P·logN) via quadtree query. Self-absorption guard: emitter skipped for 2 substeps. Energy/momentum bookkeeping corrected on absorption.
+All use Plummer softening: r_eff = √(r² + SOFTENING_SQ), where SOFTENING = 10.
 
-**Spin-orbit** (`spinOrbitEnabled` + Relativity): `dE = -μ·(v·∇Bz)·dt` for EM (requires `magneticEnabled`), same with `L` and `∇Bgz` for GM. Gradient `∇Bz` has radial (`+3·Bz·r̂/r²`) and angular (`+q_s·v_s⊥/r³`) terms. `∇Bgz` has radial (`+3·Bgz·r̂/r²`) and angular (`-m_s·v_s⊥/r³`) terms (signs match Bgz sign flip). Frame-dragging torque: `τ = FRAME_DRAG_K·m_s·(ω_s - ω_p)/r³`. Also applies Stern-Gerlach force `F = +μ·∇Bz` (EM) and Mathisson-Papapetrou force `F = -L·∇Bgz` (GM) as center-of-mass kicks from spin-curvature coupling. Both accumulate into `p.forceSpinCurv` display vector (yellow in force component visualization).
+**Gravity**: `F = +m₁m₂ / r²` (attractive)
+- PE: `U = −m₁m₂ / r`
 
-**Tidal breakup** (`tidalEnabled`): fragments when tidal (`M·r/d³`) + centrifugal (`ω²r`) + Coulomb self-repulsion (`q²/4r²`) > self-gravity (`m/r²`). Splits into `FRAGMENT_COUNT` (3) pieces.
+**Coulomb**: `F = −q₁q₂ / r²` (like-repels, opposite-attracts)
+- PE: `U = +q₁q₂ / r`
 
-### Sign Conventions (IMPORTANT)
+**Magnetic dipole** (requires Coulomb toggle): `F = −3μ₁μ₂ / r⁴` (aligned ⊥-to-plane dipoles repel)
+- μ = MAG_MOMENT_K · q · ω · r² = q·ω·r²/5
+- PE: `U = +μ₁μ₂ / r³`
+
+**GM dipole** (requires Gravity toggle): `F = +3L₁L₂ / r⁴` (co-rotating masses attract; GEM sign flip)
+- L = INERTIA_K · m · ω · r² = 2m·ω·r²/5
+- PE: `U = −L₁L₂ / r³`
+
+### B-like Forces (velocity-dependent, Boris rotation)
+
+**Lorentz** (requires Coulomb + Magnetic toggles):
+- Bz from moving charge: `q_s · (v_s × r̂)_z / r²`
+- Bz from spinning dipole: `+μ_source / r³`
+- Effect: `F = q(v × B)`, handled implicitly by Boris rotation
+
+**Linear gravitomagnetic** (requires Gravity + GM toggles):
+- Bgz from moving mass: `−m_s · (v_s × r̂)_z / r²`
+- Bgz from spinning mass: `−2L_source / r³`
+- Boris parameter: `t_gm = +2·Bgz·dt/γ` (positive → co-moving attract)
+- Display: `F_GM = (4m·vel.y·Bgz, −4m·vel.x·Bgz)`
+
+**Frame-dragging torque**: `τ = FRAME_DRAG_K · m_s · (ω_s − ω_p) / r³` = 0.1 · m_s · (ω_s − ω_p) / r³
+- Applied as `angw += τ · dt / I`; drives spin alignment
+
+### 1PN Correction (EIH)
+
+Requires Gravity + Relativity. O(v²/c²) correction to gravity using coordinate velocities.
+
+```
+radial  = −v₁² − 2v₂² + 4(v₁·v₂) + 1.5(n̂·v₂)² + 5m₁/r + 4m₂/r
+tangent = 4(n̂·v₁) − 3(n̂·v₂)
+a_1PN   = (m₂/r²) · [n̂ · radial + (v₁−v₂) · tangent]
+```
+
+Velocity-Verlet: stores `_f1pnOld` before drift, recomputes after drift, applies correction kick `(F_new − F_old)·dt/(2m)`. Always pairwise (even in BH mode). Produces perihelion precession ~6πM/a(1−e²) rad/orbit.
+
+1PN PE:
+```
+U_1PN = −(m₁m₂/r) · [1.5(v₁²+v₂²) − 3.5(v₁·v₂) − 0.5(v₁·n̂)(v₂·n̂) + m₁/r + m₂/r]
+```
+
+### Radiation
+
+Requires Relativity.
+
+**Larmor power**: P = 2q²a²/3
+
+**Landau-Lifshitz force** (jerk term only, no Schott damping):
+```
+F_rad = τ · (F − F_prev) / dt / γ³
+τ = 2q²/(3m)    (LARMOR_K = 1/3)
+```
+Clamped: |F_rad · dt/m| ≤ LL_FORCE_CLAMP · |w| = 0.5 · |w|
+
+**Photon emission**: Energy accumulated in `_radAccum` per particle. Emits when ≥ RADIATION_THRESHOLD (0.01) and pool < MAX_PHOTONS (500). Emission angle sampled from sin²θ dipole pattern with relativistic aberration. Photon travels at c = 1.
+
+**Photon absorption**: Quadtree query at photon position (radius SOFTENING). Self-absorption guard: emitter skipped for 2 substeps. On absorb: `target.w += ph.energy · ph.vel / target.mass`. Bookkeeping: totalRadiated decremented.
+
+### Signal Delay
+
+Requires Relativity + Barnes-Hut off (pairwise only).
+
+Light-cone equation: |x_source(t_ret) − x_obs(now)| = now − t_ret (c = 1).
+
+Newton-Raphson (3 iterations) on per-particle circular history buffers (Float64Array[HISTORY_SIZE=512] each for x, y, vx, vy, time). Linear interpolation at converged t_ret.
+
+Visual: ghost circles at oldest recorded position with dashed line to current.
+
+### Spin-Orbit Coupling
+
+Requires Relativity + relevant force toggle (Magnetic for EM, GM for gravitational).
+
+**Energy transfer**:
+- EM: `dE = −μ · (v · ∇Bz) · dt`
+- GM: `dE = −L · (v · ∇Bgz) · dt`
+- Applied as `angw += dE / (I · ω)`
+
+**Center-of-mass kicks** (spin-curvature forces):
+- Stern-Gerlach (EM): `F = +μ · ∇Bz`
+- Mathisson-Papapetrou (GM): `F = −L · ∇Bgz` (GEM sign flip)
+- Both accumulate into `p.forceSpinCurv`
+
+**Field gradients** (both radial + angular terms):
+- `∇Bz`: radial `+3·Bz·r̂/r²`, angular `+q_s·v_s⊥/r³`, dipole `+3μr̂/r⁵`
+- `∇Bgz`: radial `+3·Bgz·r̂/r²`, angular `−m_s·v_s⊥/r³`, dipole `−6Lr̂/r⁵`
+
+### Tidal Breakup
+
+Independent toggle. Fragments when any combination exceeds self-gravity:
+```
+tidal:       TIDAL_STRENGTH · M_other · r_body / r_sep³     (TIDAL_STRENGTH = 2.0)
+centrifugal: ω² · r
+coulomb:     q² / (4r²)
+self-grav:   m / r²
+```
+Splits into FRAGMENT_COUNT (3) pieces at 120° intervals, radius×1.5 from original. Each gets mass/3, charge/3, tangential velocity from spin. Min mass to fragment: MIN_FRAGMENT_MASS × FRAGMENT_COUNT = 6.
+
+## Sign Conventions (IMPORTANT)
 
 All GEM interactions are **attractive** (gravity has one sign of "charge"):
-- GM dipole coefficient `+3L₁L₂/r⁴` (positive = attractive)
-- GM Boris parameter `+2·Bgz` (co-moving masses attract)
-- Bgz field: `Bgz = -m_s·(v_s×r̂)_z/r²` (negative sign from r̂ = source−observer convention in `crossSV`)
+- GM dipole: `+3L₁L₂/r⁴` (positive = attractive)
+- GM Boris parameter: `+2·Bgz` (co-moving masses attract)
+- Bgz field: `−m_s·(v_s×r̂)_z/r²` (negative sign from r̂ = source→observer)
 
 Do NOT flip these signs.
 
-### Potential Energy
+## Potential Energy
 
-Computed separately from forces via `Physics.computePE()` using the same BH theta criterion (tree traversal when BH on, exact pairwise when off). Includes gravitational, Coulomb, magnetic dipole, and GM dipole PE. All use Plummer softening `rSq + SOFTENING_SQ`.
+Computed separately from forces via `Physics.computePE()`. Same BH theta criterion — tree traversal when BH on, exact pairwise when off. Four terms: gravitational (−m₁m₂/r), Coulomb (+q₁q₂/r), magnetic dipole (+μ₁μ₂/r³), GM dipole (−L₁L₂/r³). All Plummer-softened. 1PN PE when enabled.
 
-### Energy & Momentum (`src/energy.js`)
+## Energy & Momentum (`src/energy.js`)
 
 `computeEnergies()` returns: `linearKE`, `spinKE`, `pe`, `fieldEnergy`, `fieldPx/Py`, `px/py`, `orbitalAngMom`, `spinAngMom`.
 
-- **Spin KE**: relativistic `INERTIA_K·m·(√(1+W²r²)-1)`, classical `½Iω²`
-- **Field energy**: EM + gravitational Darwin Lagrangian O(v²/c²) corrections
-- **Momentum**: particle `Σ(mᵢwᵢ)` + Darwin field + `sim.totalRadiatedPx/Py`
-- **Angular momentum**: orbital `Σ(rᵢ×mᵢwᵢ)` + spin `Σ(IᵢWᵢ)` about COM
+| Quantity | Relativistic | Classical |
+|---|---|---|
+| Linear KE | Σ(γ−1)·m | Σ ½m\|v\|² |
+| Spin KE | Σ I·(√(1+W²r²)−1) / r² | Σ ½Iω² |
+| Momentum | Σ m·w + field + radiated | same |
+| Angular mom. | Σ(r×mw) + Σ(I·W) about COM | same |
 
-Conserved exactly with gravity+Coulomb only, pairwise mode (BH off). Velocity-dependent forces break Newton's 3rd law — missing momentum carried by fields not modeled.
+**Darwin field corrections** (O(v²/c²)):
+- EM field energy: `−½ Σ(qᵢqⱼ/r)·[(vᵢ·vⱼ) + (vᵢ·r̂)(vⱼ·r̂)]`
+- GM field energy: opposite sign (mass replaces charge)
+- Field momentum: analogous terms
 
-### Collisions
+Conservation: exact with gravity + Coulomb only, pairwise mode (BH off). Velocity-dependent forces break Newton's 3rd law — missing momentum carried by unmodeled fields.
 
-- **Pass**: no-op
-- **Merge**: conserves mass, charge, momentum, angular momentum. Orbital L about pair COM + spin L → merged `angw` via `I = (2/5)mr²`.
-- **Bounce**: elastic (relativistic: Lorentz boost to COM, classical: standard). Spin friction `Δω = J/I` where `I = INERTIA_K·m·r²`. Relativistic path converts through `angVelToAngw()`. Configurable friction via `Physics.bounceFriction` (0.4 default, sidebar slider).
+## Collisions (`src/collisions.js`)
 
-### Topology (`src/topology.js`)
+**Pass**: no-op.
 
-When boundary mode is "loop", a **topology selector** chooses the identification map for periodic wrapping:
+**Merge**: conserves mass, charge, momentum, angular momentum. Orbital L about pair COM + spin L → merged angw via I = 2mr²/5.
 
-- **Torus (T²)**: Both axes wrap normally. `(x,y) ~ (x+W,y)` and `(x,y) ~ (x,y+H)`. Standard periodic boundaries. 1 minimum-image candidate.
-- **Klein bottle (K)**: x wraps normally; y-wrap flips x. `(x,y) ~ (x+W,y)` and `(x,y) ~ (W−x,y+H)`. When crossing top/bottom, x-position mirrors and `w.x`, `vel.x`, `angw`, `angVel` negate. 2 minimum-image candidates.
-- **Real projective plane (RP²)**: Both axes wrap with perpendicular-coordinate flip. `(x,y) ~ (x+W,H−y)` and `(x,y) ~ (W−x,y+H)`. Both boundaries flip. 4 minimum-image candidates.
+**Bounce**: relativistic path Lorentz-boosts to COM frame along collision normal, reverses, boosts back. Tangential friction: `J = bounceFriction · (surfaceV₁ − surfaceV₂) · m_eff` where surfaceV = v_tangential + ω·r. Spin updated: `ω_new = ω_old − J/I`. Configurable friction (default 0.4).
 
-**`minImage(ox, oy, sx, sy, topology, W, H, halfW, halfH, out)`**: Computes minimum-image separation from observer to source. For Klein/RP², needs absolute positions (not just dx/dy) because glide reflections depend on source coordinates. Enumerates all candidate images, picks shortest. Zero-alloc via `out` parameter.
+## Topology (`src/topology.js`)
 
-**`wrapPosition(p, topology, W, H)`**: Wraps particle position into domain, applying velocity/spin flips for non-orientable crossings.
+When boundary = "loop", topology selector chooses identification:
 
-**Ghost generation** (`_generateGhosts` in integrator.js): Topology-aware. Torus: 8 neighbours, no flips. Klein: left/right normal, top/bottom flip x + `flipVx`. RP²: left/right flip y + `flipVy`, top/bottom flip x + `flipVx`. `_addGhost()` accepts `flipVx`/`flipVy` flags to negate velocity and spin on ghost particles.
+| Topology | Wrapping | min-image candidates |
+|---|---|---|
+| Torus (T²) | Both axes normal | 1 |
+| Klein (K) | x normal; y-wrap mirrors x, negates w.x/vel.x/angw/angVel | 2 |
+| RP² | x-wrap mirrors y; y-wrap mirrors x | 4 |
 
-**Threading**: `sim.topology` string ('torus'/'klein'/'rp2') → `physics._topologyConst` integer (TORUS=0/KLEIN=1/RP2=2). Passed through all force, PE, collision, signal-delay, and energy functions. All former inline min-image patterns (`if (dx > halfW) dx -= W`) replaced with `minImage()` calls.
+`minImage(ox, oy, sx, sy, topology, W, H, halfW, halfH, out)`: minimum-image separation. Klein/RP² need absolute positions (glide reflections depend on source coords). Zero-alloc via `out` parameter.
 
-### Barnes-Hut
+`wrapPosition(p, topology, W, H)`: wraps + applies velocity/spin flips for non-orientable crossings.
 
-Toggleable (`barnesHutEnabled`). QuadTreePool (SoA, pre-allocated, zero per-frame GC) aggregates mass, charge, angVel, magnetic moment, angular momentum, momentum, COM. `BH_THETA = 0.5`. When off: exact pairwise, better conservation. Adaptive substepping: `dtSafe = min(√(ε/a_max), T_cyclotron/8)`, `nSteps = min(ceil(dt/dtSafe), MAX_SUBSTEPS)`.
+**Ghost generation** (`_generateGhosts` in integrator.js): topology-aware. `_addGhost()` accepts `flipVx`/`flipVy` flags.
 
-### Fixed-Timestep Loop
+`sim.topology` string ('torus'/'klein'/'rp2') → `physics._topologyConst` integer (TORUS=0/KLEIN=1/RP2=2).
 
-`PHYSICS_DT = 1/120`. Accumulator in `main.js` collects `rawDt * speedScale` per frame. While loop drains in fixed-size `PHYSICS_DT` steps. Capped by `MAX_SUBSTEPS * PHYSICS_DT * 4`. Photon updates and tidal breakup inside the fixed-step loop; energy/rendering/DOM outside.
+## Barnes-Hut (`src/quadtree.js`)
+
+QuadTreePool: SoA flat typed arrays, pre-allocated 512 nodes (doubles on overflow). `pool.reset()` + `pool.build()` per substep, zero GC.
+
+Aggregates per node: totalMass, totalCharge, totalMagneticMoment, totalAngularMomentum, totalMomentumX/Y, comX/Y.
+
+BH_THETA = 0.5. Off by default — exact pairwise gives better conservation.
 
 ## Toggle Dependencies
 
 ```
-Gravity → Gravitomagnetic (sub-toggle)
-        → 1PN (sub-toggle, requires Gravity + Relativity)
-Coulomb → Magnetic (sub-toggle)
-Relativity → Radiation (sub-toggle, now includes photon absorption)
-            → Spin-Orbit (sub-toggle, now includes MP/SG force)
-Relativity + BH off → Signal Delay
-Tidal (independent)
+Gravity (red)
+├── Gravitomagnetic (purple)
+└── 1PN (rose)                  [also requires Relativity]
+
+Coulomb (blue)
+└── Magnetic (cyan)
+
+Relativity (yellow)
+├── Signal Delay (yellow)       [also requires BH off]
+├── Spin-Orbit (orange)
+└── Radiation (yellow)
+
+Tidal (slate)                   [independent]
 ```
 
-Disabled toggles get `.ctrl-disabled` (opacity 0.4, pointer-events none). Toggle colors: Gravity = red, GM = purple, Coulomb = blue, Magnetic = cyan, 1PN = rose, Spin-Orbit = orange, Relativity/Radiation/Signal Delay = yellow, Tidal = slate. Force arrow colors: gravity = red, GM = purple, Coulomb = blue, magnetic = cyan, 1PN = rose, spin-curvature = orange, radiation = yellow. Torque arc colors: spin-orbit = orange, frame-drag = purple. Torque arcs are circular arrows drawn at radii offset from the particle (spin-orbit inner, frame-drag outer); arc length scales with `|power|`, direction indicates CW/CCW.
+Disabled sub-toggles: `.ctrl-disabled` (opacity 0.4, pointer-events none). Toggle colors match force arrow colors: gravity=red, coulomb=blue, magnetic=cyan, GM=purple, 1PN=rose, spin-curvature=orange, radiation=yellow.
+
+Default on load: all on except Radiation, Tidal, Barnes-Hut.
 
 ## UI
 
-- **4-tab sidebar**: Settings (particle props, interaction mode, forces, physics), Engine (BH, collision, boundary, topology, visuals, speed), Stats (energy bar chart + numbers), Particle (selected particle details, phase plot)
-- **Topbar**: Presets | Pause/Step/Reset | Theme/Settings
-- **Preset dialog**: modal card grid, keyboard `P` or `1-5`
-- **Intro screen**: themed splash with shared CSS
-- **Theme**: `data-theme` on `<html>` (not body). Light default for FOUC prevention.
-- **Responsive**: 900px → bottom sheet + 48px toolbar; 600px/440px shared breakpoints
-- Phase plot and energy bar chart are always-on sidebar canvases (no toggle)
-- Icon swaps (pause/play, sun/moon): toggle `hidden` attribute, not innerHTML
+### 4-Tab Sidebar
+
+1. **Settings**: particle mass/charge/spin sliders, interaction mode (Place/Shoot/Orbit), force toggles, physics toggles
+2. **Engine**: Barnes-Hut, collision mode (Pass/Bounce/Merge), bounce friction slider, boundary mode (Despawn/Loop/Bounce), topology (Torus/Klein/RP²), visual toggles (trails, velocity/force/component vectors, potential field, acceleration scaling), sim speed
+3. **Stats**: energy breakdown (total, linear KE, spin KE, PE, field, radiated, drift), conserved quantities (momentum with particle/field/radiated, angular momentum with orbital/spin, drift)
+4. **Particle**: selected particle details (mass, charge, spin, speed, γ, |F|), phase space plot canvas
+
+### Topbar
+
+Presets (ghost button) | Pause / Step / Reset | Theme / Sidebar toggle
+
+### Presets
+
+| # | Name | Description |
+|---|---|---|
+| 1 | Solar System | Star (m=80) + 5 planets in circular orbits |
+| 2 | Binary Stars | Two m=50 stars, spin=0.8c, counter-orbiting |
+| 3 | Galaxy | Core (m=150) + 200 particles, circular orbits, random charge/spin |
+| 4 | Collision | Two groups of 50 particles heading at each other (v=±0.5) |
+| 5 | Magnetic Spin | 5×5 grid of charged spinning particles |
+
+### Keyboard Shortcuts
+
+Space (pause), R (reset), `.` (step), P (presets), 1–5 (load preset), V (velocity vectors), F (force vectors), C (force components), T (theme), S (sidebar), Esc (close dialogs), `?` (help overlay).
+
+### Responsive
+
+900px → bottom sheet + 48px toolbar. 600px/440px shared breakpoints from shared-base.css.
+
+## Renderer
+
+Canvas 2D. Dark mode uses additive blending (`globalCompositeOperation: 'lighter'`).
+
+- **Particles**: filled circle at r=cbrt(mass), glow shadow in dark mode
+- **Spin rings**: arc at radius+2, length ∝ |ω|, arrow shows CW/CCW, colored by spin sign
+- **Trails**: circular Float32Array buffer (MAX_TRAIL_LENGTH=200), 4 opacity groups, wrap-detection for periodic boundaries
+- **Force vectors**: scale=5 (÷mass if acceleration scaling on). Total (accent) or per-type components (colored by force type)
+- **Torque arcs**: spin-orbit (orange, inner), frame-drag (purple, outer), total (accent). Arc length ∝ |power|
+- **Photons**: yellow circles, size = 1.5 + energy×20 (cap 5px), glow in dark mode
+- **Signal delay ghosts**: 30% alpha circles at oldest history position, dashed line to current
+
+Particle color: neutral = `_PAL.neutral` (slate). Charged: hue from `chargePos` (201, blue) / `chargeNeg` (7, red), intensity from |q|/20.
+
+## Input (`src/input.js`)
+
+- **Left click** (< 5 world units drag): select particle or spawn at rest
+- **Left drag**: spawn with velocity (Shoot: drag×0.02) or at rest (Place/Orbit)
+- **Right click**: remove particle within radius+5
+- **Orbit mode**: finds particle with max gravitational force on spawn point, spawns perpendicular at v = √(M/r)
+- **Hover**: tooltip with m, q, spin, speed
+- **Touch**: single=spawn, two-finger=pinch-zoom + pan (300ms guard prevents spawn after pinch)
 
 ## Key Patterns
 
-- `Vec2` for all vector math. `vec.set(x,y)` in hot paths; `Vec2.add(a,b)` elsewhere.
-- Physics hot path: `pairForce()` in `forces.js` accumulates into `out` Vec2 parameter, no allocations. Toggle flags passed as reusable `_toggles` object (synced once per `update()`, not per-frame allocation).
-- QuadTreePool: SoA flat typed arrays, pre-allocated 512 nodes. `pool.reset()` + `pool.build()` per substep, zero GC.
-- DOM cached in `Simulation.dom` and `Simulation.selDom`. Shared by reference with `StatsDisplay`. No per-frame DOM queries.
-- `InputHandler` caches DOM refs and tracks mode state directly.
-- `window.sim` for console debugging. `window._PALETTE`/`window._FONT` frozen by `colors.js`.
-- Shortcuts via `initShortcuts()`: Space, R, `.`, P, 1-5, V, F, C, T, S, Esc, `?`.
-- Info tips via `createInfoTip()`: data defined in `infoData` object in `ui.js`.
-- Dark mode: additive blending (`globalCompositeOperation: 'lighter'`).
-- Particle color from charge hues (`chargePos=201`, `chargeNeg=7`, neutral from `extended.slate`).
+- `Vec2` for all vector math. `vec.set(x,y)` in hot paths.
+- `pairForce()`: accumulates into `out` Vec2 parameter, no allocations. Toggle flags via reusable `_toggles` object.
+- QuadTreePool: SoA, pre-allocated, `reset()`+`build()` per substep. Zero GC.
+- DOM cached in `Simulation.dom` and `Simulation.selDom`. Shared by reference with StatsDisplay.
+- `window.sim` for console debugging. `_PALETTE`/`_FONT` frozen by colors.js.
+- Dark mode: `globalCompositeOperation: 'lighter'` (additive blending).
+- Icon swaps (pause/play, sun/moon): toggle `hidden` attribute, not innerHTML.
+- Theme: `data-theme` on `<html>` (not body). Light default for FOUC prevention.
 
 ## Gotchas
 
 - Serve from `a9lim.github.io/` parent — `/shared-base.css` and `/shared-tokens.js` use absolute paths
 - `#preset-dialog` needs both ID and `class="preset-dialog"` (shared CSS uses class, JS uses ID)
 - `photon.js` is imported by `integrator.js` for radiation — not related to input modes
+- 1PN velocity-Verlet correction is always pairwise, even when BH is on
+- Radiation force uses jerk term only (no Schott damping term `−τF²v/m²`)
+- Shoot mode velocity scale is 0.02 (drag pixels × 0.02 = velocity)

@@ -29,11 +29,13 @@ export default class Renderer {
         this.ctx = ctx;
         this.width = width;
         this.height = height;
+        this.domainW = width;
+        this.domainH = height;
         this.trails = true;
         this.showVelocity = false;
         this.showForce = false;
         this.showForceComponents = false;
-        this.showSignalDelay = false;
+        this.showSignalDelay = true;
         this.accelScaling = false;
         this.isLight = false;
         this.trailHistory = new Map();
@@ -67,7 +69,7 @@ export default class Renderer {
 
         if (this.trails) {
             this.updateTrails(particles);
-            this.drawTrails(ctx, particles, isLight);
+            this.drawTrails(ctx, particles, isLight, camera);
         } else if (this.trailHistory.size > 0) {
             this.trailHistory.clear();
         }
@@ -141,9 +143,13 @@ export default class Renderer {
         }
     }
 
-    drawTrails(ctx, particles, isLight) {
+    drawTrails(ctx, particles, isLight, camera) {
         const alphaMax = isLight ? 0.7 : 0.9;
         ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
+
+        // Wrap-detection threshold: half the fixed domain
+        const wrapThreshX = this.domainW * 0.5;
+        const wrapThreshY = this.domainH * 0.5;
 
         for (const p of particles) {
             const trail = this.trailHistory.get(p.id);
@@ -166,10 +172,18 @@ export default class Renderer {
                 ctx.globalAlpha = ((midSeg + 1) / (segCount + 1)) * alphaMax;
                 ctx.beginPath();
                 const i0 = (trail.start + segStart * 2) % capacity;
-                ctx.moveTo(trail.data[i0], trail.data[i0 + 1]);
+                let prevX = trail.data[i0], prevY = trail.data[i0 + 1];
+                ctx.moveTo(prevX, prevY);
                 for (let s = segStart + 1; s <= segEnd; s++) {
                     const i = (trail.start + s * 2) % capacity;
-                    ctx.lineTo(trail.data[i], trail.data[i + 1]);
+                    const x = trail.data[i], y = trail.data[i + 1];
+                    if (Math.abs(x - prevX) > wrapThreshX || Math.abs(y - prevY) > wrapThreshY) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                    prevX = x;
+                    prevY = y;
                 }
                 ctx.stroke();
             }
@@ -217,14 +231,11 @@ export default class Renderer {
             const oldest = (p.histHead - p.histCount + HISTORY_SIZE) % HISTORY_SIZE;
             const gx = p.histX[oldest], gy = p.histY[oldest];
 
-            // Ghost circle
+            // Ghost circle (filled, transparency via globalAlpha)
             ctx.beginPath();
             ctx.arc(gx, gy, p.radius, 0, TWO_PI);
-            ctx.strokeStyle = p.color;
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 3]);
-            ctx.stroke();
-            ctx.setLineDash([]);
+            ctx.fillStyle = p.color;
+            ctx.fill();
 
             // Connecting line from ghost to current
             ctx.beginPath();

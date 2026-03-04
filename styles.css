@@ -113,9 +113,9 @@ body {
 .tog-gravitomag  { --tog-color: var(--ext-purple); }
 .tog-coulomb     { --tog-color: var(--ext-blue); }
 .tog-magnetic    { --tog-color: var(--ext-cyan); }
-.tog-relativity  { --tog-color: var(--ext-yellow); }
+.tog-relativity  { --tog-color: var(--ext-orange); }
 .tog-radiation   { --tog-color: var(--ext-yellow); }
-.tog-signaldelay { --tog-color: var(--ext-yellow); }
+.tog-signaldelay { --tog-color: var(--ext-orange); }
 .tog-spinorbit   { --tog-color: var(--ext-orange); }
 .tog-tidal       { --tog-color: var(--ext-slate); }
 .tog-onepn      { --tog-color: var(--ext-rose); }

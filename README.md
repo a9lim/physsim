@@ -1,86 +1,94 @@
 # No-Hair
 
-N-body simulation where particles interact through gravity, electromagnetism, and relativistic corrections. Boris integration, **Barnes-Hut** O(N log N) force calculation, radiation reaction, and signal delay.
+Relativistic N-body simulation with gravity, electromagnetism, and general-relativistic corrections. Particles have mass, charge, and spin; forces propagate at finite speed.
 
 **[Live Demo →](https://a9l.im/physsim)** · Part of the [a9l.im](https://a9l.im) portfolio
 
-## Features
+## Physics
 
-- **Relativistic mechanics** — Proper velocity `w = γv` as state variable; velocity derived via `v = w/√(1+w²)`, naturally enforcing the speed-of-light limit. Same pattern for spin: angular celerity caps surface velocity below *c*.
-- **Boris integrator** — Splits E-like (radial) and B-like (velocity-dependent) forces; Boris rotation exactly preserves |v| for long-term magnetic stability. Fixed-timestep accumulator (1/120s) decouples physics from frame rate.
-- **8 force types** — Gravity, Coulomb, magnetic dipole, gravitomagnetic dipole, Lorentz, linear gravitomagnetic (frame-dragging), Stern-Gerlach, and Mathisson-Papapetrou
-- **Larmor radiation** — Accelerating charges emit visible photons with orbital decay via Landau-Lifshitz force
-- **Signal delay** — Finite-speed force propagation via finite-speed force propagation (pairwise mode only)
-- **Spin-orbit coupling** — Energy transfer between translational and rotational KE via B-field gradients. Stern-Gerlach (F = μ·∇B) and Mathisson-Papapetrou (F = −L·∇Bg) spin-curvature forces kick the center of mass, visible as yellow arrows in force component view.
-- **Tidal breakup** — Roche limit fragmentation when tidal/centrifugal/Coulomb stress exceeds self-gravity
-- **Barnes-Hut** — Toggleable O(N log N) quadtree approximation vs exact O(N²) pairwise forces. Pool-based SoA quadtree eliminates per-frame GC pressure.
-- **Collisions** — Pass-through, elastic bounce with spin-friction transfer, or merge (conserves mass, charge, momentum, angular momentum)
-- **Topology** — Periodic boundaries support three topologies: flat torus (standard), Klein bottle (y-wrap flips x), and real projective plane (both axes flip). Topology-aware minimum-image separation, ghost generation, and boundary wrapping.
-- **5 presets** — Solar System, Binary Star, Galaxy, Collision, Magnetic Spin
-- **Real-time diagnostics** — Energy breakdown (KE, spin KE, PE, field, radiated), momentum (particle + field + radiated), angular momentum (orbital + spin), all with drift tracking
-- **Visuals** — Trails, force component vectors, charge-based coloring, spin rings, additive glow, light/dark theme
+Natural units throughout: *c* = 1, *G* = 1.
+
+**State variables** use proper velocity **w** = γ**v** (linear) and angular celerity *W* (rotational). Coordinate velocity **v** = **w**/√(1+w²) naturally enforces |**v**| < *c*. Surface speed is capped identically: ω = *W*/√(1+*W*²*r*²).
+
+### Forces
+
+| Force | Formula | Notes |
+|-------|---------|-------|
+| Gravity | *m*₁*m*₂/*r*² | Attractive, Plummer-softened |
+| Coulomb | −*q*₁*q*₂/*r*² | Like charges repel |
+| Magnetic dipole | −3μ₁μ₂/*r*⁴ | μ = *q*ω*r*²/5 (spinning charged sphere) |
+| Lorentz | *q*(**v** × **B**) | Boris rotation; *B* from moving charges + dipoles |
+| Gravitomagnetic dipole | +3*L*₁*L*₂/*r*⁴ | *L* = 2*m*ω*r*²/5; co-rotating masses attract |
+| Frame-dragging | 4*m*(**v** × **B**_g) | Boris rotation; **B**_g from moving/spinning masses |
+| 1PN (EIH) | O(*v*²/*c*²) correction | Perihelion precession ≈ 6π*M*/*a*(1−*e*²) rad/orbit |
+| Larmor radiation | τ·d**F**/d*t* / γ³ | τ = 2*q*²/(3*m*); Landau-Lifshitz jerk term |
+| Stern-Gerlach | +μ·∇*B* | Spin-curvature force on center of mass |
+| Mathisson-Papapetrou | −*L*·∇*B*_g | Gravitational spin-curvature force |
+
+### Additional effects
+
+- **Signal delay** — Forces use source positions from the light cone, solved via Newton-Raphson on per-particle history buffers. Pairwise mode only.
+- **Spin-orbit coupling** — Energy transfer between translational and rotational KE via field gradients.
+- **Tidal breakup** — Roche-limit fragmentation when tidal + centrifugal + Coulomb self-stress exceeds self-gravity.
+- **Radiation** — Accelerating charges emit photons (Larmor dipole pattern with relativistic aberration). Photons carry energy and momentum, and are absorbed on contact.
+
+### Integrator
+
+Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepping based on acceleration and cyclotron frequency, capped at 16 substeps per frame. 1PN uses a velocity-Verlet correction pass for second-order accuracy.
+
+### Algorithms
+
+- **Barnes-Hut** — Toggleable O(*N* log *N*) quadtree approximation. Pool-based SoA layout, zero per-frame allocation. When off, exact O(*N*²) pairwise forces preserve Newton's third law.
+- **Collisions** — Pass-through, elastic bounce (with configurable spin friction), or merge (conserves mass, charge, momentum, angular momentum).
+- **Boundaries** — Despawn, bounce, or periodic loop with topology selection: torus, Klein bottle, or real projective plane.
 
 ## Controls
 
 | Input | Action |
 |-------|--------|
-| Left click | Spawn particle (Place/Shoot/Orbit modes) |
+| Left click | Spawn (Place / Shoot / Orbit mode) |
 | Right click | Remove particle |
-| Scroll wheel | Zoom in/out |
-| `Space` | Pause/resume |
-| `P` / `1-5` | Open presets / load preset directly |
+| Scroll | Zoom |
+| `Space` | Pause / resume |
+| `P` / `1`–`5` | Presets |
 | `?` | Keyboard shortcut help |
 
 ## Running Locally
 
 ```bash
-# Serve from parent directory for shared design system files
+# Serve from parent — shared design files load via absolute paths
 cd path/to/a9lim.github.io && python -m http.server
-# Navigate to http://localhost:8000/physsim/
+# → http://localhost:8000/physsim/
 ```
 
-No build step, no dependencies. ES6 modules require an HTTP server (no `file://`).
+No build step, no dependencies. ES6 modules require HTTP (no `file://`).
 
 ## Architecture
 
 ```
-main.js                    — Simulation class (entry point)
-├── src/integrator.js      — Physics class: adaptive Boris substep loop, radiation, tidal breakup
-│     ├── src/forces.js        — force computation (pairwise + Barnes-Hut tree walk)
-│     ├── src/collisions.js    — collision resolution (merge, bounce)
-│     ├── src/potential.js     — potential energy computation
-│     ├── src/signal-delay.js  — signal delay (finite-speed force propagation)
-│     ├── src/topology.js      — topology constants, minimum-image separation, boundary wrapping
-│     ├── src/quadtree.js      — pool-based Barnes-Hut quadtree (zero per-frame GC)
-│     └── src/photon.js        — radiation photon entity
-├── src/stats-display.js   — energy/momentum/drift stats, selected particle info
-├── src/energy.js          — energy, momentum, angular momentum computation
-├── src/relativity.js      — proper velocity / angular celerity conversions
-├── src/renderer.js        — Canvas 2D drawing, trails, themes
-├── src/input.js           — mouse/touch interaction, particle spawning
-├── src/particle.js        — entity definition
+main.js                    — Simulation loop, window.sim
+├── src/integrator.js      — Boris substep loop, radiation, tidal breakup
+│   ├── src/forces.js      — Pairwise + Barnes-Hut force accumulation
+│   ├── src/collisions.js  — Merge, bounce, pass
+│   ├── src/potential.js   — PE computation (pairwise + tree)
+│   ├── src/signal-delay.js— Light-cone solve on history buffers
+│   ├── src/topology.js    — Torus / Klein / RP² minimum-image + wrapping
+│   ├── src/quadtree.js    — SoA pool-based Barnes-Hut tree
+│   └── src/photon.js      — Radiation photon entity
+├── src/energy.js          — KE, PE, field energy, momentum, angular momentum
+├── src/relativity.js      — Proper velocity ↔ coordinate velocity
+├── src/renderer.js        — Canvas 2D: particles, trails, forces, glow
+├── src/input.js           — Mouse / touch, spawn modes
+├── src/stats-display.js   — Sidebar energy / momentum / drift readout
+├── src/heatmap.js         — Gravitational potential field overlay
+├── src/phase-plot.js      — Phase space plot (selected particle)
+├── src/sankey.js          — Energy breakdown bar chart
+├── src/particle.js        — Entity definition
 ├── src/vec2.js            — 2D vector math
-├── src/heatmap.js         — density heatmap overlay
-├── src/phase-plot.js      — phase space visualization
-├── src/sankey.js          — energy breakdown bar chart
-├── src/presets.js         — preset scenario definitions
-├── src/config.js          — named constants
-└── src/ui.js              — DOM setup, event binding, info tips
+├── src/presets.js         — Scenario definitions
+├── src/config.js          — Named constants
+└── src/ui.js              — DOM setup, info tips, event binding
 ```
-
-### Technical Details
-
-Natural units (c = 1, G = 1) throughout. Adaptive substepping uses both acceleration (`√(ε/a_max)`) and cyclotron frequency (`T_cyclotron/8`) criteria, capped at 16 substeps. The Boris integrator sequence per substep:
-
-1. Half-kick: **w** += **F**_E/m · dt/2
-2. Boris rotation: rotate **w** in B+Bg field plane (preserves |**v**| exactly)
-3. Half-kick: **w** += **F**_E/m · dt/2
-4. Derive **v** = **w**/√(1+w²), drift **x** += **v**·dt
-5. Rebuild tree, handle collisions, recalculate forces
-
-Spin uses the same proper-velocity pattern — `angw` (angular celerity) derives `angVel = angw/√(1+angw²r²)` via `angwToAngVel()`, capping surface velocity at *c*. Determines magnetic moment (μ = ⅕qωr²) and angular momentum (L = ⅖mωr²).
-
-**Conservation note:** Velocity-dependent forces (Lorentz, linear gravitomagnetism) don't satisfy Newton's third law — the missing momentum is carried by fields not modeled here. Momentum and angular momentum are exactly conserved only with radial forces in pairwise mode (Barnes-Hut off).
 
 ## Sibling Projects
 
