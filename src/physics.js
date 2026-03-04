@@ -2,7 +2,7 @@ import Vec2 from './vec2.js';
 import QuadTree, { Rect } from './quadtree.js';
 import { BH_THETA, QUADTREE_CAPACITY, SOFTENING_SQ, SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, LL_FORCE_CLAMP, FRAME_DRAG_K, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, HISTORY_SIZE } from './config.js';
 import Photon from './photon.js';
-import { setVelocity, spinToAngVel } from './relativity.js';
+import { setVelocity, angwToAngVel, angVelToAngw } from './relativity.js';
 
 function setVelocityFromVel(p, vn, vt, nx, ny, tx, ty) {
     setVelocity(p, nx * vn + tx * vt, ny * vn + ty * vt);
@@ -22,7 +22,8 @@ export default class Physics {
         this.bounceFriction = 0.4;
         this.radiationEnabled = false;
         this.tidalEnabled = false;
-        this.retardedEnabled = false;
+        this.signalDelayEnabled = false;
+        this.spinOrbitEnabled = false;
 
         this.sim = null; // set externally by Simulation
         this.simTime = 0; // accumulated simulation time for history
@@ -57,7 +58,7 @@ export default class Physics {
         // First frame: compute initial forces + B fields if not yet done
         if (!this._forcesInit && n > 0) {
             for (const p of particles) {
-                p.angVel = relOn ? spinToAngVel(p.spin, p.radius) : p.spin;
+                p.angVel = relOn ? angwToAngVel(p.angw, p.radius) : p.angw;
             }
             this.potentialEnergy = 0;
             this._resetForces(particles);
@@ -125,7 +126,7 @@ export default class Physics {
             }
 
             // Spin-orbit coupling: dE_spin/dt = -μ · (v · ∇B_z)
-            if (hasMagnetic && relOn) {
+            if (hasMagnetic && relOn && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
@@ -135,16 +136,16 @@ export default class Physics {
                     const dEspin = -mu * vDotGradB * dtSub;
                     const I = INERTIA_K * p.mass * pRSq;
                     if (Math.abs(I * p.angVel) > 1e-10) {
-                        p.spin += dEspin / (I * p.angVel);
+                        p.angw += dEspin / (I * p.angVel);
                         // Re-derive angVel from spin
-                        const sr = p.spin * p.radius;
-                        p.angVel = p.spin / Math.sqrt(1 + sr * sr);
+                        const sr = p.angw * p.radius;
+                        p.angVel = p.angw / Math.sqrt(1 + sr * sr);
                     }
                 }
             }
 
             // GM Spin-orbit coupling: dE_spin/dt = -L · (v · ∇Bgz)
-            if (hasGM && relOn) {
+            if (hasGM && relOn && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10) continue;
@@ -154,9 +155,9 @@ export default class Physics {
                     const dEspin = -L * vDotGradBg * dtSub;
                     const I = INERTIA_K * p.mass * pRSq;
                     if (Math.abs(I * p.angVel) > 1e-10) {
-                        p.spin += dEspin / (I * p.angVel);
-                        const sr = p.spin * p.radius;
-                        p.angVel = p.spin / Math.sqrt(1 + sr * sr);
+                        p.angw += dEspin / (I * p.angVel);
+                        const sr = p.angw * p.radius;
+                        p.angVel = p.angw / Math.sqrt(1 + sr * sr);
                     }
                 }
             }
@@ -167,9 +168,9 @@ export default class Physics {
                     const p = particles[i];
                     if (!p._frameDragTorque) continue;
                     const I = INERTIA_K * p.mass * p.radius * p.radius;
-                    p.spin += p._frameDragTorque * dtSub / I;
-                    const sr = p.spin * p.radius;
-                    p.angVel = relOn ? p.spin / Math.sqrt(1 + sr * sr) : p.spin;
+                    p.angw += p._frameDragTorque * dtSub / I;
+                    const sr = p.angw * p.radius;
+                    p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
                 }
             }
 
@@ -245,15 +246,22 @@ export default class Physics {
                     const dE = Math.max(0, keBefore - keAfter);
                     this.sim.totalRadiated += dE;
 
-                    // Spawn photon if energy exceeds threshold
-                    if (dE > RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
+                    // Accumulate radiated momentum (deterministic anti-acceleration direction)
+                    if (dE > 0) {
                         const ax = p.force.x / p.mass, ay = p.force.y / p.mass;
-                        const angle = Math.atan2(ay, ax) + Math.PI + (Math.random() - 0.5) * 1.0;
-                        this.sim.photons.push(new Photon(
-                            p.pos.x, p.pos.y,
-                            Math.cos(angle), Math.sin(angle),
-                            dE
-                        ));
+                        const radAngle = Math.atan2(ay, ax) + Math.PI;
+                        this.sim.totalRadiatedPx += dE * Math.cos(radAngle);
+                        this.sim.totalRadiatedPy += dE * Math.sin(radAngle);
+
+                        // Spawn photon if energy exceeds threshold (visual with jitter)
+                        if (dE > RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
+                            const spawnAngle = radAngle + (Math.random() - 0.5) * 1.0;
+                            this.sim.photons.push(new Photon(
+                                p.pos.x, p.pos.y,
+                                Math.cos(spawnAngle), Math.sin(spawnAngle),
+                                dE
+                            ));
+                        }
                     }
 
                     // Store force for next step's jerk computation
@@ -268,12 +276,12 @@ export default class Physics {
                 const invG = relOn ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
                 p.vel.x = p.w.x * invG;
                 p.vel.y = p.w.y * invG;
-                p.angVel = relOn ? spinToAngVel(p.spin, p.radius) : p.spin;
+                p.angVel = relOn ? angwToAngVel(p.angw, p.radius) : p.angw;
                 p.pos.x += p.vel.x * dtSub;
                 p.pos.y += p.vel.y * dtSub;
 
-                // Record history for retarded potentials
-                if (this.retardedEnabled) {
+                // Record history for signal delay
+                if (this.signalDelayEnabled) {
                     const h = p.histHead;
                     p.histX[h] = p.pos.x;
                     p.histY[h] = p.pos.y;
@@ -379,7 +387,7 @@ export default class Physics {
                 this.calculateForce(p, qt, BH_THETA, p.force);
             }
         } else {
-            const useRetarded = this.retardedEnabled && this.relativityEnabled;
+            const useSignalDelay = this.signalDelayEnabled && this.relativityEnabled;
             for (let i = 0; i < particles.length; i++) {
                 const p = particles[i];
                 for (let j = 0; j < particles.length; j++) {
@@ -387,8 +395,8 @@ export default class Physics {
                     const o = particles[j];
 
                     let sx, sy, svx, svy, sAngVel;
-                    if (useRetarded && o.histCount >= 2) {
-                        const ret = this._getRetardedState(o, p);
+                    if (useSignalDelay && o.histCount >= 2) {
+                        const ret = this._getDelayedState(o, p);
                         if (ret) {
                             sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
                             sAngVel = o.angVel; // angular velocity not history-tracked
@@ -459,8 +467,8 @@ export default class Physics {
         const dx2 = p2.pos.x - newX, dy2 = p2.pos.y - newY;
         const Lorb = dx1 * (p1.mass * p1.w.y) - dy1 * (p1.mass * p1.w.x)
             + dx2 * (p2.mass * p2.w.y) - dy2 * (p2.mass * p2.w.x);
-        const Lspin = INERTIA_K * p1.mass * p1.radius * p1.radius * p1.spin
-            + INERTIA_K * p2.mass * p2.radius * p2.radius * p2.spin;
+        const Lspin = INERTIA_K * p1.mass * p1.radius * p1.radius * p1.angw
+            + INERTIA_K * p2.mass * p2.radius * p2.radius * p2.angw;
 
         p1.mass = totalMass;
         p1.charge = p1.charge + p2.charge;
@@ -469,8 +477,8 @@ export default class Physics {
         p1.updateColor(); // updates radius = cbrt(totalMass)
 
         const newI = INERTIA_K * totalMass * p1.radius * p1.radius;
-        p1.spin = (Lorb + Lspin) / newI;
-        p1.angVel = this.relativityEnabled ? spinToAngVel(p1.spin, p1.radius) : p1.spin;
+        p1.angw = (Lorb + Lspin) / newI;
+        p1.angVel = this.relativityEnabled ? angwToAngVel(p1.angw, p1.radius) : p1.angw;
 
         // Re-derive velocity from proper velocity
         const invG = this.relativityEnabled ? 1 / Math.sqrt(1 + p1.w.magSq()) : 1;
@@ -555,10 +563,10 @@ export default class Physics {
 
             // Spin friction: Δspin = J·r / I = J / (INERTIA_K·m·r)
             // Same sign for both — torque arms on opposite sides
-            p1.spin -= tangentialImpulse / (INERTIA_K * m1 * p1.radius);
-            p2.spin -= tangentialImpulse / (INERTIA_K * m2 * p2.radius);
-            p1.angVel = spinToAngVel(p1.spin, p1.radius);
-            p2.angVel = spinToAngVel(p2.spin, p2.radius);
+            p1.angw -= tangentialImpulse / (INERTIA_K * m1 * p1.radius);
+            p2.angw -= tangentialImpulse / (INERTIA_K * m2 * p2.radius);
+            p1.angVel = angwToAngVel(p1.angw, p1.radius);
+            p2.angVel = angwToAngVel(p2.angw, p2.radius);
 
             // Set proper velocity, derive coordinate velocity
             p1.w.set(nx * w1nFinal + tx * w1tFinal, ny * w1nFinal + ty * w1tFinal);
@@ -587,10 +595,10 @@ export default class Physics {
             const v1tFinal = v1t - tangentialImpulse / m1;
             const v2tFinal = v2t + tangentialImpulse / m2;
 
-            p1.spin -= tangentialImpulse / (INERTIA_K * m1 * p1.radius);
-            p2.spin -= tangentialImpulse / (INERTIA_K * m2 * p2.radius);
-            p1.angVel = p1.spin;
-            p2.angVel = p2.spin;
+            p1.angw -= tangentialImpulse / (INERTIA_K * m1 * p1.radius);
+            p2.angw -= tangentialImpulse / (INERTIA_K * m2 * p2.radius);
+            p1.angVel = p1.angw;
+            p2.angVel = p2.angw;
 
             setVelocityFromVel(p1, v1nFinal, v1tFinal, nx, ny, tx, ty);
             setVelocityFromVel(p2, v2nFinal, v2tFinal, nx, ny, tx, ty);
@@ -643,7 +651,7 @@ export default class Physics {
      * Instead, the B and Bg field z-components are accumulated on the particle for use
      * in the Boris rotation step, which handles these forces exactly.
      */
-    _pairForce(p, sx, sy, svx, svy, sMass, sCharge, sSpin, sMagMoment, sAngMomentum, out) {
+    _pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, out) {
         const rx = sx - p.pos.x;
         const ry = sy - p.pos.y;
         const rawRSq = rx * rx + ry * ry;
@@ -725,37 +733,37 @@ export default class Physics {
             p.dBgzdy += dBgzdr * ry * invR;
 
             // Frame-dragging torque: drives spins toward co-rotation
-            const torque = FRAME_DRAG_K * sMass * (sSpin - p.angVel) * invR * invRSq;
+            const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
             p._frameDragTorque = (p._frameDragTorque || 0) + torque;
         }
     }
 
-    // ─── Retarded Potentials ───
-    // Solve for retarded time t_ret such that |x_source(t_ret) - x_observer(now)| = c·(now - t_ret)
+    // ─── Signal Delay ───
+    // Solve for delayed time t_del such that |x_source(t_del) - x_observer(now)| = c·(now - t_del)
     // where c = 1 in natural units. Uses Newton-Raphson with 3 iterations.
-    _getRetardedState(source, observer) {
+    _getDelayedState(source, observer) {
         const now = this.simTime;
         const ox = observer.pos.x, oy = observer.pos.y;
 
-        // Initial guess: t_ret = now - |current separation|
+        // Initial guess: t_del = now - |current separation|
         const dx0 = source.pos.x - ox, dy0 = source.pos.y - oy;
-        let tRet = now - Math.sqrt(dx0 * dx0 + dy0 * dy0);
+        let tDel = now - Math.sqrt(dx0 * dx0 + dy0 * dy0);
 
         for (let iter = 0; iter < 3; iter++) {
-            const sp = this._interpolateHistory(source, tRet);
+            const sp = this._interpolateHistory(source, tDel);
             if (!sp) return null;
 
             const dx = sp.x - ox, dy = sp.y - oy;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const residual = dist - (now - tRet);
+            const residual = dist - (now - tDel);
             if (Math.abs(residual) < 0.01) break;
 
-            // Newton step: d(residual)/d(tRet) ≈ -(v·r̂)/r - 1
+            // Newton step: d(residual)/d(tDel) ≈ -(v·r̂)/r - 1
             const denom = 1 + (sp.vx * dx + sp.vy * dy) / (dist * dist + 1);
-            tRet += residual / denom;
+            tDel += residual / denom;
         }
 
-        return this._interpolateHistory(source, tRet);
+        return this._interpolateHistory(source, tDel);
     }
 
     // Interpolate position/velocity from circular history buffer at time t
