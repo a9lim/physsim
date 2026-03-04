@@ -332,7 +332,8 @@ export default class Physics {
         }
 
         // Step 8: Handle boundaries (once per frame, after all substeps)
-        for (let i = particles.length - 1; i >= 0; i--) {
+        let writeIdx = 0;
+        for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             const left = offX, top = offY;
             const right = offX + width, bottom = offY + height;
@@ -340,7 +341,7 @@ export default class Physics {
             if (boundaryMode === 'despawn') {
                 if (p.pos.x < left - DESPAWN_MARGIN || p.pos.x > right + DESPAWN_MARGIN ||
                     p.pos.y < top - DESPAWN_MARGIN || p.pos.y > bottom + DESPAWN_MARGIN) {
-                    particles.splice(i, 1);
+                    continue; // skip — don't copy to output
                 }
             } else if (boundaryMode === 'loop') {
                 if (p.pos.x < left) p.pos.x += width;
@@ -360,7 +361,10 @@ export default class Physics {
                     p.vel.y = p.w.y * invG;
                 }
             }
+
+            particles[writeIdx++] = p;
         }
+        particles.length = writeIdx;
     }
 
     _resetForces(particles) {
