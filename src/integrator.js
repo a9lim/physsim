@@ -96,35 +96,56 @@ export default class Physics {
         const hasMagnetic = this.magneticEnabled;
         const hasGM = this.gravitomagEnabled;
 
-        // ─── Determine substep count from max acceleration + cyclotron frequency ───
-        let maxAccelSq = 0;
-        let maxCyclotron = 0;
-        for (let i = 0; i < n; i++) {
-            const p = particles[i];
-            const aSq = p.force.magSq() / (p.mass * p.mass);
-            if (aSq > maxAccelSq) maxAccelSq = aSq;
-            // Cyclotron frequency: ω_c = |qBz/m| for EM, |4Bgz| for GM
-            if (hasMagnetic && Math.abs(p.Bz) > 0) {
-                const wc = Math.abs(p.charge * p.Bz / p.mass);
-                if (wc > maxCyclotron) maxCyclotron = wc;
-            }
-            if (hasGM && Math.abs(p.Bgz) > 0) {
-                const wc = 4 * Math.abs(p.Bgz);
-                if (wc > maxCyclotron) maxCyclotron = wc;
-            }
+        // Preliminary force pass when velocity-dependent forces are active.
+        // Ensures B fields reflect the current particle set (handles newly
+        // added particles whose Bz/Bgz would otherwise be stale/zero) so
+        // the adaptive substep count accounts for cyclotron frequencies.
+        if ((hasMagnetic || hasGM) && this._forcesInit) {
+            resetForces(particles);
+            const prelimRoot = this.barnesHutEnabled
+                ? this.pool.build(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h, particles)
+                : -1;
+            computeAllForces(particles, toggles, this.pool, prelimRoot, this.barnesHutEnabled, this.signalDelayEnabled, this.relativityEnabled, this.simTime);
         }
-        const aMax = Math.sqrt(maxAccelSq);
-        let dtSafe = aMax > 0 ? Math.sqrt(SOFTENING / aMax) : dt;
-        // Ensure at least 8 steps per cyclotron orbit
-        if (maxCyclotron > 0) {
-            const dtCyclotron = (2 * Math.PI / maxCyclotron) / 8;
-            if (dtCyclotron < dtSafe) dtSafe = dtCyclotron;
-        }
-        const nSteps = Math.min(Math.ceil(dt / dtSafe), MAX_SUBSTEPS);
-        const dtSub = dt / nSteps;
 
+        // ─── Adaptive substepping with per-step re-evaluation ───
+        // Instead of fixing nSteps up front, we consume `dtRemain` in steps
+        // whose size is re-evaluated after each force computation, so the
+        // substep count adapts to changing B fields (not just the initial ones).
+        let dtRemain = dt;
+        let totalSteps = 0;
         let lastRoot = -1;
-        for (let step = 0; step < nSteps; step++) {
+        while (dtRemain > 1e-15 && totalSteps < MAX_SUBSTEPS) {
+            // Compute dtSafe from current forces and B fields
+            let maxAccelSq = 0;
+            let maxCyclotron = 0;
+            for (let i = 0; i < n; i++) {
+                const p = particles[i];
+                const aSq = p.force.magSq() / (p.mass * p.mass);
+                if (aSq > maxAccelSq) maxAccelSq = aSq;
+                if (hasMagnetic && Math.abs(p.Bz) > 0) {
+                    const wc = Math.abs(p.charge * p.Bz / p.mass);
+                    if (wc > maxCyclotron) maxCyclotron = wc;
+                }
+                if (hasGM && Math.abs(p.Bgz) > 0) {
+                    const wc = 4 * Math.abs(p.Bgz);
+                    if (wc > maxCyclotron) maxCyclotron = wc;
+                }
+            }
+            const aMax = Math.sqrt(maxAccelSq);
+            let dtSafe = aMax > 0 ? Math.sqrt(SOFTENING / aMax) : dtRemain;
+            if (maxCyclotron > 0) {
+                const dtCyclotron = (2 * Math.PI / maxCyclotron) / 8;
+                if (dtCyclotron < dtSafe) dtSafe = dtCyclotron;
+            }
+            // Use the smaller of dtSafe and remaining time; if we'd overshoot,
+            // split remaining time evenly across the budget we have left.
+            const budgetLeft = MAX_SUBSTEPS - totalSteps;
+            const stepsNeeded = Math.min(Math.ceil(dtRemain / dtSafe), budgetLeft);
+            const dtSub = dtRemain / stepsNeeded;
+
+            totalSteps++;
+            dtRemain -= dtSub;
             // Step 1: Half-kick proper velocity with position-dependent (E-like) forces
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
@@ -202,6 +223,32 @@ export default class Physics {
                         const sr = p.angw * p.radius;
                         p.angVel = p.angw / Math.sqrt(1 + sr * sr);
                     }
+                }
+            }
+
+            // Stern-Gerlach / Mathisson-Papapetrou force: center-of-mass kick from
+            // spin-field gradient coupling. Uses the same gradients as spin-orbit
+            // but applies a translational force instead of a spin torque.
+            if (hasMagnetic && relOn && this.spinOrbitEnabled) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
+                    const pRSq = p.radius * p.radius;
+                    const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+                    // F_SG = +mu * grad(Bz)
+                    p.w.x += mu * p.dBzdx * dtSub / p.mass;
+                    p.w.y += mu * p.dBzdy * dtSub / p.mass;
+                }
+            }
+            if (hasGM && relOn && this.spinOrbitEnabled) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (Math.abs(p.angVel) < 1e-10) continue;
+                    const pRSq = p.radius * p.radius;
+                    const L = INERTIA_K * p.mass * p.angVel * pRSq;
+                    // F_MP = -L * grad(Bgz)  (GEM sign flip)
+                    p.w.x -= L * p.dBgzdx * dtSub / p.mass;
+                    p.w.y -= L * p.dBgzdy * dtSub / p.mass;
                 }
             }
 
