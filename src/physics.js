@@ -60,7 +60,6 @@ export default class Physics {
             for (const p of particles) {
                 p.angVel = relOn ? angwToAngVel(p.angw, p.radius) : p.angw;
             }
-            this.potentialEnergy = 0;
             this._resetForces(particles);
             this._computeAllForces(particles);
             this._forcesInit = true;
@@ -81,6 +80,7 @@ export default class Physics {
         const hasMagnetic = this.magneticEnabled;
         const hasGM = this.gravitomagEnabled;
 
+        let lastQt = null;
         for (let step = 0; step < nSteps; step++) {
             // Step 1: Half-kick proper velocity with position-dependent (E-like) forces
             for (let i = 0; i < n; i++) {
@@ -298,17 +298,20 @@ export default class Physics {
             const qt = new QuadTree(this.boundary, QUADTREE_CAPACITY);
             for (const p of particles) qt.insert(p);
             qt.calculateMassDistribution();
+            lastQt = qt;
 
             // Step 6: Handle collisions
             if (collisionMode !== 'pass') {
                 this.handleCollisions(particles, qt, collisionMode);
             }
 
-            // Step 7: Calculate new forces, B fields, and accumulate PE
-            this.potentialEnergy = 0;
+            // Step 7: Calculate new forces and B fields
             this._resetForces(particles);
             this._computeAllForces(particles, qt);
         }
+
+        // Compute PE (once per frame, using last substep's tree)
+        this.computePE(particles, lastQt);
 
         // Compute velocity-dependent forces for display only (after final substep).
         // These are applied via Boris rotation (not kicks), but we add them to the
@@ -561,10 +564,13 @@ export default class Physics {
             const w1tFinal = w1t - tangentialImpulse / m1;
             const w2tFinal = w2t + tangentialImpulse / m2;
 
-            // Spin friction: Δspin = J·r / I = J / (INERTIA_K·m·r)
-            // Same sign for both — torque arms on opposite sides
-            p1.angw -= tangentialImpulse / (INERTIA_K * m1 * p1.radius);
-            p2.angw -= tangentialImpulse / (INERTIA_K * m2 * p2.radius);
+            // Spin friction: compute new coordinate ω, then convert to angular celerity
+            const I1 = INERTIA_K * m1 * p1.radius * p1.radius;
+            const I2 = INERTIA_K * m2 * p2.radius * p2.radius;
+            const omega1New = p1.angVel - tangentialImpulse / I1;
+            const omega2New = p2.angVel - tangentialImpulse / I2;
+            p1.angw = angVelToAngw(omega1New, p1.radius);
+            p2.angw = angVelToAngw(omega2New, p2.radius);
             p1.angVel = angwToAngVel(p1.angw, p1.radius);
             p2.angVel = angwToAngVel(p2.angw, p2.radius);
 
@@ -595,8 +601,10 @@ export default class Physics {
             const v1tFinal = v1t - tangentialImpulse / m1;
             const v2tFinal = v2t + tangentialImpulse / m2;
 
-            p1.angw -= tangentialImpulse / (INERTIA_K * m1 * p1.radius);
-            p2.angw -= tangentialImpulse / (INERTIA_K * m2 * p2.radius);
+            const I1 = INERTIA_K * m1 * p1.radius * p1.radius;
+            const I2 = INERTIA_K * m2 * p2.radius * p2.radius;
+            p1.angw -= tangentialImpulse / I1;
+            p2.angw -= tangentialImpulse / I2;
             p1.angVel = p1.angw;
             p2.angVel = p2.angw;
 
@@ -676,8 +684,6 @@ export default class Physics {
             out.y += ry * fDir;
             p.forceGravity.x += rx * fDir;
             p.forceGravity.y += ry * fDir;
-            // Gravitational PE: -G*m1*m2/r (G=1)
-            this.potentialEnergy -= p.mass * sMass * invR * 0.5;
         }
 
         if (this.coulombEnabled) {
@@ -686,8 +692,6 @@ export default class Physics {
             out.y += ry * fDir;
             p.forceCoulomb.x += rx * fDir;
             p.forceCoulomb.y += ry * fDir;
-            // Coulomb PE: +k*q1*q2/r (k=1)
-            this.potentialEnergy += p.charge * sCharge * invR * 0.5;
         }
 
         if (this.magneticEnabled) {
@@ -697,8 +701,6 @@ export default class Physics {
             out.y += ry * fDir;
             p.forceMagnetic.x += rx * fDir;
             p.forceMagnetic.y += ry * fDir;
-            // Magnetic dipole PE: +(μ₁μ₂)/r³, aligned repels (F = -dU/dr = 3μ₁μ₂/r⁴)
-            this.potentialEnergy += (pMagMoment * sMagMoment) * invR * invRSq * 0.5;
 
             // Accumulate EM magnetic field Bz for Boris rotation (Lorentz force)
             // B_z = q_s * (v_s × r̂)_z / r³
@@ -719,8 +721,6 @@ export default class Physics {
             out.y += ry * fDir;
             p.forceGravitomag.x += rx * fDir;
             p.forceGravitomag.y += ry * fDir;
-            // Gravitomagnetic dipole PE: -(L₁·L₂)/r³, co-rotating attracts (F = -dU/dr = 3L₁L₂/r⁴)
-            this.potentialEnergy -= (pAngMomentum * sAngMomentum) * invR * invRSq * 0.5;
 
             // Accumulate GM field Bgz for Boris rotation (linear gravitomagnetism)
             // Bg_z = m_s * (v_s × r̂)_z / r³
@@ -799,6 +799,90 @@ export default class Physics {
             vx: p.histVx[lo] + frac * (p.histVx[hi] - p.histVx[lo]),
             vy: p.histVy[lo] + frac * (p.histVy[hi] - p.histVy[lo]),
         };
+    }
+
+    /**
+     * Compute potential energy using same tree/pairwise method as forces.
+     * When BH is on: traverses tree per-particle with BH_THETA, divides by 2.
+     * When BH is off: exact pairwise i<j (no double-counting).
+     */
+    computePE(particles, qt) {
+        let pe = 0;
+
+        if (this.barnesHutEnabled && qt) {
+            for (const p of particles) {
+                pe += this._treePE(p, qt, BH_THETA);
+            }
+            pe *= 0.5; // Each pair counted from both sides
+        } else {
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i];
+                for (let j = i + 1; j < particles.length; j++) {
+                    const o = particles[j];
+                    const oRSq = o.radius * o.radius;
+                    pe += this._pairPE(p, o.pos.x, o.pos.y,
+                        o.mass, o.charge, o.angVel,
+                        MAG_MOMENT_K * o.charge * o.angVel * oRSq,
+                        INERTIA_K * o.mass * o.angVel * oRSq);
+                }
+            }
+        }
+
+        this.potentialEnergy = pe;
+    }
+
+    _treePE(particle, node, theta) {
+        if (node.totalMass === 0) return 0;
+
+        const dx = node.centerOfMass.x - particle.pos.x;
+        const dy = node.centerOfMass.y - particle.pos.y;
+        const dSq = dx * dx + dy * dy;
+        const d = Math.sqrt(dSq);
+        const size = node.boundary.w * 2;
+
+        if ((!node.divided && node.points.length > 0) || (node.divided && (size / d < theta))) {
+            if (!node.divided) {
+                let pe = 0;
+                for (const other of node.points) {
+                    if (other === particle) continue;
+                    const oRSq = other.radius * other.radius;
+                    pe += this._pairPE(particle, other.pos.x, other.pos.y,
+                        other.mass, other.charge, other.angVel,
+                        MAG_MOMENT_K * other.charge * other.angVel * oRSq,
+                        INERTIA_K * other.mass * other.angVel * oRSq);
+                }
+                return pe;
+            } else {
+                return this._pairPE(particle, node.centerOfMass.x, node.centerOfMass.y,
+                    node.totalMass, node.totalCharge, 0,
+                    node.totalMagneticMoment, node.totalAngularMomentum);
+            }
+        } else if (node.divided) {
+            return this._treePE(particle, node.northwest, theta)
+                + this._treePE(particle, node.northeast, theta)
+                + this._treePE(particle, node.southwest, theta)
+                + this._treePE(particle, node.southeast, theta);
+        }
+        return 0;
+    }
+
+    _pairPE(p, sx, sy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum) {
+        const rx = sx - p.pos.x;
+        const ry = sy - p.pos.y;
+        const rSq = rx * rx + ry * ry + SOFTENING_SQ;
+        const r = Math.sqrt(rSq);
+        const invR = 1 / r;
+        const invRSq = 1 / rSq;
+        const pRSq = p.radius * p.radius;
+        const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+        const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
+
+        let pe = 0;
+        if (this.gravityEnabled)  pe -= p.mass * sMass * invR;
+        if (this.coulombEnabled)  pe += p.charge * sCharge * invR;
+        if (this.magneticEnabled) pe += (pMagMoment * sMagMoment) * invR * invRSq;
+        if (this.gravitomagEnabled) pe -= (pAngMomentum * sAngMomentum) * invR * invRSq;
+        return pe;
     }
 
     checkTidalBreakup(particles) {
