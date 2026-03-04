@@ -18,6 +18,7 @@ export default class Particle {
         this.forceMagnetic = new Vec2(0, 0);
         this.forceGravitomag = new Vec2(0, 0);
         this.force1PN = new Vec2(0, 0);
+        this._f1pnOld = { x: 0, y: 0 };
 
         this.mass = mass;
         this.charge = charge;

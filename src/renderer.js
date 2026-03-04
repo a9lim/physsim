@@ -11,7 +11,7 @@ const _forceCompColors = {
     coulomb:     { light: _r(_PAL.extended.blue, 0.7),   dark: _r(_PAL.extended.blue, 0.8) },
     magnetic:    { light: _r(_PAL.extended.cyan, 0.7),   dark: _r(_PAL.extended.cyan, 0.8) },
     gravitomag:  { light: _r(_PAL.extended.purple, 0.7), dark: _r(_PAL.extended.purple, 0.8) },
-    onepn:       { light: _r(_PAL.extended.yellow, 0.7), dark: _r(_PAL.extended.yellow, 0.8) },
+    onepn:       { light: _r(_PAL.extended.slate, 0.7),  dark: _r(_PAL.extended.slate, 0.8) },
 };
 
 // Precomputed spin ring colors: [hue][isLight ? 0 : 1]
