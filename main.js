@@ -163,7 +163,7 @@ class Simulation {
                 const dy = p.pos.y - comY;
                 // Orbital angular momentum: (r × p)_z about COM
                 orbitalAngMom += dx * (p.mass * p.w.y) - dy * (p.mass * p.w.x);
-                // Spin angular momentum: I * S = INERTIA_K * m * r² * spin
+                // Spin angular momentum: I * W = INERTIA_K * m * r² * angw
                 spinAngMom += INERTIA_K * p.mass * p.radius * p.radius * p.angw;
             }
         }
@@ -260,7 +260,7 @@ class Simulation {
         const baseSV = options.spin ?? 0;
         let sv = baseSV !== 0 ? baseSV + (Math.random() - 0.5) * baseSV * 0.2 : 0;
         sv = Math.max(-0.99, Math.min(0.99, sv));
-        // Convert surface velocity to proper angular velocity: spin = v_s / (r * √(1 - v_s²))
+        // Convert surface velocity to angular celerity: angw = v_s / (r * √(1 - v_s²))
         const absSV = Math.abs(sv);
         p.angw = absSV > 0 ? Math.sign(sv) * absSV / (p.radius * Math.sqrt(1 - absSV * absSV)) : 0;
 
