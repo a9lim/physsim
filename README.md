@@ -43,22 +43,27 @@ No build step, no dependencies. ES6 modules require an HTTP server (no `file://`
 ## Architecture
 
 ```
-main.js                — Simulation class (entry point)
-├── src/physics.js     — forces, Boris integration, collisions, PE
-│     ├── src/quadtree.js  — Barnes-Hut spatial partitioning
-│     └── src/vec2.js      — 2D vector math
-├── src/energy.js      — energy, momentum, angular momentum computation
-├── src/relativity.js  — proper velocity / angular celerity conversions
-├── src/renderer.js    — Canvas 2D drawing, trails, themes
-├── src/input.js       — mouse/touch interaction, particle spawning
-├── src/particle.js    — entity definition
-├── src/heatmap.js     — density heatmap overlay
-├── src/phase-plot.js  — phase space visualization
-├── src/sankey.js      — energy breakdown bar chart
-├── src/photon.js      — radiation photon entity
-├── src/presets.js     — preset scenario definitions
-├── src/config.js      — named constants
-└── src/ui.js          — DOM setup, event binding, info tips
+main.js                    — Simulation class (entry point)
+├── src/integrator.js      — Physics class: adaptive Boris substep loop, radiation, tidal breakup
+│     ├── src/forces.js        — force computation (pairwise + Barnes-Hut tree walk)
+│     ├── src/collisions.js    — collision resolution (merge, bounce)
+│     ├── src/potential.js     — potential energy computation
+│     ├── src/signal-delay.js  — retarded potentials (signal delay)
+│     ├── src/quadtree.js      — pool-based Barnes-Hut quadtree (zero per-frame GC)
+│     └── src/photon.js        — radiation photon entity
+├── src/stats-display.js   — energy/momentum/drift stats, selected particle info
+├── src/energy.js          — energy, momentum, angular momentum computation
+├── src/relativity.js      — proper velocity / angular celerity conversions
+├── src/renderer.js        — Canvas 2D drawing, trails, themes
+├── src/input.js           — mouse/touch interaction, particle spawning
+├── src/particle.js        — entity definition
+├── src/vec2.js            — 2D vector math
+├── src/heatmap.js         — density heatmap overlay
+├── src/phase-plot.js      — phase space visualization
+├── src/sankey.js          — energy breakdown bar chart
+├── src/presets.js         — preset scenario definitions
+├── src/config.js          — named constants
+└── src/ui.js              — DOM setup, event binding, info tips
 ```
 
 ### Technical Details
