@@ -137,7 +137,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p.forceCoulomb.y += ry * fDir;
     }
 
-    if (toggles.onePNEnabled) {
+    if (toggles.onePNEnabled && toggles.gravityEnabled) {
         // 1PN Einstein-Infeld-Hoffmann correction (natural units, G=c=1)
         // Uses coordinate velocities (not proper velocity) per EIH formulation
         const pvx = p.vel.x, pvy = p.vel.y;

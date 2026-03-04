@@ -154,7 +154,6 @@ export default class Physics {
             if (has1PN) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
-                    if (!p._f1pnOld) p._f1pnOld = { x: 0, y: 0 };
                     p._f1pnOld.x = p.force1PN.x;
                     p._f1pnOld.y = p.force1PN.y;
                 }
