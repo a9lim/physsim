@@ -7,13 +7,13 @@ Interactive physics simulation modeling gravity, electromagnetism, magnetic dipo
 ## Features
 
 - **Relativistic mechanics** — Proper velocity `w = γv` as state variable; velocity derived via `v = w/√(1+w²)`, naturally enforcing the speed-of-light limit. Same pattern for spin: angular celerity caps surface velocity below *c*.
-- **Boris integrator** — Splits E-like (radial) and B-like (velocity-dependent) forces; Boris rotation exactly preserves |v| for long-term magnetic stability
+- **Boris integrator** — Splits E-like (radial) and B-like (velocity-dependent) forces; Boris rotation exactly preserves |v| for long-term magnetic stability. Fixed-timestep accumulator (1/120s) decouples physics from frame rate.
 - **6 force types** — Gravity, Coulomb, magnetic dipole, gravitomagnetic dipole, Lorentz, and linear gravitomagnetic (frame-dragging)
 - **Larmor radiation** — Accelerating charges emit visible photons with orbital decay via Landau-Lifshitz force
 - **Signal delay** — Finite-speed force propagation via retarded potentials (pairwise mode only)
 - **Spin-orbit coupling** — Energy transfer between translational and rotational KE via B-field gradients
 - **Tidal breakup** — Roche limit fragmentation when tidal/centrifugal/Coulomb stress exceeds self-gravity
-- **Barnes-Hut** — Toggleable O(N log N) quadtree approximation vs exact O(N²) pairwise forces
+- **Barnes-Hut** — Toggleable O(N log N) quadtree approximation vs exact O(N²) pairwise forces. Pool-based SoA quadtree eliminates per-frame GC pressure.
 - **Collisions** — Pass-through, elastic bounce with spin-friction transfer, or merge (conserves mass, charge, momentum, angular momentum)
 - **5 presets** — Solar System, Binary Star, Galaxy, Collision, Magnetic Spin
 - **Real-time diagnostics** — Energy breakdown (KE, spin KE, PE, field, radiated), momentum (particle + field + radiated), angular momentum (orbital + spin), all with drift tracking
@@ -68,7 +68,7 @@ main.js                    — Simulation class (entry point)
 
 ### Technical Details
 
-Natural units (c = 1, G = 1) throughout. The Boris integrator sequence per substep:
+Natural units (c = 1, G = 1) throughout. Adaptive substepping uses both acceleration (`√(ε/a_max)`) and cyclotron frequency (`T_cyclotron/8`) criteria, capped at 16 substeps. The Boris integrator sequence per substep:
 
 1. Half-kick: **w** += **F**_E/m · dt/2
 2. Boris rotation: rotate **w** in B+Bg field plane (preserves |**v**| exactly)
