@@ -8,7 +8,7 @@ import SankeyOverlay from './src/sankey.js';
 import { setupUI } from './src/ui.js';
 import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, INERTIA_K, SOFTENING_SQ, PHOTON_LIFETIME, FRAGMENT_COUNT } from './src/config.js';
 
-import { setVelocity, spinToAngVel } from './src/relativity.js';
+import { setVelocity, angwToAngVel } from './src/relativity.js';
 
 class Simulation {
     constructor() {
@@ -40,13 +40,8 @@ class Simulation {
 
         this.lastTime = 0;
         this.running = true;
-        this.frameCount = 0;
-        this.lastFpsTime = 0;
 
         this.dom = {
-            particleCount: document.getElementById('particleCount'),
-            fpsCounter: document.getElementById('fpsCounter'),
-            simSpeed: document.getElementById('simSpeed'),
             speedInput: document.getElementById('speedInput'),
             linearKE: document.getElementById('linearKE'),
             spinKE: document.getElementById('spinKE'),
@@ -56,6 +51,8 @@ class Simulation {
             fieldE: document.getElementById('fieldE'),
             radiatedE: document.getElementById('radiatedE'),
             momentum: document.getElementById('momentum'),
+            fieldMom: document.getElementById('fieldMom'),
+            radiatedMom: document.getElementById('radiatedMom'),
             momentumDrift: document.getElementById('momentumDrift'),
             angularMomentum: document.getElementById('angularMomentum'),
             orbitalAngMom: document.getElementById('orbitalAngMom'),
@@ -72,11 +69,15 @@ class Simulation {
         this.selectedParticle = null;
         this.photons = [];
         this.totalRadiated = 0;
+        this.totalRadiatedPx = 0;
+        this.totalRadiatedPy = 0;
         this.physics.sim = this; // give physics access to photon array
 
         // Selected particle DOM refs
         this.selDom = {
-            section: document.getElementById('selected-particle-section'),
+            details: document.getElementById('particle-details'),
+            hint: document.getElementById('particle-hint'),
+            phaseSection: document.getElementById('phase-plot-section'),
             id: document.getElementById('sel-id'),
             mass: document.getElementById('sel-mass'),
             charge: document.getElementById('sel-charge'),
@@ -85,6 +86,10 @@ class Simulation {
             gamma: document.getElementById('sel-gamma'),
             force: document.getElementById('sel-force'),
         };
+
+        // Mount visualization canvases into sidebar containers
+        document.getElementById('phase-plot-container').appendChild(this.phasePlot.canvas);
+        document.getElementById('energy-bars-container').appendChild(this.sankey.canvas);
 
         this.init();
     }
@@ -127,7 +132,7 @@ class Simulation {
                 const gamma = Math.sqrt(1 + p.w.magSq());
                 linearKE += (gamma - 1) * p.mass;
                 // Relativistic spin KE: E = m·(√(1 + L²/m²) - 1), L = I·S
-                const L = INERTIA_K * p.mass * rSq * p.spin;
+                const L = INERTIA_K * p.mass * rSq * p.angw;
                 spinKE += (Math.sqrt(1 + L * L / (p.mass * p.mass)) - 1) * p.mass;
             } else {
                 const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
@@ -146,9 +151,6 @@ class Simulation {
             comY += p.mass * p.pos.y;
         }
 
-        // Momentum magnitude
-        const pMag = Math.sqrt(px * px + py * py);
-
         // Second pass: orbital + spin angular momentum about COM
         let orbitalAngMom = 0;
         let spinAngMom = 0;
@@ -162,16 +164,18 @@ class Simulation {
                 // Orbital angular momentum: (r × p)_z about COM
                 orbitalAngMom += dx * (p.mass * p.w.y) - dy * (p.mass * p.w.x);
                 // Spin angular momentum: I * S = INERTIA_K * m * r² * spin
-                spinAngMom += INERTIA_K * p.mass * p.radius * p.radius * p.spin;
+                spinAngMom += INERTIA_K * p.mass * p.radius * p.radius * p.angw;
             }
         }
 
         const angMom = orbitalAngMom + spinAngMom;
         const pe = this.physics.potentialEnergy;
 
-        // Darwin Lagrangian O(v²/c²) correction for velocity-dependent field energy
+        // Darwin Lagrangian O(v²/c²) correction for velocity-dependent field energy and momentum
         // U_Darwin = -(1/2) Σ_{i<j} (q_i·q_j / r_ij) × [(v_i·v_j) + (v_i·r̂)(v_j·r̂)]
+        // p_field = Σ_{i<j} (q_i·q_j/(2r)) × [(v_i+v_j) + r̂·(r̂·(v_i+v_j))]
         let fieldEnergy = 0;
+        let fieldPx = 0, fieldPy = 0;
         if (this.physics.coulombEnabled) {
             const n = this.particles.length;
             for (let i = 0; i < n; i++) {
@@ -186,10 +190,22 @@ class Simulation {
                     const viDotVj = pi.vel.x * pj.vel.x + pi.vel.y * pj.vel.y;
                     const viDotR = pi.vel.x * rx + pi.vel.y * ry;
                     const vjDotR = pj.vel.x * rx + pj.vel.y * ry;
-                    fieldEnergy -= 0.5 * pi.charge * pj.charge * invR * (viDotVj + viDotR * vjDotR);
+                    const qqInvR = pi.charge * pj.charge * invR;
+                    fieldEnergy -= 0.5 * qqInvR * (viDotVj + viDotR * vjDotR);
+                    // Field momentum
+                    const coeff = qqInvR * 0.5;
+                    const svx = pi.vel.x + pj.vel.x, svy = pi.vel.y + pj.vel.y;
+                    const svDotR = svx * rx + svy * ry;
+                    fieldPx += coeff * (svx + rx * svDotR);
+                    fieldPy += coeff * (svy + ry * svDotR);
                 }
             }
         }
+
+        // Total momentum = particle + field + radiated (vector sum)
+        const totalPx = px + fieldPx + this.totalRadiatedPx;
+        const totalPy = py + fieldPy + this.totalRadiatedPy;
+        const pMag = Math.sqrt(totalPx * totalPx + totalPy * totalPy);
 
         const total = linearKE + spinKE + pe + fieldEnergy + this.totalRadiated;
 
@@ -222,6 +238,8 @@ class Simulation {
         this.dom.radiatedE.textContent = fmt(this.totalRadiated);
         this.sankey.update(linearKE, spinKE, pe, fieldEnergy, this.totalRadiated);
         this.dom.momentum.textContent = fmt(pMag);
+        this.dom.fieldMom.textContent = fmt(Math.sqrt(fieldPx * fieldPx + fieldPy * fieldPy));
+        this.dom.radiatedMom.textContent = fmt(Math.sqrt(this.totalRadiatedPx * this.totalRadiatedPx + this.totalRadiatedPy * this.totalRadiatedPy));
         this.dom.momentumDrift.textContent = fmtDrift(pDrift);
         this.dom.angularMomentum.textContent = fmt(angMom);
         this.dom.orbitalAngMom.textContent = fmt(orbitalAngMom);
@@ -244,11 +262,11 @@ class Simulation {
         sv = Math.max(-0.99, Math.min(0.99, sv));
         // Convert surface velocity to proper angular velocity: spin = v_s / (r * √(1 - v_s²))
         const absSV = Math.abs(sv);
-        p.spin = absSV > 0 ? Math.sign(sv) * absSV / (p.radius * Math.sqrt(1 - absSV * absSV)) : 0;
+        p.angw = absSV > 0 ? Math.sign(sv) * absSV / (p.radius * Math.sqrt(1 - absSV * absSV)) : 0;
 
         p.updateColor();
         setVelocity(p, vx, vy);
-        p.angVel = this.physics.relativityEnabled ? spinToAngVel(p.spin, p.radius) : p.spin;
+        p.angVel = this.physics.relativityEnabled ? angwToAngVel(p.angw, p.radius) : p.angw;
         this.particles.push(p);
         this.initialEnergy = null;
         this.initialMomentum = null;
@@ -315,7 +333,7 @@ class Simulation {
                     const tangVx = -Math.sin(angle) * p.angVel * offset;
                     const tangVy = Math.cos(angle) * p.angVel * offset;
                     this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
-                        mass: fragMass, charge: fragCharge, spin: p.spin
+                        mass: fragMass, charge: fragCharge, spin: p.angw
                     });
                 }
             }
@@ -324,11 +342,9 @@ class Simulation {
         this.heatmap.update(this.particles, this.camera, this.width, this.height);
         this.phasePlot.update(this.particles, this.selectedParticle);
         this.renderer.render(this.particles, dt, cam, this.photons);
-        // Phase plot draws in screen space (after main render resets transform)
-        this.phasePlot.draw(this.ctx, this.width, this.height, this.renderer.isLight);
-        this.sankey.draw(this.ctx, this.width, this.height, this.renderer.isLight);
+        this.phasePlot.draw(this.renderer.isLight);
+        this.sankey.draw(this.renderer.isLight);
         if (this.running) this.computeEnergy();
-        this.updateStats();
         this.updateSelectedParticle();
 
         requestAnimationFrame((t) => this.loop(t));
@@ -344,11 +360,15 @@ class Simulation {
         }
 
         if (!this.selectedParticle) {
-            dom.section.hidden = true;
+            dom.details.hidden = true;
+            dom.hint.hidden = false;
+            dom.phaseSection.hidden = true;
             return;
         }
 
-        dom.section.hidden = false;
+        dom.details.hidden = false;
+        dom.hint.hidden = true;
+        dom.phaseSection.hidden = false;
         const fmt = (v) => Math.abs(v) < 0.01 ? '0' : Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(2);
         const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
         const gamma = this.physics.relativityEnabled
@@ -369,18 +389,6 @@ class Simulation {
         dom.force.textContent = fmt(forceMag);
     }
 
-    updateStats() {
-        this.dom.particleCount.textContent = this.particles.length;
-
-        this.frameCount++;
-        const now = performance.now();
-        if (now - this.lastFpsTime >= 1000) {
-            this.dom.fpsCounter.textContent = this.frameCount;
-            this.dom.simSpeed.textContent = this.speedScale + 'x';
-            this.frameCount = 0;
-            this.lastFpsTime = now;
-        }
-    }
 }
 
 window.sim = new Simulation();
