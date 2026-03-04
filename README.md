@@ -7,13 +7,13 @@ Interactive physics simulation modeling gravity, electromagnetism, magnetic dipo
 ## Features
 
 - **Relativistic mechanics** — Proper velocity `w = γv` as state variable; velocity derived via `v = w/√(1+w²)`, naturally enforcing the speed-of-light limit. Same pattern for spin: angular celerity caps surface velocity below *c*.
-- **Boris integrator** — Splits E-like (radial) and B-like (velocity-dependent) forces; Boris rotation exactly preserves |v| for long-term magnetic stability
+- **Boris integrator** — Splits E-like (radial) and B-like (velocity-dependent) forces; Boris rotation exactly preserves |v| for long-term magnetic stability. Fixed-timestep accumulator (1/120s) decouples physics from frame rate.
 - **6 force types** — Gravity, Coulomb, magnetic dipole, gravitomagnetic dipole, Lorentz, and linear gravitomagnetic (frame-dragging)
 - **Larmor radiation** — Accelerating charges emit visible photons with orbital decay via Landau-Lifshitz force
 - **Signal delay** — Finite-speed force propagation via retarded potentials (pairwise mode only)
 - **Spin-orbit coupling** — Energy transfer between translational and rotational KE via B-field gradients
 - **Tidal breakup** — Roche limit fragmentation when tidal/centrifugal/Coulomb stress exceeds self-gravity
-- **Barnes-Hut** — Toggleable O(N log N) quadtree approximation vs exact O(N²) pairwise forces
+- **Barnes-Hut** — Toggleable O(N log N) quadtree approximation vs exact O(N²) pairwise forces. Pool-based SoA quadtree eliminates per-frame GC pressure.
 - **Collisions** — Pass-through, elastic bounce with spin-friction transfer, or merge (conserves mass, charge, momentum, angular momentum)
 - **5 presets** — Solar System, Binary Star, Galaxy, Collision, Magnetic Spin
 - **Real-time diagnostics** — Energy breakdown (KE, spin KE, PE, field, radiated), momentum (particle + field + radiated), angular momentum (orbital + spin), all with drift tracking
@@ -43,27 +43,32 @@ No build step, no dependencies. ES6 modules require an HTTP server (no `file://`
 ## Architecture
 
 ```
-main.js                — Simulation class (entry point)
-├── src/physics.js     — forces, Boris integration, collisions, PE
-│     ├── src/quadtree.js  — Barnes-Hut spatial partitioning
-│     └── src/vec2.js      — 2D vector math
-├── src/energy.js      — energy, momentum, angular momentum computation
-├── src/relativity.js  — proper velocity / angular celerity conversions
-├── src/renderer.js    — Canvas 2D drawing, trails, themes
-├── src/input.js       — mouse/touch interaction, particle spawning
-├── src/particle.js    — entity definition
-├── src/heatmap.js     — density heatmap overlay
-├── src/phase-plot.js  — phase space visualization
-├── src/sankey.js      — energy breakdown bar chart
-├── src/photon.js      — radiation photon entity
-├── src/presets.js     — preset scenario definitions
-├── src/config.js      — named constants
-└── src/ui.js          — DOM setup, event binding, info tips
+main.js                    — Simulation class (entry point)
+├── src/integrator.js      — Physics class: adaptive Boris substep loop, radiation, tidal breakup
+│     ├── src/forces.js        — force computation (pairwise + Barnes-Hut tree walk)
+│     ├── src/collisions.js    — collision resolution (merge, bounce)
+│     ├── src/potential.js     — potential energy computation
+│     ├── src/signal-delay.js  — retarded potentials (signal delay)
+│     ├── src/quadtree.js      — pool-based Barnes-Hut quadtree (zero per-frame GC)
+│     └── src/photon.js        — radiation photon entity
+├── src/stats-display.js   — energy/momentum/drift stats, selected particle info
+├── src/energy.js          — energy, momentum, angular momentum computation
+├── src/relativity.js      — proper velocity / angular celerity conversions
+├── src/renderer.js        — Canvas 2D drawing, trails, themes
+├── src/input.js           — mouse/touch interaction, particle spawning
+├── src/particle.js        — entity definition
+├── src/vec2.js            — 2D vector math
+├── src/heatmap.js         — density heatmap overlay
+├── src/phase-plot.js      — phase space visualization
+├── src/sankey.js          — energy breakdown bar chart
+├── src/presets.js         — preset scenario definitions
+├── src/config.js          — named constants
+└── src/ui.js              — DOM setup, event binding, info tips
 ```
 
 ### Technical Details
 
-Natural units (c = 1, G = 1) throughout. The Boris integrator sequence per substep:
+Natural units (c = 1, G = 1) throughout. Adaptive substepping uses both acceleration (`√(ε/a_max)`) and cyclotron frequency (`T_cyclotron/8`) criteria, capped at 16 substeps. The Boris integrator sequence per substep:
 
 1. Half-kick: **w** += **F**_E/m · dt/2
 2. Boris rotation: rotate **w** in B+Bg field plane (preserves |**v**| exactly)

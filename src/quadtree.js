@@ -1,12 +1,8 @@
-import Vec2 from './vec2.js';
 import { INERTIA_K, MAG_MOMENT_K } from './config.js';
 
-class Rect {
+export class Rect {
     constructor(x, y, w, h) {
-        this.x = x;
-        this.y = y;
-        this.w = w;
-        this.h = h;
+        this.x = x; this.y = y; this.w = w; this.h = h;
     }
 
     contains(point) {
@@ -24,148 +20,237 @@ class Rect {
     }
 }
 
-export default class QuadTree {
-    constructor(boundary, capacity) {
-        this.boundary = boundary;
-        this.capacity = capacity;
-        this.points = [];
-        this.divided = false;
+const NONE = -1;
 
-        this.totalMass = 0;
-        this.totalCharge = 0;
-        this.totalMagneticMoment = 0;
-        this.totalAngularMomentum = 0;
-        this.totalMomentumX = 0;
-        this.totalMomentumY = 0;
-        this.centerOfMass = new Vec2(boundary.x, boundary.y);
+export default class QuadTreePool {
+    constructor(capacity = 4, maxNodes = 512) {
+        this.nodeCapacity = capacity;
+        this.maxNodes = maxNodes;
+
+        // Pre-allocate flat arrays for all node fields
+        this.bx = new Float64Array(maxNodes);
+        this.by = new Float64Array(maxNodes);
+        this.bw = new Float64Array(maxNodes);
+        this.bh = new Float64Array(maxNodes);
+
+        this.totalMass = new Float64Array(maxNodes);
+        this.totalCharge = new Float64Array(maxNodes);
+        this.totalMagneticMoment = new Float64Array(maxNodes);
+        this.totalAngularMomentum = new Float64Array(maxNodes);
+        this.totalMomentumX = new Float64Array(maxNodes);
+        this.totalMomentumY = new Float64Array(maxNodes);
+        this.comX = new Float64Array(maxNodes);
+        this.comY = new Float64Array(maxNodes);
+
+        // Children indices (NONE = no child)
+        this.nw = new Int32Array(maxNodes).fill(NONE);
+        this.ne = new Int32Array(maxNodes).fill(NONE);
+        this.sw = new Int32Array(maxNodes).fill(NONE);
+        this.se = new Int32Array(maxNodes).fill(NONE);
+
+        // Leaf point storage: fixed-size per node
+        this.points = new Array(maxNodes * capacity).fill(null);
+        this.pointCount = new Uint8Array(maxNodes);
+
+        this.divided = new Uint8Array(maxNodes);
+        this.count = 0;
     }
 
-    subdivide() {
-        const { x, y, w, h } = this.boundary;
-        const hw = w / 2, hh = h / 2;
-
-        this.northwest = new QuadTree(new Rect(x - hw, y - hh, hw, hh), this.capacity);
-        this.northeast = new QuadTree(new Rect(x + hw, y - hh, hw, hh), this.capacity);
-        this.southwest = new QuadTree(new Rect(x - hw, y + hh, hw, hh), this.capacity);
-        this.southeast = new QuadTree(new Rect(x + hw, y + hh, hw, hh), this.capacity);
-
-        this.divided = true;
+    reset() {
+        this.count = 0;
     }
 
-    insert(particle) {
-        if (!this.boundary.contains(particle.pos)) {
-            return false;
-        }
+    alloc(bx, by, bw, bh) {
+        if (this.count >= this.maxNodes) this._grow();
+        const idx = this.count++;
+        this.bx[idx] = bx;
+        this.by[idx] = by;
+        this.bw[idx] = bw;
+        this.bh[idx] = bh;
+        this.totalMass[idx] = 0;
+        this.totalCharge[idx] = 0;
+        this.totalMagneticMoment[idx] = 0;
+        this.totalAngularMomentum[idx] = 0;
+        this.totalMomentumX[idx] = 0;
+        this.totalMomentumY[idx] = 0;
+        this.comX[idx] = bx;
+        this.comY[idx] = by;
+        this.nw[idx] = NONE;
+        this.ne[idx] = NONE;
+        this.sw[idx] = NONE;
+        this.se[idx] = NONE;
+        this.pointCount[idx] = 0;
+        this.divided[idx] = 0;
+        const base = idx * this.nodeCapacity;
+        for (let i = 0; i < this.nodeCapacity; i++) this.points[base + i] = null;
+        return idx;
+    }
 
-        if (this.points.length < this.capacity && !this.divided) {
-            this.points.push(particle);
+    _grow() {
+        const newMax = this.maxNodes * 2;
+        const copyF64 = (old) => { const a = new Float64Array(newMax); a.set(old); return a; };
+        const copyI32 = (old, fill) => { const a = new Int32Array(newMax); a.set(old); a.fill(fill, this.maxNodes); return a; };
+        const copyU8 = (old) => { const a = new Uint8Array(newMax); a.set(old); return a; };
+
+        this.bx = copyF64(this.bx); this.by = copyF64(this.by);
+        this.bw = copyF64(this.bw); this.bh = copyF64(this.bh);
+        this.totalMass = copyF64(this.totalMass); this.totalCharge = copyF64(this.totalCharge);
+        this.totalMagneticMoment = copyF64(this.totalMagneticMoment);
+        this.totalAngularMomentum = copyF64(this.totalAngularMomentum);
+        this.totalMomentumX = copyF64(this.totalMomentumX);
+        this.totalMomentumY = copyF64(this.totalMomentumY);
+        this.comX = copyF64(this.comX); this.comY = copyF64(this.comY);
+        this.nw = copyI32(this.nw, NONE); this.ne = copyI32(this.ne, NONE);
+        this.sw = copyI32(this.sw, NONE); this.se = copyI32(this.se, NONE);
+        this.pointCount = copyU8(this.pointCount);
+        this.divided = copyU8(this.divided);
+
+        const newPoints = new Array(newMax * this.nodeCapacity).fill(null);
+        for (let i = 0; i < this.maxNodes * this.nodeCapacity; i++) newPoints[i] = this.points[i];
+        this.points = newPoints;
+
+        this.maxNodes = newMax;
+    }
+
+    _contains(idx, px, py) {
+        return (px >= this.bx[idx] - this.bw[idx] &&
+            px <= this.bx[idx] + this.bw[idx] &&
+            py >= this.by[idx] - this.bh[idx] &&
+            py <= this.by[idx] + this.bh[idx]);
+    }
+
+    _intersects(idx, rx, ry, rw, rh) {
+        return !(rx - rw > this.bx[idx] + this.bw[idx] ||
+            rx + rw < this.bx[idx] - this.bw[idx] ||
+            ry - rh > this.by[idx] + this.bh[idx] ||
+            ry + rh < this.by[idx] - this.bh[idx]);
+    }
+
+    _subdivide(idx) {
+        const x = this.bx[idx], y = this.by[idx];
+        const hw = this.bw[idx] / 2, hh = this.bh[idx] / 2;
+        this.nw[idx] = this.alloc(x - hw, y - hh, hw, hh);
+        this.ne[idx] = this.alloc(x + hw, y - hh, hw, hh);
+        this.sw[idx] = this.alloc(x - hw, y + hh, hw, hh);
+        this.se[idx] = this.alloc(x + hw, y + hh, hw, hh);
+        this.divided[idx] = 1;
+    }
+
+    insert(idx, particle) {
+        if (!this._contains(idx, particle.pos.x, particle.pos.y)) return false;
+
+        const cap = this.nodeCapacity;
+        if (this.pointCount[idx] < cap && !this.divided[idx]) {
+            this.points[idx * cap + this.pointCount[idx]] = particle;
+            this.pointCount[idx]++;
             return true;
         }
 
-        if (!this.divided) {
-            this.subdivide();
-            for (const p of this.points) {
-                this.northwest.insert(p) ||
-                    this.northeast.insert(p) ||
-                    this.southwest.insert(p) ||
-                    this.southeast.insert(p);
+        if (!this.divided[idx]) {
+            this._subdivide(idx);
+            const base = idx * cap;
+            for (let i = 0; i < this.pointCount[idx]; i++) {
+                const p = this.points[base + i];
+                this.insert(this.nw[idx], p) ||
+                    this.insert(this.ne[idx], p) ||
+                    this.insert(this.sw[idx], p) ||
+                    this.insert(this.se[idx], p);
+                this.points[base + i] = null;
             }
-            this.points = [];
+            this.pointCount[idx] = 0;
         }
 
-        return this.northwest.insert(particle) ||
-            this.northeast.insert(particle) ||
-            this.southwest.insert(particle) ||
-            this.southeast.insert(particle);
+        return this.insert(this.nw[idx], particle) ||
+            this.insert(this.ne[idx], particle) ||
+            this.insert(this.sw[idx], particle) ||
+            this.insert(this.se[idx], particle);
     }
 
-    calculateMassDistribution() {
-        if (!this.divided) {
-            const pts = this.points;
-            if (pts.length === 0) return;
+    calculateMassDistribution(idx) {
+        if (!this.divided[idx]) {
+            const cnt = this.pointCount[idx];
+            if (cnt === 0) return;
 
             let mass = 0, charge = 0, magMom = 0, angMom = 0;
-            let comX = 0, comY = 0;
-            let momX = 0, momY = 0;
+            let cx = 0, cy = 0, momX = 0, momY = 0;
+            const base = idx * this.nodeCapacity;
 
-            for (const p of pts) {
+            for (let i = 0; i < cnt; i++) {
+                const p = this.points[base + i];
                 const rSq = p.radius * p.radius;
                 mass += p.mass;
                 charge += p.charge;
-                // Magnetic moment: μ = ⅕·q·ω·r² (uniform charge density solid sphere)
                 magMom += MAG_MOMENT_K * p.charge * p.angVel * rSq;
-                // Gravitomagnetic moment (angular momentum): L = I·ω = INERTIA_K·m·r²·ω
                 angMom += INERTIA_K * p.mass * p.angVel * rSq;
-                comX += p.pos.x * p.mass;
-                comY += p.pos.y * p.mass;
+                cx += p.pos.x * p.mass;
+                cy += p.pos.y * p.mass;
                 momX += p.mass * p.w.x;
                 momY += p.mass * p.w.y;
             }
 
-            this.totalMass = mass;
-            this.totalCharge = charge;
-            this.totalMagneticMoment = magMom;
-            this.totalAngularMomentum = angMom;
-            this.totalMomentumX = momX;
-            this.totalMomentumY = momY;
-
-            if (mass > 0) {
-                this.centerOfMass.set(comX / mass, comY / mass);
-            }
+            this.totalMass[idx] = mass;
+            this.totalCharge[idx] = charge;
+            this.totalMagneticMoment[idx] = magMom;
+            this.totalAngularMomentum[idx] = angMom;
+            this.totalMomentumX[idx] = momX;
+            this.totalMomentumY[idx] = momY;
+            if (mass > 0) { this.comX[idx] = cx / mass; this.comY[idx] = cy / mass; }
         } else {
-            const children = [this.northwest, this.northeast, this.southwest, this.southeast];
-            for (const child of children) {
-                child.calculateMassDistribution();
-            }
+            const children = [this.nw[idx], this.ne[idx], this.sw[idx], this.se[idx]];
+            for (const c of children) this.calculateMassDistribution(c);
 
             let mass = 0, charge = 0, magMom = 0, angMom = 0;
-            let comX = 0, comY = 0;
-            let momX = 0, momY = 0;
+            let cx = 0, cy = 0, momX = 0, momY = 0;
 
             for (const c of children) {
-                mass += c.totalMass;
-                charge += c.totalCharge;
-                magMom += c.totalMagneticMoment;
-                angMom += c.totalAngularMomentum;
-                comX += c.centerOfMass.x * c.totalMass;
-                comY += c.centerOfMass.y * c.totalMass;
-                momX += c.totalMomentumX;
-                momY += c.totalMomentumY;
+                mass += this.totalMass[c];
+                charge += this.totalCharge[c];
+                magMom += this.totalMagneticMoment[c];
+                angMom += this.totalAngularMomentum[c];
+                cx += this.comX[c] * this.totalMass[c];
+                cy += this.comY[c] * this.totalMass[c];
+                momX += this.totalMomentumX[c];
+                momY += this.totalMomentumY[c];
             }
 
-            this.totalMass = mass;
-            this.totalCharge = charge;
-            this.totalMagneticMoment = magMom;
-            this.totalAngularMomentum = angMom;
-            this.totalMomentumX = momX;
-            this.totalMomentumY = momY;
-
-            if (mass > 0) {
-                this.centerOfMass.set(comX / mass, comY / mass);
-            }
+            this.totalMass[idx] = mass;
+            this.totalCharge[idx] = charge;
+            this.totalMagneticMoment[idx] = magMom;
+            this.totalAngularMomentum[idx] = angMom;
+            this.totalMomentumX[idx] = momX;
+            this.totalMomentumY[idx] = momY;
+            if (mass > 0) { this.comX[idx] = cx / mass; this.comY[idx] = cy / mass; }
         }
     }
 
-    query(range, found) {
+    query(idx, rx, ry, rw, rh, found) {
         if (!found) found = [];
-        if (!this.boundary.intersects(range)) {
-            return found;
-        }
+        if (!this._intersects(idx, rx, ry, rw, rh)) return found;
 
-        if (!this.divided) {
-            for (const p of this.points) {
-                if (range.contains(p.pos)) {
+        if (!this.divided[idx]) {
+            const base = idx * this.nodeCapacity;
+            for (let i = 0; i < this.pointCount[idx]; i++) {
+                const p = this.points[base + i];
+                if (p.pos.x >= rx - rw && p.pos.x <= rx + rw &&
+                    p.pos.y >= ry - rh && p.pos.y <= ry + rh) {
                     found.push(p);
                 }
             }
         } else {
-            this.northwest.query(range, found);
-            this.northeast.query(range, found);
-            this.southwest.query(range, found);
-            this.southeast.query(range, found);
+            this.query(this.nw[idx], rx, ry, rw, rh, found);
+            this.query(this.ne[idx], rx, ry, rw, rh, found);
+            this.query(this.sw[idx], rx, ry, rw, rh, found);
+            this.query(this.se[idx], rx, ry, rw, rh, found);
         }
 
         return found;
     }
+
+    build(bx, by, bw, bh, particles) {
+        this.reset();
+        const root = this.alloc(bx, by, bw, bh);
+        for (const p of particles) this.insert(root, p);
+        this.calculateMassDistribution(root);
+        return root;
+    }
 }
-export { Rect };

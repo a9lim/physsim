@@ -12,6 +12,6 @@ export default class Photon {
     update(dt) {
         this.pos.x += this.vel.x * dt;
         this.pos.y += this.vel.y * dt;
-        this.lifetime++;
+        this.lifetime += dt;
     }
 }
