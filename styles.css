@@ -434,3 +434,41 @@ input[type="checkbox"]:checked::after {
     font-family: var(--font-body);
     font-size: 0.82rem;
 }
+
+/* Reference overlay */
+.reference-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+.reference-panel {
+    max-width: 600px;
+    width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--radius-lg, 12px);
+    overflow: hidden;
+}
+.reference-body {
+    padding: 1rem 1.2rem;
+    overflow-y: auto;
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+.reference-body h3 {
+    margin: 1em 0 0.3em;
+    font-size: 0.9rem;
+}
+.reference-body p {
+    margin: 0.4em 0;
+}
+.reference-body ul, .reference-body ol {
+    margin: 0.4em 0;
+    padding-left: 1.2em;
+}

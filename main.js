@@ -10,6 +10,7 @@ import { WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PH
 import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
+import { quickSave, quickLoad, downloadState, uploadState } from './src/save-load.js';
 
 class Simulation {
     constructor() {
@@ -99,6 +100,22 @@ class Simulation {
             speed: document.getElementById('sel-speed'),
             gamma: document.getElementById('sel-gamma'),
             force: document.getElementById('sel-force'),
+            fbGravity: document.getElementById('fb-gravity'),
+            fbGravityVal: document.getElementById('fb-gravity-val'),
+            fbCoulomb: document.getElementById('fb-coulomb'),
+            fbCoulombVal: document.getElementById('fb-coulomb-val'),
+            fbMagnetic: document.getElementById('fb-magnetic'),
+            fbMagneticVal: document.getElementById('fb-magnetic-val'),
+            fbGravitomag: document.getElementById('fb-gravitomag'),
+            fbGravitomagVal: document.getElementById('fb-gravitomag-val'),
+            fb1pn: document.getElementById('fb-1pn'),
+            fb1pnVal: document.getElementById('fb-1pn-val'),
+            fbSpincurv: document.getElementById('fb-spincurv'),
+            fbSpincurvVal: document.getElementById('fb-spincurv-val'),
+            fbRadiation: document.getElementById('fb-radiation'),
+            fbRadiationVal: document.getElementById('fb-radiation-val'),
+            fbYukawa: document.getElementById('fb-yukawa'),
+            fbYukawaVal: document.getElementById('fb-yukawa-val'),
         };
 
         // Mount sidebar canvases
@@ -113,6 +130,28 @@ class Simulation {
         this.resize();
         window.addEventListener('resize', () => this.resize());
         setupUI(this);
+
+        // Save/Load buttons
+        document.getElementById('saveBtn').addEventListener('click', () => quickSave(this));
+        document.getElementById('loadBtn').addEventListener('click', () => quickLoad(this));
+
+        // Ctrl+S / Ctrl+L keyboard shortcuts for save/load
+        window.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                quickSave(this);
+            } else if (e.ctrlKey && e.key === 'l') {
+                e.preventDefault();
+                quickLoad(this);
+            } else if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+                e.preventDefault();
+                downloadState(this);
+            } else if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+                e.preventDefault();
+                uploadState(this);
+            }
+        });
+
         requestAnimationFrame((t) => this.loop(t));
     }
 
@@ -177,7 +216,16 @@ class Simulation {
                 }
                 this.photons.length = pLen;
 
-                const toFragment = this.physics.checkTidalBreakup(this.particles, this.physics._lastRoot);
+                const { fragments: toFragment, transfers: rocheTransfers } = this.physics.checkTidalBreakup(this.particles, this.physics._lastRoot);
+                // Handle Roche lobe overflow mass transfers
+                for (const t of rocheTransfers) {
+                    t.source.mass -= t.mass;
+                    t.source.charge -= t.charge;
+                    t.source.updateColor();
+                    this.addParticle(t.spawnX, t.spawnY, t.vx, t.vy, {
+                        mass: t.mass, charge: t.charge, spin: 0,
+                    });
+                }
                 if (toFragment.length > 0) {
                     // Build set for O(1) lookup, spawn fragments, then compact
                     const fragSet = new Set(toFragment);
@@ -241,7 +289,11 @@ class Simulation {
             }
         }
 
-        this.heatmap.update(this.particles, this.camera, this.width, this.height, this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled);
+        this.heatmap.update(this.particles, this.camera, this.width, this.height,
+            this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
+            this.physics.signalDelayEnabled, this.physics.relativityEnabled,
+            this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
+            this.topology);
         this.phasePlot.update(this.particles, this.selectedParticle);
         this.renderer.signalDelay = this.physics.signalDelayEnabled;
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);

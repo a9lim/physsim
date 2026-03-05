@@ -1,0 +1,143 @@
+import Particle from './particle.js';
+import { angwToAngVel } from './relativity.js';
+
+export function saveState(sim) {
+    const state = {
+        version: 1,
+        particles: sim.particles.map(p => ({
+            x: p.pos.x, y: p.pos.y,
+            wx: p.w.x, wy: p.w.y,
+            mass: p.mass, charge: p.charge, angw: p.angw,
+        })),
+        toggles: {},
+        settings: {
+            collision: sim.collisionMode,
+            boundary: sim.boundaryMode,
+            topology: sim.topology,
+            speed: sim.speedScale,
+            friction: sim.physics.bounceFriction,
+        },
+        camera: { x: sim.camera.x, y: sim.camera.y, zoom: sim.camera.zoom },
+    };
+    const ph = sim.physics;
+    for (const key of ['gravityEnabled', 'coulombEnabled', 'magneticEnabled',
+        'gravitomagEnabled', 'relativityEnabled', 'barnesHutEnabled',
+        'radiationEnabled', 'blackHoleEnabled', 'tidalEnabled',
+        'tidalLockingEnabled', 'signalDelayEnabled', 'spinOrbitEnabled',
+        'onePNEnabled', 'yukawaEnabled', 'axionEnabled', 'gwRadiationEnabled',
+        'expansionEnabled']) {
+        state.toggles[key] = ph[key];
+    }
+    state.yukawaG2 = ph.yukawaG2;
+    state.yukawaMu = ph.yukawaMu;
+    state.axionG = ph.axionG;
+    state.axionMass = ph.axionMass;
+    state.hubbleParam = ph.hubbleParam;
+    return state;
+}
+
+export function loadState(state, sim) {
+    if (!state || state.version !== 1) return false;
+
+    sim.particles = [];
+    sim.photons = [];
+    sim.totalRadiated = 0;
+    sim.totalRadiatedPx = 0;
+    sim.totalRadiatedPy = 0;
+    sim.selectedParticle = null;
+    sim.physics._forcesInit = false;
+
+    const ph = sim.physics;
+    for (const [key, val] of Object.entries(state.toggles)) {
+        if (key in ph) ph[key] = val;
+    }
+    if (state.yukawaG2 != null) ph.yukawaG2 = state.yukawaG2;
+    if (state.yukawaMu != null) ph.yukawaMu = state.yukawaMu;
+    if (state.axionG != null) ph.axionG = state.axionG;
+    if (state.axionMass != null) ph.axionMass = state.axionMass;
+    if (state.hubbleParam != null) ph.hubbleParam = state.hubbleParam;
+
+    if (state.settings) {
+        sim.collisionMode = state.settings.collision || 'pass';
+        sim.boundaryMode = state.settings.boundary || 'despawn';
+        sim.topology = state.settings.topology || 'torus';
+        sim.speedScale = state.settings.speed || 100;
+        if (state.settings.friction != null) ph.bounceFriction = state.settings.friction;
+    }
+
+    if (state.camera) {
+        sim.camera.x = state.camera.x;
+        sim.camera.y = state.camera.y;
+        sim.camera.zoom = state.camera.zoom;
+    }
+
+    for (const pd of state.particles) {
+        const p = new Particle(pd.x, pd.y, pd.mass, pd.charge);
+        p.mass = pd.mass;
+        p.charge = pd.charge;
+        p.angw = pd.angw;
+        p.w.x = pd.wx;
+        p.w.y = pd.wy;
+        p.updateColor();
+        const invG = ph.relativityEnabled ? 1 / Math.sqrt(1 + p.w.magSq()) : 1;
+        p.vel.x = p.w.x * invG;
+        p.vel.y = p.w.y * invG;
+        p.angVel = ph.relativityEnabled ? angwToAngVel(p.angw, p.radius) : p.angw;
+        sim.particles.push(p);
+    }
+    sim.stats.resetBaseline();
+    return true;
+}
+
+export function downloadState(sim) {
+    const state = saveState(sim);
+    const json = JSON.stringify(state);
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'nohair-state.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+export function uploadState(sim, onComplete) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.addEventListener('change', () => {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const state = JSON.parse(reader.result);
+                if (loadState(state, sim)) {
+                    showToast('State loaded');
+                    if (onComplete) onComplete();
+                } else {
+                    showToast('Invalid state file');
+                }
+            } catch { showToast('Failed to parse state file'); }
+        };
+        reader.readAsText(file);
+    });
+    input.click();
+}
+
+export function quickSave(sim) {
+    const state = saveState(sim);
+    localStorage.setItem('nohair-quicksave', JSON.stringify(state));
+    showToast('Quick saved');
+}
+
+export function quickLoad(sim, onComplete) {
+    const json = localStorage.getItem('nohair-quicksave');
+    if (!json) { showToast('No quick save found'); return; }
+    try {
+        const state = JSON.parse(json);
+        if (loadState(state, sim)) {
+            showToast('Quick loaded');
+            if (onComplete) onComplete();
+        }
+    } catch { showToast('Failed to load quick save'); }
+}

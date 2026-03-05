@@ -2,6 +2,7 @@
 // Wires all panel controls, toggles, presets, shortcuts, and info tips to the sim.
 import { loadPreset, PRESETS, PRESET_ORDER } from './presets.js';
 import { PHYSICS_DT, WORLD_SCALE } from './config.js';
+import { REFERENCE } from './reference.js';
 
 const HINT_FADE_DELAY = 5000;
 
@@ -117,6 +118,7 @@ export function setupUI(sim) {
         { id: 'barneshut-toggle', prop: 'barnesHutEnabled' },
         { id: 'yukawa-toggle', prop: 'yukawaEnabled' },
         { id: 'axion-toggle', prop: 'axionEnabled' },
+        { id: 'gwradiation-toggle', prop: 'gwRadiationEnabled' },
     ];
     forceToggles.forEach(({ id, prop }) => {
         const el = document.getElementById(id);
@@ -216,6 +218,13 @@ export function setupUI(sim) {
     };
     coulEl.addEventListener('change', updateAxionDeps);
 
+    // ─── GW Radiation requires Gravity ───
+    const gwEl = document.getElementById('gwradiation-toggle');
+    const updateGwDeps = () => {
+        setDepState(gwEl, 'gwRadiationEnabled', !gravEl.checked);
+    };
+    gravEl.addEventListener('change', updateGwDeps);
+
     // ─── Initialize all dependency states ───
     updateGravDeps();
     updateCoulDeps();
@@ -223,6 +232,7 @@ export function setupUI(sim) {
     updateTlDeps();
     updateTidalDeps();
     updateAxionDeps();
+    updateGwDeps();
 
     // ─── Black Hole requires Relativity + Gravity; locks collision to Merge ───
     const bhTogEl = document.getElementById('blackhole-toggle');
@@ -327,6 +337,21 @@ export function setupUI(sim) {
         axionMassLabel.textContent = parseFloat(axionMassSlider.value).toFixed(2);
     });
 
+    // ─── Expansion toggle + Hubble slider ───
+    const expansionEl = document.getElementById('expansion-toggle');
+    const hubbleGroup = document.getElementById('hubble-group');
+    const hubbleSlider = document.getElementById('hubbleInput');
+    const hubbleLabel = document.getElementById('hubbleValue');
+
+    expansionEl.addEventListener('change', () => {
+        sim.physics.expansionEnabled = expansionEl.checked;
+        hubbleGroup.style.display = expansionEl.checked ? '' : 'none';
+    });
+    hubbleSlider.addEventListener('input', () => {
+        sim.physics.hubbleParam = parseFloat(hubbleSlider.value);
+        hubbleLabel.textContent = parseFloat(hubbleSlider.value).toFixed(4);
+    });
+
     sim.dom.speedInput.addEventListener('input', () => {
         const val = parseFloat(sim.dom.speedInput.value);
         sim.speedScale = val;
@@ -419,6 +444,8 @@ export function setupUI(sim) {
         onepn: { title: '1PN Correction', body: 'First post-Newtonian $O(v^2/c^2)$ corrections. For gravity: the Einstein\u2013Infeld\u2013Hoffmann (EIH) force produces perihelion precession ($\\Delta\\phi \\approx 6\\pi M / a(1-e^2)$). For electromagnetism: the Darwin correction from the Darwin Lagrangian adds velocity-dependent terms beyond the Lorentz force. Each sector activates only when its velocity-dependent force (Gravitomagnetic or Magnetic) is on. Integrated with a velocity-Verlet scheme for second-order accuracy. Requires Relativity.' },
         yukawa: { title: 'Yukawa Potential', body: 'A screened potential $V(r) = -g^2 e^{-\\mu r}/r$ that falls off exponentially beyond range $1/\\mu$. Models short-range nuclear forces (pion exchange) and any interaction mediated by a massive particle. At short range it behaves like gravity; at long range it vanishes. The coupling $g^2$ sets the strength and $\\mu$ (the mediator mass) sets the range.' },
         axion: { title: 'Axion Coupling', body: 'Models dark matter axions oscillating as a background field $a(t) = a_0 \\cos(m_a t)$, which modulates the electromagnetic coupling: $\\alpha_{\\text{eff}} = \\alpha(1 + g\\cos(m_a t))$. This makes Coulomb and magnetic forces oscillate periodically. The effect is the exact phenomenon that axion detection experiments (CASPEr, ABRACADABRA) search for. Energy is not conserved \u2014 the axion field is an external reservoir. Requires Coulomb.' },
+        gwradiation: { title: 'GW Radiation', body: 'Gravitational wave emission from the mass quadrupole moment: $P = \\frac{1}{5}|\\dddot{I}_{ij}|^2$. For circular binaries this gives $P = \\frac{32}{5} \\frac{m_1^2 m_2^2(m_1+m_2)}{r^5}$, causing orbital inspiral and merger \u2014 exactly what LIGO detects. Emitted gravitons (green) carry energy and momentum away from the system. Also includes EM quadrupole radiation when Radiation is enabled. Requires Gravity.' },
+        expansion: { title: 'Cosmological Expansion', body: 'Adds Hubble flow $v_H = H \\cdot r$ from the domain center, causing distant particles to separate. Bound systems (where binding energy exceeds Hubble kinetic energy) resist expansion and stay together, while unbound particles drift apart \u2014 the mechanism that creates large-scale cosmic structure. Includes Hubble drag ($v_{\\text{pec}} \\propto 1/a$) to redshift peculiar velocities, matching the physics of real cosmological N-body simulations.' },
     };
 
     if (typeof createInfoTip === 'function') {
@@ -427,6 +454,37 @@ export function setupUI(sim) {
             if (infoData[key]) {
                 createInfoTip(trigger, infoData[key]);
             }
+        });
+    }
+
+    // ─── Reference overlay (Shift+click on info buttons) ───
+    const refOverlay = document.getElementById('reference-overlay');
+    const refTitle = document.getElementById('reference-title');
+    const refBody = document.getElementById('reference-body');
+    const refClose = document.getElementById('reference-close');
+
+    if (refOverlay) {
+        document.querySelectorAll('.info-trigger[data-info]').forEach(trigger => {
+            trigger.addEventListener('click', (e) => {
+                if (!e.shiftKey) return;
+                const key = trigger.dataset.info;
+                const ref = REFERENCE[key];
+                if (!ref) return;
+                e.stopPropagation();
+                refTitle.textContent = ref.title;
+                refBody.innerHTML = ref.body;
+                refOverlay.hidden = false;
+                if (typeof renderMathInElement === 'function') {
+                    renderMathInElement(refBody, { delimiters: [
+                        { left: '$$', right: '$$', display: true },
+                        { left: '$', right: '$', display: false },
+                    ]});
+                }
+            });
+        });
+        refClose.addEventListener('click', () => { refOverlay.hidden = true; });
+        refOverlay.addEventListener('click', (e) => {
+            if (e.target === refOverlay) refOverlay.hidden = true;
         });
     }
 }

@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_G2, DEFAULT_YUKAWA_MU, DEFAULT_AXION_G, DEFAULT_AXION_MASS } from './config.js';
+import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_G2, DEFAULT_YUKAWA_MU, DEFAULT_AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, ROCHE_MIN_PACKET, DEFAULT_HUBBLE } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -43,8 +43,14 @@ export default class Physics {
         this.axionG = DEFAULT_AXION_G;
         this.axionMass = DEFAULT_AXION_MASS;
 
+        this.gwRadiationEnabled = false;
+        this.expansionEnabled = false;
+        this.hubbleParam = 0.001;
+
         this.sim = null;
         this.simTime = 0;
+        this._quadHistory = []; // {Ixx, Ixy, Iyy, Qxx, Qxy, Qyy, t}
+        this._gwAccum = 0;
 
         this.domainW = 0;
         this.domainH = 0;
@@ -550,6 +556,21 @@ export default class Physics {
                 p.pos.x += p.vel.x * dtSub;
                 p.pos.y += p.vel.y * dtSub;
             }
+
+            // Cosmological expansion: Hubble flow + drag
+            if (this.expansionEnabled) {
+                const H = this.hubbleParam;
+                const cx = this.domainW * 0.5, cy = this.domainH * 0.5;
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    p.pos.x += H * (p.pos.x - cx) * dtSub;
+                    p.pos.y += H * (p.pos.y - cy) * dtSub;
+                    const decay = 1 - H * dtSub;
+                    p.w.x *= decay;
+                    p.w.y *= decay;
+                }
+            }
+
             this.simTime += dtSub;
 
             // 1PN velocity-Verlet correction: w += (F_new − F_old)·dt/(2m)
@@ -635,6 +656,108 @@ export default class Physics {
                 p.histTime[h] = this.simTime;
                 p.histHead = (h + 1) % HISTORY_SIZE;
                 if (p.histCount < HISTORY_SIZE) p.histCount++;
+            }
+        }
+
+        // Gravitational wave radiation (quadrupole formula)
+        if (this.gwRadiationEnabled && n >= 2 && this.sim) {
+            let Ixx = 0, Ixy = 0, Iyy = 0;
+            let Qxx = 0, Qxy = 0, Qyy = 0;
+            for (let i = 0; i < n; i++) {
+                const p = particles[i];
+                Ixx += p.mass * p.pos.x * p.pos.x;
+                Ixy += p.mass * p.pos.x * p.pos.y;
+                Iyy += p.mass * p.pos.y * p.pos.y;
+                Qxx += p.charge * p.pos.x * p.pos.x;
+                Qxy += p.charge * p.pos.x * p.pos.y;
+                Qyy += p.charge * p.pos.y * p.pos.y;
+            }
+            this._quadHistory.push({ Ixx, Ixy, Iyy, Qxx, Qxy, Qyy, t: this.simTime });
+            if (this._quadHistory.length > 5) this._quadHistory.shift();
+
+            if (this._quadHistory.length >= 4) {
+                const h = this._quadHistory;
+                const n3 = h.length - 1;
+                const dt1 = h[n3].t - h[n3 - 1].t;
+                const dt2 = h[n3 - 1].t - h[n3 - 2].t;
+                const dt3 = h[n3 - 2].t - h[n3 - 3].t;
+                if (dt1 > 1e-15 && dt2 > 1e-15 && dt3 > 1e-15) {
+                    const halfDtSum = (dt1 + dt2) * 0.5;
+                    // Mass quadrupole 3rd derivatives
+                    const d2Ixx_a = (h[n3].Ixx - 2 * h[n3 - 1].Ixx + h[n3 - 2].Ixx) / (dt1 * dt2);
+                    const d2Ixx_b = (h[n3 - 1].Ixx - 2 * h[n3 - 2].Ixx + h[n3 - 3].Ixx) / (dt2 * dt3);
+                    const d3Ixx = (d2Ixx_a - d2Ixx_b) / halfDtSum;
+                    const d2Ixy_a = (h[n3].Ixy - 2 * h[n3 - 1].Ixy + h[n3 - 2].Ixy) / (dt1 * dt2);
+                    const d2Ixy_b = (h[n3 - 1].Ixy - 2 * h[n3 - 2].Ixy + h[n3 - 3].Ixy) / (dt2 * dt3);
+                    const d3Ixy = (d2Ixy_a - d2Ixy_b) / halfDtSum;
+                    const d2Iyy_a = (h[n3].Iyy - 2 * h[n3 - 1].Iyy + h[n3 - 2].Iyy) / (dt1 * dt2);
+                    const d2Iyy_b = (h[n3 - 1].Iyy - 2 * h[n3 - 2].Iyy + h[n3 - 3].Iyy) / (dt2 * dt3);
+                    const d3Iyy = (d2Iyy_a - d2Iyy_b) / halfDtSum;
+
+                    // GW power: P = (1/5)·(d³I_ij/dt³)²
+                    let gwPower = 0.2 * (d3Ixx * d3Ixx + 2 * d3Ixy * d3Ixy + d3Iyy * d3Iyy);
+
+                    // EM quadrupole: P_em = (1/180)·(d³Q_ij/dt³)²
+                    if (this.radiationEnabled && this.coulombEnabled) {
+                        const d2Qxx_a = (h[n3].Qxx - 2 * h[n3 - 1].Qxx + h[n3 - 2].Qxx) / (dt1 * dt2);
+                        const d2Qxx_b = (h[n3 - 1].Qxx - 2 * h[n3 - 2].Qxx + h[n3 - 3].Qxx) / (dt2 * dt3);
+                        const d3Qxx = (d2Qxx_a - d2Qxx_b) / halfDtSum;
+                        const d2Qxy_a = (h[n3].Qxy - 2 * h[n3 - 1].Qxy + h[n3 - 2].Qxy) / (dt1 * dt2);
+                        const d2Qxy_b = (h[n3 - 1].Qxy - 2 * h[n3 - 2].Qxy + h[n3 - 3].Qxy) / (dt2 * dt3);
+                        const d3Qxy = (d2Qxy_a - d2Qxy_b) / halfDtSum;
+                        const d2Qyy_a = (h[n3].Qyy - 2 * h[n3 - 1].Qyy + h[n3 - 2].Qyy) / (dt1 * dt2);
+                        const d2Qyy_b = (h[n3 - 1].Qyy - 2 * h[n3 - 2].Qyy + h[n3 - 3].Qyy) / (dt2 * dt3);
+                        const d3Qyy = (d2Qyy_a - d2Qyy_b) / halfDtSum;
+                        const emQuadPower = (1 / 180) * (d3Qxx * d3Qxx + 2 * d3Qxy * d3Qxy + d3Qyy * d3Qyy);
+                        gwPower += emQuadPower;
+                    }
+
+                    if (gwPower > 0) {
+                        const dE = gwPower * dt;
+                        this.sim.totalRadiated += dE;
+                        this._gwAccum += dE;
+
+                        // Apply orbital decay: radial kick toward COM
+                        if (dE > 1e-10) {
+                            let comX = 0, comY = 0, totalM = 0;
+                            for (let i = 0; i < n; i++) {
+                                comX += particles[i].mass * particles[i].pos.x;
+                                comY += particles[i].mass * particles[i].pos.y;
+                                totalM += particles[i].mass;
+                            }
+                            comX /= totalM; comY /= totalM;
+                            for (let i = 0; i < n; i++) {
+                                const p = particles[i];
+                                const dx = comX - p.pos.x, dy = comY - p.pos.y;
+                                const r = Math.sqrt(dx * dx + dy * dy);
+                                if (r > 1e-10) {
+                                    const kick = dE * p.mass / (totalM * r) * dt;
+                                    p.w.x += kick * dx / r;
+                                    p.w.y += kick * dy / r;
+                                }
+                            }
+                        }
+
+                        // Emit graviton when accumulated energy exceeds threshold
+                        if (this._gwAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
+                            const angle = Math.random() * 6.283185307;
+                            const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                            let gComX = 0, gComY = 0, gTotalM = 0;
+                            for (let i = 0; i < n; i++) {
+                                gComX += particles[i].mass * particles[i].pos.x;
+                                gComY += particles[i].mass * particles[i].pos.y;
+                                gTotalM += particles[i].mass;
+                            }
+                            gComX /= gTotalM; gComY /= gTotalM;
+                            const gph = new Photon(gComX + cosA * 3, gComY + sinA * 3, cosA, sinA, this._gwAccum, -1);
+                            gph.type = 'gw';
+                            this.sim.photons.push(gph);
+                            this.sim.totalRadiatedPx += this._gwAccum * cosA;
+                            this.sim.totalRadiatedPy += this._gwAccum * sinA;
+                            this._gwAccum = 0;
+                        }
+                    }
+                }
             }
         }
 
@@ -745,15 +868,14 @@ export default class Physics {
     }
 
     checkTidalBreakup(particles, lastRoot) {
-        if (!this.tidalEnabled) return [];
+        if (!this.tidalEnabled) return { fragments: [], transfers: [] };
         const fragments = [];
+        const transfers = [];
         const _periodic = this.periodic;
         const _halfDomW = this.domainW * 0.5, _halfDomH = this.domainH * 0.5;
         const _domW = this.domainW, _domH = this.domainH;
         const _topo = this._topologyConst;
-        // Use tree for neighbor search when BH is on and tree is valid
         const useTree = this.barnesHutEnabled && lastRoot >= 0;
-        // Tidal search radius: maximum range where tidal force exceeds threshold
         const tidalSearchR = Math.max(_domW, _domH) * 0.5;
 
         for (let pi = 0; pi < particles.length; pi++) {
@@ -770,11 +892,23 @@ export default class Physics {
                 continue;
             }
 
-            // Tidal stretching from neighbors: TIDAL_STRENGTH·M·r/d³
             let maxTidal = 0;
+            let strongestOther = null;
+            let strongestDx = 0, strongestDy = 0, strongestDist = 0;
+
+            const _checkNeighbor = (other, dx, dy) => {
+                const distSq = dx * dx + dy * dy + SOFTENING_SQ;
+                const invDistSq = 1 / distSq;
+                const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius * Math.sqrt(invDistSq) * invDistSq;
+                if (tidalAccel > maxTidal) {
+                    maxTidal = tidalAccel;
+                    strongestOther = other;
+                    strongestDx = dx; strongestDy = dy;
+                    strongestDist = Math.sqrt(distSq - SOFTENING_SQ);
+                }
+            };
 
             if (useTree) {
-                // Tree-accelerated neighbor query
                 const candidates = this.pool.queryReuse(lastRoot,
                     p.pos.x, p.pos.y, tidalSearchR, tidalSearchR);
                 for (let ci = 0; ci < candidates.length; ci++) {
@@ -785,10 +919,7 @@ export default class Physics {
                         minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _tidalMiOut);
                         dx = _tidalMiOut.x; dy = _tidalMiOut.y;
                     }
-                    const distSq = dx * dx + dy * dy + SOFTENING_SQ;
-                    const invDistSq = 1 / distSq;
-                    const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius * Math.sqrt(invDistSq) * invDistSq;
-                    if (tidalAccel > maxTidal) maxTidal = tidalAccel;
+                    _checkNeighbor(other, dx, dy);
                 }
             } else {
                 for (let oi = 0; oi < particles.length; oi++) {
@@ -799,18 +930,39 @@ export default class Physics {
                         minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _tidalMiOut);
                         dx = _tidalMiOut.x; dy = _tidalMiOut.y;
                     }
-                    const distSq = dx * dx + dy * dy + SOFTENING_SQ;
-                    const invDistSq = 1 / distSq;
-                    const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius * Math.sqrt(invDistSq) * invDistSq;
-                    if (tidalAccel > maxTidal) maxTidal = tidalAccel;
+                    _checkNeighbor(other, dx, dy);
                 }
             }
 
             if (maxTidal + centrifugal + coulombSelf > selfGravity) {
                 fragments.push(p);
+            } else if (strongestOther && strongestDist > 1e-10 && p.mass > ROCHE_MIN_PACKET * 4) {
+                // Roche lobe overflow: Eggleton formula r_Roche ≈ 0.462·d·(m/(m+M))^(1/3)
+                const d = strongestDist;
+                const q = p.mass / (p.mass + strongestOther.mass);
+                const rRoche = 0.462 * d * Math.cbrt(q);
+                if (p.radius > rRoche * ROCHE_THRESHOLD) {
+                    const l1Mag = Math.sqrt(strongestDx * strongestDx + strongestDy * strongestDy);
+                    if (l1Mag > 1e-10) {
+                        const l1x = strongestDx / l1Mag, l1y = strongestDy / l1Mag;
+                        const overflow = p.radius / rRoche - ROCHE_THRESHOLD;
+                        const dM = Math.min(overflow * ROCHE_TRANSFER_RATE * p.mass, p.mass * 0.1);
+                        if (dM >= ROCHE_MIN_PACKET) {
+                            transfers.push({
+                                source: p,
+                                mass: dM,
+                                charge: dM * p.charge / p.mass,
+                                spawnX: p.pos.x + l1x * p.radius * 1.2,
+                                spawnY: p.pos.y + l1y * p.radius * 1.2,
+                                vx: p.vel.x + (-l1y) * Math.sqrt(strongestOther.mass / d) * 0.5,
+                                vy: p.vel.y + l1x * Math.sqrt(strongestOther.mass / d) * 0.5,
+                            });
+                        }
+                    }
+                }
             }
         }
 
-        return fragments;
+        return { fragments, transfers };
     }
 }
