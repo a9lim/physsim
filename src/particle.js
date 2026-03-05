@@ -16,7 +16,7 @@ export default class Particle {
         this.vel = new Vec2(0, 0);
         this.w = new Vec2(0, 0);    // proper velocity (gamma*v)
         this.force = new Vec2(0, 0);
-        this.prevForce = new Vec2(0, 0);
+        this.jerk = new Vec2(0, 0);    // analytical dF/dt for radiation reaction
         this.forceGravity = new Vec2(0, 0);
         this.forceCoulomb = new Vec2(0, 0);
         this.forceMagnetic = new Vec2(0, 0);
@@ -51,6 +51,12 @@ export default class Particle {
         this._hawkAccum = 0;
         this._radDisplayX = 0;
         this._radDisplayY = 0;
+        // 3-point backward difference history for non-1/r² force jerk
+        this._otherFx0 = 0; this._otherFy0 = 0; // two substeps ago
+        this._otherFx1 = 0; this._otherFy1 = 0; // previous substep
+        this._otherDt0 = 0; // dt between sample 0 and 1
+        this._otherDt1 = 0; // dt between sample 1 and current
+        this._otherCount = 0;
 
         // Signal delay history (lazy-allocated)
         this.histX = null;

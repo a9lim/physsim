@@ -28,7 +28,7 @@ export const LARMOR_K = 1 / 3;
 export const PHOTON_LIFETIME = 240;
 export const RADIATION_THRESHOLD = 0.01;
 export const MAX_PHOTONS = 500;
-export const LL_FORCE_CLAMP = 0.5; // max |F_rad*dt/m| as fraction of |w|
+export const LL_FORCE_CLAMP = 0.5; // max |F_rad| as fraction of |F_ext| (LL validity)
 
 // Hawking radiation: P = ℏc⁶/(15360πG²M²); in Planck units (G=c=ℏ=1): P = 1/(15360πM²)
 export const HAWKING_K = 1 / (15360 * Math.PI);

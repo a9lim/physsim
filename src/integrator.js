@@ -348,20 +348,43 @@ export default class Physics {
                     if (Math.abs(p.charge) < 1e-10) continue;
 
                     const wMagSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                    if (wMagSq < 1e-20) {
-                        p.prevForce.x = p.force.x;
-                        p.prevForce.y = p.force.y;
-                        continue;
-                    }
+                    if (wMagSq < 1e-20) continue;
 
                     const gamma = relOn ? Math.sqrt(1 + wMagSq) : 1;
                     const qSq = p.charge * p.charge;
                     const tau = 2 * LARMOR_K * qSq / p.mass;
-                    const invDt = 1 / dtSub;
 
                     // Term 1: jerk — τ·dF/dt / γ³
-                    let fRadX = tau * (p.force.x - p.prevForce.x) * invDt;
-                    let fRadY = tau * (p.force.y - p.prevForce.y) * invDt;
+                    // Analytical jerk for gravity + Coulomb (from pairForce)
+                    let jerkX = p.jerk.x, jerkY = p.jerk.y;
+
+                    // 3-point backward difference for residual (non-1/r²) forces
+                    const otherFx = p.force.x - p.forceGravity.x - p.forceCoulomb.x;
+                    const otherFy = p.force.y - p.forceGravity.y - p.forceCoulomb.y;
+                    if (p._otherCount >= 2) {
+                        // O(dt²) 3-point backward: variable-step Lagrange derivative at t₂
+                        const h1 = p._otherDt0, h2 = p._otherDt1;
+                        const h1h2 = h1 * h2, hSum = h1 + h2;
+                        const c0 = h2 / (h1 * hSum);
+                        const c1 = -hSum / h1h2;
+                        const c2 = (h1 + 2 * h2) / (h2 * hSum);
+                        jerkX += c0 * p._otherFx0 + c1 * p._otherFx1 + c2 * otherFx;
+                        jerkY += c0 * p._otherFy0 + c1 * p._otherFy1 + c2 * otherFy;
+                    } else if (p._otherCount >= 1 && p._otherDt1 > 1e-20) {
+                        // O(dt) 2-point backward fallback
+                        const invDt = 1 / p._otherDt1;
+                        jerkX += (otherFx - p._otherFx1) * invDt;
+                        jerkY += (otherFy - p._otherFy1) * invDt;
+                    }
+                    // Shift history
+                    p._otherFx0 = p._otherFx1; p._otherFy0 = p._otherFy1;
+                    p._otherDt0 = p._otherDt1;
+                    p._otherFx1 = otherFx; p._otherFy1 = otherFy;
+                    p._otherDt1 = dtSub;
+                    if (p._otherCount < 2) p._otherCount++;
+
+                    let fRadX = tau * jerkX;
+                    let fRadY = tau * jerkY;
 
                     if (relOn && gamma > 1) {
                         const invG3 = 1 / (gamma * gamma * gamma);
@@ -388,15 +411,13 @@ export default class Physics {
                         fRadY += t3 * fy;
                     }
 
-                    // Clamp: |F_rad·dt/m| ≤ LL_FORCE_CLAMP·|w| to prevent runaway
-                    const impulseX = fRadX * dtSub / p.mass;
-                    const impulseY = fRadY * dtSub / p.mass;
-                    const impulseMag = Math.sqrt(impulseX * impulseX + impulseY * impulseY);
-                    const wMag = Math.sqrt(wMagSq);
-                    const maxImpulse = LL_FORCE_CLAMP * wMag;
-
-                    if (impulseMag > maxImpulse && impulseMag > 1e-20) {
-                        const scale = maxImpulse / impulseMag;
+                    // Clamp 1: LL validity — |F_rad| ≤ LL_FORCE_CLAMP · |F_ext|
+                    // The LL approximation requires radiation force << external force
+                    const fRadMag = Math.sqrt(fRadX * fRadX + fRadY * fRadY);
+                    const fExtMag = Math.sqrt(p.force.x * p.force.x + p.force.y * p.force.y);
+                    const maxFRad = LL_FORCE_CLAMP * fExtMag;
+                    if (fRadMag > maxFRad && fRadMag > 1e-20) {
+                        const scale = maxFRad / fRadMag;
                         fRadX *= scale;
                         fRadY *= scale;
                     }
@@ -454,8 +475,6 @@ export default class Physics {
                         }
                     }
 
-                    p.prevForce.x = p.force.x;
-                    p.prevForce.y = p.force.y;
                 }
             }
 

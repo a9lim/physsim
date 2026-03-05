@@ -277,8 +277,8 @@ Independent toggle (no longer requires Relativity).
 F_rad = tau * [dF/dt / gamma^3 - v*F^2/(m*gamma^2) + F*(v.F)/(m*gamma^4)]
 tau = 2 * LARMOR_K * q^2 / m = 2*q^2/(3*m)    (LARMOR_K = 1/3)
 ```
-Term 1 (jerk) uses finite difference `(F - F_prev) / dt`. Terms 2-3 (power dissipation) only active when relativity is on.
-Clamped: `|F_rad * dt / m| <= LL_FORCE_CLAMP * |w|` (LL_FORCE_CLAMP = 0.5)
+Term 1 (jerk) is hybrid: analytical `dF/dt = k·[v_rel/r³ − 3·r·(r·v_rel)/r⁵]` for gravity + Coulomb (accumulated into `p.jerk` in `pairForce()`), plus O(dt²) 3-point backward difference with variable step sizes for residual forces (magnetic dipole, GM dipole, 1PN, spin-curvature). Falls back to 2-point when < 2 samples stored. Terms 2-3 (power dissipation) only active when relativity is on.
+Clamped: `|F_rad| <= LL_FORCE_CLAMP * |F_ext|` (LL_FORCE_CLAMP = 0.5) to enforce LL perturbative validity.
 
 **Photon emission**: Energy accumulated in `_radAccum` per particle. Emits when >= RADIATION_THRESHOLD (0.01) and pool < MAX_PHOTONS (500). Emission angle sampled from sin^2(theta) dipole pattern with relativistic aberration (beamed toward velocity at high gamma). Photon travels at c = 1.
 

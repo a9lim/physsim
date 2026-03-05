@@ -13,6 +13,7 @@ const _miOut = { x: 0, y: 0 };
 export function resetForces(particles) {
     for (const p of particles) {
         p.force.set(0, 0);
+        p.jerk.set(0, 0);
         p.forceGravity.set(0, 0);
         p.forceCoulomb.set(0, 0);
         p.forceMagnetic.set(0, 0);
@@ -112,20 +113,37 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
     const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
 
+    // Relative velocity (source - particle) for analytical jerk
+    const vrx = svx - p.vel.x, vry = svy - p.vel.y;
+    const rDotVr = rx * vrx + ry * vry;
+    const invR5 = invRSq * invRSq * invR; // 1 / r_eff^5
+
     if (toggles.gravityEnabled) {
-        const fDir = p.mass * sMass * invRSq * invR;
+        const k = p.mass * sMass;
+        const fDir = k * invRSq * invR;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceGravity.x += rx * fDir;
         p.forceGravity.y += ry * fDir;
+        // Analytical jerk: k·[v_rel/r³ − 3·r·(r·v_rel)/r⁵]
+        const jCoeff = k * invRSq * invR; // k / r_eff³
+        const jRadial = -3 * k * rDotVr * invR5;
+        p.jerk.x += vrx * jCoeff + rx * jRadial;
+        p.jerk.y += vry * jCoeff + ry * jRadial;
     }
 
     if (toggles.coulombEnabled) {
-        const fDir = -(p.charge * sCharge) * invRSq * invR;
+        const k = -(p.charge * sCharge);
+        const fDir = k * invRSq * invR;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceCoulomb.x += rx * fDir;
         p.forceCoulomb.y += ry * fDir;
+        // Analytical jerk for Coulomb (same form, different coupling)
+        const jCoeff = k * invRSq * invR;
+        const jRadial = -3 * k * rDotVr * invR5;
+        p.jerk.x += vrx * jCoeff + rx * jRadial;
+        p.jerk.y += vry * jCoeff + ry * jRadial;
     }
 
     if (toggles.onePNEnabled && toggles.gravitomagEnabled) {
