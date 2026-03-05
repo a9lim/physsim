@@ -1,9 +1,10 @@
 // ─── Preset Definitions ───
 // Each preset clears particles and spawns a scenario via sim.addParticle().
+import { WORLD_SCALE } from './config.js';
 
 export const PRESETS = {
     solar(sim) {
-        const cx = sim.width / 2, cy = sim.height / 2;
+        const cx = sim.domainW / 2, cy = sim.domainH / 2;
         sim.addParticle(cx, cy, 0, 0, { mass: 80, charge: 0, spin: 0 });
         for (let i = 0; i < 5; i++) {
             const dist = 100 + i * 60;
@@ -16,7 +17,7 @@ export const PRESETS = {
     },
 
     binary(sim) {
-        const cx = sim.width / 2, cy = sim.height / 2;
+        const cx = sim.domainW / 2, cy = sim.domainH / 2;
         const dist = 100;
         const starMass = 50;
         const speed = Math.sqrt(starMass / (2 * dist));
@@ -25,7 +26,7 @@ export const PRESETS = {
     },
 
     galaxy(sim) {
-        const cx = sim.width / 2, cy = sim.height / 2;
+        const cx = sim.domainW / 2, cy = sim.domainH / 2;
         const coreMass = 150;
         sim.addParticle(cx, cy, 0, 0, { mass: coreMass, charge: 0, spin: 0.8 });
         for (let i = 0; i < 200; i++) {
@@ -43,7 +44,7 @@ export const PRESETS = {
     },
 
     collision(sim) {
-        const cx = sim.width / 2, cy = sim.height / 2;
+        const cx = sim.domainW / 2, cy = sim.domainH / 2;
         for (let i = 0; i < 50; i++) {
             sim.addParticle(cx - 200 + Math.random() * 50, cy + Math.random() * 50, 0.5, 0, { mass: 1, charge: 0, spin: 0 });
             sim.addParticle(cx + 200 + Math.random() * 50, cy + Math.random() * 50, -0.5, 0, { mass: 1, charge: 0, spin: 0 });
@@ -51,7 +52,7 @@ export const PRESETS = {
     },
 
     magnetic(sim) {
-        const cx = sim.width / 2, cy = sim.height / 2;
+        const cx = sim.domainW / 2, cy = sim.domainH / 2;
         const spacing = 80;
         for (let i = -2; i <= 2; i++) {
             for (let j = -2; j <= 2; j++) {
@@ -78,7 +79,7 @@ const PRESET_LABELS = {
 
 export function loadPreset(name, sim) {
     sim.particles = [];
-    sim.camera.reset(sim.width / 2, sim.height / 2, 1);
+    sim.camera.reset(sim.domainW / 2, sim.domainH / 2, WORLD_SCALE);
 
     const preset = PRESETS[name];
     if (preset) {

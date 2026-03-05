@@ -109,16 +109,26 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
     if (toggles.gravitomagEnabled) pe -= (pAngMomentum * sAngMomentum) * invR * invRSq;
     if (toggles.onePNEnabled) {
         const pvx = p.vel.x, pvy = p.vel.y;
-        const v1Sq = pvx * pvx + pvy * pvy;
-        const v2Sq = svx * svx + svy * svy;
-        const v1DotV2 = pvx * svx + pvy * svy;
         const nx = rx * invR, ny = ry * invR;
         const v1DotN = pvx * nx + pvy * ny;
         const v2DotN = svx * nx + svy * ny;
-        pe -= p.mass * sMass * invR * (
-            1.5 * (v1Sq + v2Sq) - 3.5 * v1DotV2 - 0.5 * v1DotN * v2DotN
-            + p.mass * invR + sMass * invR
-        );
+
+        // EIH gravity 1PN PE
+        if (toggles.gravityEnabled) {
+            const v1Sq = pvx * pvx + pvy * pvy;
+            const v2Sq = svx * svx + svy * svy;
+            const v1DotV2 = pvx * svx + pvy * svy;
+            pe -= p.mass * sMass * invR * (
+                1.5 * (v1Sq + v2Sq) - 3.5 * v1DotV2 - 0.5 * v1DotN * v2DotN
+                + p.mass * invR + sMass * invR
+            );
+        }
+
+        // Darwin EM 1PN PE: −(q₁q₂)/(2r) × [(v₁·v₂) + (v₁·n̂)(v₂·n̂)]
+        if (toggles.coulombEnabled) {
+            const v1DotV2 = pvx * svx + pvy * svy;
+            pe -= 0.5 * p.charge * sCharge * invR * (v1DotV2 + v1DotN * v2DotN);
+        }
     }
     return pe;
 }

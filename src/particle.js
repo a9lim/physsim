@@ -2,6 +2,10 @@ import Vec2 from './vec2.js';
 import { HISTORY_SIZE } from './config.js';
 
 const _PAL = window._PALETTE;
+const _hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const _nRGB = _hex(_PAL.neutral);
+const _posRGB = _hex(_PAL.extended.red);
+const _negRGB = _hex(_PAL.extended.blue);
 
 export default class Particle {
     static nextId = 0;
@@ -18,11 +22,14 @@ export default class Particle {
         this.forceMagnetic = new Vec2(0, 0);
         this.forceGravitomag = new Vec2(0, 0);
         this.force1PN = new Vec2(0, 0);
+        this.force1PNEM = new Vec2(0, 0);
         this.forceSpinCurv = new Vec2(0, 0);
         this.forceRadiation = new Vec2(0, 0);
         this.torqueSpinOrbit = 0;
         this.torqueFrameDrag = 0;
+        this.torqueTidal = 0;
         this._f1pnOld = { x: 0, y: 0 };
+        this._f1pnEMOld = { x: 0, y: 0 };
 
         this.mass = mass;
         this.charge = charge;
@@ -36,6 +43,7 @@ export default class Particle {
         this.dBzdy = 0;
         this.dBgzdx = 0;
         this.dBgzdy = 0;
+        this._tidalTorque = 0;
 
         // Signal delay history (lazy-allocated)
         this.histX = null;
@@ -51,18 +59,19 @@ export default class Particle {
     }
 
     getColor() {
-        if (this.charge === 0) return _PAL.neutral;
-
-        const intensity = Math.min(Math.abs(this.charge) / 20, 1.0);
-        const hue = this.charge > 0 ? _PAL.chargePos : _PAL.chargeNeg;
-        const sat = 50 + 50 * intensity;
-        const light = 60 - 20 * intensity;
-
-        return `hsl(${hue}, ${sat}%, ${light}%)`;
+        const t = Math.max(-1, Math.min(1, this.charge / 5));
+        const absT = Math.abs(t);
+        if (absT < 1e-6) return _PAL.neutral;
+        const tgt = t > 0 ? _posRGB : _negRGB;
+        const r = Math.round(_nRGB[0] + (tgt[0] - _nRGB[0]) * absT);
+        const g = Math.round(_nRGB[1] + (tgt[1] - _nRGB[1]) * absT);
+        const b = Math.round(_nRGB[2] + (tgt[2] - _nRGB[2]) * absT);
+        return `rgb(${r},${g},${b})`;
     }
 
     updateColor() {
-        this.radius = Math.cbrt(this.mass);
+        const bh = window.sim && window.sim.physics.blackHoleEnabled;
+        this.radius = bh ? 2 * this.mass : Math.cbrt(this.mass);
         this.color = this.getColor();
     }
 

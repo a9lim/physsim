@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE } from './config.js';
+import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, HAWKING_K, MIN_BH_MASS } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -25,7 +25,9 @@ export default class Physics {
         this.barnesHutEnabled = false;
         this.bounceFriction = 0.4;
         this.radiationEnabled = false;
+        this.blackHoleEnabled = false;
         this.tidalEnabled = false;
+        this.tidalLockingEnabled = false;
         this.signalDelayEnabled = true;
         this.spinOrbitEnabled = true;
         this.onePNEnabled = true;
@@ -48,6 +50,7 @@ export default class Physics {
             magneticEnabled: true,
             gravitomagEnabled: true,
             onePNEnabled: true,
+            tidalLockingEnabled: false,
         };
 
         this._ghostPool = [];
@@ -62,6 +65,7 @@ export default class Physics {
         this._toggles.magneticEnabled = this.magneticEnabled;
         this._toggles.gravitomagEnabled = this.gravitomagEnabled;
         this._toggles.onePNEnabled = this.onePNEnabled;
+        this._toggles.tidalLockingEnabled = this.tidalLockingEnabled;
     }
 
     /** Pool-allocate a ghost at (sx, sy) mirroring p. Flips for non-orientable topologies. */
@@ -160,7 +164,7 @@ export default class Physics {
         this.periodic = (boundaryMode === 'loop');
         this._topologyConst = topology === 'klein' ? KLEIN : topology === 'rp2' ? RP2 : TORUS;
 
-        const n = particles.length;
+        let n = particles.length;
         const relOn = this.relativityEnabled;
         this._syncToggles();
         const toggles = this._toggles;
@@ -232,13 +236,15 @@ export default class Physics {
             totalSteps++;
             dtRemain -= dtSub;
 
-            // Save pre-drift 1PN force for velocity-Verlet correction
+            // Save pre-drift 1PN forces for velocity-Verlet correction
             const has1PN = toggles.onePNEnabled;
             if (has1PN) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     p._f1pnOld.x = p.force1PN.x;
                     p._f1pnOld.y = p.force1PN.y;
+                    p._f1pnEMOld.x = p.force1PNEM.x;
+                    p._f1pnEMOld.y = p.force1PNEM.y;
                 }
             }
 
@@ -284,7 +290,7 @@ export default class Physics {
             }
 
             // EM spin-orbit: dE_spin = −μ·(v·∇Bz)·dt, transferred to/from angw
-            if (hasMagnetic && relOn && this.spinOrbitEnabled) {
+            if (hasMagnetic && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
@@ -302,7 +308,7 @@ export default class Physics {
             }
 
             // GM spin-orbit: dE_spin = −L·(v·∇Bgz)·dt
-            if (hasGM && relOn && this.spinOrbitEnabled) {
+            if (hasGM && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10) continue;
@@ -321,7 +327,7 @@ export default class Physics {
 
             // Stern-Gerlach (EM) and Mathisson-Papapetrou (GM) translational kicks
             // from spin-field gradient coupling
-            if (hasMagnetic && relOn && this.spinOrbitEnabled) {
+            if (hasMagnetic && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
@@ -332,7 +338,7 @@ export default class Physics {
                     p.w.y += mu * p.dBzdy * dtSub / p.mass;
                 }
             }
-            if (hasGM && relOn && this.spinOrbitEnabled) {
+            if (hasGM && this.spinOrbitEnabled) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10) continue;
@@ -344,13 +350,25 @@ export default class Physics {
                 }
             }
 
-            // Frame-dragging torque: aligns spins toward co-rotation
-            if (hasGM) {
+            // Frame-dragging torque: aligns spins toward co-rotation (requires Relativity)
+            if (hasGM && relOn) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (!p._frameDragTorque) continue;
                     const I = INERTIA_K * p.mass * p.radius * p.radius;
                     p.angw += p._frameDragTorque * dtSub / I;
+                    const sr = p.angw * p.radius;
+                    p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
+                }
+            }
+
+            // Tidal locking torque: drives spin toward synchronous rotation
+            if (this.tidalLockingEnabled) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (!p._tidalTorque) continue;
+                    const I = INERTIA_K * p.mass * p.radius * p.radius;
+                    p.angw += p._tidalTorque * dtSub / I;
                     const sr = p.angw * p.radius;
                     p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
                 }
@@ -453,6 +471,34 @@ export default class Physics {
                 }
             }
 
+            // Hawking radiation: P = HAWKING_K / M², isotropic emission, mass loss
+            if (this.blackHoleEnabled && this.sim) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (p.mass <= MIN_BH_MASS) continue;
+                    const power = HAWKING_K / (p.mass * p.mass);
+                    const dE = power * dtSub;
+                    p.mass -= dE;
+                    p.radius = 2 * p.mass;
+                    this.sim.totalRadiated += dE;
+
+                    p._hawkAccum = (p._hawkAccum || 0) + dE;
+                    if (p._hawkAccum >= RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
+                        const emitAngle = Math.random() * 6.283185307;
+                        const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
+                        this.sim.photons.push(new Photon(
+                            p.pos.x + cosA * (p.radius + 1),
+                            p.pos.y + sinA * (p.radius + 1),
+                            cosA, sinA,
+                            p._hawkAccum, p.id
+                        ));
+                        this.sim.totalRadiatedPx += p._hawkAccum * cosA;
+                        this.sim.totalRadiatedPy += p._hawkAccum * sinA;
+                        p._hawkAccum = 0;
+                    }
+                }
+            }
+
             // Step 4: Derive coordinate velocity from w, then drift positions
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
@@ -474,12 +520,12 @@ export default class Physics {
                     p.vel.x = p.w.x * invG;
                     p.vel.y = p.w.y * invG;
                 }
-                compute1PNPairwise(particles, SOFTENING_SQ, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst);
+                compute1PNPairwise(particles, SOFTENING_SQ, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravityEnabled, this.coulombEnabled);
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const halfDtOverM = dtSub * 0.5 / p.mass;
-                    p.w.x += (p.force1PN.x - p._f1pnOld.x) * halfDtOverM;
-                    p.w.y += (p.force1PN.y - p._f1pnOld.y) * halfDtOverM;
+                    p.w.x += (p.force1PN.x - p._f1pnOld.x + p.force1PNEM.x - p._f1pnEMOld.x) * halfDtOverM;
+                    p.w.y += (p.force1PN.y - p._f1pnOld.y + p.force1PNEM.y - p._f1pnEMOld.y) * halfDtOverM;
                 }
             }
 
@@ -490,6 +536,7 @@ export default class Physics {
             // Step 6: Collisions
             if (collisionMode !== 'pass') {
                 handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled, this.periodic, this.domainW, this.domainH, this._topologyConst);
+                n = particles.length;
             }
 
             // Photon absorption: p = E/c = E (natural units)
@@ -555,6 +602,7 @@ export default class Physics {
 
         // Reconstruct B-like display forces from final-substep fields.
         // Boris rotation applied these implicitly; we reconstruct for arrow rendering.
+        // Reconstruct velocity-dependent display forces from final-substep fields
         if (hasMagnetic || hasGM) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
@@ -570,7 +618,7 @@ export default class Physics {
         }
 
         // Reconstruct spin-orbit display values from final-substep fields
-        if (hasMagnetic && relOn && this.spinOrbitEnabled) {
+        if (hasMagnetic && this.spinOrbitEnabled) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
@@ -581,7 +629,7 @@ export default class Physics {
                 p.forceSpinCurv.y += mu * p.dBzdy;
             }
         }
-        if (hasGM && relOn && this.spinOrbitEnabled) {
+        if (hasGM && this.spinOrbitEnabled) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 if (Math.abs(p.angVel) < 1e-10) continue;
@@ -592,10 +640,18 @@ export default class Physics {
                 p.forceSpinCurv.y -= L * p.dBgzdy;
             }
         }
-        if (hasGM) {
+        // Frame-drag display: requires Relativity (matches substep gate)
+        if (hasGM && relOn) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 if (p._frameDragTorque) p.torqueFrameDrag = p._frameDragTorque;
+            }
+        }
+        // Tidal torque display
+        if (this.tidalLockingEnabled) {
+            for (let i = 0; i < n; i++) {
+                const p = particles[i];
+                if (p._tidalTorque) p.torqueTidal = p._tidalTorque;
             }
         }
 

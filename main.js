@@ -6,7 +6,8 @@ import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS } from './src/config.js';
+import { WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_BH_MASS, MAX_PHOTONS } from './src/config.js';
+import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
 
@@ -20,8 +21,10 @@ class Simulation {
         this.particles = [];
         this.physics = new Physics();
         this.renderer = new Renderer(this.ctx, this.width, this.height);
-        this.renderer.domainW = this.width; // for trail wrap-detection threshold
-        this.renderer.domainH = this.height;
+        this.domainW = this.width / WORLD_SCALE;
+        this.domainH = this.height / WORLD_SCALE;
+        this.renderer.domainW = this.domainW;
+        this.renderer.domainH = this.domainH;
         this.renderer.setTheme(true);
 
         this.heatmap = new Heatmap();
@@ -31,7 +34,8 @@ class Simulation {
 
         this.camera = createCamera({
             width: this.width, height: this.height,
-            x: this.width / 2, y: this.height / 2,
+            x: this.domainW / 2, y: this.domainH / 2,
+            zoom: WORLD_SCALE,
             minZoom: ZOOM_MIN, maxZoom: ZOOM_MAX,
             wheelFactor: WHEEL_ZOOM_IN,
         });
@@ -68,8 +72,6 @@ class Simulation {
         this.topology = 'torus';
         this.speedScale = DEFAULT_SPEED_SCALE;
         this.selectedParticle = null;
-        this.domainW = this.width;
-        this.domainH = this.height;
         this.photons = [];
         this.totalRadiated = 0;
         this.totalRadiatedPx = 0;
@@ -81,7 +83,6 @@ class Simulation {
             details: document.getElementById('particle-details'),
             hint: document.getElementById('particle-hint'),
             phaseSection: document.getElementById('phase-plot-section'),
-            id: document.getElementById('sel-id'),
             mass: document.getElementById('sel-mass'),
             charge: document.getElementById('sel-charge'),
             spin: document.getElementById('sel-spin'),
@@ -111,11 +112,15 @@ class Simulation {
         this.height = window.innerHeight;
         this.canvas.width = this.width;
         this.canvas.height = this.height;
+        this.domainW = this.width / WORLD_SCALE;
+        this.domainH = this.height / WORLD_SCALE;
         this.renderer.resize(this.width, this.height);
+        this.renderer.domainW = this.domainW;
+        this.renderer.domainH = this.domainH;
         this.input.updateRect();
         // Preserve top-left world position across resize
-        this.camera.x += (this.width - oldW) / 2;
-        this.camera.y += (this.height - oldH) / 2;
+        this.camera.x += (this.width - oldW) / (2 * this.camera.zoom);
+        this.camera.y += (this.height - oldH) / (2 * this.camera.zoom);
         this.camera.viewportW = this.width;
         this.camera.viewportH = this.height;
     }
@@ -123,25 +128,20 @@ class Simulation {
     addParticle(x, y, vx, vy, options = {}) {
         const p = new Particle(x, y);
 
-        const baseMass = options.mass ?? 10;
-        p.mass = Math.max(1, baseMass + (Math.random() - 0.5) * baseMass * 0.2);
+        p.mass = options.mass ?? 10;
+        p.charge = options.charge ?? 0;
 
-        const baseCharge = options.charge ?? 0;
-        p.charge = baseCharge !== 0 ? baseCharge + (Math.random() - 0.5) * baseCharge * 0.2 : 0;
+        p.updateColor();
 
         // Spin is surface velocity as fraction of c; convert to angular celerity
-        const baseSV = options.spin ?? 0;
-        let sv = baseSV !== 0 ? baseSV + (Math.random() - 0.5) * baseSV * 0.2 : 0;
+        let sv = options.spin ?? 0;
         sv = Math.max(-0.99, Math.min(0.99, sv));
         const absSV = Math.abs(sv);
         p.angw = absSV > 0 ? Math.sign(sv) * absSV / (p.radius * Math.sqrt(1 - absSV * absSV)) : 0;
-
-        p.updateColor();
         setVelocity(p, vx, vy);
         p.angVel = this.physics.relativityEnabled ? angwToAngVel(p.angw, p.radius) : p.angw;
         this.particles.push(p);
         this.stats.resetBaseline();
-        this.physics._forcesInit = false;
     }
 
     loop(timestamp) {
@@ -184,6 +184,32 @@ class Simulation {
                         this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
                             mass: fragMass, charge: fragCharge, spin: p.angw
                         });
+                    }
+                }
+
+                // Hawking evaporation: remove particles below MIN_BH_MASS
+                if (this.physics.blackHoleEnabled) {
+                    for (let i = this.particles.length - 1; i >= 0; i--) {
+                        const p = this.particles[i];
+                        if (p.mass >= MIN_BH_MASS) continue;
+                        // Final burst: emit remaining mass-energy as photons
+                        const burstE = Math.max(0, p.mass);
+                        if (burstE > 0) {
+                            const nBurst = Math.min(5, MAX_PHOTONS - this.photons.length);
+                            for (let j = 0; j < nBurst; j++) {
+                                const angle = Math.random() * 2 * Math.PI;
+                                const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                                this.photons.push(new Photon(
+                                    p.pos.x + cosA * 3, p.pos.y + sinA * 3,
+                                    cosA, sinA, burstE / nBurst, p.id
+                                ));
+                                this.totalRadiatedPx += (burstE / nBurst) * cosA;
+                                this.totalRadiatedPy += (burstE / nBurst) * sinA;
+                            }
+                            this.totalRadiated += burstE;
+                        }
+                        if (this.selectedParticle === p) this.selectedParticle = null;
+                        this.particles.splice(i, 1);
                     }
                 }
 

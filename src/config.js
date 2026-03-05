@@ -13,8 +13,9 @@ export const MAG_MOMENT_K = 0.2;
 
 export const DESPAWN_MARGIN = 100;
 export const MAX_TRAIL_LENGTH = 200;
-export const ZOOM_MIN = 1;
-export const ZOOM_MAX = 6;
+export const WORLD_SCALE = 16;
+export const ZOOM_MIN = WORLD_SCALE;
+export const ZOOM_MAX = 96;
 export const WHEEL_ZOOM_IN = 1.1;
 
 export const MAX_SUBSTEPS = 16;
@@ -29,11 +30,15 @@ export const RADIATION_THRESHOLD = 0.01;
 export const MAX_PHOTONS = 500;
 export const LL_FORCE_CLAMP = 0.5; // max |F_rad*dt/m| as fraction of |w|
 
+// Hawking radiation: P = ℏc⁶/(15360πG²M²); in Planck units (G=c=ℏ=1): P = 1/(15360πM²)
+export const HAWKING_K = 1 / (15360 * Math.PI);
+export const MIN_BH_MASS = 0.01;
+
 // Signal delay history buffer
 export const HISTORY_SIZE = 1024;
 export const HISTORY_STRIDE = 200; // record every N updates; ~60 snapshots/sec at 100× speed
 
 export const FRAME_DRAG_K = 0.1;
 export const TIDAL_STRENGTH = 2.0;
-export const MIN_FRAGMENT_MASS = 2;
+export const MIN_FRAGMENT_MASS = 0.01;
 export const FRAGMENT_COUNT = 3;

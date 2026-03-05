@@ -110,15 +110,17 @@ body {
    Force Toggle Colors
    ═══════════════════════════════════════════════ */
 .tog-gravity     { --tog-color: var(--ext-red); }
-.tog-gravitomag  { --tog-color: var(--ext-purple); }
+.tog-gravitomag  { --tog-color: var(--ext-rose); }
 .tog-coulomb     { --tog-color: var(--ext-blue); }
 .tog-magnetic    { --tog-color: var(--ext-cyan); }
 .tog-relativity  { --tog-color: var(--ext-orange); }
-.tog-radiation   { --tog-color: var(--ext-yellow); }
-.tog-signaldelay { --tog-color: var(--ext-orange); }
-.tog-spinorbit   { --tog-color: var(--ext-orange); }
-.tog-tidal       { --tog-color: var(--ext-slate); }
-.tog-onepn      { --tog-color: var(--ext-rose); }
+.tog-radiation    { --tog-color: var(--ext-yellow); }
+.tog-signaldelay  { --tog-color: var(--ext-orange); }
+.tog-spinorbit    { --tog-color: var(--ext-purple); }
+.tog-tidal        { --tog-color: var(--ext-slate); }
+.tog-tidallocking { --tog-color: var(--ext-green); }
+.tog-onepn        { --tog-color: var(--ext-orange); }
+.tog-blackhole    { --tog-color: var(--text); }
 
 .ctrl-row {
     display: flex;

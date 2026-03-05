@@ -1,7 +1,7 @@
 // ─── UI Setup ───
 // Wires all panel controls, toggles, presets, shortcuts, and info tips to the sim.
 import { loadPreset } from './presets.js';
-import { PHYSICS_DT } from './config.js';
+import { PHYSICS_DT, WORLD_SCALE } from './config.js';
 
 const HINT_FADE_DELAY = 5000;
 
@@ -70,7 +70,7 @@ export function setupUI(sim) {
         sim.totalRadiated = 0;
         sim.totalRadiatedPx = 0;
         sim.totalRadiatedPy = 0;
-        sim.camera.reset(sim.width / 2, sim.height / 2, 1);
+        sim.camera.reset(sim.domainW / 2, sim.domainH / 2, WORLD_SCALE);
         showToast('Simulation cleared');
     });
 
@@ -116,6 +116,7 @@ export function setupUI(sim) {
         { id: 'relativity-toggle', prop: 'relativityEnabled' },
         { id: 'radiation-toggle', prop: 'radiationEnabled' },
         { id: 'tidal-toggle', prop: 'tidalEnabled' },
+        { id: 'tidallocking-toggle', prop: 'tidalLockingEnabled' },
         { id: 'signaldelay-toggle', prop: 'signalDelayEnabled' },
         { id: 'spinorbit-toggle', prop: 'spinOrbitEnabled' },
         { id: 'barneshut-toggle', prop: 'barnesHutEnabled' },
@@ -145,15 +146,6 @@ export function setupUI(sim) {
     const gravEl = document.getElementById('gravity-toggle');
     const coulEl = document.getElementById('coulomb-toggle');
 
-    // ─── Relativity → Spin-Orbit, Radiation ───
-    const updateRelDeps = () => {
-        const on = relativityEl.checked;
-        setDepState(document.getElementById('spinorbit-toggle'), 'spinOrbitEnabled', !on);
-        setDepState(document.getElementById('radiation-toggle'), 'radiationEnabled', !on);
-    };
-    relativityEl.addEventListener('change', updateRelDeps);
-    updateRelDeps();
-
     // ─── Signal Delay requires Relativity + BH off ───
     const sdEl = document.getElementById('signaldelay-toggle');
     const updateSdDeps = () => {
@@ -163,28 +155,75 @@ export function setupUI(sim) {
     relativityEl.addEventListener('change', updateSdDeps);
     updateSdDeps();
 
-    // ─── 1PN requires Gravity + Relativity ───
-    const pnEl = document.getElementById('onepn-toggle');
-    const updatePnDeps = () => {
-        setDepState(pnEl, 'onePNEnabled', !(gravEl.checked && relativityEl.checked));
-    };
-    gravEl.addEventListener('change', updatePnDeps);
-    relativityEl.addEventListener('change', updatePnDeps);
-    updatePnDeps();
-
     // ─── Gravity → Gravitomagnetic ───
+    const gmEl = document.getElementById('gravitomag-toggle');
     const updateGravDeps = () => {
-        setDepState(document.getElementById('gravitomag-toggle'), 'gravitomagEnabled', !gravEl.checked);
+        setDepState(gmEl, 'gravitomagEnabled', !gravEl.checked);
     };
     gravEl.addEventListener('change', updateGravDeps);
     updateGravDeps();
 
+
     // ─── Coulomb → Magnetic ───
+    const magEl = document.getElementById('magnetic-toggle');
     const updateCoulDeps = () => {
-        setDepState(document.getElementById('magnetic-toggle'), 'magneticEnabled', !coulEl.checked);
+        setDepState(magEl, 'magneticEnabled', !coulEl.checked);
     };
     coulEl.addEventListener('change', updateCoulDeps);
     updateCoulDeps();
+
+    // ─── 1PN requires Relativity + Magnetic + Gravitomagnetic ───
+    const pnEl = document.getElementById('onepn-toggle');
+    const updatePnDeps = () => {
+        setDepState(pnEl, 'onePNEnabled', !relativityEl.checked || !magEl.checked || !gmEl.checked);
+    };
+    relativityEl.addEventListener('change', updatePnDeps);
+    magEl.addEventListener('change', updatePnDeps);
+    gmEl.addEventListener('change', updatePnDeps);
+    updatePnDeps();
+
+    // ─── Spin-Orbit requires Magnetic + Gravitomagnetic ───
+    const soEl = document.getElementById('spinorbit-toggle');
+    const updateSoDeps = () => {
+        setDepState(soEl, 'spinOrbitEnabled', !magEl.checked || !gmEl.checked);
+    };
+    magEl.addEventListener('change', updateSoDeps);
+    gmEl.addEventListener('change', updateSoDeps);
+    updateSoDeps();
+
+    // ─── Radiation requires Magnetic ───
+    const radEl = document.getElementById('radiation-toggle');
+    const updateRadDeps = () => {
+        setDepState(radEl, 'radiationEnabled', !magEl.checked);
+    };
+    magEl.addEventListener('change', updateRadDeps);
+    updateRadDeps();
+
+    // ─── Black Hole requires Relativity; locks collision to Merge ───
+    const bhTogEl = document.getElementById('blackhole-toggle');
+    const collisionToggles = document.getElementById('collision-toggles');
+    const syncBhEffects = () => {
+        if (bhTogEl.checked) {
+            sim.collisionMode = 'merge';
+            collisionToggles.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            collisionToggles.querySelector('[data-collision="merge"]').classList.add('active');
+            collisionToggles.classList.add('ctrl-disabled');
+        } else {
+            collisionToggles.classList.remove('ctrl-disabled');
+        }
+        for (const p of sim.particles) p.updateColor();
+    };
+    const updateBhDeps = () => {
+        setDepState(bhTogEl, 'blackHoleEnabled', !relativityEl.checked);
+        syncBhEffects();
+    };
+    relativityEl.addEventListener('change', updateBhDeps);
+    updateBhDeps();
+    bhTogEl.addEventListener('change', () => {
+        sim.physics.blackHoleEnabled = bhTogEl.checked;
+        bhTogEl.setAttribute('aria-checked', bhTogEl.checked);
+        syncBhEffects();
+    });
 
     // ─── Visual toggles ───
     document.getElementById('trailsToggle').addEventListener('change', (e) => {
@@ -202,9 +241,7 @@ export function setupUI(sim) {
     document.getElementById('potentialToggle')?.addEventListener('change', (e) => {
         sim.heatmap.enabled = e.target.checked;
     });
-    document.getElementById('accelScalingToggle')?.addEventListener('change', (e) => {
-        sim.renderer.accelScaling = e.target.checked;
-    });
+
 
     // ─── Slider value displays ───
     const massSlider = document.getElementById('massInput');
@@ -216,8 +253,8 @@ export function setupUI(sim) {
     const frictionSlider = document.getElementById('frictionInput');
     const frictionLabel = document.getElementById('frictionValue');
 
-    massSlider.addEventListener('input', () => { massLabel.textContent = massSlider.value; });
-    chargeSlider.addEventListener('input', () => { chargeLabel.textContent = chargeSlider.value; });
+    massSlider.addEventListener('input', () => { massLabel.textContent = parseFloat(massSlider.value).toFixed(2); });
+    chargeSlider.addEventListener('input', () => { chargeLabel.textContent = parseFloat(chargeSlider.value).toFixed(2); });
     spinSlider.addEventListener('input', () => { spinLabel.textContent = parseFloat(spinSlider.value).toFixed(2) + 'c'; });
     frictionSlider.addEventListener('input', () => {
         sim.physics.bounceFriction = parseFloat(frictionSlider.value);
@@ -244,7 +281,8 @@ export function setupUI(sim) {
         zoomOut: document.getElementById('zoom-out-btn'),
         reset: document.getElementById('zoom-reset-btn'),
         display: document.getElementById('zoom-level'),
-        onReset: () => sim.camera.reset(sim.width / 2, sim.height / 2, 1),
+        onReset: () => sim.camera.reset(sim.domainW / 2, sim.domainH / 2, WORLD_SCALE),
+        formatZoom: (z) => Math.round(z / WORLD_SCALE * 100) + '%',
     });
 
     // ─── Theme toggle ───
@@ -286,12 +324,12 @@ export function setupUI(sim) {
             el.checked = !el.checked;
             sim.renderer.showVelocity = el.checked;
         }},
-        { key: 'F', label: 'Toggle force vectors', group: 'View', action: () => {
+        { key: 'F', label: 'Toggle acceleration vectors', group: 'View', action: () => {
             const el = document.getElementById('forceToggle');
             el.checked = !el.checked;
             sim.renderer.showForce = el.checked;
         }},
-        { key: 'C', label: 'Toggle force components', group: 'View', action: () => {
+        { key: 'C', label: 'Toggle acceleration components', group: 'View', action: () => {
             const el = document.getElementById('forceComponentsToggle');
             el.checked = !el.checked;
             sim.renderer.showForceComponents = el.checked;
@@ -315,16 +353,18 @@ export function setupUI(sim) {
         magnetic: { title: 'Magnetic', body: 'Two components. Spinning charged particles create magnetic dipoles ($\\mu = q\\omega r^2/5$) that interact via $F = 3\\mu_1 \\mu_2 / r^4$. Moving charges also generate magnetic fields, producing the Lorentz force $\\mathbf{F} = q(\\mathbf{v} \\times \\mathbf{B})$, handled exactly by the Boris integrator. Requires Coulomb.' },
         gravitomag: { title: 'Gravitomagnetic', body: 'The gravitational analog of magnetism, from general relativity\'s gravitoelectromagnetic (GEM) framework. Spinning masses interact via $F = 3L_1 L_2 / r^4$ (co-rotating masses attract, unlike EM dipoles which repel). Moving masses feel a Lorentz-like force $\\mathbf{F} = 4m(\\mathbf{v} \\times \\mathbf{B}_g)$. Frame-dragging torque gradually aligns nearby spins. Requires Gravity.' },
         relativity: { title: 'Relativity', body: 'Switches the simulation between relativistic and classical mechanics. When on, the state variable is proper velocity $\\mathbf{w} = \\gamma\\mathbf{v}$ (which can grow without bound), and coordinate velocity is derived as $\\mathbf{v} = \\mathbf{w}/\\sqrt{1+w^2}$, enforcing $|v| < c$. When off, $\\mathbf{v} = \\mathbf{w}$ with no speed limit.' },
-        radiation: { title: 'Radiation', body: 'Accelerating charged particles radiate energy as photons (Larmor radiation: $P = 2q^2 a^2/3$). A Landau\u2013Lifshitz reaction force ($\\tau \\cdot d\\mathbf{F}/dt / \\gamma^3$) decelerates the emitter, and visible photon particles carry the lost energy and momentum away. This causes orbital decay of charged particles. Requires Relativity.' },
+        radiation: { title: 'Radiation', body: 'Accelerating charged particles radiate energy as photons (Larmor radiation: $P = 2q^2 a^2/3$). A Landau\u2013Lifshitz reaction force ($\\tau \\cdot d\\mathbf{F}/dt / \\gamma^3$) decelerates the emitter, and visible photon particles carry the lost energy and momentum away. This causes orbital decay of charged particles.' },
         tidal: { title: 'Disintegration', body: 'Particles break apart when disruptive forces exceed their self-gravity. The sim checks tidal stretching from neighbors ($\\propto M R / r^3$), centrifugal stress from rapid spin, and Coulomb self-repulsion. When the combined outward forces win, the particle splits into 3 fragments.' },
+        tidallocking: { title: 'Tidal Locking', body: 'Tidal torque drives spin toward synchronous rotation ($\\omega_{\\text{spin}} \\to \\omega_{\\text{orbit}}$). The torque is $\\tau \\propto -(M + q_1 q_2/m)^2 R^3 / r^6 \\cdot \\Delta\\omega$. The mixed coupling captures all cross-terms between gravitational and electrostatic tidal fields. Requires Gravity.' },
         signaldelay: { title: 'Signal Delay', body: 'Forces propagate at the speed of light instead of acting instantaneously. Each particle sees others at their past positions on the light cone: $|\\mathbf{x}_{\\text{src}}(t_{\\text{ret}}) - \\mathbf{x}_{\\text{obs}}| = t_{\\text{now}} - t_{\\text{ret}}$. The delayed time is solved analytically using recorded position histories. Only available in pairwise mode (Barnes\u2013Hut off). Requires Relativity.' },
-        spinorbit: { title: 'Spin\u2013Orbit', body: 'Couples translational and rotational motion through field gradients. Moving through a non-uniform magnetic or gravitomagnetic field transfers energy between a particle\'s orbit and its spin. Also applies translational kicks: Stern\u2013Gerlach force ($\\mathbf{F} = \\mu\\nabla B$) for EM, and Mathisson\u2013Papapetrou force ($\\mathbf{F} = -L\\nabla B_g$) for gravity. Requires Relativity.' },
+        spinorbit: { title: 'Spin\u2013Orbit', body: 'Couples translational and rotational motion through field gradients. Moving through a non-uniform magnetic or gravitomagnetic field transfers energy between a particle\'s orbit and its spin. Also applies translational kicks: Stern\u2013Gerlach force ($\\mathbf{F} = \\mu\\nabla B$) for EM, and Mathisson\u2013Papapetrou force ($\\mathbf{F} = -L\\nabla B_g$) for gravity.' },
         interaction: { title: 'Spawn Modes', body: '<b>Place</b> \u2014 click to spawn a particle at rest.<br><b>Shoot</b> \u2014 click and drag to set the particle\'s initial velocity.<br><b>Orbit</b> \u2014 spawns in a circular orbit around the nearest massive body, with velocity set to $v = \\sqrt{M/r}$.' },
         barneshut: { title: 'Barnes\u2013Hut', body: 'Controls the force calculation algorithm. When on, uses an $O(N \\log N)$ quadtree approximation ($\\theta = 0.5$) that groups distant particles together, allowing hundreds of particles to run smoothly. When off, computes every pair exactly ($O(N^2)$) which is slower but conserves momentum and angular momentum to machine precision.' },
         collision: { title: 'Collisions', body: '<b>Pass</b> \u2014 particles move through each other freely.<br><b>Bounce</b> \u2014 elastic collision with spin-dependent surface friction that transfers angular momentum.<br><b>Merge</b> \u2014 overlapping particles combine into one, conserving total mass, charge, momentum, and angular momentum.' },
         boundary: { title: 'Boundaries', body: '<b>Despawn</b> \u2014 particles are removed when they leave the viewport.<br><b>Loop</b> \u2014 particles wrap around periodically, creating an unbounded space (opens the topology selector).<br><b>Bounce</b> \u2014 particles reflect elastically off the edges.' },
         topology: { title: 'Topology', body: 'Determines how the space is identified when boundaries are set to Loop.<br><b>Torus</b> \u2014 both axes wrap normally (like Pac-Man).<br><b>Klein bottle</b> \u2014 y-wrap mirrors the x-coordinate and reverses horizontal velocity. Non-orientable.<br><b>RP\u00B2</b> \u2014 both axes wrap with a perpendicular flip. Also non-orientable; the only closed 2D surface where every loop is orientation-reversing.' },
-        onepn: { title: '1PN Correction', body: 'First post-Newtonian (Einstein\u2013Infeld\u2013Hoffmann) correction to gravity at $O(v^2/c^2)$. This is what makes Mercury\'s orbit precess: $\\Delta\\phi \\approx 6\\pi M / a(1-e^2)$ radians per orbit. Integrated with a velocity-Verlet scheme for second-order accuracy. Requires both Gravity and Relativity.' },
+        blackhole: { title: 'Black Hole Mode', body: 'All particles become black holes: radius switches to the Schwarzschild radius $r_s = 2M$ and collisions are locked to Merge. Each black hole emits Hawking radiation at power $P = \\kappa / M^2$ (smaller black holes radiate faster). Emitted photons carry away mass-energy, shrinking the black hole until it evaporates completely. Requires Relativity.' },
+        onepn: { title: '1PN Correction', body: 'First post-Newtonian $O(v^2/c^2)$ corrections. For gravity: the Einstein\u2013Infeld\u2013Hoffmann (EIH) force produces perihelion precession ($\\Delta\\phi \\approx 6\\pi M / a(1-e^2)$). For electromagnetism: the Darwin correction from the Darwin Lagrangian adds velocity-dependent terms beyond the Lorentz force. Each sector activates only when its parent force (Gravity or Coulomb) is on. Integrated with a velocity-Verlet scheme for second-order accuracy. Requires Relativity.' },
     };
 
     if (typeof createInfoTip === 'function') {

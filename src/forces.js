@@ -2,7 +2,7 @@
 // Pairwise and Barnes-Hut force accumulation. Separates E-like (position-dependent)
 // from B-like (velocity-dependent) forces for the Boris integrator.
 
-import { BH_THETA, SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, FRAME_DRAG_K } from './config.js';
+import { BH_THETA, SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, FRAME_DRAG_K, TIDAL_STRENGTH } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { TORUS, minImage } from './topology.js';
 
@@ -18,10 +18,12 @@ export function resetForces(particles) {
         p.forceMagnetic.set(0, 0);
         p.forceGravitomag.set(0, 0);
         p.force1PN.set(0, 0);
+        p.force1PNEM.set(0, 0);
         p.forceSpinCurv.set(0, 0);
         p.forceRadiation.set(0, 0);
         p.torqueSpinOrbit = 0;
         p.torqueFrameDrag = 0;
+        p.torqueTidal = 0;
         p.Bz = 0;
         p.Bgz = 0;
         p.dBzdx = 0;
@@ -29,6 +31,7 @@ export function resetForces(particles) {
         p.dBgzdx = 0;
         p.dBgzdy = 0;
         p._frameDragTorque = 0;
+        p._tidalTorque = 0;
     }
 }
 
@@ -126,32 +129,44 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     if (toggles.onePNEnabled && toggles.gravityEnabled) {
-        // 1PN EIH correction: O(v²/c²) gravity. Uses coordinate velocities per EIH formulation.
+        // 1PN EIH symmetric remainder: O(v²/c²) gravity after subtracting the
+        // GM Lorentz piece (handled by Boris when GM is on, absent when GM is off).
+        // a = (m2/r²) * { n̂·R + v1·C1 + v2·C2 }
         const pvx = p.vel.x, pvy = p.vel.y;
         const v1Sq = pvx * pvx + pvy * pvy;
         const v2Sq = svx * svx + svy * svy;
-        const v1DotV2 = pvx * svx + pvy * svy;
         const nx = rx * invR, ny = ry * invR;
         const nDotV1 = nx * pvx + ny * pvy;
         const nDotV2 = nx * svx + ny * svy;
-
-        const radial = -v1Sq - 2 * v2Sq + 4 * v1DotV2
+        const radial = -v1Sq - 2 * v2Sq
             + 1.5 * nDotV2 * nDotV2
             + 5 * p.mass * invR + 4 * sMass * invR;
-
-        const tangential = 4 * nDotV1 - 3 * nDotV2;
-        const dvx = pvx - svx, dvy = pvy - svy;
-
-        // a_1PN = (m2/r²) * { n̂·radial + (v1−v2)·tangential }
-        // Tangential term multiplied by r to convert n̂ → r direction vector
+        const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
+        const v2Coeff = 3 * nDotV2;
         const base = sMass * invRSq * invR;
-        const fx = base * (rx * radial + dvx * tangential * r);
-        const fy = base * (ry * radial + dvy * tangential * r);
+        const fx = base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
+        const fy = base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
 
         out.x += fx;
         out.y += fy;
         p.force1PN.x += fx;
         p.force1PN.y += fy;
+    }
+
+    if (toggles.onePNEnabled && toggles.coulombEnabled) {
+        // Darwin EM symmetric correction: O(v²/c²) from Darwin Lagrangian.
+        // F₁_sym = (q₁q₂)/(2r²) × { v₁(v₂·n̂) − 3n̂(v₁·n̂)(v₂·n̂) }
+        // NOT Newton's 3rd law — each particle uses its own velocity.
+        const nx = rx * invR, ny = ry * invR;
+        const v2DotN = svx * nx + svy * ny;
+        const v1DotN = p.vel.x * nx + p.vel.y * ny;
+        const coeff = 0.5 * p.charge * sCharge * invRSq;
+        const symX = coeff * (p.vel.x * v2DotN - 3 * nx * v1DotN * v2DotN);
+        const symY = coeff * (p.vel.y * v2DotN - 3 * ny * v1DotN * v2DotN);
+        out.x += symX;
+        out.y += symY;
+        p.force1PNEM.x += symX;
+        p.force1PNEM.y += symY;
     }
 
     if (toggles.magneticEnabled) {
@@ -201,15 +216,31 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
         p._frameDragTorque = (p._frameDragTorque || 0) + torque;
     }
+
+    if (toggles.tidalLockingEnabled) {
+        // Tidal locking torque: drives spin toward synchronous rotation.
+        // Coupling = (m_other + q₁q₂/m)² accounts for all cross-terms:
+        // gravity-raises/gravity-torques, gravity/Coulomb, Coulomb/gravity, Coulomb/Coulomb.
+        const crossRV = rx * (svy - p.vel.y) - ry * (svx - p.vel.x);
+        const wOrbit = crossRV * invRSq;
+        const dw = p.angVel - wOrbit;
+        let coupling = 0;
+        if (toggles.gravityEnabled) coupling += sMass;
+        if (toggles.coulombEnabled) coupling += p.charge * sCharge / p.mass;
+        const ri3 = p.radius * p.radius * p.radius;
+        const invR6 = invRSq * invRSq * invRSq;
+        p._tidalTorque -= TIDAL_STRENGTH * coupling * coupling * ri3 * invR6 * dw;
+    }
 }
 
 /**
  * Recompute 1PN forces pairwise O(N²) for velocity-Verlet correction.
  * Called after drift to get F_1PN(new) for the correction kick.
  */
-export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
+export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravityEnabled = true, coulombEnabled = false) {
     for (let i = 0; i < particles.length; i++) {
         particles[i].force1PN.set(0, 0);
+        particles[i].force1PNEM.set(0, 0);
     }
     for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
@@ -229,20 +260,34 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
             const invRSq = 1 / rSq;
             const pvx = p.vel.x, pvy = p.vel.y;
             const svx = o.vel.x, svy = o.vel.y;
-            const v1Sq = pvx * pvx + pvy * pvy;
-            const v2Sq = svx * svx + svy * svy;
-            const v1DotV2 = pvx * svx + pvy * svy;
             const nx = rx * invR, ny = ry * invR;
-            const nDotV1 = nx * pvx + ny * pvy;
-            const nDotV2 = nx * svx + ny * svy;
-            const radial = -v1Sq - 2 * v2Sq + 4 * v1DotV2
-                + 1.5 * nDotV2 * nDotV2
-                + 5 * p.mass * invR + 4 * o.mass * invR;
-            const tangential = 4 * nDotV1 - 3 * nDotV2;
-            const dvx = pvx - svx, dvy = pvy - svy;
-            const base = o.mass * invRSq * invR;
-            p.force1PN.x += base * (rx * radial + dvx * tangential * r);
-            p.force1PN.y += base * (ry * radial + dvy * tangential * r);
+
+            // EIH gravity 1PN symmetric remainder
+            if (gravityEnabled) {
+                const v1Sq = pvx * pvx + pvy * pvy;
+                const v2Sq = svx * svx + svy * svy;
+                const nDotV1 = nx * pvx + ny * pvy;
+                const nDotV2 = nx * svx + ny * svy;
+                const radial = -v1Sq - 2 * v2Sq
+                    + 1.5 * nDotV2 * nDotV2
+                    + 5 * p.mass * invR + 4 * o.mass * invR;
+                const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
+                const v2Coeff = 3 * nDotV2;
+                const base = o.mass * invRSq * invR;
+                p.force1PN.x += base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
+                p.force1PN.y += base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
+            }
+
+            // Darwin EM 1PN
+            if (coulombEnabled) {
+                const v2DotN = svx * nx + svy * ny;
+                const v1DotN = pvx * nx + pvy * ny;
+                const coeff = 0.5 * p.charge * o.charge * invRSq;
+                const symX = coeff * (pvx * v2DotN - 3 * nx * v1DotN * v2DotN);
+                const symY = coeff * (pvy * v2DotN - 3 * ny * v1DotN * v2DotN);
+                p.force1PNEM.x += symX;
+                p.force1PNEM.y += symY;
+            }
         }
     }
 }

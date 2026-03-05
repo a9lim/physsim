@@ -7,15 +7,17 @@ const _r = window._r;
 
 // Per-force component colors (matching toggle colors in styles.css)
 const _forceCompColors = {
-    gravity:     { light: _r(_PAL.extended.red, 0.7),    dark: _r(_PAL.extended.red, 0.8) },
-    coulomb:     { light: _r(_PAL.extended.blue, 0.7),   dark: _r(_PAL.extended.blue, 0.8) },
-    magnetic:    { light: _r(_PAL.extended.cyan, 0.7),   dark: _r(_PAL.extended.cyan, 0.8) },
-    gravitomag:  { light: _r(_PAL.extended.purple, 0.7), dark: _r(_PAL.extended.purple, 0.8) },
-    onepn:       { light: _r(_PAL.extended.rose, 0.7),   dark: _r(_PAL.extended.rose, 0.8) },
-    spinCurv:    { light: _r(_PAL.extended.orange, 0.7), dark: _r(_PAL.extended.orange, 0.8) },
-    radiation:   { light: _r(_PAL.extended.yellow, 0.7), dark: _r(_PAL.extended.yellow, 0.8) },
-    torqueSO:    { light: _PAL.extended.orange, dark: _PAL.extended.orange },
-    torqueFD:    { light: _PAL.extended.purple, dark: _PAL.extended.purple },
+    gravity:     { light: _PAL.extended.red,    dark: _PAL.extended.red },
+    coulomb:     { light: _PAL.extended.blue,   dark: _PAL.extended.blue },
+    magnetic:    { light: _PAL.extended.cyan,   dark: _PAL.extended.cyan },
+    gravitomag:  { light: _PAL.extended.rose,   dark: _PAL.extended.rose },
+    onepn:       { light: _PAL.extended.orange, dark: _PAL.extended.orange },
+    onepnem:     { light: _PAL.extended.orange, dark: _PAL.extended.orange },
+    spinCurv:    { light: _PAL.extended.purple, dark: _PAL.extended.purple },
+    radiation:   { light: _PAL.extended.yellow, dark: _PAL.extended.yellow },
+    torqueSO:    { light: _PAL.extended.purple, dark: _PAL.extended.purple },
+    torqueFD:    { light: _PAL.extended.rose,   dark: _PAL.extended.rose },
+    torqueTidal: { light: _PAL.extended.green,  dark: _PAL.extended.green },
 };
 
 // Spin ring colors by sign
@@ -35,7 +37,6 @@ export default class Renderer {
         this.showVelocity = false;
         this.showForce = false;
         this.showForceComponents = false;
-        this.accelScaling = false;
         this.isLight = false;
         this.trailHistory = new Map();
         this.heatmap = null;
@@ -152,7 +153,7 @@ export default class Renderer {
             const pointCount = trail.len / 2;
             const segCount = pointCount - 1;
             const capacity = trail.data.length;
-            const lineWidth = Math.max(1.5, p.radius * 0.6);
+            const lineWidth = 0.5 * p.radius;
             ctx.strokeStyle = p.color;
             ctx.lineWidth = lineWidth;
 
@@ -216,30 +217,37 @@ export default class Renderer {
 
 
     drawArrow(ctx, x1, y1, x2, y2, invZoom, color) {
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2 * invZoom;
-        ctx.stroke();
-
         const dx = x2 - x1, dy = y2 - y1;
         const len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 2 * invZoom) return;
+        if (len < 0.5 * invZoom) return;
+
         const nx = dx / len, ny = dy / len;
-        const headLen = 6 * invZoom;
+        const headLen = len < 2 * invZoom ? 0 : 8 * invZoom;
+
+        // Stop shaft at arrowhead base
+        const shaftX = x2 - nx * headLen;
+        const shaftY = y2 - ny * headLen;
         ctx.beginPath();
-        ctx.moveTo(x2, y2);
-        ctx.lineTo(x2 - nx * headLen + ny * headLen * 0.4, y2 - ny * headLen - nx * headLen * 0.4);
-        ctx.lineTo(x2 - nx * headLen - ny * headLen * 0.4, y2 - ny * headLen + nx * headLen * 0.4);
-        ctx.closePath();
-        ctx.fillStyle = color;
-        ctx.fill();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(shaftX, shaftY);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3 * invZoom;
+        ctx.stroke();
+
+        if (headLen > 0) {
+            ctx.beginPath();
+            ctx.moveTo(x2, y2);
+            ctx.lineTo(x2 - nx * headLen + ny * headLen * 0.4, y2 - ny * headLen - nx * headLen * 0.4);
+            ctx.lineTo(x2 - nx * headLen - ny * headLen * 0.4, y2 - ny * headLen + nx * headLen * 0.4);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
     }
 
     drawVelocityVectors(ctx, particles, invZoom, isLight) {
         const scale = 40;
-        const color = isLight ? _r(_PAL.light.text, 0.5) : _r(_PAL.dark.text, 0.6);
+        const color = isLight ? _PAL.light.text : _PAL.dark.text;
         for (const p of particles) {
             const vx = p.vel.x * scale, vy = p.vel.y * scale;
             const mag = Math.sqrt(vx * vx + vy * vy);
@@ -249,21 +257,21 @@ export default class Renderer {
     }
 
     drawForceVectors(ctx, particles, invZoom, isLight) {
-        const scale = 5;
-        const color = isLight ? _r(_PAL.accent, 0.7) : _r(_PAL.accentLight, 0.8);
+        const scale = 256;
+        const color = isLight ? _PAL.accent : _PAL.accentLight;
         for (const p of particles) {
-            // Sum all 7 component vectors (includes Boris display forces)
-            const s = this.accelScaling ? scale * 100 / p.mass : scale;
-            const fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.forceSpinCurv.x + p.forceRadiation.x) * s;
-            const fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.forceSpinCurv.y + p.forceRadiation.y) * s;
+            // Sum all 8 component vectors (includes Boris display forces)
+            const s = scale / p.mass;
+            let fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.force1PNEM.x + p.forceSpinCurv.x + p.forceRadiation.x) * s;
+            let fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.force1PNEM.y + p.forceSpinCurv.y + p.forceRadiation.y) * s;
             const mag = Math.sqrt(fx * fx + fy * fy);
-            if (mag < 1 * invZoom) continue;
+            if (mag < 0.1 * invZoom) continue;
             this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
         }
     }
 
     drawForceComponentVectors(ctx, particles, invZoom, isLight) {
-        const scale = 5;
+        const scale = 256;
         const theme = isLight ? 'light' : 'dark';
         const forces = [
             { key: 'forceGravity', color: _forceCompColors.gravity[theme] },
@@ -271,15 +279,16 @@ export default class Renderer {
             { key: 'forceMagnetic', color: _forceCompColors.magnetic[theme] },
             { key: 'forceGravitomag', color: _forceCompColors.gravitomag[theme] },
             { key: 'force1PN', color: _forceCompColors.onepn[theme] },
+            { key: 'force1PNEM', color: _forceCompColors.onepnem[theme] },
             { key: 'forceSpinCurv', color: _forceCompColors.spinCurv[theme] },
             { key: 'forceRadiation', color: _forceCompColors.radiation[theme] },
         ];
         for (const { key, color } of forces) {
             for (const p of particles) {
-                const s = this.accelScaling ? scale * 100 / p.mass : scale;
-                const fx = p[key].x * s, fy = p[key].y * s;
+                const s = scale / p.mass;
+                let fx = p[key].x * s, fy = p[key].y * s;
                 const mag = Math.sqrt(fx * fx + fy * fy);
-                if (mag < 1 * invZoom) continue;
+                if (mag < 0.1 * invZoom) continue;
                 this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
             }
         }
@@ -287,29 +296,30 @@ export default class Renderer {
 
     drawTotalTorqueArc(ctx, particles, invZoom, isLight) {
         const color = isLight ? _PAL.accent : _PAL.accentLight;
-        this._drawTorqueArc(ctx, particles, invZoom, color, 9, (p) => p.torqueSpinOrbit + p.torqueFrameDrag);
+        this._drawTorqueArc(ctx, particles, invZoom, color, 2.5, (p) => p.torqueSpinOrbit + p.torqueFrameDrag + p.torqueTidal);
     }
 
     drawTorqueArcs(ctx, particles, invZoom, isLight) {
         const theme = isLight ? 'light' : 'dark';
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSO[theme], 7, (p) => p.torqueSpinOrbit);
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueFD[theme], 5, (p) => p.torqueFrameDrag);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSO[theme], 2, (p) => p.torqueSpinOrbit);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueFD[theme], 1.5, (p) => p.torqueFrameDrag);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueTidal[theme], 1, (p) => p.torqueTidal);
     }
 
     _drawTorqueArc(ctx, particles, invZoom, color, offset, getValue) {
-        const scale = 0.3;
-        const maxSweep = Math.PI * 1.5;
+        const scale = 256 / INERTIA_K;
+        const maxSweep = Math.PI * 2;
         const threshold = 1e-8;
 
         ctx.globalCompositeOperation = 'source-over';
-        ctx.lineWidth = 2 * invZoom;
+        ctx.lineWidth = 3 * invZoom;
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
 
         for (const p of particles) {
             let val = getValue(p);
             if (Math.abs(val) < threshold) continue;
-            if (this.accelScaling) val *= 100 / (INERTIA_K * p.mass * p.radius * p.radius);
+            val /= INERTIA_K * p.mass * p.radius * p.radius;
 
             const ringRadius = p.radius + offset;
             const sweep = Math.min(scale * Math.abs(val), maxSweep);
@@ -324,7 +334,7 @@ export default class Renderer {
             const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
             const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
             const sweepDir = endAngle - dir * HALF_PI;
-            const h = 6 * invZoom;
+            const h = 8 * invZoom;
             const tipX = ax + Math.cos(sweepDir) * h;
             const tipY = ay + Math.sin(sweepDir) * h;
             const spread = h * 0.4;
@@ -342,14 +352,14 @@ export default class Renderer {
         const dir = Math.sign(p.angVel);
         // Arc length proportional to surface speed; caps at full circle
         const arcLen = Math.min(Math.abs(p.angVel) * p.radius * Math.PI * 2, Math.PI * 2);
-        const ringRadius = p.radius + 2;
+        const ringRadius = p.radius + 0.5;
         const colors = p.angVel > 0 ? _spinColors.pos : _spinColors.neg;
         const style = isLight ? colors.light : colors.dark;
 
         ctx.globalCompositeOperation = 'source-over';
         ctx.strokeStyle = style;
         ctx.fillStyle = style;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 0.2;
 
         const startAngle = -HALF_PI;
         const endAngle = startAngle - dir * arcLen;
@@ -360,7 +370,7 @@ export default class Renderer {
         const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
         const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
         const sweepDir = endAngle - dir * HALF_PI;
-        const h = 3;
+        const h = 1;
         const tipX = ax + Math.cos(sweepDir) * h;
         const tipY = ay + Math.sin(sweepDir) * h;
         const spread = h * 0.4;
@@ -381,7 +391,7 @@ export default class Renderer {
         for (const ph of photons) {
             const alpha = 1 - ph.lifetime / PHOTON_LIFETIME;
             if (alpha <= 0) continue;
-            const size = 1.5 + ph.energy * 20;
+            const size = 0.2 + ph.energy * 20;
             ctx.globalAlpha = alpha * (isLight ? 0.6 : 0.8);
             ctx.fillStyle = _PAL.extended.yellow;
             ctx.beginPath();

@@ -72,14 +72,13 @@ export default class StatsDisplay {
         dom.details.hidden = false;
         dom.hint.hidden = true;
         dom.phaseSection.hidden = false;
-        const fmt = (v) => Math.abs(v) < 0.01 ? '0' : Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(2);
+        const fmt = (v) => Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(2);
         const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
         const gamma = physics.relativityEnabled ? Math.sqrt(1 + p.w.magSq()) : 1;
         const totalFx = p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x;
         const totalFy = p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y;
         const forceMag = Math.sqrt(totalFx * totalFx + totalFy * totalFy);
 
-        dom.id.textContent = p.id;
         dom.mass.textContent = fmt(p.mass);
         dom.charge.textContent = fmt(p.charge);
         const surfaceV = p.angVel * p.radius;

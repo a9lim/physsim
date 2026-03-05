@@ -29,6 +29,7 @@ Ten distinct force types, all toggleable independently:
 - **Spin-orbit coupling** -- Energy transfer between translational and rotational kinetic energy via field gradients.
 - **Tidal breakup** -- Roche-limit fragmentation when tidal, centrifugal, and Coulomb stresses exceed self-gravity.
 - **Photon emission** -- Accelerating charges emit photons in a Larmor dipole pattern with relativistic aberration. Photons carry energy and momentum, and are absorbed on contact.
+- **Black hole mode** -- All particles switch to Schwarzschild radius (r = 2M), collisions lock to merge, and each black hole emits Hawking radiation at the Planck-unit rate P = 1/(15360 pi M^2). Sub-threshold black holes evaporate with a final photon burst.
 
 ### Integrator
 
@@ -57,7 +58,7 @@ Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepp
 
 ### Sidebar Tabs
 
-1. **Settings** -- Particle mass/charge/spin sliders, spawn mode, force toggles, physics toggles.
+1. **Settings** -- Particle mass (0.05--5) / charge (-5 to 5) / spin sliders, spawn mode, force toggles, physics toggles (including Black Hole mode).
 2. **Engine** -- Barnes-Hut, collision mode, bounce friction, boundary mode, topology, visual overlays, sim speed.
 3. **Stats** -- Energy breakdown (linear KE, spin KE, PE, field, radiated, drift), conserved quantities (momentum with particle/field/radiated components, angular momentum with orbital/spin).
 4. **Particle** -- Selected particle details (mass, charge, spin, speed, gamma, |F|) and phase space plot.

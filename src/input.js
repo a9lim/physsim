@@ -142,7 +142,7 @@ export default class InputHandler {
     onMouseDown(e) {
         if (e.button === 2) {
             const pos = this.getPos(e.clientX, e.clientY);
-            this.sim.particles = this.sim.particles.filter(p => p.pos.dist(pos) > p.radius + 5);
+            this.sim.particles = this.sim.particles.filter(p => p.pos.dist(pos) > p.radius);
             if (this.sim.selectedParticle && !this.sim.particles.includes(this.sim.selectedParticle)) {
                 this.sim.selectedParticle = null;
             }
@@ -164,7 +164,7 @@ export default class InputHandler {
         if (hit) {
             const speed = Math.sqrt(hit.vel.x * hit.vel.x + hit.vel.y * hit.vel.y);
             const spin = (hit.angVel * hit.radius).toFixed(3);
-            this.tooltip.textContent = `m=${hit.mass.toFixed(1)}  q=${hit.charge.toFixed(1)}  s=${spin}c  v=${speed.toFixed(3)}c`;
+            this.tooltip.textContent = `m=${hit.mass.toFixed(2)}  q=${hit.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
             this.tooltip.style.left = (e.clientX + 14) + 'px';
             this.tooltip.style.top = (e.clientY - 10) + 'px';
             this.tooltip.hidden = false;
@@ -198,7 +198,7 @@ export default class InputHandler {
         let bestDist = Infinity;
         for (const p of this.sim.particles) {
             const d = p.pos.dist(worldPos);
-            if (d < p.radius + 5 && d < bestDist) {
+            if (d < p.radius && d < bestDist) {
                 bestDist = d;
                 best = p;
             }

@@ -55,13 +55,27 @@ export function computeEnergies(particles, physics, sim) {
     }
 
     // ─── Pass 3: Darwin field energy & momentum (O(v²/c²) correction) ───
-    // Accounts for momentum stored in EM and gravitational fields.
+    // Accounts for energy and momentum stored in EM and gravitational fields.
     // EM and GM have opposite signs (GEM attractive convention).
+    //
+    // Gated on the velocity-dependent force toggles (magnetic / gravitomag),
+    // not the base force toggles (Coulomb / gravity). Coulomb and gravity alone
+    // conserve particle momentum exactly; the field corrections only matter when
+    // the Lorentz / gravitomagnetic Lorentz-like forces (Boris rotation) are
+    // active, since those are what move momentum into the field.
+    //
+    // Field ENERGY is further suppressed when 1PN is on for the corresponding
+    // sector, because the 1PN PE (EIH / Darwin EM) already captures the same
+    // correction. Field MOMENTUM is always computed — it's the canonical
+    // momentum correction from the Darwin Lagrangian, needed regardless of
+    // whether the Darwin force is applied.
     let fieldEnergy = 0;
     let fieldPx = 0, fieldPy = 0;
     const n = particles.length;
-    const hasCoulomb = physics.coulombEnabled;
-    const hasGM = physics.gravitomagEnabled;
+    const magneticOn = physics.magneticEnabled;
+    const gmOn = physics.gravitomagEnabled;
+    const emFieldEnergyOn = magneticOn && !physics.onePNEnabled;
+    const gmFieldEnergyOn = gmOn && !(physics.onePNEnabled && physics.gravityEnabled);
 
     const periodic = physics.periodic;
     const domW = physics.domainW;
@@ -70,7 +84,7 @@ export function computeEnergies(particles, physics, sim) {
     const halfDomH = domH * 0.5;
     const topology = physics._topologyConst !== undefined ? physics._topologyConst : TORUS;
 
-    if (hasCoulomb || hasGM) {
+    if (magneticOn || gmOn) {
         for (let i = 0; i < n; i++) {
             const pi = particles[i];
             for (let j = i + 1; j < n; j++) {
@@ -93,17 +107,17 @@ export function computeEnergies(particles, physics, sim) {
                 const svx = pi.vel.x + pj.vel.x, svy = pi.vel.y + pj.vel.y;
                 const svDotR = svx * rx + svy * ry;
 
-                if (hasCoulomb) {
+                if (magneticOn) {
                     const qqInvR = pi.charge * pj.charge * invR;
-                    fieldEnergy -= 0.5 * qqInvR * velTerm;
+                    if (emFieldEnergyOn) fieldEnergy -= 0.5 * qqInvR * velTerm;
                     const coeff = qqInvR * 0.5;
                     fieldPx += coeff * (svx + rx * svDotR);
                     fieldPy += coeff * (svy + ry * svDotR);
                 }
 
-                if (hasGM) {
+                if (gmOn) {
                     const mmInvR = pi.mass * pj.mass * invR;
-                    fieldEnergy += 0.5 * mmInvR * velTerm;
+                    if (gmFieldEnergyOn) fieldEnergy += 0.5 * mmInvR * velTerm;
                     const coeff = mmInvR * 0.5;
                     fieldPx -= coeff * (svx + rx * svDotR);
                     fieldPy -= coeff * (svy + ry * svDotR);

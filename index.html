@@ -161,15 +161,15 @@
                     <div class="panel-section">
                         <h2 class="group-label">Particle Properties <button class="info-trigger" data-info="spin" aria-label="Angular momentum info">?</button></h2>
                         <div class="control-group">
-                            <label>Mass <span class="slider-value" id="massValue">10</span></label>
-                            <input type="range" id="massInput" min="1" max="200" step="1" value="10">
+                            <label>Mass <span class="slider-value" id="massValue">1.00</span></label>
+                            <input type="range" id="massInput" min="0.05" max="5" step="0.05" value="1">
                         </div>
                         <div class="control-group">
-                            <label>Charge <span class="slider-value" id="chargeValue">0</span></label>
-                            <input type="range" id="chargeInput" min="-50" max="50" step="1" value="0">
+                            <label>Charge <span class="slider-value" id="chargeValue">0.00</span></label>
+                            <input type="range" id="chargeInput" min="-5" max="5" step="0.05" value="0">
                         </div>
                         <div class="control-group">
-                            <label>Spin <span class="slider-value" id="spinValue">0c</span></label>
+                            <label>Spin <span class="slider-value" id="spinValue">0.00c</span></label>
                             <input type="range" id="spinInput" min="-0.99" max="0.99" step="0.01" value="0">
                         </div>
                     </div>
@@ -191,9 +191,6 @@
                         <div class="ctrl-row ctrl-sub"><label for="gravitomag-toggle">Gravitomagnetic <button class="info-trigger" data-info="gravitomag" aria-label="Gravitomagnetic info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="gravitomag-toggle" checked role="switch" aria-checked="true">
                             <label for="gravitomag-toggle" class="tog tog-gravitomag"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row ctrl-sub"><label for="onepn-toggle">1PN <button class="info-trigger" data-info="onepn" aria-label="1PN info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="onepn-toggle" checked role="switch" aria-checked="true">
-                            <label for="onepn-toggle" class="tog tog-onepn"><span class="tog-thumb"></span></label></div></div>
                         <div class="ctrl-row"><label for="coulomb-toggle">Coulomb <button class="info-trigger" data-info="coulomb" aria-label="Coulomb info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="coulomb-toggle" checked role="switch" aria-checked="true">
                             <label for="coulomb-toggle" class="tog tog-coulomb"><span class="tog-thumb"></span></label></div></div>
@@ -209,7 +206,16 @@
                         <div class="ctrl-row ctrl-sub"><label for="signaldelay-toggle">Signal Delay <button class="info-trigger" data-info="signaldelay" aria-label="Signal delay info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="signaldelay-toggle" checked role="switch" aria-checked="true">
                             <label for="signaldelay-toggle" class="tog tog-signaldelay"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row ctrl-sub"><label for="spinorbit-toggle">Spin-Orbit <button class="info-trigger" data-info="spinorbit" aria-label="Spin-orbit coupling info">?</button></label>
+                        <div class="ctrl-row ctrl-sub"><label for="onepn-toggle">1PN <button class="info-trigger" data-info="onepn" aria-label="1PN info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="onepn-toggle" checked role="switch" aria-checked="true">
+                            <label for="onepn-toggle" class="tog tog-onepn"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row ctrl-sub"><label for="blackhole-toggle">Black Hole <button class="info-trigger" data-info="blackhole" aria-label="Black hole info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="blackhole-toggle" role="switch" aria-checked="false">
+                            <label for="blackhole-toggle" class="tog tog-blackhole"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="tidallocking-toggle">Tidal <button class="info-trigger" data-info="tidallocking" aria-label="Tidal locking info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="tidallocking-toggle" role="switch" aria-checked="false">
+                            <label for="tidallocking-toggle" class="tog tog-tidallocking"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row"><label for="spinorbit-toggle">Spin-Orbit <button class="info-trigger" data-info="spinorbit" aria-label="Spin-orbit coupling info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="spinorbit-toggle" checked role="switch" aria-checked="true">
                             <label for="spinorbit-toggle" class="tog tog-spinorbit"><span class="tog-thumb"></span></label></div></div>
                         <div class="ctrl-row"><label for="radiation-toggle">Radiation <button class="info-trigger" data-info="radiation" aria-label="Radiation info">?</button></label>
@@ -265,16 +271,13 @@
                             <label class="checkbox-label">Velocity Vectors<input type="checkbox" id="velocityToggle"></label>
                         </div>
                         <div class="control-group">
-                            <label class="checkbox-label">Force Vectors<input type="checkbox" id="forceToggle"></label>
+                            <label class="checkbox-label">Acceleration Vectors<input type="checkbox" id="forceToggle"></label>
                         </div>
                         <div class="control-group">
-                            <label class="checkbox-label">Force Components<input type="checkbox" id="forceComponentsToggle"></label>
+                            <label class="checkbox-label">Acceleration Components<input type="checkbox" id="forceComponentsToggle"></label>
                         </div>
                         <div class="control-group">
                             <label class="checkbox-label">Potential Field<input type="checkbox" id="potentialToggle"></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label">Acceleration Scaling<input type="checkbox" id="accelScalingToggle"></label>
                         </div>
                         <div class="control-group">
                             <label>Sim Speed <span class="slider-value" id="speedValue">100</span>x</label>
@@ -313,7 +316,6 @@
                         <h2 class="group-label">Details</h2>
                         <p class="panel-hint" id="particle-hint">Select a particle to view details</p>
                         <div id="particle-details" hidden>
-                            <div class="stat-row"><span class="stat-label">ID</span><span class="stat-value" id="sel-id">—</span></div>
                             <div class="stat-row"><span class="stat-label">Mass</span><span class="stat-value" id="sel-mass">—</span></div>
                             <div class="stat-row"><span class="stat-label">Charge</span><span class="stat-value" id="sel-charge">—</span></div>
                             <div class="stat-row"><span class="stat-label">Spin</span><span class="stat-value" id="sel-spin">—</span></div>
