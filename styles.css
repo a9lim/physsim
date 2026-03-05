@@ -118,9 +118,12 @@ body {
 .tog-signaldelay  { --tog-color: var(--ext-orange); }
 .tog-spinorbit    { --tog-color: var(--ext-purple); }
 .tog-tidal        { --tog-color: var(--ext-slate); }
-.tog-tidallocking { --tog-color: var(--ext-green); }
+.tog-tidallocking { --tog-color: var(--ext-red); }
 .tog-onepn        { --tog-color: var(--ext-orange); }
 .tog-blackhole    { --tog-color: var(--text); }
+.tog-yukawa       { --tog-color: var(--ext-brown); }
+.tog-axion        { --tog-color: var(--ext-blue); }
+.tog-gwradiation  { --tog-color: var(--ext-yellow); }
 
 .ctrl-row {
     display: flex;
