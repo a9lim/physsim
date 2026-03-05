@@ -103,7 +103,7 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
 
     let pe = 0;
     if (toggles.gravityEnabled)  pe -= p.mass * sMass * invR;
-    if (toggles.coulombEnabled)  pe += p.charge * sCharge * invR;
+    if (toggles.coulombEnabled)  pe += p.charge * sCharge * invR * toggles.axionModulation;
     const invR3 = invR * invRSq;
     if (toggles.magneticEnabled) pe += (pMagMoment * sMagMoment) * invR3;
     if (toggles.gravitomagEnabled) pe -= (pAngMomentum * sAngMomentum) * invR3;

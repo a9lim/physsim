@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_G2, DEFAULT_YUKAWA_MU } from './config.js';
+import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_G2, DEFAULT_YUKAWA_MU, DEFAULT_AXION_G, DEFAULT_AXION_MASS } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -39,6 +39,10 @@ export default class Physics {
         this.yukawaG2 = DEFAULT_YUKAWA_G2;
         this.yukawaMu = DEFAULT_YUKAWA_MU;
 
+        this.axionEnabled = false;
+        this.axionG = DEFAULT_AXION_G;
+        this.axionMass = DEFAULT_AXION_MASS;
+
         this.sim = null;
         this.simTime = 0;
 
@@ -61,6 +65,8 @@ export default class Physics {
             yukawaEnabled: false,
             yukawaG2: 1.0,
             yukawaMu: 0.2,
+            axionEnabled: false,
+            axionModulation: 1.0,
         };
 
         this._ghostPool = [];
@@ -80,6 +86,12 @@ export default class Physics {
         this._toggles.yukawaEnabled = this.yukawaEnabled;
         this._toggles.yukawaG2 = this.yukawaG2;
         this._toggles.yukawaMu = this.yukawaMu;
+        this._toggles.axionEnabled = this.axionEnabled;
+        if (this.axionEnabled) {
+            this._toggles.axionModulation = 1 + this.axionG * Math.cos(this.axionMass * this.simTime);
+        } else {
+            this._toggles.axionModulation = 1.0;
+        }
     }
 
     /** Pool-allocate a ghost at (sx, sy) mirroring p. Flips for non-orientable topologies. */
