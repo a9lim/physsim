@@ -30,8 +30,8 @@ export const MAX_PHOTONS = 1024;
 export const LL_FORCE_CLAMP = 0.5; // max |F_rad| as fraction of |F_ext| (LL validity)
 
 // Signal delay history buffer
-export const HISTORY_SIZE = 1024;
-export const HISTORY_STRIDE = 256; // ~60 snapshots/second 
+export const HISTORY_SIZE = 256;
+export const HISTORY_STRIDE = 64; // ~120 snapshots/second 
 
 export const TIDAL_STRENGTH = 2.0;
 export const FRAGMENT_COUNT = 4;

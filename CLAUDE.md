@@ -26,7 +26,7 @@ src/
   forces.js                 335 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise()
   signal-delay.js           248 lines  getDelayedState() (3-phase light-cone solver)
   ui.js                     356 lines  setupUI(), toggle dependencies, info tips (infoData), keyboard shortcuts
-  renderer.js               406 lines  Canvas 2D: particles, trails, spin rings, vectors, torque arcs, photons
+  renderer.js               422 lines  Canvas 2D: particles, trails, spin rings, vectors, torque arcs, photons, delay ghosts
   input.js                  260 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
   collisions.js             213 lines  handleCollisions(), resolveMerge(), resolveBounce() (rel + classical)
   quadtree.js               235 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC
@@ -39,7 +39,7 @@ src/
   heatmap.js                 83 lines  Heatmap: 48x48 grav+electrostatic potential field overlay, 6-frame interval
   particle.js                95 lines  Particle entity: pos, vel, w, angw, per-type force vectors, history buffers
   vec2.js                    65 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist
-  config.js                  54 lines  Named constants (BH_THETA, SOFTENING, INERTIA_K, MAX_SUBSTEPS, WORLD_SCALE, HAWKING_K, etc.)
+  config.js                  39 lines  Named constants (BH_THETA, SOFTENING, INERTIA_K, MAX_SUBSTEPS, WORLD_SCALE, MIN_MASS, etc.)
   relativity.js              41 lines  angwToAngVel(), angVelToAngw(), setVelocity()
   photon.js                  19 lines  Photon entity: pos, vel, energy, lifetime, emitterId
 ```
@@ -58,7 +58,7 @@ main.js (Simulation class, window.sim)
              TORUS + KLEIN + RP2 + minImage + wrapPosition (topology)
 
   src/forces.js
-    imports: config (BH_THETA, SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, FRAME_DRAG_K),
+    imports: config (BH_THETA, SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH),
              getDelayedState (signal-delay), TORUS + minImage (topology)
 
   src/energy.js
@@ -78,7 +78,7 @@ main.js (Simulation class, window.sim)
     imports: WORLD_SCALE (config)
 
   src/renderer.js
-    imports: config (MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K)
+    imports: config (MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, HISTORY_SIZE)
 
   src/input.js
     imports: Vec2
@@ -163,7 +163,7 @@ Per substep (inside `Physics.update()` while loop):
 14. Photon absorption
 15. Save radiation display force, then reset forces + compute new forces for next substep
 
-After all substeps: record signal-delay history (strided, once per HISTORY_STRIDE=200 calls), compute PE, reconstruct velocity-dependent display forces from final-substep fields.
+After all substeps: record signal-delay history (strided, once per HISTORY_STRIDE calls), compute PE, reconstruct velocity-dependent display forces from final-substep fields.
 
 ### Adaptive Substepping
 
@@ -171,17 +171,17 @@ Computed at the start of each substep from current forces and B fields:
 - `dtSafe_accel = sqrt(SOFTENING / a_max)`
 - `dtSafe_cyclotron = (2*pi / omega_c) / 8` where `omega_c = max(|q * Bz / m|, 4 * |Bgz|)`
 - `dtSub = dtRemain / min(ceil(dtRemain / dtSafe), budgetLeft)`
-- Capped at MAX_SUBSTEPS = 16 per frame
+- Capped at MAX_SUBSTEPS = 32 per frame
 
 ### Fixed-Timestep Loop (main.js)
 
-`PHYSICS_DT = 1/120`. Accumulator collects `rawDt * speedScale` per animation frame. Drained in fixed-step chunks of PHYSICS_DT, capped at `MAX_SUBSTEPS * PHYSICS_DT * 4`. Photon updates and tidal breakup inside the loop; energy/rendering/DOM outside.
+`PHYSICS_DT = 1/128`. Accumulator collects `rawDt * speedScale` per animation frame. Drained in fixed-step chunks of PHYSICS_DT, capped at `MAX_SUBSTEPS * PHYSICS_DT * 4`. Photon updates and tidal breakup inside the loop; energy/rendering/DOM outside.
 
 ## Force Types
 
 ### E-like Forces (radial, position-dependent)
 
-All use Plummer softening: `r_eff = sqrt(r^2 + SOFTENING_SQ)`, where SOFTENING = 10, SOFTENING_SQ = 100.
+All use Plummer softening: `r_eff = sqrt(r^2 + SOFTENING_SQ)`, where SOFTENING = 8, SOFTENING_SQ = 64.
 
 **Gravity**: `F = +m1*m2 / r^2` (attractive, toward source)
 - PE: `U = -m1*m2 / r`
@@ -211,7 +211,8 @@ All use Plummer softening: `r_eff = sqrt(r^2 + SOFTENING_SQ)`, where SOFTENING =
 - Boris parameter: `t_gm = +2 * Bgz * dt / gamma` (positive -> co-moving attract)
 - Display-only: `forceGravitomag += (4*m*vel.y*Bgz, -4*m*vel.x*Bgz)`
 
-**Frame-dragging torque**: `tau = FRAME_DRAG_K * m_s * (omega_s - omega_p) / r^3` (FRAME_DRAG_K = 0.1)
+**Frame-dragging torque**: `tau = 2 * L_s * (omega_s - omega_p) / r^3` (Lense-Thirring coefficient = 2)
+- Uses source angular momentum `L_s = INERTIA_K * m * omega * r^2`, not mass * angVel
 - Applied as `angw += tau * dt / I`; drives spin alignment
 
 ### Tidal Locking
@@ -275,12 +276,12 @@ Independent toggle (no longer requires Relativity).
 **Landau-Lifshitz force** (full 1/c² terms):
 ```
 F_rad = tau * [dF/dt / gamma^3 - v*F^2/(m*gamma^2) + F*(v.F)/(m*gamma^4)]
-tau = 2 * LARMOR_K * q^2 / m = 2*q^2/(3*m)    (LARMOR_K = 1/3)
+tau = 2*q^2/(3*m)
 ```
 Term 1 (jerk) is hybrid: analytical `dF/dt = k·[v_rel/r³ − 3·r·(r·v_rel)/r⁵]` for gravity + Coulomb (accumulated into `p.jerk` in `pairForce()`), plus O(dt²) 3-point backward difference with variable step sizes for residual forces (magnetic dipole, GM dipole, 1PN, spin-curvature). Falls back to 2-point when < 2 samples stored. Terms 2-3 (power dissipation) only active when relativity is on.
 Clamped: `|F_rad| <= LL_FORCE_CLAMP * |F_ext|` (LL_FORCE_CLAMP = 0.5) to enforce LL perturbative validity.
 
-**Photon emission**: Energy accumulated in `_radAccum` per particle. Emits when >= RADIATION_THRESHOLD (0.01) and pool < MAX_PHOTONS (500). Emission angle sampled from sin^2(theta) dipole pattern with relativistic aberration (beamed toward velocity at high gamma). Photon travels at c = 1.
+**Photon emission**: Energy accumulated in `_radAccum` per particle. Emits when >= MIN_MASS and pool < MAX_PHOTONS (1024). Emission angle sampled from sin^2(theta) dipole pattern with relativistic aberration (beamed toward velocity at high gamma). Photon travels at c = 1.
 
 **Photon absorption**: Quadtree query at photon position (radius SOFTENING). Self-absorption guard: emitter skipped for first 2 substeps (age < 3). On absorb: `target.w += ph.energy * ph.vel / target.mass`. Bookkeeping: `totalRadiated` decremented, radiated momentum decremented.
 
@@ -289,8 +290,8 @@ Clamped: `|F_rad| <= LL_FORCE_CLAMP * |F_ext|` (LL_FORCE_CLAMP = 0.5) to enforce
 Toggle under Relativity (`physics.blackHoleEnabled`). When on:
 - **Schwarzschild radius**: `r = 2M` instead of `cbrt(M)` (set in `particle.updateColor()`)
 - **Collision lock**: collision mode forced to Merge, UI disabled
-- **Hawking radiation**: `P = HAWKING_K / M^2` (HAWKING_K = 1/(15360π) ≈ 2.07e-5, exact Planck-unit value with ℏ=1). Smaller BHs radiate faster (runaway evaporation). Mass decremented each substep: `m -= P * dt`. Photon emission uses same accumulator pattern as Larmor (`_hawkAccum`, threshold RADIATION_THRESHOLD). Isotropic emission (uniform random angle), no recoil kick (momentum tracked via `totalRadiatedPx/Py`).
-- **Evaporation**: particles below `MIN_BH_MASS = 0.01` are removed with a final photon burst (up to 5 photons carrying remaining mass-energy). Handled in main.js loop after tidal breakup.
+- **Hawking radiation**: `P = 1/(15360*pi*M^2)` (exact Planck-unit value with ℏ=1). Smaller BHs radiate faster (runaway evaporation). Mass decremented each substep: `m -= P * dt`. Photon emission uses same accumulator pattern as Larmor (`_hawkAccum`, threshold MIN_MASS). Isotropic emission (uniform random angle), no recoil kick (momentum tracked via `totalRadiatedPx/Py`).
+- **Evaporation**: particles below `MIN_MASS` are removed with a final photon burst (up to 5 photons carrying remaining mass-energy). Handled in main.js loop after tidal breakup.
 
 ### Signal Delay
 
@@ -298,7 +299,7 @@ Requires Relativity. Works in both pairwise and Barnes-Hut modes.
 
 Light-cone equation: `|x_source(t_ret) - x_obs(now)| = now - t_ret` (c = 1).
 
-Three-phase solver on per-particle circular history buffers (`Float64Array[HISTORY_SIZE=1024]` each for x, y, vx, vy, time; recorded every `HISTORY_STRIDE=200` physics updates, ~60 snapshots/sec at 100× speed, covering approximately 1707 time units at PHYSICS_DT=1/120):
+Three-phase solver on per-particle circular history buffers (`Float64Array[HISTORY_SIZE=256]` each for x, y, vx, vy, time; recorded every `HISTORY_STRIDE=64` `update()` calls):
 
 1. **Newton-Raphson** (up to NR_MAX_ITER=6 iterations) on `g(t) = |x_s(t) - x_obs| - (now - t)` to locate the correct history segment. Uses proportional segment estimate + short walk for initial segment. Guaranteed convergent for subluminal sources (`g' = d_hat . v_eff + 1 > 0`).
 2. **Exact quadratic solve** on the converged segment +/- 1 neighbor. Piecewise-linear trajectory makes the light-cone equation a quadratic: `(v^2 - 1)*s^2 + 2*(d.v + T)*s + (r^2 - T^2) = 0` with closed-form roots.
@@ -339,7 +340,7 @@ centrifugal: omega^2 * r
 coulomb:     q^2 / (4*r^2)
 self-grav:   m / r^2
 ```
-Splits into FRAGMENT_COUNT (3) pieces at 120-degree intervals, radius * 1.5 from original center. Each gets mass/3, charge/3, tangential velocity from spin. Min mass to fragment: `MIN_FRAGMENT_MASS * FRAGMENT_COUNT = 0.01 * 3 = 0.03`.
+Splits into FRAGMENT_COUNT (4) pieces at 90-degree intervals, radius * 1.5 from original center. Each gets mass/4, charge/4, tangential velocity from spin. Min mass to fragment: `MIN_MASS * FRAGMENT_COUNT`.
 
 ## Sign Conventions (IMPORTANT)
 
@@ -446,7 +447,7 @@ Default on load: all force toggles on (gravity, coulomb, magnetic, gravitomag, 1
 ### 4-Tab Sidebar
 
 1. **Settings**: particle mass (0.05-5) / charge (-5 to 5) / spin (-0.99 to 0.99) sliders, interaction mode (Place/Shoot/Orbit), force toggles (Gravity -> Gravitomagnetic/1PN, Coulomb -> Magnetic), physics toggles (Relativity -> Signal Delay/Black Hole/Spin-Orbit, Radiation)
-2. **Engine**: Barnes-Hut toggle, collision mode (Pass/Bounce/Merge), bounce friction slider (0-1, default 0.4), boundary mode (Despawn/Loop/Bounce), topology selector (Torus/Klein/RP^2, only visible when boundary=Loop), disintegration toggle, visual toggles (trails, velocity/force/component vectors, potential field, acceleration scaling), sim speed slider (0-200, default 100)
+2. **Engine**: Barnes-Hut toggle, collision mode (Pass/Bounce/Merge), bounce friction slider (0-1, default 0.4), boundary mode (Despawn/Loop/Bounce), topology selector (Torus/Klein/RP^2, only visible when boundary=Loop), disintegration toggle, visual toggles (trails, velocity/force/component vectors, potential field, acceleration scaling), sim speed slider (0-200, default 128)
 3. **Stats**: energy breakdown (total, linear KE, spin KE, PE, field, radiated, drift), conserved quantities (momentum with particle/field/radiated components, angular momentum with orbital/spin, drift percentages)
 4. **Particle**: selected particle details (ID, mass, charge, spin, speed, gamma, |F|), phase space plot canvas (r vs v_r relative to most massive body)
 
@@ -499,10 +500,11 @@ Canvas 2D. Dark mode uses additive blending (`globalCompositeOperation: 'lighter
 
 - **Particles**: filled circle at `r = cbrt(mass)` (BH mode: `r = 2*mass`), glow shadow in dark mode (larger glow for charged particles)
 - **Spin rings**: arc at radius+0.5, length proportional to |omega*r| (caps at 2*pi), arrow shows CW/CCW (h=1, spread=0.4, lineWidth=0.2), colored by spin sign (cyan=positive, orange=negative from `colors.js`)
-- **Trails**: circular Float32Array buffer (MAX_TRAIL_LENGTH=200 points), 4 opacity groups, lineWidth = 0.5*radius, wrap-detection for periodic boundaries (skips segment if position jumps > half domain)
+- **Trails**: circular Float32Array buffer (MAX_TRAIL_LENGTH=256 points), 4 opacity groups, lineWidth = 0.5*radius, wrap-detection for periodic boundaries (skips segment if position jumps > half domain)
 - **Force vectors**: scale=256 (divide by mass for acceleration). Total (accent color) sums all 8 component vectors. Per-type component arrows colored by force type
 - **Torque arcs**: spin-orbit (purple, offset 2), frame-drag (rose, offset 1.5), tidal (offset 1), total (accent, offset 2.5). Arc length proportional to |power|, scale=256/INERTIA_K
-- **Photons**: yellow circles, size = `0.2 + energy*20` (cap at 5px), glow in dark mode, alpha fades over PHOTON_LIFETIME=240
+- **Photons**: yellow circles, size = `0.2 + energy*20` (cap at 5px), glow in dark mode, alpha fades over PHOTON_LIFETIME=256
+- **Signal delay ghosts**: stroked circle outline at each particle's oldest history buffer position, drawn behind particles when signal delay is enabled. Reduced opacity (0.3 light / 0.4 dark)
 - **Velocity vectors**: scale=40, muted text color
 - **Heatmap**: 48x48 offscreen canvas, diverging colormap (blue=gravity well, red=repulsive), updates every 6 frames
 
@@ -552,7 +554,7 @@ All world coordinates (particle positions, presets, camera resets) use `sim.doma
 - Spin-orbit, Stern-Gerlach, and Mathisson-Papapetrou are all gated by the same `spinOrbitEnabled` toggle
 - `compute1PNPairwise()` zeroes `force1PN` and `force1PNEM` before accumulating -- do not mix with `pairForce()` 1PN output in the same step
 - Adaptive substepping uses Bz/Bgz values persisting from the previous substep's force computation for cyclotron frequency estimation -- no separate preliminary force pass
-- History recording is strided (HISTORY_STRIDE=200) and happens after the substep loop, not inside each substep
+- History recording is strided (HISTORY_STRIDE=64) and happens after the substep loop, not inside each substep. The stride counts `update()` calls (one per PHYSICS_DT chunk), not substeps or frames
 - Tab switching logic is in an inline `<script>` in index.html, not in ui.js or main.js
 - `shared-touch.js` is loaded in the HTML head (between shared-tokens.js and shared-utils.js) but not documented in the parent CLAUDE.md loading order
 - `_parseHex` from `shared-tokens.js` is script-scoped (`const`), not on `window` -- ES6 modules cannot access it. `particle.js` uses its own inline hex parser instead.
