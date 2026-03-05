@@ -40,6 +40,9 @@ export default class QuadTreePool {
 
         this.divided = new Uint8Array(maxNodes);
         this.count = 0;
+
+        /** Reusable buffer for queryReuse() — avoids per-call array allocation. */
+        this._queryBuf = [];
     }
 
     reset() {
@@ -163,7 +166,7 @@ export default class QuadTreePool {
 
             for (let i = 0; i < cnt; i++) {
                 const p = this.points[base + i];
-                const rSq = p.radius * p.radius;
+                const rSq = p.radiusSq;
                 mass += p.mass;
                 charge += p.charge;
                 magMom += MAG_MOMENT_K * p.charge * p.angVel * rSq;
@@ -223,6 +226,12 @@ export default class QuadTreePool {
         }
 
         return found;
+    }
+
+    /** Query reusing a pooled results array — avoids allocation per call. */
+    queryReuse(idx, rx, ry, rw, rh) {
+        this._queryBuf.length = 0;
+        return this.query(idx, rx, ry, rw, rh, this._queryBuf);
     }
 
     build(bx, by, bw, bh, particles) {

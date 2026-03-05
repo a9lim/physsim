@@ -12,6 +12,9 @@ import { handleCollisions } from './collisions.js';
 import { computePE } from './potential.js';
 import { TORUS, KLEIN, RP2, minImage, wrapPosition } from './topology.js';
 
+// Reused by tidal breakup to avoid per-call allocation
+const _tidalMiOut = { x: 0, y: 0 };
+
 export default class Physics {
     constructor() {
         this.boundary = new Rect(0, 0, 0, 0);
@@ -56,6 +59,7 @@ export default class Physics {
         this._ghostPool = [];
         this._ghostCount = 0;
         this._treeParticles = [];
+        this._lastRoot = -1;
     }
 
     /** Copy current toggle booleans into reusable object (once per frame). */
@@ -74,7 +78,7 @@ export default class Physics {
         if (this._ghostCount < this._ghostPool.length) {
             g = this._ghostPool[this._ghostCount];
         } else {
-            g = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, w: { x: 0, y: 0, magSq() { return this.x * this.x + this.y * this.y; } }, mass: 0, charge: 0, angVel: 0, angw: 0, radius: 0, id: -1, isGhost: true, original: null };
+            g = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, w: { x: 0, y: 0, magSq() { return this.x * this.x + this.y * this.y; } }, mass: 0, charge: 0, angVel: 0, angw: 0, radius: 0, radiusSq: 0, invMass: 0, id: -1, isGhost: true, original: null };
             this._ghostPool.push(g);
         }
         g.pos.x = sx; g.pos.y = sy;
@@ -85,7 +89,7 @@ export default class Physics {
         g.mass = p.mass; g.charge = p.charge;
         g.angVel = (flipVx || flipVy) ? -p.angVel : p.angVel;
         g.angw = (flipVx || flipVy) ? -p.angw : p.angw;
-        g.radius = p.radius; g.id = -1;
+        g.radius = p.radius; g.radiusSq = p.radiusSq; g.invMass = p.invMass; g.id = -1;
         g.original = p;
         this._ghostCount++;
         return g;
@@ -204,10 +208,10 @@ export default class Physics {
             let maxCyclotron = 0;
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
-                const aSq = p.force.magSq() / (p.mass * p.mass);
+                const aSq = p.force.magSq() * p.invMass * p.invMass;
                 if (aSq > maxAccelSq) maxAccelSq = aSq;
                 if (hasMagnetic && Math.abs(p.Bz) > 0) {
-                    const wc = Math.abs(p.charge * p.Bz / p.mass);
+                    const wc = Math.abs(p.charge * p.Bz * p.invMass);
                     if (wc > maxCyclotron) maxCyclotron = wc;
                 }
                 if (hasGM && Math.abs(p.Bgz) > 0) {
@@ -243,9 +247,10 @@ export default class Physics {
             }
 
             // Step 1: Half-kick w with E-like forces
+            const halfDt = dtSub * 0.5;
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
-                const halfDtOverM = dtSub * 0.5 / p.mass;
+                const halfDtOverM = halfDt * p.invMass;
                 p.w.x += p.force.x * halfDtOverM;
                 p.w.y += p.force.y * halfDtOverM;
             }
@@ -258,7 +263,7 @@ export default class Physics {
                     const gamma = relOn ? Math.sqrt(1 + p.w.magSq()) : 1;
 
                     let t = 0;
-                    if (hasMagnetic) t += (p.charge / (2 * p.mass)) * p.Bz;
+                    if (hasMagnetic) t += (p.charge * 0.5 * p.invMass) * p.Bz;
                     if (hasGM) t += 2 * p.Bgz;
                     t *= dtSub / gamma;
 
@@ -278,50 +283,39 @@ export default class Physics {
             // Step 3: Second half-kick (same E-like forces)
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
-                const halfDtOverM = dtSub * 0.5 / p.mass;
+                const halfDtOverM = halfDt * p.invMass;
                 p.w.x += p.force.x * halfDtOverM;
                 p.w.y += p.force.y * halfDtOverM;
             }
 
-            // Spin-orbit energy transfer (EM + GM fused)
+            // Spin-orbit energy transfer + Stern-Gerlach/Mathisson-Papapetrou kicks (fused)
             if (this.spinOrbitEnabled && (hasMagnetic || hasGM)) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10) continue;
-                    const pRSq = p.radius * p.radius;
+                    const pRSq = p.radiusSq;
                     const IxOmega = INERTIA_K * p.mass * pRSq * p.angVel;
                     if (Math.abs(IxOmega) < 1e-10) continue;
+                    const dtOverM = dtSub * p.invMass;
 
                     if (hasMagnetic && Math.abs(p.charge) > 1e-10) {
                         const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+                        // Energy transfer
                         p.angw -= mu * (p.vel.x * p.dBzdx + p.vel.y * p.dBzdy) * dtSub / IxOmega;
-                    }
-                    if (hasGM) {
-                        const L = INERTIA_K * p.mass * p.angVel * pRSq;
-                        p.angw -= L * (p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy) * dtSub / IxOmega;
-                    }
-                    const sr = p.angw * p.radius;
-                    p.angVel = p.angw / Math.sqrt(1 + sr * sr);
-                }
-            }
-
-            // Stern-Gerlach (EM) + Mathisson-Papapetrou (GM) translational kicks (fused)
-            if (this.spinOrbitEnabled && (hasMagnetic || hasGM)) {
-                for (let i = 0; i < n; i++) {
-                    const p = particles[i];
-                    if (Math.abs(p.angVel) < 1e-10) continue;
-                    const pRSq = p.radius * p.radius;
-                    const dtOverM = dtSub / p.mass;
-                    if (hasMagnetic && Math.abs(p.charge) > 1e-10) {
-                        const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+                        // Stern-Gerlach translational kick
                         p.w.x += mu * p.dBzdx * dtOverM;
                         p.w.y += mu * p.dBzdy * dtOverM;
                     }
                     if (hasGM) {
                         const L = INERTIA_K * p.mass * p.angVel * pRSq;
+                        // Energy transfer
+                        p.angw -= L * (p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy) * dtSub / IxOmega;
+                        // Mathisson-Papapetrou translational kick
                         p.w.x -= L * p.dBgzdx * dtOverM;
                         p.w.y -= L * p.dBgzdy * dtOverM;
                     }
+                    const sr = p.angw * p.radius;
+                    p.angVel = p.angw / Math.sqrt(1 + sr * sr);
                 }
             }
 
@@ -333,7 +327,7 @@ export default class Physics {
                     if (hasGM && relOn) torque += p._frameDragTorque;
                     if (this.tidalLockingEnabled) torque += p._tidalTorque;
                     if (torque === 0) continue;
-                    const I = INERTIA_K * p.mass * p.radius * p.radius;
+                    const I = INERTIA_K * p.mass * p.radiusSq;
                     p.angw += torque * dtSub / I;
                     const sr = p.angw * p.radius;
                     p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
@@ -352,7 +346,7 @@ export default class Physics {
 
                     const gamma = relOn ? Math.sqrt(1 + wMagSq) : 1;
                     const qSq = p.charge * p.charge;
-                    const tau = 2 * LARMOR_K * qSq / p.mass;
+                    const tau = 2 * LARMOR_K * qSq * p.invMass;
 
                     // Term 1: jerk — τ·dF/dt / γ³
                     // Analytical jerk for gravity + Coulomb (from pairForce)
@@ -397,7 +391,7 @@ export default class Physics {
                         const fx = p.force.x, fy = p.force.y;
                         const fSq = fx * fx + fy * fy;
                         const vDotF = vx * fx + vy * fy;
-                        const invM = 1 / p.mass;
+                        const invM = p.invMass;
                         const g2 = gamma * gamma;
 
                         // Term 2: −τ·v·F²/(m·γ²)
@@ -424,8 +418,8 @@ export default class Physics {
 
                     const keBefore = relOn ? (gamma - 1) * p.mass : 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y);
 
-                    p.w.x += fRadX * dtSub / p.mass;
-                    p.w.y += fRadY * dtSub / p.mass;
+                    p.w.x += fRadX * dtSub * p.invMass;
+                    p.w.y += fRadY * dtSub * p.invMass;
                     p.forceRadiation.x = fRadX;
                     p.forceRadiation.y = fRadY;
 
@@ -440,15 +434,15 @@ export default class Physics {
                     this.sim.totalRadiated += dE;
 
                     if (dE > 0) {
-                        const ax = p.force.x / p.mass, ay = p.force.y / p.mass;
-                        const radAngle = Math.atan2(ay, ax) + Math.PI;
+                        const ax = p.force.x * p.invMass, ay = p.force.y * p.invMass;
+                        const accelAngle = Math.atan2(ay, ax);
+                        const radAngle = accelAngle + Math.PI;
                         this.sim.totalRadiatedPx += dE * Math.cos(radAngle);
                         this.sim.totalRadiatedPy += dE * Math.sin(radAngle);
 
                         p._radAccum += dE;
                         if (p._radAccum >= RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
                             // sin²θ dipole pattern: peak emission ⊥ to acceleration
-                            const accelAngle = Math.atan2(ay, ax);
                             let theta, tries = 0;
                             do { theta = Math.random() * 6.283185307; }
                             while (Math.random() > Math.sin(theta) * Math.sin(theta) && ++tries < 20);
@@ -486,7 +480,9 @@ export default class Physics {
                     const power = HAWKING_K / (p.mass * p.mass);
                     const dE = power * dtSub;
                     p.mass -= dE;
+                    p.invMass = 1 / p.mass;
                     p.radius = 2 * p.mass;
+                    p.radiusSq = p.radius * p.radius;
                     this.sim.totalRadiated += dE;
 
                     p._hawkAccum += dE;
@@ -529,7 +525,7 @@ export default class Physics {
                 compute1PNPairwise(particles, SOFTENING_SQ, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled);
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
-                    const halfDtOverM = dtSub * 0.5 / p.mass;
+                    const halfDtOverM = halfDt * p.invMass;
                     p.w.x += (p.force1PN.x - p._f1pnOld.x + p.force1PNEM.x - p._f1pnEMOld.x) * halfDtOverM;
                     p.w.y += (p.force1PN.y - p._f1pnOld.y + p.force1PNEM.y - p._f1pnEMOld.y) * halfDtOverM;
                 }
@@ -552,10 +548,11 @@ export default class Physics {
                     const ph = photons[pi];
                     if (!ph.alive) continue;
                     ph.age++;
-                    // Query quadtree for nearby particles
-                    const candidates = this.pool.query(root,
+                    // Query quadtree for nearby particles (reuses pooled array)
+                    const candidates = this.pool.queryReuse(root,
                         ph.pos.x, ph.pos.y, SOFTENING, SOFTENING);
-                    for (const target of candidates) {
+                    for (let ci = 0; ci < candidates.length; ci++) {
+                        const target = candidates[ci];
                         if (target.isGhost) continue;
                         if (target.id === ph.emitterId && ph.age < 3) continue; // self-absorption guard
                         const dx = ph.pos.x - target.pos.x;
@@ -604,6 +601,7 @@ export default class Physics {
         }
 
         // PE once per frame, reusing last substep's tree
+        this._lastRoot = lastRoot;
         this.potentialEnergy = computePE(particles, toggles, this.pool, lastRoot, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst);
 
         // Reconstruct B-like display forces from final-substep fields.
@@ -628,8 +626,7 @@ export default class Physics {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
-                const pRSq = p.radius * p.radius;
-                const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+                const mu = MAG_MOMENT_K * p.charge * p.angVel * p.radiusSq;
                 p.torqueSpinOrbit += -mu * (p.vel.x * p.dBzdx + p.vel.y * p.dBzdy);
                 p.forceSpinCurv.x += mu * p.dBzdx;
                 p.forceSpinCurv.y += mu * p.dBzdy;
@@ -639,8 +636,7 @@ export default class Physics {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 if (Math.abs(p.angVel) < 1e-10) continue;
-                const pRSq = p.radius * p.radius;
-                const L = INERTIA_K * p.mass * p.angVel * pRSq;
+                const L = INERTIA_K * p.mass * p.angVel * p.radiusSq;
                 p.torqueSpinOrbit += -L * (p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy);
                 p.forceSpinCurv.x -= L * p.dBgzdx;
                 p.forceSpinCurv.y -= L * p.dBgzdy;
@@ -710,18 +706,26 @@ export default class Physics {
         this.potentialEnergy = computePE(particles, toggles, this.pool, root >= 0 ? root : -1, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst);
     }
 
-    checkTidalBreakup(particles) {
+    checkTidalBreakup(particles, lastRoot) {
         if (!this.tidalEnabled) return [];
         const fragments = [];
+        const _periodic = this.periodic;
+        const _halfDomW = this.domainW * 0.5, _halfDomH = this.domainH * 0.5;
+        const _domW = this.domainW, _domH = this.domainH;
+        const _topo = this._topologyConst;
+        // Use tree for neighbor search when BH is on and tree is valid
+        const useTree = this.barnesHutEnabled && lastRoot >= 0;
+        // Tidal search radius: maximum range where tidal force exceeds threshold
+        const tidalSearchR = Math.max(_domW, _domH) * 0.5;
 
-        for (const p of particles) {
+        for (let pi = 0; pi < particles.length; pi++) {
+            const p = particles[pi];
             if (p.mass < MIN_FRAGMENT_MASS * FRAGMENT_COUNT) continue;
 
-            const rSq = p.radius * p.radius;
-
-            const selfGravity = p.mass / rSq;      // binding: m/r²
-            const centrifugal = p.angVel * p.angVel * p.radius;  // ω²r
-            const coulombSelf = (p.charge * p.charge) / (4 * rSq); // q²/(4r²)
+            const rSq = p.radiusSq;
+            const selfGravity = p.mass / rSq;
+            const centrifugal = p.angVel * p.angVel * p.radius;
+            const coulombSelf = (p.charge * p.charge) / (4 * rSq);
 
             if (centrifugal + coulombSelf > selfGravity) {
                 fragments.push(p);
@@ -730,25 +734,40 @@ export default class Physics {
 
             // Tidal stretching from neighbors: TIDAL_STRENGTH·M·r/d³
             let maxTidal = 0;
-            const _periodic = this.periodic;
-            const _halfDomW = this.domainW * 0.5, _halfDomH = this.domainH * 0.5;
-            const _domW = this.domainW, _domH = this.domainH;
-            const _topo = this._topologyConst;
-            const _miOut = { x: 0, y: 0 };
-            for (const other of particles) {
-                if (other === p) continue;
-                let dx = other.pos.x - p.pos.x, dy = other.pos.y - p.pos.y;
-                if (_periodic) {
-                    minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _miOut);
-                    dx = _miOut.x; dy = _miOut.y;
+
+            if (useTree) {
+                // Tree-accelerated neighbor query
+                const candidates = this.pool.queryReuse(lastRoot,
+                    p.pos.x, p.pos.y, tidalSearchR, tidalSearchR);
+                for (let ci = 0; ci < candidates.length; ci++) {
+                    const other = candidates[ci];
+                    if (other === p || (other.isGhost && other.original === p)) continue;
+                    let dx = other.pos.x - p.pos.x, dy = other.pos.y - p.pos.y;
+                    if (_periodic) {
+                        minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _tidalMiOut);
+                        dx = _tidalMiOut.x; dy = _tidalMiOut.y;
+                    }
+                    const distSq = dx * dx + dy * dy + SOFTENING_SQ;
+                    const invDistSq = 1 / distSq;
+                    const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius * Math.sqrt(invDistSq) * invDistSq;
+                    if (tidalAccel > maxTidal) maxTidal = tidalAccel;
                 }
-                const distSq = dx * dx + dy * dy + SOFTENING_SQ;
-                const r = Math.sqrt(distSq);
-                const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius / (r * distSq);
-                if (tidalAccel > maxTidal) maxTidal = tidalAccel;
+            } else {
+                for (let oi = 0; oi < particles.length; oi++) {
+                    const other = particles[oi];
+                    if (other === p) continue;
+                    let dx = other.pos.x - p.pos.x, dy = other.pos.y - p.pos.y;
+                    if (_periodic) {
+                        minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _tidalMiOut);
+                        dx = _tidalMiOut.x; dy = _tidalMiOut.y;
+                    }
+                    const distSq = dx * dx + dy * dy + SOFTENING_SQ;
+                    const invDistSq = 1 / distSq;
+                    const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius * Math.sqrt(invDistSq) * invDistSq;
+                    if (tidalAccel > maxTidal) maxTidal = tidalAccel;
+                }
             }
 
-            // Fragment if combined outward forces exceed binding
             if (maxTidal + centrifugal + coulombSelf > selfGravity) {
                 fragments.push(p);
             }

@@ -110,7 +110,9 @@ export default class Renderer {
     updateTrails(particles) {
         const history = this.trailHistory;
         const capacity = MAX_TRAIL_LENGTH * 2;
-        const activeIds = new Set();
+        if (!this._activeIds) this._activeIds = new Set();
+        const activeIds = this._activeIds;
+        activeIds.clear();
 
         for (const p of particles) {
             activeIds.add(p.id);

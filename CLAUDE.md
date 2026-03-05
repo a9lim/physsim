@@ -294,7 +294,7 @@ Toggle under Relativity (`physics.blackHoleEnabled`). When on:
 
 ### Signal Delay
 
-Requires Relativity + Barnes-Hut off (pairwise only).
+Requires Relativity. Works in both pairwise and Barnes-Hut modes.
 
 Light-cone equation: `|x_source(t_ret) - x_obs(now)| = now - t_ret` (c = 1).
 
@@ -305,6 +305,8 @@ Three-phase solver on per-particle circular history buffers (`Float64Array[HISTO
 3. **Constant-velocity extrapolation** from the oldest buffer entry when t_ret predates recorded history. Same quadratic with s <= 0.
 
 Early rejection: pairs with current distance > 2 * buffer time span skip straight to extrapolation (O(1)).
+
+**Barnes-Hut hybrid**: In BH mode, signal delay is applied at leaf level (individual particle interactions within nearby nodes). Distant aggregate nodes use current-time center-of-mass data — the retarded correction is negligible at distances where the BH approximation (size/d < theta) kicks in.
 
 Returns a pre-allocated `_delayedOut` object (caller must consume before next call).
 
@@ -423,7 +425,7 @@ Tree traversal in `calculateForce()`: for leaf nodes, iterates actual particles 
 ```
 Forces:                        Physics:
   Gravity                        Relativity
-    -> Gravitomagnetic             -> Signal Delay     [requires Rel + BH off]
+    -> Gravitomagnetic             -> Signal Delay     [requires Rel]
   Coulomb                          -> 1PN              [requires Rel + Magnetic + GM]
     -> Magnetic                    -> Black Hole       [requires Rel; locks collision to Merge]
                                  Tidal                 [independent]

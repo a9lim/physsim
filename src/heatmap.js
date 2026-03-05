@@ -1,12 +1,58 @@
 // ─── Potential Field Heatmap ───
 // 48x48 offscreen canvas, diverging colormap, updates every 6 frames.
+// When Barnes-Hut is enabled, uses tree walk for O(GRID² log N) instead of O(GRID² N).
 
-import { SOFTENING_SQ } from './config.js';
+import { SOFTENING_SQ, BH_THETA } from './config.js';
 
 const GRID_SIZE = 48;
 const UPDATE_INTERVAL = 6;
 const SENSITIVITY = 3;   // tanh scaling: phi * SENSITIVITY -> 0-1
 const MAX_ALPHA = 100;
+
+/**
+ * Recursive BH tree walk for scalar potential at point (wx, wy).
+ * Returns { gPhi, ePhi } — gravitational and electrostatic potentials.
+ */
+function treePotential(pool, nodeIdx, wx, wy, theta) {
+    if (pool.totalMass[nodeIdx] === 0 && pool.totalCharge[nodeIdx] === 0) return;
+
+    const dx = pool.comX[nodeIdx] - wx;
+    const dy = pool.comY[nodeIdx] - wy;
+    const dSq = dx * dx + dy * dy;
+    const size = pool.bw[nodeIdx] * 2;
+
+    if ((!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) || (pool.divided[nodeIdx] && (size * size < theta * theta * dSq))) {
+        if (!pool.divided[nodeIdx]) {
+            // Leaf: sum individual particles
+            const base = nodeIdx * pool.nodeCapacity;
+            let gP = 0, eP = 0;
+            for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
+                const p = pool.points[base + i];
+                const pdx = wx - p.pos.x, pdy = wy - p.pos.y;
+                const rSq = pdx * pdx + pdy * pdy + SOFTENING_SQ;
+                const invR = 1 / Math.sqrt(rSq);
+                gP -= p.mass * invR;
+                eP += p.charge * invR;
+            }
+            _treeOut.g += gP;
+            _treeOut.e += eP;
+        } else {
+            // Distant node: use aggregate
+            const rSq = dSq + SOFTENING_SQ;
+            const invR = 1 / Math.sqrt(rSq);
+            _treeOut.g -= pool.totalMass[nodeIdx] * invR;
+            _treeOut.e += pool.totalCharge[nodeIdx] * invR;
+        }
+    } else if (pool.divided[nodeIdx]) {
+        treePotential(pool, pool.nw[nodeIdx], wx, wy, theta);
+        treePotential(pool, pool.ne[nodeIdx], wx, wy, theta);
+        treePotential(pool, pool.sw[nodeIdx], wx, wy, theta);
+        treePotential(pool, pool.se[nodeIdx], wx, wy, theta);
+    }
+}
+
+// Reusable output for treePotential
+const _treeOut = { g: 0, e: 0 };
 
 export default class Heatmap {
     constructor() {
@@ -20,7 +66,7 @@ export default class Heatmap {
         this.elecPotential = new Float32Array(GRID_SIZE * GRID_SIZE);
     }
 
-    update(particles, camera, width, height) {
+    update(particles, camera, width, height, pool, root, barnesHutEnabled) {
         if (!this.enabled) return;
         if (++this.frameCount % UPDATE_INTERVAL !== 0) return;
 
@@ -30,6 +76,8 @@ export default class Heatmap {
         const left = cx - halfW, top = cy - halfH;
         const cellW = (2 * halfW) / GRID_SIZE;
         const cellH = (2 * halfH) / GRID_SIZE;
+        const n = particles.length;
+        const useTree = barnesHutEnabled && root >= 0;
 
         for (let gy = 0; gy < GRID_SIZE; gy++) {
             for (let gx = 0; gx < GRID_SIZE; gx++) {
@@ -37,13 +85,21 @@ export default class Heatmap {
                 const wy = top + (gy + 0.5) * cellH;
                 let gPhi = 0, ePhi = 0;
 
-                for (let i = 0; i < particles.length; i++) {
-                    const p = particles[i];
-                    const dx = wx - p.pos.x, dy = wy - p.pos.y;
-                    const rSq = dx * dx + dy * dy + SOFTENING_SQ;
-                    const invR = 1 / Math.sqrt(rSq);
-                    gPhi -= p.mass * invR;   // always negative
-                    ePhi += p.charge * invR;  // sign depends on charge
+                if (useTree) {
+                    _treeOut.g = 0;
+                    _treeOut.e = 0;
+                    treePotential(pool, root, wx, wy, BH_THETA);
+                    gPhi = _treeOut.g;
+                    ePhi = _treeOut.e;
+                } else {
+                    for (let i = 0; i < n; i++) {
+                        const p = particles[i];
+                        const dx = wx - p.pos.x, dy = wy - p.pos.y;
+                        const rSq = dx * dx + dy * dy + SOFTENING_SQ;
+                        const invR = 1 / Math.sqrt(rSq);
+                        gPhi -= p.mass * invR;
+                        ePhi += p.charge * invR;
+                    }
                 }
 
                 const idx = gy * GRID_SIZE + gx;
@@ -53,7 +109,6 @@ export default class Heatmap {
         }
 
         // Absolute scaling via tanh — no per-frame normalization
-        // Slate #8A7E72 for gravity, Blue #5C92A8 for negative electric, Red #C05048 for positive electric
         const imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
         for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
             const gInt = Math.tanh(Math.abs(this.gravPotential[i]) * SENSITIVITY);

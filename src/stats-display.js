@@ -1,5 +1,8 @@
 import { computeEnergies } from './energy.js';
 
+const fmt = (v) => Math.abs(v) > 999 ? v.toExponential(2) : v.toFixed(2);
+const fmtDrift = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+
 export default class StatsDisplay {
     constructor(dom, selDom) {
         this.dom = dom;
@@ -7,6 +10,7 @@ export default class StatsDisplay {
         this.initialEnergy = null;
         this.initialMomentum = null;
         this.initialAngMom = null;
+        this._frameCount = 0;
     }
 
     resetBaseline() {
@@ -16,6 +20,9 @@ export default class StatsDisplay {
     }
 
     updateEnergy(particles, physics, sim) {
+        // Throttle DOM writes to every 4th frame (stats are display-only)
+        if (++this._frameCount & 3) return;
+
         const e = computeEnergies(particles, physics, sim);
         const angMom = e.orbitalAngMom + e.spinAngMom;
 
@@ -36,9 +43,6 @@ export default class StatsDisplay {
             ? ((pMag - this.initialMomentum) / Math.abs(this.initialMomentum) * 100) : 0;
         const aDrift = this.initialAngMom !== null && this.initialAngMom !== 0
             ? ((angMom - this.initialAngMom) / Math.abs(this.initialAngMom) * 100) : 0;
-
-        const fmt = (v) => Math.abs(v) < 0.01 ? '0' : Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(1);
-        const fmtDrift = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
 
         this.dom.linearKE.textContent = fmt(e.linearKE);
         this.dom.spinKE.textContent = fmt(e.spinKE);
@@ -62,7 +66,7 @@ export default class StatsDisplay {
         const p = particle;
         const dom = this.selDom;
 
-        if (!p || !particles.includes(p)) {
+        if (!p || p.mass <= 0 || !particles.includes(p)) {
             dom.details.hidden = true;
             dom.hint.hidden = false;
             dom.phaseSection.hidden = true;
@@ -72,7 +76,6 @@ export default class StatsDisplay {
         dom.details.hidden = false;
         dom.hint.hidden = true;
         dom.phaseSection.hidden = false;
-        const fmt = (v) => Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(2);
         const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
         const gamma = physics.relativityEnabled ? Math.sqrt(1 + p.w.magSq()) : 1;
         const totalFx = p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.force1PNEM.x + p.forceSpinCurv.x + p.forceRadiation.x;

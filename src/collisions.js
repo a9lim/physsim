@@ -2,7 +2,7 @@
 // Quadtree-accelerated overlap detection with merge or bounce resolution.
 
 import { INERTIA_K } from './config.js';
-import { setVelocity, angwToAngVel, angVelToAngw } from './relativity.js';
+import { setVelocity, angwToAngVel } from './relativity.js';
 import { TORUS, minImage, wrapPosition } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -17,12 +17,14 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
 
-    for (const p1 of particles) {
+    for (let ci = 0; ci < particles.length; ci++) {
+        const p1 = particles[ci];
         if (p1.mass === 0) continue;
 
-        const candidates = pool.query(root, p1.pos.x, p1.pos.y, p1.radius * 2, p1.radius * 2);
+        const candidates = pool.queryReuse(root, p1.pos.x, p1.pos.y, p1.radius * 2, p1.radius * 2);
 
-        for (const p2 of candidates) {
+        for (let ck = 0; ck < candidates.length; ck++) {
+            const p2 = candidates[ck];
             // Ghosts are periodic images; resolve against the real particle
             const real2 = p2.isGhost ? p2.original : p2;
             if (p1 === real2 || real2.mass === 0 || p1.id >= real2.id) continue;
@@ -158,13 +160,10 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
         const w1tFinal = w1t - tangentialImpulse / m1;
         const w2tFinal = w2t + tangentialImpulse / m2;
 
-        // Spin impulse: update omega, convert back to angw
-        const I1 = INERTIA_K * m1 * p1.radius * p1.radius;
-        const I2 = INERTIA_K * m2 * p2.radius * p2.radius;
-        const omega1New = p1.angVel - tangentialImpulse / I1;
-        const omega2New = p2.angVel - tangentialImpulse / I2;
-        p1.angw = angVelToAngw(omega1New, p1.radius);
-        p2.angw = angVelToAngw(omega2New, p2.radius);
+        // Spin impulse: angular impulse = r × J at contact point
+        // Update angw directly (L = I·angw is the conserved spin angular momentum)
+        p1.angw -= tangentialImpulse / (INERTIA_K * m1 * p1.radius);
+        p2.angw -= tangentialImpulse / (INERTIA_K * m2 * p2.radius);
         p1.angVel = angwToAngVel(p1.angw, p1.radius);
         p2.angVel = angwToAngVel(p2.angw, p2.radius);
 
@@ -194,10 +193,8 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
         const v1tFinal = v1t - tangentialImpulse / m1;
         const v2tFinal = v2t + tangentialImpulse / m2;
 
-        const I1 = INERTIA_K * m1 * p1.radius * p1.radius;
-        const I2 = INERTIA_K * m2 * p2.radius * p2.radius;
-        p1.angw -= tangentialImpulse / I1;
-        p2.angw -= tangentialImpulse / I2;
+        p1.angw -= tangentialImpulse / (INERTIA_K * m1 * p1.radius);
+        p2.angw -= tangentialImpulse / (INERTIA_K * m2 * p2.radius);
         p1.angVel = p1.angw;
         p2.angVel = p2.angw;
 

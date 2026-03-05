@@ -11,7 +11,8 @@ const _miOut = { x: 0, y: 0 };
 
 /** Zero all per-particle force accumulators and field values before a new substep. */
 export function resetForces(particles) {
-    for (const p of particles) {
+    for (let i = 0, n = particles.length; i < n; i++) {
+        const p = particles[i];
         p.force.set(0, 0);
         p.jerk.set(0, 0);
         p.forceGravity.set(0, 0);
@@ -41,43 +42,84 @@ export function resetForces(particles) {
  * In pairwise mode with signal delay, source positions are evaluated on the
  * past light cone rather than at the current time.
  */
+// Pre-allocated arrays for source dipole moments (grown as needed)
+let _srcMagMoment = new Float64Array(256);
+let _srcAngMomentum = new Float64Array(256);
+
 export function computeAllForces(particles, toggles, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology = TORUS) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
+    const n = particles.length;
+
+    const useSignalDelay = signalDelayEnabled && relativityEnabled;
+
     if (barnesHutEnabled) {
         if (root < 0) return;
-        for (const p of particles) {
-            calculateForce(p, pool, root, BH_THETA, p.force, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
+        for (let i = 0; i < n; i++) {
+            calculateForce(particles[i], pool, root, BH_THETA, particles[i].force, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
         }
     } else {
-        const useSignalDelay = signalDelayEnabled && relativityEnabled;
-        for (let i = 0; i < particles.length; i++) {
-            const p = particles[i];
-            for (let j = 0; j < particles.length; j++) {
-                if (i === j) continue;
-                const o = particles[j];
 
-                let sx, sy, svx, svy, sAngVel;
-                if (useSignalDelay && o.histCount >= 2) {
-                    const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
-                    if (ret) {
-                        sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
-                        sAngVel = o.angVel; // not history-tracked; use current value
+        // Precompute source dipole moments once per particle (not per pair)
+        if (n > _srcMagMoment.length) {
+            _srcMagMoment = new Float64Array(n * 2);
+            _srcAngMomentum = new Float64Array(n * 2);
+        }
+        for (let i = 0; i < n; i++) {
+            const o = particles[i];
+            const oRSq = o.radiusSq;
+            _srcMagMoment[i] = MAG_MOMENT_K * o.charge * o.angVel * oRSq;
+            _srcAngMomentum[i] = INERTIA_K * o.mass * o.angVel * oRSq;
+        }
+
+        // When signal delay is off and 1PN is off, forces are symmetric — use j>i loop
+        // (1PN uses per-particle velocity so forces are NOT symmetric; signal delay
+        // makes source positions asymmetric)
+        const canSymmetric = !useSignalDelay && !toggles.onePNEnabled;
+
+        if (canSymmetric) {
+            for (let i = 0; i < n; i++) {
+                const p = particles[i];
+                for (let j = i + 1; j < n; j++) {
+                    const o = particles[j];
+                    // Accumulate to both particles
+                    pairForce(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
+                        o.mass, o.charge, o.angVel,
+                        _srcMagMoment[j], _srcAngMomentum[j], p.force, toggles,
+                        periodic, domW, domH, halfDomW, halfDomH, topology);
+                    pairForce(o, p.pos.x, p.pos.y, p.vel.x, p.vel.y,
+                        p.mass, p.charge, p.angVel,
+                        _srcMagMoment[i], _srcAngMomentum[i], o.force, toggles,
+                        periodic, domW, domH, halfDomW, halfDomH, topology);
+                }
+            }
+        } else {
+            for (let i = 0; i < n; i++) {
+                const p = particles[i];
+                for (let j = 0; j < n; j++) {
+                    if (i === j) continue;
+                    const o = particles[j];
+
+                    let sx, sy, svx, svy, sAngVel;
+                    if (useSignalDelay && o.histCount >= 2) {
+                        const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                        if (ret) {
+                            sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
+                            sAngVel = o.angVel;
+                        } else {
+                            sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
+                            sAngVel = o.angVel;
+                        }
                     } else {
                         sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
                         sAngVel = o.angVel;
                     }
-                } else {
-                    sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
-                    sAngVel = o.angVel;
-                }
 
-                const oRSq = o.radius * o.radius;
-                pairForce(p, sx, sy, svx, svy,
-                    o.mass, o.charge, sAngVel,
-                    MAG_MOMENT_K * o.charge * sAngVel * oRSq,
-                    INERTIA_K * o.mass * sAngVel * oRSq, p.force, toggles,
-                    periodic, domW, domH, halfDomW, halfDomH, topology);
+                    pairForce(p, sx, sy, svx, svy,
+                        o.mass, o.charge, sAngVel,
+                        _srcMagMoment[j], _srcAngMomentum[j], p.force, toggles,
+                        periodic, domW, domH, halfDomW, halfDomH, topology);
+                }
             }
         }
     }
@@ -101,90 +143,87 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     const rawRSq = rx * rx + ry * ry;
     // Plummer softening: r²_eff = r² + ε² (consistent with PE in potential.js)
     const rSq = rawRSq + SOFTENING_SQ;
-    const r = Math.sqrt(rSq);
-    const invR = 1 / r;
     const invRSq = 1 / rSq;
+    const invR = Math.sqrt(invRSq);       // 1/r via sqrt(1/r²) — one sqrt instead of sqrt + division
+    const invR3 = invR * invRSq;          // 1 / r_eff³
+    const invR5 = invR3 * invRSq;         // 1 / r_eff⁵
 
     // (v_s × r)_z — enters Biot-Savart-like field expressions
     const crossSV = svx * ry - svy * rx;
 
-    // Test particle dipole moments (uniform-density solid sphere)
-    const pRSq = p.radius * p.radius;
+    // Test particle dipole moments (use cached radiusSq)
+    const pRSq = p.radiusSq;
     const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
     const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
 
     // Relative velocity (source - particle) for analytical jerk
     const vrx = svx - p.vel.x, vry = svy - p.vel.y;
     const rDotVr = rx * vrx + ry * vry;
-    const invR5 = invRSq * invRSq * invR; // 1 / r_eff^5
 
     if (toggles.gravityEnabled) {
         const k = p.mass * sMass;
-        const fDir = k * invRSq * invR;
+        const fDir = k * invR3;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceGravity.x += rx * fDir;
         p.forceGravity.y += ry * fDir;
         // Analytical jerk: k·[v_rel/r³ − 3·r·(r·v_rel)/r⁵]
-        const jCoeff = k * invRSq * invR; // k / r_eff³
         const jRadial = -3 * k * rDotVr * invR5;
-        p.jerk.x += vrx * jCoeff + rx * jRadial;
-        p.jerk.y += vry * jCoeff + ry * jRadial;
+        p.jerk.x += vrx * fDir + rx * jRadial;
+        p.jerk.y += vry * fDir + ry * jRadial;
     }
 
     if (toggles.coulombEnabled) {
         const k = -(p.charge * sCharge);
-        const fDir = k * invRSq * invR;
+        const fDir = k * invR3;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceCoulomb.x += rx * fDir;
         p.forceCoulomb.y += ry * fDir;
         // Analytical jerk for Coulomb (same form, different coupling)
-        const jCoeff = k * invRSq * invR;
         const jRadial = -3 * k * rDotVr * invR5;
-        p.jerk.x += vrx * jCoeff + rx * jRadial;
-        p.jerk.y += vry * jCoeff + ry * jRadial;
+        p.jerk.x += vrx * fDir + rx * jRadial;
+        p.jerk.y += vry * fDir + ry * jRadial;
     }
 
-    if (toggles.onePNEnabled && toggles.gravitomagEnabled) {
-        // 1PN EIH symmetric remainder: O(v²/c²) gravity after subtracting the
-        // GM Lorentz piece (handled by Boris when GM is on, absent when GM is off).
-        // a = (m2/r²) * { n̂·R + v1·C1 + v2·C2 }
+    if (toggles.onePNEnabled && (toggles.gravitomagEnabled || toggles.magneticEnabled)) {
+        const r = 1 / invR;  // recover r from invR (cheaper than sqrt)
+        const nx = rx * invR, ny = ry * invR;
         const pvx = p.vel.x, pvy = p.vel.y;
-        const v1Sq = pvx * pvx + pvy * pvy;
-        const v2Sq = svx * svx + svy * svy;
-        const nx = rx * invR, ny = ry * invR;
-        const nDotV1 = nx * pvx + ny * pvy;
-        const nDotV2 = nx * svx + ny * svy;
-        const radial = -v1Sq - 2 * v2Sq
-            + 1.5 * nDotV2 * nDotV2
-            + 5 * p.mass * invR + 4 * sMass * invR;
-        const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
-        const v2Coeff = 3 * nDotV2;
-        const base = sMass * invRSq * invR;
-        const fx = base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
-        const fy = base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
 
-        out.x += fx;
-        out.y += fy;
-        p.force1PN.x += fx;
-        p.force1PN.y += fy;
-    }
+        if (toggles.gravitomagEnabled) {
+            // 1PN EIH symmetric remainder: O(v²/c²) gravity after subtracting the
+            // GM Lorentz piece (handled by Boris when GM is on, absent when GM is off).
+            const v1Sq = pvx * pvx + pvy * pvy;
+            const v2Sq = svx * svx + svy * svy;
+            const nDotV1 = nx * pvx + ny * pvy;
+            const nDotV2 = nx * svx + ny * svy;
+            const radial = -v1Sq - 2 * v2Sq
+                + 1.5 * nDotV2 * nDotV2
+                + 5 * p.mass * invR + 4 * sMass * invR;
+            const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
+            const v2Coeff = 3 * nDotV2;
+            const base = sMass * invR3;
+            const fx = base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
+            const fy = base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
+            out.x += fx;
+            out.y += fy;
+            p.force1PN.x += fx;
+            p.force1PN.y += fy;
+        }
 
-    if (toggles.onePNEnabled && toggles.magneticEnabled) {
-        // Darwin EM symmetric correction: O(v²/c²) from Darwin Lagrangian.
-        // F₁_sym = (q₁q₂)/(2r²) × { v₁(v₂·n̂) − 3n̂(v₁·n̂)(v₂·n̂) }
-        // NOT Newton's 3rd law — each particle uses its own velocity.
-        const nx = rx * invR, ny = ry * invR;
-        const v2DotN = svx * nx + svy * ny;
-        const v1DotN = p.vel.x * nx + p.vel.y * ny;
-        const coeff = 0.5 * p.charge * sCharge * invRSq;
-        const symX = coeff * (p.vel.x * v2DotN - 3 * nx * v1DotN * v2DotN);
-        const symY = coeff * (p.vel.y * v2DotN - 3 * ny * v1DotN * v2DotN);
-        out.x += symX;
-        out.y += symY;
-        p.force1PNEM.x += symX;
-        p.force1PNEM.y += symY;
+        if (toggles.magneticEnabled) {
+            // Darwin EM symmetric correction: O(v²/c²) from Darwin Lagrangian.
+            const v2DotN = svx * nx + svy * ny;
+            const v1DotN = pvx * nx + pvy * ny;
+            const coeff = 0.5 * p.charge * sCharge * invRSq;
+            const symX = coeff * (pvx * v2DotN - 3 * nx * v1DotN * v2DotN);
+            const symY = coeff * (pvy * v2DotN - 3 * ny * v1DotN * v2DotN);
+            out.x += symX;
+            out.y += symY;
+            p.force1PNEM.x += symX;
+            p.force1PNEM.y += symY;
+        }
     }
 
     if (toggles.onePNEnabled && toggles.gravitomagEnabled && toggles.magneticEnabled) {
@@ -201,49 +240,49 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 
     if (toggles.magneticEnabled) {
         // Dipole-dipole radial: F = −3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
-        const fDir = -3 * (pMagMoment * sMagMoment) * invRSq * invRSq * invR;
+        const fDir = -3 * (pMagMoment * sMagMoment) * invR5;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceMagnetic.x += rx * fDir;
         p.forceMagnetic.y += ry * fDir;
 
         // Bz from moving charge (Biot-Savart): B_z = q_s(v_s × r̂)_z / r²
-        const BzMoving = sCharge * crossSV * invR * invRSq;
+        const BzMoving = sCharge * crossSV * invR3;
         p.Bz += BzMoving;
 
         // ∇Bz for spin-orbit coupling (radial + angular terms)
-        p.dBzdx += 3 * BzMoving * rx * invRSq + sCharge * svy * invR * invRSq;
-        p.dBzdy += 3 * BzMoving * ry * invRSq - sCharge * svx * invR * invRSq;
+        p.dBzdx += 3 * BzMoving * rx * invRSq + sCharge * svy * invR3;
+        p.dBzdy += 3 * BzMoving * ry * invRSq - sCharge * svx * invR3;
 
         // Dipole-sourced Bz: equatorial field of z-aligned dipole, +μ/r³
-        p.Bz += sMagMoment * invR * invRSq;
-        p.dBzdx += 3 * sMagMoment * rx * invRSq * invRSq * invR;
-        p.dBzdy += 3 * sMagMoment * ry * invRSq * invRSq * invR;
+        p.Bz += sMagMoment * invR3;
+        p.dBzdx += 3 * sMagMoment * rx * invR5;
+        p.dBzdy += 3 * sMagMoment * ry * invR5;
     }
 
     if (toggles.gravitomagEnabled) {
         // GM dipole: F = +3L₁L₂/r⁴ (GEM sign flip: co-rotating masses attract)
-        const fDir = 3 * (pAngMomentum * sAngMomentum) * invRSq * invRSq * invR;
+        const fDir = 3 * (pAngMomentum * sAngMomentum) * invR5;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceGravitomag.x += rx * fDir;
         p.forceGravitomag.y += ry * fDir;
 
         // Bgz from moving mass: −m_s(v_s × r̂)_z / r² (negative: GEM convention)
-        const BgzMoving = -sMass * crossSV * invR * invRSq;
+        const BgzMoving = -sMass * crossSV * invR3;
         p.Bgz += BgzMoving;
 
         // ∇Bgz for spin-orbit coupling
-        p.dBgzdx += 3 * BgzMoving * rx * invRSq - sMass * svy * invR * invRSq;
-        p.dBgzdy += 3 * BgzMoving * ry * invRSq + sMass * svx * invR * invRSq;
+        p.dBgzdx += 3 * BgzMoving * rx * invRSq - sMass * svy * invR3;
+        p.dBgzdy += 3 * BgzMoving * ry * invRSq + sMass * svx * invR3;
 
         // Spin-sourced Bgz: −2L/r³ (GEM analog of magnetic dipole field)
-        p.Bgz -= 2 * sAngMomentum * invR * invRSq;
-        p.dBgzdx -= 6 * sAngMomentum * rx * invRSq * invRSq * invR;
-        p.dBgzdy -= 6 * sAngMomentum * ry * invRSq * invRSq * invR;
+        p.Bgz -= 2 * sAngMomentum * invR3;
+        p.dBgzdx -= 6 * sAngMomentum * rx * invR5;
+        p.dBgzdy -= 6 * sAngMomentum * ry * invR5;
 
         // Frame-dragging torque: aligns spins toward co-rotation
-        const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
+        const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR3;
         p._frameDragTorque += torque;
     }
 
@@ -257,7 +296,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         let coupling = 0;
         if (toggles.gravityEnabled) coupling += sMass;
         if (toggles.coulombEnabled) coupling += p.charge * sCharge / p.mass;
-        const ri3 = p.radius * p.radius * p.radius;
+        const ri3 = p.radiusSq * p.radius;
         const invR6 = invRSq * invRSq * invRSq;
         p._tidalTorque -= TIDAL_STRENGTH * coupling * coupling * ri3 * invR6 * dw;
     }
@@ -334,8 +373,11 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
 /**
  * Recursive Barnes-Hut tree walk. Uses aggregate multipole data for distant
  * nodes (size/d < theta), individual particles for nearby leaves.
+ * Signal delay is applied at leaf level (individual particles); distant
+ * nodes use current-time aggregates (retarded correction is negligible at
+ * distances where the BH approximation kicks in).
  */
-export function calculateForce(particle, pool, nodeIdx, theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
+export function calculateForce(particle, pool, nodeIdx, theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime) {
     if (pool.totalMass[nodeIdx] === 0) return;
 
     let dx, dy;
@@ -357,18 +399,29 @@ export function calculateForce(particle, pool, nodeIdx, theta, out, toggles, per
                 const other = pool.points[base + i];
                 if (other === particle) continue;
                 if (other.isGhost && other.original === particle) continue;
-                const otherRSq = other.radius * other.radius;
-                pairForce(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y, other.mass, other.charge, other.angVel, MAG_MOMENT_K * other.charge * other.angVel * otherRSq, INERTIA_K * other.mass * other.angVel * otherRSq, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
+                // Signal delay: use retarded position for real (non-ghost) leaf particles
+                const real = other.isGhost ? other.original : other;
+                let sx, sy, svx, svy;
+                if (useSignalDelay && !other.isGhost && real.histCount >= 2) {
+                    const ret = getDelayedState(real, particle, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                    if (ret) { sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy; }
+                    else { sx = other.pos.x; sy = other.pos.y; svx = other.vel.x; svy = other.vel.y; }
+                } else {
+                    sx = other.pos.x; sy = other.pos.y; svx = other.vel.x; svy = other.vel.y;
+                }
+                const otherRSq = other.radiusSq;
+                pairForce(particle, sx, sy, svx, svy, other.mass, other.charge, other.angVel, MAG_MOMENT_K * other.charge * other.angVel * otherRSq, INERTIA_K * other.mass * other.angVel * otherRSq, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
             }
         } else {
+            // Distant node: use current-time aggregate (retarded correction negligible)
             const avgVx = pool.totalMass[nodeIdx] > 0 ? pool.totalMomentumX[nodeIdx] / pool.totalMass[nodeIdx] : 0;
             const avgVy = pool.totalMass[nodeIdx] > 0 ? pool.totalMomentumY[nodeIdx] / pool.totalMass[nodeIdx] : 0;
             pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, pool.totalMass[nodeIdx], pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
         }
     } else if (pool.divided[nodeIdx]) {
-        calculateForce(particle, pool, pool.nw[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
-        calculateForce(particle, pool, pool.ne[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
-        calculateForce(particle, pool, pool.sw[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
-        calculateForce(particle, pool, pool.se[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
+        calculateForce(particle, pool, pool.nw[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
+        calculateForce(particle, pool, pool.ne[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
+        calculateForce(particle, pool, pool.sw[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
+        calculateForce(particle, pool, pool.se[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
     }
 }

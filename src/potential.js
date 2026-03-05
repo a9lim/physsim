@@ -13,8 +13,8 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
     const halfDomH = domH * 0.5;
 
     if (barnesHutEnabled && root >= 0) {
-        for (const p of particles) {
-            pe += treePE(p, pool, root, bhTheta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
+        for (let i = 0; i < particles.length; i++) {
+            pe += treePE(particles[i], pool, root, bhTheta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
         }
         pe *= 0.5; // tree counts each pair from both sides
     } else {
@@ -22,7 +22,7 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
             const p = particles[i];
             for (let j = i + 1; j < particles.length; j++) {
                 const o = particles[j];
-                const oRSq = o.radius * o.radius;
+                const oRSq = o.radiusSq;
                 pe += pairPE(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
                     o.mass, o.charge, o.angVel,
                     MAG_MOMENT_K * o.charge * o.angVel * oRSq,
@@ -59,7 +59,7 @@ export function treePE(particle, pool, nodeIdx, theta, toggles, periodic, domW, 
                 const other = pool.points[base + i];
                 if (other === particle) continue;
                 if (other.isGhost && other.original === particle) continue;
-                const oRSq = other.radius * other.radius;
+                const oRSq = other.radiusSq;
                 pe += pairPE(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y,
                     other.mass, other.charge, other.angVel,
                     MAG_MOMENT_K * other.charge * other.angVel * oRSq,
@@ -95,18 +95,18 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
         rx = sx - p.pos.x; ry = sy - p.pos.y;
     }
     const rSq = rx * rx + ry * ry + SOFTENING_SQ;
-    const r = Math.sqrt(rSq);
-    const invR = 1 / r;
     const invRSq = 1 / rSq;
-    const pRSq = p.radius * p.radius;
+    const invR = Math.sqrt(invRSq);
+    const pRSq = p.radiusSq;
     const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
     const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
 
     let pe = 0;
     if (toggles.gravityEnabled)  pe -= p.mass * sMass * invR;
     if (toggles.coulombEnabled)  pe += p.charge * sCharge * invR;
-    if (toggles.magneticEnabled) pe += (pMagMoment * sMagMoment) * invR * invRSq;
-    if (toggles.gravitomagEnabled) pe -= (pAngMomentum * sAngMomentum) * invR * invRSq;
+    const invR3 = invR * invRSq;
+    if (toggles.magneticEnabled) pe += (pMagMoment * sMagMoment) * invR3;
+    if (toggles.gravitomagEnabled) pe -= (pAngMomentum * sAngMomentum) * invR3;
     if (toggles.onePNEnabled) {
         const pvx = p.vel.x, pvy = p.vel.y;
         const nx = rx * invR, ny = ry * invR;

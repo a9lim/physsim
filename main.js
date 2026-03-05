@@ -177,34 +177,45 @@ class Simulation {
                 }
                 this.photons.length = pLen;
 
-                const toFragment = this.physics.checkTidalBreakup(this.particles);
-                for (const p of toFragment) {
-                    const idx = this.particles.indexOf(p);
-                    if (idx === -1) continue;
-                    this.particles.splice(idx, 1);
-
-                    const n = FRAGMENT_COUNT;
-                    const fragMass = p.mass / n;
-                    const fragCharge = p.charge / n;
-
-                    for (let i = 0; i < n; i++) {
-                        const angle = (2 * Math.PI * i) / n;
-                        const offset = p.radius * 1.5;
-                        const fx = p.pos.x + Math.cos(angle) * offset;
-                        const fy = p.pos.y + Math.sin(angle) * offset;
-                        const tangVx = -Math.sin(angle) * p.angVel * offset;
-                        const tangVy = Math.cos(angle) * p.angVel * offset;
-                        this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
-                            mass: fragMass, charge: fragCharge, spin: p.angw
-                        });
+                const toFragment = this.physics.checkTidalBreakup(this.particles, this.physics._lastRoot);
+                if (toFragment.length > 0) {
+                    // Build set for O(1) lookup, spawn fragments, then compact
+                    const fragSet = new Set(toFragment);
+                    for (const p of toFragment) {
+                        const nf = FRAGMENT_COUNT;
+                        const fragMass = p.mass / nf;
+                        const fragCharge = p.charge / nf;
+                        for (let fi = 0; fi < nf; fi++) {
+                            const angle = (2 * Math.PI * fi) / nf;
+                            const offset = p.radius * 1.5;
+                            const fx = p.pos.x + Math.cos(angle) * offset;
+                            const fy = p.pos.y + Math.sin(angle) * offset;
+                            const tangVx = -Math.sin(angle) * p.angVel * offset;
+                            const tangVy = Math.cos(angle) * p.angVel * offset;
+                            this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
+                                mass: fragMass, charge: fragCharge, spin: p.angw
+                            });
+                        }
                     }
+                    // Single-pass compaction (swap-and-pop style)
+                    let write = 0;
+                    for (let ri = 0; ri < this.particles.length; ri++) {
+                        if (!fragSet.has(this.particles[ri])) {
+                            this.particles[write++] = this.particles[ri];
+                        }
+                    }
+                    this.particles.length = write;
                 }
 
                 // Hawking evaporation: remove particles below MIN_BH_MASS
                 if (this.physics.blackHoleEnabled) {
-                    for (let i = this.particles.length - 1; i >= 0; i--) {
+                    let writeIdx = 0;
+                    for (let i = 0; i < this.particles.length; i++) {
                         const p = this.particles[i];
-                        if (p.mass >= MIN_BH_MASS) continue;
+                        if (p.mass >= MIN_BH_MASS) {
+                            this.particles[writeIdx++] = p;
+                            continue;
+                        }
                         // Final burst: emit remaining mass-energy as photons
                         const burstE = Math.max(0, p.mass);
                         if (burstE > 0) {
@@ -222,15 +233,15 @@ class Simulation {
                             this.totalRadiated += burstE;
                         }
                         if (this.selectedParticle === p) this.selectedParticle = null;
-                        this.particles.splice(i, 1);
                     }
+                    this.particles.length = writeIdx;
                 }
 
                 this.accumulator -= PHYSICS_DT;
             }
         }
 
-        this.heatmap.update(this.particles, this.camera, this.width, this.height);
+        this.heatmap.update(this.particles, this.camera, this.width, this.height, this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled);
         this.phasePlot.update(this.particles, this.selectedParticle);
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);
         this.phasePlot.draw(this.renderer.isLight);

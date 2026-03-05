@@ -68,6 +68,8 @@ export default class Particle {
         this.histCount = 0;
 
         this.radius = Math.cbrt(this.mass);
+        this.radiusSq = this.radius * this.radius;
+        this.invMass = 1 / this.mass;
         this.color = this.getColor();
     }
 
@@ -85,6 +87,8 @@ export default class Particle {
     updateColor() {
         const bh = window.sim && window.sim.physics.blackHoleEnabled;
         this.radius = bh ? 2 * this.mass : Math.cbrt(this.mass);
+        this.radiusSq = this.radius * this.radius;
+        this.invMass = 1 / this.mass;
         this.color = this.getColor();
     }
 

@@ -142,12 +142,11 @@ export function setupUI(sim) {
     const gravEl = document.getElementById('gravity-toggle');
     const coulEl = document.getElementById('coulomb-toggle');
 
-    // ─── Signal Delay requires Relativity + BH off ───
+    // ─── Signal Delay requires Relativity ───
     const sdEl = document.getElementById('signaldelay-toggle');
     const updateSdDeps = () => {
-        setDepState(sdEl, 'signalDelayEnabled', bhEl.checked || !relativityEl.checked);
+        setDepState(sdEl, 'signalDelayEnabled', !relativityEl.checked);
     };
-    bhEl.addEventListener('change', updateSdDeps);
     relativityEl.addEventListener('change', updateSdDeps);
     updateSdDeps();
 
@@ -358,7 +357,7 @@ export function setupUI(sim) {
         radiation: { title: 'Radiation', body: 'Accelerating charges radiate energy (Larmor power: $P = 2q^2 a^2/3$). The Landau\u2013Lifshitz reaction force decelerates the emitter with three terms: a jerk term ($\\dot{\\mathbf{F}}/\\gamma^3$), a radiative drag ($-\\mathbf{v}F^2/m\\gamma^2$), and a force-aligned correction ($+\\mathbf{F}(\\mathbf{v}\\!\\cdot\\!\\mathbf{F})/m\\gamma^4$). Emitted photons are visible particles that carry away energy and momentum, causing orbital decay of charged particles. Requires Coulomb.' },
         tidal: { title: 'Disintegration', body: 'Particles break apart when disruptive forces exceed their self-gravity. The sim checks tidal stretching from neighbors ($\\propto M R / r^3$), centrifugal stress from rapid spin, and Coulomb self-repulsion. When the combined outward forces win, the particle splits into 3 fragments.' },
         tidallocking: { title: 'Tidal Locking', body: 'Tidal torque drives spin toward synchronous rotation ($\\omega_{\\text{spin}} \\to \\omega_{\\text{orbit}}$). The torque is $\\tau \\propto -(M + q_1 q_2/m)^2 R^3 / r^6 \\cdot \\Delta\\omega$. The mixed coupling captures all cross-terms between gravitational and electrostatic tidal fields. Requires Gravity.' },
-        signaldelay: { title: 'Signal Delay', body: 'Forces propagate at the speed of light instead of acting instantaneously. Each particle sees others at their past positions on the light cone: $|\\mathbf{x}_{\\text{src}}(t_{\\text{ret}}) - \\mathbf{x}_{\\text{obs}}| = t_{\\text{now}} - t_{\\text{ret}}$. The delayed time is solved analytically using recorded position histories. Only available in pairwise mode (Barnes\u2013Hut off). Requires Relativity.' },
+        signaldelay: { title: 'Signal Delay', body: 'Forces propagate at the speed of light instead of acting instantaneously. Each particle sees others at their past positions on the light cone: $|\\mathbf{x}_{\\text{src}}(t_{\\text{ret}}) - \\mathbf{x}_{\\text{obs}}| = t_{\\text{now}} - t_{\\text{ret}}$. The delayed time is solved analytically using recorded position histories. Requires Relativity.' },
         spinorbit: { title: 'Spin\u2013Orbit', body: 'Couples translational and rotational motion through field gradients. Moving through a non-uniform magnetic or gravitomagnetic field transfers energy between a particle\'s orbit and its spin. Also applies translational kicks: Stern\u2013Gerlach force ($\\mathbf{F} = \\mu\\nabla B$) for EM, and Mathisson\u2013Papapetrou force ($\\mathbf{F} = -L\\nabla B_g$) for gravity.' },
         interaction: { title: 'Spawn Modes', body: '<b>Place</b> \u2014 click to spawn a particle at rest.<br><b>Shoot</b> \u2014 click and drag to set the particle\'s initial velocity.<br><b>Orbit</b> \u2014 spawns in a circular orbit around the nearest massive body, with velocity set to $v = \\sqrt{M/r}$.' },
         barneshut: { title: 'Barnes\u2013Hut', body: 'Controls the force calculation algorithm. When on, uses an $O(N \\log N)$ quadtree approximation ($\\theta = 0.5$) that groups distant particles together, allowing hundreds of particles to run smoothly. When off, computes every pair exactly ($O(N^2)$) which is slower but conserves momentum and angular momentum to machine precision.' },
