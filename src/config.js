@@ -35,3 +35,7 @@ export const HISTORY_STRIDE = 64; // ~120 snapshots/second
 
 export const TIDAL_STRENGTH = 2.0;
 export const FRAGMENT_COUNT = 4;
+
+// Yukawa potential: V(r) = -g²·exp(-μr)/r
+export const DEFAULT_YUKAWA_G2 = 1.0;   // coupling strength
+export const DEFAULT_YUKAWA_MU = 0.2;   // mediator mass (inverse range)
