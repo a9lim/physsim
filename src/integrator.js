@@ -35,6 +35,10 @@ export default class Physics {
         this.spinOrbitEnabled = true;
         this.onePNEnabled = true;
 
+        this.yukawaEnabled = false;
+        this.yukawaG2 = DEFAULT_YUKAWA_G2;
+        this.yukawaMu = DEFAULT_YUKAWA_MU;
+
         this.sim = null;
         this.simTime = 0;
 
@@ -54,6 +58,9 @@ export default class Physics {
             gravitomagEnabled: true,
             onePNEnabled: true,
             tidalLockingEnabled: false,
+            yukawaEnabled: false,
+            yukawaG2: 1.0,
+            yukawaMu: 0.2,
         };
 
         this._ghostPool = [];
@@ -70,6 +77,9 @@ export default class Physics {
         this._toggles.gravitomagEnabled = this.gravitomagEnabled;
         this._toggles.onePNEnabled = this.onePNEnabled;
         this._toggles.tidalLockingEnabled = this.tidalLockingEnabled;
+        this._toggles.yukawaEnabled = this.yukawaEnabled;
+        this._toggles.yukawaG2 = this.yukawaG2;
+        this._toggles.yukawaMu = this.yukawaMu;
     }
 
     /** Pool-allocate a ghost at (sx, sy) mirroring p. Flips for non-orientable topologies. */

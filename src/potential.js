@@ -137,5 +137,9 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
             pe += 0.5 * crossCoeff * invRSq;
         }
     }
+    if (toggles.yukawaEnabled) {
+        const r = 1 / invR;
+        pe -= toggles.yukawaG2 * p.mass * sMass * Math.exp(-toggles.yukawaMu * r) * invR;
+    }
     return pe;
 }
