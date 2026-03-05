@@ -1,6 +1,6 @@
 // ─── UI Setup ───
 // Wires all panel controls, toggles, presets, shortcuts, and info tips to the sim.
-import { loadPreset } from './presets.js';
+import { loadPreset, PRESETS, PRESET_ORDER } from './presets.js';
 import { PHYSICS_DT, WORLD_SCALE } from './config.js';
 
 const HINT_FADE_DELAY = 5000;
@@ -315,11 +315,12 @@ export function setupUI(sim) {
         { key: 'Space', label: 'Pause / Play', group: 'Simulation', action: togglePause },
         { key: 'R', label: 'Reset simulation', group: 'Simulation', action: () => document.getElementById('clearBtn').click() },
         { key: '.', label: 'Step forward', group: 'Simulation', action: stepSim },
-        { key: '1', label: 'Solar System', group: 'Presets', action: () => loadPreset('solar', sim) },
-        { key: '2', label: 'Binary Stars', group: 'Presets', action: () => loadPreset('binary', sim) },
-        { key: '3', label: 'Galaxy', group: 'Presets', action: () => loadPreset('galaxy', sim) },
-        { key: '4', label: 'Collision', group: 'Presets', action: () => loadPreset('collision', sim) },
-        { key: '5', label: 'Magnetic', group: 'Presets', action: () => loadPreset('magnetic', sim) },
+        ...PRESET_ORDER.map((key, i) => ({
+            key: String(i + 1),
+            label: PRESETS[key].name,
+            group: 'Presets',
+            action: () => { loadPreset(key, sim); document.getElementById('preset-select').value = key; },
+        })),
         { key: 'V', label: 'Toggle velocity vectors', group: 'View', action: () => {
             const el = document.getElementById('velocityToggle');
             el.checked = !el.checked;
