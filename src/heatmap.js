@@ -3,6 +3,7 @@
 // When Barnes-Hut is enabled, uses tree walk for O(GRID² log N) instead of O(GRID² N).
 
 import { SOFTENING_SQ, BH_THETA } from './config.js';
+import { getDelayedState } from './signal-delay.js';
 
 const GRID_SIZE = 48;
 const UPDATE_INTERVAL = 6;
@@ -66,7 +67,7 @@ export default class Heatmap {
         this.elecPotential = new Float32Array(GRID_SIZE * GRID_SIZE);
     }
 
-    update(particles, camera, width, height, pool, root, barnesHutEnabled) {
+    update(particles, camera, width, height, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology) {
         if (!this.enabled) return;
         if (++this.frameCount % UPDATE_INTERVAL !== 0) return;
 
@@ -92,9 +93,18 @@ export default class Heatmap {
                     gPhi = _treeOut.g;
                     ePhi = _treeOut.e;
                 } else {
+                    const useDelay = signalDelayEnabled && relativityEnabled;
                     for (let i = 0; i < n; i++) {
                         const p = particles[i];
-                        const dx = wx - p.pos.x, dy = wy - p.pos.y;
+                        let px, py;
+                        if (useDelay && p.histCount >= 2) {
+                            const ret = getDelayedState(p, { pos: { x: wx, y: wy } }, simTime, periodic, domW, domH, domW * 0.5, domH * 0.5, topology);
+                            if (ret) { px = ret.x; py = ret.y; }
+                            else { px = p.pos.x; py = p.pos.y; }
+                        } else {
+                            px = p.pos.x; py = p.pos.y;
+                        }
+                        const dx = wx - px, dy = wy - py;
                         const rSq = dx * dx + dy * dy + SOFTENING_SQ;
                         const invR = 1 / Math.sqrt(rSq);
                         gPhi -= p.mass * invR;

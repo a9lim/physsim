@@ -89,6 +89,29 @@ export default class StatsDisplay {
         dom.speed.textContent = speed.toFixed(4) + 'c';
         dom.gamma.textContent = gamma.toFixed(3);
         dom.force.textContent = fmt(forceMag);
+
+        // Force breakdown by type
+        const forces = [
+            { row: dom.fbGravity, val: dom.fbGravityVal, vec: p.forceGravity },
+            { row: dom.fbCoulomb, val: dom.fbCoulombVal, vec: p.forceCoulomb },
+            { row: dom.fbMagnetic, val: dom.fbMagneticVal, vec: p.forceMagnetic },
+            { row: dom.fbGravitomag, val: dom.fbGravitomagVal, vec: p.forceGravitomag },
+            { row: dom.fb1pn, val: dom.fb1pnVal, vec: p.force1PN },
+            { row: dom.fbSpincurv, val: dom.fbSpincurvVal, vec: p.forceSpinCurv },
+            { row: dom.fbRadiation, val: dom.fbRadiationVal, vec: p.forceRadiation },
+            { row: dom.fbYukawa, val: dom.fbYukawaVal, vec: p.forceYukawa },
+        ];
+        for (const f of forces) {
+            if (!f.row) continue;
+            const mag = Math.sqrt(f.vec.x * f.vec.x + f.vec.y * f.vec.y);
+            if (mag > 1e-10) {
+                f.row.hidden = false;
+                f.val.textContent = fmt(mag);
+            } else {
+                f.row.hidden = true;
+            }
+        }
+
         return p; // still valid
     }
 }

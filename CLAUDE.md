@@ -17,31 +17,33 @@ Serve from the parent `a9lim.github.io/` directory -- shared files (`/shared-bas
 ## File Map
 
 ```
-main.js                     235 lines  Simulation class, fixed-timestep loop, window.sim
-index.html                  415 lines  UI structure, 4-tab sidebar, preset dialog, zoom controls
-styles.css                  436 lines  Project-specific CSS overrides
+main.js                     ~290 lines Simulation class, fixed-timestep loop, save/load wiring, window.sim
+index.html                  ~470 lines UI structure, 4-tab sidebar, reference overlay, zoom controls
+styles.css                  ~480 lines Project-specific CSS overrides, reference overlay styles
 colors.js                    18 lines  Project color tokens (particle hues, spin ring colors)
 src/
-  integrator.js             718 lines  Physics class: adaptive Boris substep loop, radiation, tidal
-  forces.js                 335 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise()
+  integrator.js             ~950 lines Physics class: adaptive Boris substep loop, radiation, tidal, GW quadrupole, expansion, Roche overflow
+  forces.js                 ~350 lines pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa force
   signal-delay.js           248 lines  getDelayedState() (3-phase light-cone solver)
-  ui.js                     356 lines  setupUI(), toggle dependencies, info tips (infoData), keyboard shortcuts
-  renderer.js               422 lines  Canvas 2D: particles, trails, spin rings, vectors, torque arcs, photons, delay ghosts
+  ui.js                     ~480 lines setupUI(), toggle dependencies, info tips, reference overlay, keyboard shortcuts
+  renderer.js               ~430 lines Canvas 2D: particles, trails, spin rings, ergosphere, vectors, torque arcs, photons/gravitons, delay ghosts
   input.js                  260 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
   collisions.js             213 lines  handleCollisions(), resolveMerge(), resolveBounce() (rel + classical)
   quadtree.js               235 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC
-  potential.js              158 lines  computePE(), treePE(), pairPE() (4 PE terms + 1PN PE)
+  potential.js              ~165 lines computePE(), treePE(), pairPE() (6 PE terms: grav, Coulomb, mag dipole, GM dipole, 1PN, Yukawa)
   topology.js               129 lines  TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
   energy.js                 139 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field
   phase-plot.js             116 lines  PhasePlot: r vs v_r sidebar canvas (500-sample ring buffer)
-  stats-display.js           91 lines  StatsDisplay: energy/momentum/drift DOM updates, selected particle info
-  presets.js                 87 lines  PRESETS object (5 scenarios), loadPreset()
-  heatmap.js                 83 lines  Heatmap: 48x48 grav+electrostatic potential field overlay, 6-frame interval
-  particle.js                95 lines  Particle entity: pos, vel, w, angw, per-type force vectors, history buffers
+  stats-display.js          ~115 lines StatsDisplay: energy/momentum/drift DOM updates, selected particle info, force breakdown
+  presets.js                ~370 lines PRESETS object (9 scenarios), loadPreset(), TOGGLE_MAP/TOGGLE_ORDER
+  heatmap.js                ~160 lines Heatmap: 48x48 grav+electrostatic potential field overlay, signal-delayed positions, 6-frame interval
+  particle.js               ~115 lines Particle entity: pos, vel, w, angw, per-type force vectors (incl. Yukawa), history buffers
   vec2.js                    65 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist
-  config.js                  39 lines  Named constants (BH_THETA, SOFTENING, INERTIA_K, MAX_SUBSTEPS, WORLD_SCALE, MIN_MASS, etc.)
+  config.js                 ~60 lines  Named constants (BH_THETA, SOFTENING, INERTIA_K, Yukawa, Axion, Roche, Hubble, GW, etc.)
   relativity.js              41 lines  angwToAngVel(), angVelToAngw(), setVelocity()
-  photon.js                  19 lines  Photon entity: pos, vel, energy, lifetime, emitterId
+  photon.js                 ~40 lines  Photon entity: pos, vel, energy, lifetime, emitterId, type ('em'/'gw'), gravitational lensing
+  save-load.js              ~120 lines saveState(), loadState(), downloadState(), uploadState(), quickSave(), quickLoad()
+  reference.js              ~220 lines REFERENCE object: extended physics reference content for each concept (KaTeX math)
 ```
 
 ## Module Dependency Graph
@@ -49,10 +51,11 @@ src/
 ```
 main.js (Simulation class, window.sim)
   imports: Physics (integrator), Renderer, InputHandler, Particle, Heatmap, PhasePlot,
-           StatsDisplay, setupUI, config constants, Photon, relativity helpers
+           StatsDisplay, setupUI, config constants, Photon, relativity helpers,
+           quickSave + quickLoad + downloadState + uploadState (save-load)
 
   src/integrator.js (Physics class)
-    imports: QuadTreePool + Rect, config constants, Photon, angwToAngVel,
+    imports: QuadTreePool + Rect, config constants (incl. Roche, Hubble), Photon, angwToAngVel,
              resetForces + computeAllForces + compute1PNPairwise (forces),
              handleCollisions (collisions), computePE (potential),
              TORUS + KLEIN + RP2 + minImage + wrapPosition (topology)
@@ -72,13 +75,16 @@ main.js (Simulation class, window.sim)
     imports: computeEnergies (energy)
 
   src/ui.js
-    imports: loadPreset (presets), PHYSICS_DT + WORLD_SCALE (config)
+    imports: loadPreset (presets), PHYSICS_DT + WORLD_SCALE (config), REFERENCE (reference)
 
   src/presets.js
-    imports: WORLD_SCALE (config)
+    imports: WORLD_SCALE + SOFTENING_SQ (config)
 
   src/renderer.js
     imports: config (MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, HISTORY_SIZE)
+
+  src/heatmap.js
+    imports: config (SOFTENING_SQ, BH_THETA), getDelayedState (signal-delay)
 
   src/input.js
     imports: Vec2
@@ -89,6 +95,12 @@ main.js (Simulation class, window.sim)
 
   src/signal-delay.js
     imports: HISTORY_SIZE (config), TORUS + minImage (topology)
+
+  src/save-load.js
+    imports: Particle (particle), angwToAngVel (relativity)
+
+  src/reference.js
+    (no imports - pure data module)
 ```
 
 ## HTML `<head>` Loading Order
@@ -132,11 +144,11 @@ Derived quantities from spin:
 - Moment of inertia: `I = INERTIA_K * m * r^2` (INERTIA_K = 0.4 = 2/5, solid sphere)
 - Magnetic moment: `mu = MAG_MOMENT_K * q * omega * r^2` (MAG_MOMENT_K = 0.2 = 1/5, uniform charge sphere)
 - Angular momentum: `L = I * omega`
-- Particle radius: `r = cbrt(mass)` (density rho = 3/(4*pi)); in Black Hole mode: `r = 2*mass`
+- Particle radius: `r = cbrt(mass)` (density rho = 3/(4*pi)); in Black Hole mode: Kerr-Newman `r+ = M + sqrt(M²-a²-Q²)`
 
 ### Per-Particle Force/Torque Display Vectors
 
-Each particle stores per-type force vectors for component visualization: `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag`, `force1PN`, `force1PNEM`, `forceSpinCurv`, `forceRadiation`. All reset each substep via `resetForces()`. `forceSpinCurv` accumulates both Stern-Gerlach (+mu * grad(Bz)) and Mathisson-Papapetrou (-L * grad(Bgz)).
+Each particle stores per-type force vectors for component visualization: `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag`, `force1PN`, `force1PNEM`, `forceSpinCurv`, `forceRadiation`, `forceYukawa`. All reset each substep via `resetForces()`. `forceSpinCurv` accumulates both Stern-Gerlach (+mu * grad(Bz)) and Mathisson-Papapetrou (-L * grad(Bgz)).
 
 Torque display scalars: `torqueSpinOrbit` (EM + GM spin-orbit power) and `torqueFrameDrag`. Rendered as circular arc arrows around particles -- purple for spin-orbit, rose for frame-drag.
 
@@ -156,10 +168,11 @@ Per substep (inside `Physics.update()` while loop):
 7. Frame-dragging torque
 8. Radiation reaction (Landau-Lifshitz with 1/c² power terms)
 9. **Drift**: derive `vel = w / sqrt(1 + w^2)`, `pos += vel * dt`
-10. Advance `simTime`
-11. **1PN velocity-Verlet correction**: re-derive vel, recompute 1PN at new positions (always pairwise via `compute1PNPairwise()`), kick `w += (F_new - F_old) * dt / (2m)`
-12. Rebuild quadtree
-13. Handle collisions
+10. **Cosmological expansion** (if enabled): Hubble flow + peculiar velocity drag
+11. Advance `simTime`
+12. **1PN velocity-Verlet correction**: re-derive vel, recompute 1PN at new positions (always pairwise via `compute1PNPairwise()`), kick `w += (F_new - F_old) * dt / (2m)`
+13. Rebuild quadtree
+14. Handle collisions
 14. Photon absorption
 15. Save radiation display force, then reset forces + compute new forces for next substep
 
@@ -229,6 +242,23 @@ coupling = m_other + q₁q₂/m₁   (gravity + Coulomb when enabled)
 
 The mixed coupling `(m_other + q₁q₂/m)²` captures all four cross-terms: the tidal field (gravity or Coulomb) raises a bulge, and the same or other field torques it. The `q₁q₂/m` term reflects that charge is tied to mass (uniform q/m) and the restoring force is self-gravity. Applied as `angw += tau * dt / I` from all neighbors.
 
+### Yukawa Potential
+
+Independent toggle. Screened force between massive particles:
+```
+V(r) = -g² · exp(-μr) / r
+F = -g² · m₁m₂ · exp(-μr) / r² · (1 + μr)
+```
+Parameters: `yukawaG2` (coupling strength, default 1.0), `yukawaMu` (mediator mass = inverse range, default 0.2). At short range behaves like gravity; at long range vanishes exponentially. Includes analytical jerk for radiation reaction. PE term: `-g²·m₁m₂·exp(-μr)/r`.
+
+### Axion Dark Matter Coupling
+
+Requires Coulomb. Modulates the electromagnetic coupling constant:
+```
+α_eff = α · (1 + g · cos(m_a · t))
+```
+Parameters: `axionG` (coupling amplitude, default 0.1), `axionMass` (oscillation frequency, default 0.5). Applied as `axionModulation` multiplier on Coulomb force and PE. Energy is not conserved — the axion field is an external reservoir.
+
 ### 1PN Corrections (EIH + Darwin EM + Bazanski)
 
 Requires Relativity. The 1PN toggle gates three O(v^2/c^2) correction sectors:
@@ -288,9 +318,11 @@ Clamped: `|F_rad| <= LL_FORCE_CLAMP * |F_ext|` (LL_FORCE_CLAMP = 0.5) to enforce
 ### Black Hole Mode
 
 Toggle under Relativity (`physics.blackHoleEnabled`). When on:
-- **Schwarzschild radius**: `r = 2M` instead of `cbrt(M)` (set in `particle.updateColor()`)
-- **Collision lock**: collision mode forced to Merge, UI disabled
-- **Hawking radiation**: `P = 1/(15360*pi*M^2)` (exact Planck-unit value with ℏ=1). Smaller BHs radiate faster (runaway evaporation). Mass decremented each substep: `m -= P * dt`. Photon emission uses same accumulator pattern as Larmor (`_hawkAccum`, threshold MIN_MASS). Isotropic emission (uniform random angle), no recoil kick (momentum tracked via `totalRadiatedPx/Py`).
+- **Kerr-Newman horizon**: `r+ = M + sqrt(M²-a²-Q²)` where `a = J/M` (spin parameter) and `Q` is charge. Replaces `cbrt(M)` radius. Naked singularity floor at `M*0.5` when `disc < 0`. Set in `particle.updateColor()`.
+- **Ergosphere**: rendered as dashed purple ring at `r_ergo = M + sqrt(M²-a²)` when visible.
+- **Reduced softening**: Plummer softening reduced from 64 to 1 in BH mode (both forces and PE).
+- **Collision lock**: collision mode forced to Merge, UI disabled.
+- **Hawking radiation**: Kerr-Newman surface gravity temperature. `κ = (r+ - r-)/(2(r+² + a²))`, `T = κ/(2π)`, `P = σT⁴A` where `A = 4π(r+² + a²)`. Extremal BHs (M² = a² + Q²) have zero temperature and stop radiating. Mass decremented each substep. Photon emission uses accumulator pattern (`_hawkAccum`, threshold MIN_MASS). Isotropic emission.
 - **Evaporation**: particles below `MIN_MASS` are removed with a final photon burst (up to 5 photons carrying remaining mass-energy). Handled in main.js loop after tidal breakup.
 
 ### Signal Delay
@@ -342,6 +374,32 @@ self-grav:   m / r^2
 ```
 Splits into FRAGMENT_COUNT (4) pieces at 90-degree intervals, radius * 1.5 from original center. Each gets mass/4, charge/4, tangential velocity from spin. Min mass to fragment: `MIN_MASS * FRAGMENT_COUNT`.
 
+**Roche Lobe Overflow**: When a particle fills its Roche lobe (Eggleton: `r_Roche ≈ 0.462·d·(m/(m+M))^(1/3)`) but is not violently disrupted, it continuously transfers mass toward the companion through the L1 point. Transfer rate: `dM = overflow * ROCHE_TRANSFER_RATE * m`, capped at 10% of mass per check. Spawns a stream particle with tangential velocity from orbital motion. Returns `{ fragments, transfers }` from `checkTidalBreakup()`.
+
+### Gravitational Wave Radiation
+
+Toggle (`gwRadiationEnabled`), requires Gravity. Computes mass quadrupole moment tensor and its 3rd time derivative via finite differences on a 5-sample history buffer:
+```
+I_ij = Σ m·x_i·x_j
+P_GW = (1/5)·|d³I_ij/dt³|²
+```
+Also computes EM quadrupole when Radiation + Coulomb are enabled: `P_EM = (1/180)·|d³Q_ij/dt³|²`.
+
+Orbital decay: radial kick toward COM proportional to `m·r` (quadrupole weighting). Emits graviton particles (`type: 'gw'`, rendered green) from system COM when accumulated energy exceeds MIN_MASS.
+
+### Photon Gravitational Lensing
+
+Photons experience 2× Newtonian gravitational deflection (null geodesic): `dv = 2·M·r̂/r²·dt`. Velocity renormalized to c=1 after each step. Uses PHOTON_SOFTENING_SQ=4 (smaller than particle softening for tighter lensing).
+
+### Cosmological Expansion
+
+Toggle (`expansionEnabled`). Applies Hubble flow from domain center after each drift step:
+```
+pos += H·(pos - center)·dt     (Hubble flow)
+w *= (1 - H·dt)                 (peculiar velocity redshift)
+```
+Parameter: `hubbleParam` (default 0.001). Bound systems resist expansion; unbound particles drift apart.
+
 ## Sign Conventions (IMPORTANT)
 
 All GEM interactions are **attractive** (gravity has one sign of "charge"):
@@ -354,7 +412,7 @@ Do NOT flip these signs.
 
 ## Potential Energy
 
-Computed separately from forces via `computePE()` in `potential.js`. Same BH theta criterion -- tree traversal via `treePE()` when BH on (divides by 2 to avoid double-counting), exact pairwise `pairPE()` with i < j when off. Six terms: gravitational (-m1*m2/r), Coulomb (+q1*q2/r), magnetic dipole (+mu1*mu2/r^3), GM dipole (-L1*L2/r^3), 1PN PE (velocity-dependent EIH + Darwin EM), Bazanski cross-term PE (position-dependent mixed gravity-EM). All Plummer-softened.
+Computed separately from forces via `computePE()` in `potential.js`. Same BH theta criterion -- tree traversal via `treePE()` when BH on (divides by 2 to avoid double-counting), exact pairwise `pairPE()` with i < j when off. Seven terms: gravitational (-m1*m2/r), Coulomb (+q1*q2/r with axion modulation), magnetic dipole (+mu1*mu2/r^3), GM dipole (-L1*L2/r^3), 1PN PE (velocity-dependent EIH + Darwin EM), Bazanski cross-term PE (position-dependent mixed gravity-EM), Yukawa (-g²·m1·m2·exp(-μr)/r). All Plummer-softened (reduced to 1 in BH mode).
 
 ## Energy & Momentum (`src/energy.js`)
 
@@ -427,45 +485,51 @@ Tree traversal in `calculateForce()`: for leaf nodes, iterates actual particles 
 Forces:                        Physics:
   Gravity                        Relativity
     -> Gravitomagnetic             -> Signal Delay     [requires Rel]
-  Coulomb                          -> 1PN              [requires Rel + Magnetic + GM]
-    -> Magnetic                    -> Black Hole       [requires Rel; locks collision to Merge]
-                                 Tidal                 [independent]
-                                 Spin-Orbit            [requires Magnetic + GM]
-                                 Radiation             [requires Magnetic]
+    -> GW Radiation                -> 1PN              [requires Rel + Magnetic + GM]
+  Coulomb                          -> Black Hole       [requires Rel; locks collision to Merge]
+    -> Magnetic                  Tidal                 [independent]
+    -> Axion                     Spin-Orbit            [requires Magnetic + GM]
+  Yukawa                   [independent]
+                                 Radiation             [requires Coulomb]
 Disintegration                   [independent]
 Barnes-Hut                       [independent]
+Expansion                        [independent, in Engine tab]
 ```
 
 1PN internally: gravity EIH requires `gravityEnabled`, EM Darwin requires `coulombEnabled`. Both sectors activate only when their parent force is on.
 
 Disabled sub-toggles: `.ctrl-disabled` class (opacity 0.4, pointer-events none) applied by `setDepState()` in `ui.js`. When a parent toggle is turned off, its children are automatically unchecked and their physics flags set to false.
 
-Default on load: all force toggles on (gravity, coulomb, magnetic, gravitomag, 1PN, relativity, signal delay, spin-orbit) except Radiation, Tidal, and Barnes-Hut which default to off.
+Default on load: all force toggles on (gravity, coulomb, magnetic, gravitomag, 1PN, relativity, signal delay, spin-orbit, radiation) except Yukawa, Axion, GW Radiation, Tidal, Expansion, and Barnes-Hut which default to off.
 
 ## UI
 
 ### 4-Tab Sidebar
 
-1. **Settings**: particle mass (0.05-5) / charge (-5 to 5) / spin (-0.99 to 0.99) sliders, interaction mode (Place/Shoot/Orbit), force toggles (Gravity -> Gravitomagnetic/1PN, Coulomb -> Magnetic), physics toggles (Relativity -> Signal Delay/Black Hole/Spin-Orbit, Radiation)
-2. **Engine**: Barnes-Hut toggle, collision mode (Pass/Bounce/Merge), bounce friction slider (0-1, default 0.4), boundary mode (Despawn/Loop/Bounce), topology selector (Torus/Klein/RP^2, only visible when boundary=Loop), disintegration toggle, visual toggles (trails, velocity/force/component vectors, potential field, acceleration scaling), sim speed slider (0-200, default 128)
+1. **Settings**: particle mass (0.05-5) / charge (-5 to 5) / spin (-0.99 to 0.99) sliders, interaction mode (Place/Shoot/Orbit), force toggles (Gravity -> Gravitomagnetic/GW Radiation, Coulomb -> Magnetic/Axion, Yukawa with sliders), physics toggles (Relativity -> Signal Delay/1PN/Black Hole, Tidal, Spin-Orbit, Radiation)
+2. **Engine**: Barnes-Hut toggle, collision mode (Pass/Bounce/Merge), bounce friction slider (0-1, default 0.4), boundary mode (Despawn/Loop/Bounce), topology selector (Torus/Klein/RP^2, only visible when boundary=Loop), disintegration toggle, expansion toggle with Hubble slider, visual toggles (trails, velocity/force/component vectors, potential field, acceleration scaling), sim speed slider (0-200, default 128)
 3. **Stats**: energy breakdown (total, linear KE, spin KE, PE, field, radiated, drift), conserved quantities (momentum with particle/field/radiated components, angular momentum with orbital/spin, drift percentages)
-4. **Particle**: selected particle details (ID, mass, charge, spin, speed, gamma, |F|), phase space plot canvas (r vs v_r relative to most massive body)
+4. **Particle**: selected particle details (ID, mass, charge, spin, speed, gamma, |F|), per-force-type magnitude breakdown (gravity, Coulomb, magnetic, GM, 1PN, spin-curvature, radiation, Yukawa), phase space plot canvas (r vs v_r relative to most massive body)
 
 Tab switching is handled by an inline `<script>` in `index.html` (not in a module).
 
 ### Topbar
 
-Home link (logo) | Brand "No-Hair" | Presets button (ghost-btn) | Pause/Step/Reset buttons | Theme toggle | Panel toggle
+Home link (logo) | Brand "No-Hair" | Pause/Step/Reset/Save/Load buttons | Theme toggle | Panel toggle
 
 ### Presets
 
 | # | Name | Key | Description |
 |---|---|---|---|
-| 1 | Solar System | solar | Star (m=80) + 5 planets in circular orbits |
-| 2 | Binary Stars | binary | Two m=50 stars, spin=0.8c, counter-orbiting |
-| 3 | Galaxy | galaxy | Core (m=150) + 200 particles, circular orbits, random charge/spin |
-| 4 | Collision | collision | Two groups of 50 particles heading at each other (v=+-0.5) |
-| 5 | Magnetic Spin | magnetic | 5x5 grid of charged spinning particles |
+| 1 | Kepler Orbits | kepler | Star (m=5) + 5 planets in circular orbits |
+| 2 | Precession | precession | Relativistic perihelion advance with eccentric orbit |
+| 3 | Atom | atom | Coulomb binding with nucleus + 2 electrons |
+| 4 | Bremsstrahlung | bremsstrahlung | Radiation from accelerating charges |
+| 5 | Tidal Lock | tidallock | Tidal friction synchronizes spin to orbit |
+| 6 | Hawking | hawking | Small black holes radiate and evaporate |
+| 7 | Binary Pulsars | pulsars | Frame-dragging, gravitomagnetism, signal delay |
+| 8 | Magnetic Dipoles | magnetic | 4x4 grid of charged spinning particles |
+| 9 | Galaxy | galaxy | Core + 100 particles, BH mode, circular orbits |
 
 ### Keyboard Shortcuts
 
@@ -476,8 +540,11 @@ Registered via `initShortcuts()` from shared module:
 | Space | Pause / Play | Simulation |
 | R | Reset simulation | Simulation |
 | . | Step forward | Simulation |
-| P | Open presets | Simulation |
-| 1-5 | Load preset directly | Presets |
+| 1-9 | Load preset directly | Presets |
+| Ctrl+S | Quick save | State |
+| Ctrl+L | Quick load | State |
+| Ctrl+Shift+S | Download state JSON | State |
+| Ctrl+Shift+L | Upload state JSON | State |
 | V | Toggle velocity vectors | View |
 | F | Toggle force vectors | View |
 | C | Toggle force components | View |
@@ -488,7 +555,7 @@ Registered via `initShortcuts()` from shared module:
 
 ### Info Tips
 
-Data object `infoData` in `ui.js` maps keys to `{ title, body }` objects. HTML body strings contain KaTeX math (`$...$`). Triggers are `.info-trigger[data-info]` buttons in the HTML. Created via `createInfoTip()` from shared module.
+Data object `infoData` in `ui.js` maps keys to `{ title, body }` objects. HTML body strings contain KaTeX math (`$...$`). Triggers are `.info-trigger[data-info]` buttons in the HTML. Created via `createInfoTip()` from shared module. Shift+click on info buttons opens full reference pages (from `REFERENCE` in `reference.js`) in a modal overlay with extended derivations and equations.
 
 ### Responsive
 
@@ -498,15 +565,16 @@ Data object `infoData` in `ui.js` maps keys to `{ title, body }` objects. HTML b
 
 Canvas 2D. Dark mode uses additive blending (`globalCompositeOperation: 'lighter'`).
 
-- **Particles**: filled circle at `r = cbrt(mass)` (BH mode: `r = 2*mass`), glow shadow in dark mode (larger glow for charged particles)
+- **Particles**: filled circle at `r = cbrt(mass)` (BH mode: Kerr-Newman `r+`), glow shadow in dark mode (larger glow for charged particles)
+- **Ergosphere**: dashed purple ring at `r_ergo = M + sqrt(M²-a²)` in BH mode when visible
 - **Spin rings**: arc at radius+0.5, length proportional to |omega*r| (caps at 2*pi), arrow shows CW/CCW (h=1, spread=0.4, lineWidth=0.2), colored by spin sign (cyan=positive, orange=negative from `colors.js`)
 - **Trails**: circular Float32Array buffer (MAX_TRAIL_LENGTH=256 points), 4 opacity groups, lineWidth = 0.5*radius, wrap-detection for periodic boundaries (skips segment if position jumps > half domain)
-- **Force vectors**: scale=256 (divide by mass for acceleration). Total (accent color) sums all 8 component vectors. Per-type component arrows colored by force type
+- **Force vectors**: scale=256 (divide by mass for acceleration). Total (accent color) sums all 9 component vectors (incl. Yukawa). Per-type component arrows colored by force type (Yukawa=brown)
 - **Torque arcs**: spin-orbit (purple, offset 2), frame-drag (rose, offset 1.5), tidal (offset 1), total (accent, offset 2.5). Arc length proportional to |power|, scale=256/INERTIA_K
-- **Photons**: yellow circles, size = `0.2 + energy*20` (cap at 5px), glow in dark mode, alpha fades over PHOTON_LIFETIME=256
+- **Photons**: yellow circles for EM, green for gravitons (`ph.type === 'gw'`). Size = `0.2 + energy*20` (cap at 5px), glow in dark mode, alpha fades over PHOTON_LIFETIME=256. Gravitational lensing deflects all photons.
 - **Signal delay ghosts**: stroked circle outline at each particle's oldest history buffer position, drawn behind particles when signal delay is enabled. Reduced opacity (0.3 light / 0.4 dark)
 - **Velocity vectors**: scale=40, muted text color
-- **Heatmap**: 48x48 offscreen canvas, diverging colormap (blue=gravity well, red=repulsive), updates every 6 frames
+- **Heatmap**: 48x48 offscreen canvas, diverging colormap (blue=gravity well, red=repulsive), updates every 6 frames. Uses signal-delayed source positions when signal delay is enabled.
 
 Particle color: neutral = `_PAL.neutral` (extended.slate `#8A7E72`). Charged: smooth RGB lerp from slate toward `extended.red` (positive) or `extended.blue` (negative), intensity = `|charge| / 5`. Uses inline hex parser (`_hex`) since `_parseHex` from shared-tokens.js is script-scoped and inaccessible from ES6 modules.
 
@@ -560,3 +628,10 @@ All world coordinates (particle positions, presets, camera resets) use `sim.doma
 - `_parseHex` from `shared-tokens.js` is script-scoped (`const`), not on `window` -- ES6 modules cannot access it. `particle.js` uses its own inline hex parser instead.
 - After merge collisions, `particles.length` changes -- any loop variable `n` must be updated with `n = particles.length` after `handleCollisions()`
 - World coordinates use `sim.domainW/H` (viewport / WORLD_SCALE), not `sim.width/height` (viewport pixels). Camera resets and presets must use domain coordinates.
+- `checkTidalBreakup()` returns `{ fragments, transfers }` (not a flat array) — both must be destructured by caller
+- Yukawa force uses `forceYukawa` display vector — must be included in total force sum in stats-display.js
+- GW quadrupole history buffer (`_quadHistory`) needs 4+ samples for 3rd derivative — first few frames produce no GW output
+- Photon.type distinguishes `'em'` vs `'gw'` — renderer colors differ (yellow vs green)
+- `save-load.js` uses `showToast()` which is a global from shared-utils.js
+- Heatmap signal delay is expensive (GRID²×N delay solves) — mitigated by 6-frame update interval
+- Reference overlay uses `renderMathInElement` from KaTeX auto-render (loaded deferred)

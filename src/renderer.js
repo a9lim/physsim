@@ -430,13 +430,13 @@ export default class Renderer {
             if (alpha <= 0) continue;
             const size = 0.2 + ph.energy * 20;
             ctx.globalAlpha = alpha * (isLight ? 0.6 : 0.8);
-            ctx.fillStyle = _PAL.extended.yellow;
+            ctx.fillStyle = ph.type === 'gw' ? _PAL.extended.green : _PAL.extended.yellow;
             ctx.beginPath();
             ctx.arc(ph.pos.x, ph.pos.y, Math.min(size, 5), 0, TWO_PI);
             ctx.fill();
             if (!isLight) {
                 ctx.shadowBlur = Math.min(size * 3, 15);
-                ctx.shadowColor = '#FFDC6480';
+                ctx.shadowColor = ph.type === 'gw' ? '#50987880' : '#FFDC6480';
                 ctx.fill();
                 ctx.shadowBlur = 0;
             }
