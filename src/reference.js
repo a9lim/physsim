@@ -159,7 +159,7 @@ export const REFERENCE = {
 `,
     },
     gwradiation: {
-        title: 'Gravitational Wave Radiation',
+        title: 'Quadrupole Radiation',
         body: `
 <p>Gravitational wave emission from the mass quadrupole moment:</p>
 <p>$$P_{\\text{GW}} = \\frac{1}{5}|\\dddot{I}_{ij}|^2$$</p>
