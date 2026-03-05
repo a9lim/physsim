@@ -4,7 +4,7 @@ export const BH_THETA = 0.5;
 export const QUADTREE_CAPACITY = 4;
 
 // Plummer softening: same epsilon in both forces and PE for consistency
-export const SOFTENING = 10;
+export const SOFTENING = 8;
 export const SOFTENING_SQ = SOFTENING * SOFTENING;
 
 // Solid sphere: I = (2/5)mr^2, mu = (1/5)q*omega*r^2

@@ -21,7 +21,7 @@ Twelve distinct force types, all toggleable independently:
 - **1PN (Einstein-Infeld-Hoffmann)** -- O(v^2/c^2) correction to gravity. Produces perihelion precession at the GR rate.
 - **1PN (Darwin EM)** -- O(v^2/c^2) correction to electromagnetism from the Darwin Lagrangian.
 - **1PN (Bazanski cross-term)** -- Mixed gravity-EM 1PN interaction from the Bazanski Lagrangian. Position-dependent 1/r^3 force coupling mass and charge.
-- **Larmor radiation** -- Accelerating charges lose energy via the Landau-Lifshitz force and emit photons.
+- **Larmor radiation** -- Accelerating charges lose energy via the full Landau-Lifshitz force (jerk + 1/c^2 power-dissipation terms) and emit photons.
 - **Stern-Gerlach** -- Translational force from spin-field gradient coupling (EM).
 - **Mathisson-Papapetrou** -- Gravitational analog of Stern-Gerlach for spinning masses.
 
@@ -30,6 +30,7 @@ Twelve distinct force types, all toggleable independently:
 - **Signal delay** -- Forces use source positions from the past light cone, solved analytically with a three-phase algorithm (Newton-Raphson segment search, exact quadratic solve, constant-velocity extrapolation).
 - **Spin-orbit coupling** -- Energy transfer between translational and rotational kinetic energy via field gradients.
 - **Tidal breakup** -- Roche-limit fragmentation when tidal, centrifugal, and Coulomb stresses exceed self-gravity.
+- **Tidal locking** -- Dissipative tidal torque drives spin toward synchronous rotation with the orbital frequency.
 - **Photon emission** -- Accelerating charges emit photons in a Larmor dipole pattern with relativistic aberration. Photons carry energy and momentum, and are absorbed on contact.
 - **Black hole mode** -- All particles switch to Schwarzschild radius (r = 2M), collisions lock to merge, and each black hole emits Hawking radiation at the Planck-unit rate P = 1/(15360 pi M^2). Sub-threshold black holes evaporate with a final photon burst.
 
@@ -53,7 +54,7 @@ Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepp
 | Scroll | Zoom |
 | `Space` | Pause / resume |
 | `.` | Step forward one frame |
-| `P` / `1`--`5` | Open presets / load preset directly |
+| `P` / `1`--`9` | Open presets / load preset directly |
 | `V` / `F` / `C` | Toggle velocity / force / component vectors |
 | `T` / `S` | Toggle theme / sidebar |
 | `?` | Keyboard shortcut help |
@@ -100,8 +101,8 @@ src/
   energy.js                 147 lines  KE, PE, field energy, momentum, angular momentum
   phase-plot.js             116 lines  Phase space plot (sidebar canvas)
   stats-display.js           91 lines  Sidebar energy/momentum/drift readout
-  presets.js                 87 lines  Five preset scenarios
-  heatmap.js                 83 lines  Gravitational potential field overlay
+  presets.js                 87 lines  Nine preset scenarios
+  heatmap.js                 83 lines  Gravitational + electric potential field overlay
   particle.js                95 lines  Particle entity definition
   vec2.js                    65 lines  2D vector math
   config.js                  54 lines  Named constants

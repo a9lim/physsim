@@ -122,12 +122,14 @@ export const PRESETS = {
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
-            const planetM = 3;
-            sim.addParticle(cx, cy, 0, 0, { mass: planetM, charge: 0, spin: 0 });
+            const planetM = 3, moonM = 1;
             // Moon with fast spin — watch it lock
-            const r = 20;
+            const r = 12;
             const v = _vGrav(planetM, r);
-            sim.addParticle(cx + r, cy, 0, v, { mass: 1, charge: 0, spin: 0.8 });
+            // Compensate planet velocity so total momentum = 0
+            const vPlanet = -v * moonM / planetM;
+            sim.addParticle(cx, cy, 0, vPlanet, { mass: planetM, charge: 0, spin: 0 });
+            sim.addParticle(cx + r, cy, 0, v, { mass: moonM, charge: 0, spin: 0.8 });
         },
     },
 
@@ -171,7 +173,9 @@ export const PRESETS = {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
             const starM = 6;
             const dist = 15;
-            const v = _vGrav(starM, 2 * dist) * 0.9;
+            // Equal-mass binary: each orbits COM at radius dist, separation D=2*dist
+            // v = _vGrav(M, D) / sqrt(2) for equal masses, scaled down for tighter orbit
+            const v = _vGrav(starM, 2 * dist) / Math.sqrt(2) * 0.8;
             sim.addParticle(cx - dist, cy, 0, v, { mass: starM, charge: 0, spin: 0.9 });
             sim.addParticle(cx + dist, cy, 0, -v, { mass: starM, charge: 0, spin: 0.9 });
         },

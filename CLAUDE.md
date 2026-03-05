@@ -154,7 +154,7 @@ Per substep (inside `Physics.update()` while loop):
 5. Spin-orbit energy coupling (EM + GM)
 6. Stern-Gerlach / Mathisson-Papapetrou center-of-mass kicks
 7. Frame-dragging torque
-8. Radiation reaction (Landau-Lifshitz jerk term)
+8. Radiation reaction (Landau-Lifshitz with 1/c² power terms)
 9. **Drift**: derive `vel = w / sqrt(1 + w^2)`, `pos += vel * dt`
 10. Advance `simTime`
 11. **1PN velocity-Verlet correction**: re-derive vel, recompute 1PN at new positions (always pairwise via `compute1PNPairwise()`), kick `w += (F_new - F_old) * dt / (2m)`
@@ -272,11 +272,12 @@ Independent toggle (no longer requires Relativity).
 
 **Larmor power**: `P = 2*q^2*a^2/3`
 
-**Landau-Lifshitz force** (jerk term only, no Schott damping):
+**Landau-Lifshitz force** (full 1/c² terms):
 ```
-F_rad = tau * (F - F_prev) / dt / gamma^3
+F_rad = tau * [dF/dt / gamma^3 - v*F^2/(m*gamma^2) + F*(v.F)/(m*gamma^4)]
 tau = 2 * LARMOR_K * q^2 / m = 2*q^2/(3*m)    (LARMOR_K = 1/3)
 ```
+Term 1 (jerk) uses finite difference `(F - F_prev) / dt`. Terms 2-3 (power dissipation) only active when relativity is on.
 Clamped: `|F_rad * dt / m| <= LL_FORCE_CLAMP * |w|` (LL_FORCE_CLAMP = 0.5)
 
 **Photon emission**: Energy accumulated in `_radAccum` per particle. Emits when >= RADIATION_THRESHOLD (0.01) and pool < MAX_PHOTONS (500). Emission angle sampled from sin^2(theta) dipole pattern with relativistic aberration (beamed toward velocity at high gamma). Photon travels at c = 1.
@@ -544,7 +545,7 @@ All world coordinates (particle positions, presets, camera resets) use `sim.doma
 - `#preset-dialog` needs both ID and `class="preset-dialog"` (shared CSS uses class, JS uses ID)
 - `photon.js` is imported by `integrator.js` for radiation -- not related to input modes
 - 1PN velocity-Verlet correction is always pairwise (via `compute1PNPairwise()`), even when BH is on
-- Radiation force uses jerk term only (no Schott damping term `-tau*F^2*v/m^2`)
+- Radiation force: full LL with jerk + power-dissipation terms (−v·F²/mγ² and +F·(v·F)/mγ⁴); power terms only active when relativity is on
 - Shoot mode velocity scale is 0.02 (drag pixels * 0.02 = velocity)
 - Spin-orbit, Stern-Gerlach, and Mathisson-Papapetrou are all gated by the same `spinOrbitEnabled` toggle
 - `compute1PNPairwise()` zeroes `force1PN` and `force1PNEM` before accumulating -- do not mix with `pairForce()` 1PN output in the same step
