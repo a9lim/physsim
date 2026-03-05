@@ -114,7 +114,7 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
         const v2DotN = svx * nx + svy * ny;
 
         // EIH gravity 1PN PE
-        if (toggles.gravityEnabled) {
+        if (toggles.gravitomagEnabled) {
             const v1Sq = pvx * pvx + pvy * pvy;
             const v2Sq = svx * svx + svy * svy;
             const v1DotV2 = pvx * svx + pvy * svy;
@@ -125,9 +125,16 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
         }
 
         // Darwin EM 1PN PE: −(q₁q₂)/(2r) × [(v₁·v₂) + (v₁·n̂)(v₂·n̂)]
-        if (toggles.coulombEnabled) {
+        if (toggles.magneticEnabled) {
             const v1DotV2 = pvx * svx + pvy * svy;
             pe -= 0.5 * p.charge * sCharge * invR * (v1DotV2 + v1DotN * v2DotN);
+        }
+
+        // Bazanski cross-term PE: [q₁q₂(m₁+m₂) − (q₁²m₂ + q₂²m₁)] / (2r²)
+        if (toggles.gravitomagEnabled && toggles.magneticEnabled) {
+            const crossCoeff = p.charge * sCharge * (p.mass + sMass)
+                - (p.charge * p.charge * sMass + sCharge * sCharge * p.mass);
+            pe += 0.5 * crossCoeff * invRSq;
         }
     }
     return pe;

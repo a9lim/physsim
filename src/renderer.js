@@ -6,18 +6,19 @@ const _PAL = window._PALETTE;
 const _r = window._r;
 
 // Per-force component colors (matching toggle colors in styles.css)
+// Extended palette is theme-independent, so no light/dark distinction needed
 const _forceCompColors = {
-    gravity:     { light: _PAL.extended.red,    dark: _PAL.extended.red },
-    coulomb:     { light: _PAL.extended.blue,   dark: _PAL.extended.blue },
-    magnetic:    { light: _PAL.extended.cyan,   dark: _PAL.extended.cyan },
-    gravitomag:  { light: _PAL.extended.rose,   dark: _PAL.extended.rose },
-    onepn:       { light: _PAL.extended.orange, dark: _PAL.extended.orange },
-    onepnem:     { light: _PAL.extended.orange, dark: _PAL.extended.orange },
-    spinCurv:    { light: _PAL.extended.purple, dark: _PAL.extended.purple },
-    radiation:   { light: _PAL.extended.yellow, dark: _PAL.extended.yellow },
-    torqueSO:    { light: _PAL.extended.purple, dark: _PAL.extended.purple },
-    torqueFD:    { light: _PAL.extended.rose,   dark: _PAL.extended.rose },
-    torqueTidal: { light: _PAL.extended.green,  dark: _PAL.extended.green },
+    gravity:     _PAL.extended.red,
+    coulomb:     _PAL.extended.blue,
+    magnetic:    _PAL.extended.cyan,
+    gravitomag:  _PAL.extended.rose,
+    onepn:       _PAL.extended.orange,
+    onepnem:     _PAL.extended.orange,
+    spinCurv:    _PAL.extended.purple,
+    radiation:   _PAL.extended.yellow,
+    torqueSO:    _PAL.extended.purple,
+    torqueFD:    _PAL.extended.rose,
+    torqueTidal: _PAL.extended.green,
 };
 
 // Spin ring colors by sign
@@ -72,7 +73,6 @@ export default class Renderer {
         } else if (this.trailHistory.size > 0) {
             this.trailHistory.clear();
         }
-
 
         this.drawParticles(ctx, particles, isLight);
         if (photons && photons.length) this.drawPhotons(ctx, photons, isLight);
@@ -215,7 +215,6 @@ export default class Renderer {
         }
     }
 
-
     drawArrow(ctx, x1, y1, x2, y2, invZoom, color) {
         const dx = x2 - x1, dy = y2 - y1;
         const len = Math.sqrt(dx * dx + dy * dy);
@@ -272,16 +271,15 @@ export default class Renderer {
 
     drawForceComponentVectors(ctx, particles, invZoom, isLight) {
         const scale = 256;
-        const theme = isLight ? 'light' : 'dark';
         const forces = [
-            { key: 'forceGravity', color: _forceCompColors.gravity[theme] },
-            { key: 'forceCoulomb', color: _forceCompColors.coulomb[theme] },
-            { key: 'forceMagnetic', color: _forceCompColors.magnetic[theme] },
-            { key: 'forceGravitomag', color: _forceCompColors.gravitomag[theme] },
-            { key: 'force1PN', color: _forceCompColors.onepn[theme] },
-            { key: 'force1PNEM', color: _forceCompColors.onepnem[theme] },
-            { key: 'forceSpinCurv', color: _forceCompColors.spinCurv[theme] },
-            { key: 'forceRadiation', color: _forceCompColors.radiation[theme] },
+            { key: 'forceGravity', color: _forceCompColors.gravity },
+            { key: 'forceCoulomb', color: _forceCompColors.coulomb },
+            { key: 'forceMagnetic', color: _forceCompColors.magnetic },
+            { key: 'forceGravitomag', color: _forceCompColors.gravitomag },
+            { key: 'force1PN', color: _forceCompColors.onepn },
+            { key: 'force1PNEM', color: _forceCompColors.onepnem },
+            { key: 'forceSpinCurv', color: _forceCompColors.spinCurv },
+            { key: 'forceRadiation', color: _forceCompColors.radiation },
         ];
         for (const { key, color } of forces) {
             for (const p of particles) {
@@ -300,10 +298,9 @@ export default class Renderer {
     }
 
     drawTorqueArcs(ctx, particles, invZoom, isLight) {
-        const theme = isLight ? 'light' : 'dark';
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSO[theme], 2, (p) => p.torqueSpinOrbit);
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueFD[theme], 1.5, (p) => p.torqueFrameDrag);
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueTidal[theme], 1, (p) => p.torqueTidal);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSO, 2, (p) => p.torqueSpinOrbit);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueFD, 1.5, (p) => p.torqueFrameDrag);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueTidal, 1, (p) => p.torqueTidal);
     }
 
     _drawTorqueArc(ctx, particles, invZoom, color, offset, getValue) {
@@ -385,7 +382,7 @@ export default class Renderer {
     }
 
     drawPhotons(ctx, photons, isLight) {
-        if (!photons || !photons.length) return;
+        // Caller already guards photons && photons.length
         ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
         ctx.shadowBlur = 0;
         for (const ph of photons) {

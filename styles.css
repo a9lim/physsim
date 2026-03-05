@@ -175,14 +175,10 @@ body {
     color: var(--accent);
 }
 
-#phase-plot-container canvas,
-#energy-bars-container canvas {
+#phase-plot-container canvas {
     display: block;
     width: 100%;
     border-radius: var(--radius-sm);
-}
-
-#phase-plot-container canvas {
     aspect-ratio: 1;
 }
 
@@ -273,8 +269,6 @@ label {
 
 @media (prefers-reduced-motion: reduce) {
     .tab-panels,
-    #preset-dialog,
-    .preset-content,
     #topbar,
     #hint-bar {
         backdrop-filter: none;
@@ -429,134 +423,14 @@ input[type="checkbox"]:checked::after {
     background: var(--accent);
 }
 
-/* Ghost button */
-.ghost-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: transparent;
+/* Preset dropdown */
+.preset-select {
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border);
-    color: var(--text-secondary);
-    padding: 8px 16px;
-    border-radius: var(--radius-pill);
-    cursor: pointer;
+    background: var(--bg-panel);
+    color: var(--text);
     font-family: var(--font-body);
-    font-weight: 400;
-    font-size: 0.78rem;
-    letter-spacing: 0.01em;
-    transition: color 0.2s, border-color 0.2s, background 0.2s;
-    white-space: nowrap;
-    line-height: 1;
-}
-
-.ghost-btn:hover {
-    color: var(--text);
-    border-color: var(--border-strong);
-    background: var(--accent-subtle);
-}
-
-/* ═══════════════════════════════════════════════
-   Preset Dialog (moved from shared-base.css)
-   ═══════════════════════════════════════════════ */
-
-.preset-dialog {
-    position: fixed;
-    inset: 0;
-    z-index: 200;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 300ms var(--ease-in-out);
-}
-
-.preset-dialog.open {
-    pointer-events: auto;
-    opacity: 1;
-}
-
-.preset-backdrop {
-    position: absolute;
-    inset: 0;
-    background: var(--backdrop);
-}
-
-.preset-content {
-    position: relative;
-    padding: 32px;
-    border-radius: var(--radius-lg);
-    max-width: 560px;
-    width: calc(100% - 32px);
-    transform: scale(0.96) translateY(8px);
-    transition: transform 300ms var(--ease-out);
-}
-
-.preset-dialog.open .preset-content {
-    transform: scale(1) translateY(0);
-}
-
-.preset-title {
-    font-family: var(--font-display);
-    font-size: 1.5rem;
-    font-style: italic;
-    font-weight: 400;
-    color: var(--text);
-    margin-bottom: 24px;
-    letter-spacing: -0.01em;
-}
-
-.preset-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-}
-
-.preset-card {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 20px 16px;
-    cursor: pointer;
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    transition: border-color 180ms var(--ease-in-out),
-                background 180ms var(--ease-in-out);
-    font-family: var(--font-body);
-}
-
-.preset-card:hover {
-    border-color: var(--accent);
-    background: var(--accent-subtle);
-}
-
-.preset-name {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: var(--text);
-}
-
-.preset-desc {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    line-height: 1.4;
-}
-
-@media (max-width: 600px) {
-    .preset-content {
-        padding: 24px;
-    }
-}
-
-@media (max-width: 440px) {
-    .preset-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .preset-content {
-        padding: 20px;
-    }
+    font-size: 0.82rem;
 }
