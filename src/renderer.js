@@ -17,7 +17,7 @@ const _forceCompColors = {
     radiation:   _PAL.extended.yellow,
     torqueSO:    _PAL.extended.purple,
     torqueFD:    _PAL.extended.rose,
-    torqueTidal: _PAL.extended.green,
+    torqueTidal: _PAL.extended.red,
     yukawa:      _PAL.extended.brown,
 };
 

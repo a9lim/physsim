@@ -214,25 +214,15 @@
                         <div class="ctrl-row ctrl-sub"><label for="gravitomag-toggle">Gravitomagnetic <button class="info-trigger" data-info="gravitomag" aria-label="Gravitomagnetic info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="gravitomag-toggle" checked role="switch" aria-checked="true">
                             <label for="gravitomag-toggle" class="tog tog-gravitomag"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row ctrl-sub"><label for="tidallocking-toggle">Tidal <button class="info-trigger" data-info="tidallocking" aria-label="Tidal locking info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="tidallocking-toggle" role="switch" aria-checked="false">
+                            <label for="tidallocking-toggle" class="tog tog-tidallocking"><span class="tog-thumb"></span></label></div></div>
                         <div class="ctrl-row"><label for="coulomb-toggle">Coulomb <button class="info-trigger" data-info="coulomb" aria-label="Coulomb info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="coulomb-toggle" checked role="switch" aria-checked="true">
                             <label for="coulomb-toggle" class="tog tog-coulomb"><span class="tog-thumb"></span></label></div></div>
                         <div class="ctrl-row ctrl-sub"><label for="magnetic-toggle">Magnetic <button class="info-trigger" data-info="magnetic" aria-label="Magnetic info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="magnetic-toggle" checked role="switch" aria-checked="true">
                             <label for="magnetic-toggle" class="tog tog-magnetic"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="yukawa-toggle">Yukawa <button class="info-trigger" data-info="yukawa" aria-label="Yukawa info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="yukawa-toggle" role="switch" aria-checked="false">
-                            <label for="yukawa-toggle" class="tog tog-yukawa"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row ctrl-sub" id="yukawa-sliders" style="display:none">
-                            <div class="control-group">
-                                <label>Coupling g² <span class="slider-value" id="yukawaG2Value">1.00</span></label>
-                                <input type="range" id="yukawaG2Input" min="0.1" max="10" step="0.1" value="1">
-                            </div>
-                            <div class="control-group">
-                                <label>Range 1/μ <span class="slider-value" id="yukawaMuValue">5.00</span></label>
-                                <input type="range" id="yukawaMuInput" min="0.5" max="50" step="0.5" value="5">
-                            </div>
-                        </div>
                         <div class="ctrl-row ctrl-sub"><label for="axion-toggle">Axion <button class="info-trigger" data-info="axion" aria-label="Axion info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="axion-toggle" role="switch" aria-checked="false">
                             <label for="axion-toggle" class="tog tog-axion"><span class="tog-thumb"></span></label></div></div>
@@ -244,6 +234,19 @@
                             <div class="control-group">
                                 <label>Axion Mass m<sub>a</sub> <span class="slider-value" id="axionMassValue">0.50</span></label>
                                 <input type="range" id="axionMassInput" min="0.01" max="5" step="0.01" value="0.5">
+                            </div>
+                        </div>
+                        <div class="ctrl-row"><label for="yukawa-toggle">Yukawa <button class="info-trigger" data-info="yukawa" aria-label="Yukawa info">?</button></label>
+                            <div class="tog-wrap"><input type="checkbox" id="yukawa-toggle" role="switch" aria-checked="false">
+                            <label for="yukawa-toggle" class="tog tog-yukawa"><span class="tog-thumb"></span></label></div></div>
+                        <div class="ctrl-row ctrl-sub" id="yukawa-sliders" style="display:none">
+                            <div class="control-group">
+                                <label>Coupling g² <span class="slider-value" id="yukawaG2Value">1.00</span></label>
+                                <input type="range" id="yukawaG2Input" min="0.1" max="10" step="0.1" value="1">
+                            </div>
+                            <div class="control-group">
+                                <label>Range 1/μ <span class="slider-value" id="yukawaMuValue">5.00</span></label>
+                                <input type="range" id="yukawaMuInput" min="0.5" max="50" step="0.5" value="5">
                             </div>
                         </div>
                     </div>
@@ -261,16 +264,13 @@
                         <div class="ctrl-row ctrl-sub"><label for="blackhole-toggle">Black Hole <button class="info-trigger" data-info="blackhole" aria-label="Black hole info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="blackhole-toggle" role="switch" aria-checked="false">
                             <label for="blackhole-toggle" class="tog tog-blackhole"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row"><label for="tidallocking-toggle">Tidal <button class="info-trigger" data-info="tidallocking" aria-label="Tidal locking info">?</button></label>
-                            <div class="tog-wrap"><input type="checkbox" id="tidallocking-toggle" role="switch" aria-checked="false">
-                            <label for="tidallocking-toggle" class="tog tog-tidallocking"><span class="tog-thumb"></span></label></div></div>
                         <div class="ctrl-row"><label for="spinorbit-toggle">Spin-Orbit <button class="info-trigger" data-info="spinorbit" aria-label="Spin-orbit coupling info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="spinorbit-toggle" checked role="switch" aria-checked="true">
                             <label for="spinorbit-toggle" class="tog tog-spinorbit"><span class="tog-thumb"></span></label></div></div>
                         <div class="ctrl-row"><label for="radiation-toggle">Radiation <button class="info-trigger" data-info="radiation" aria-label="Radiation info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="radiation-toggle" role="switch" aria-checked="true" checked>
                             <label for="radiation-toggle" class="tog tog-radiation"><span class="tog-thumb"></span></label></div></div>
-                        <div class="ctrl-row ctrl-sub"><label for="gwradiation-toggle">GW Radiation <button class="info-trigger" data-info="gwradiation" aria-label="GW radiation info">?</button></label>
+                        <div class="ctrl-row ctrl-sub"><label for="gwradiation-toggle">Quadrupole Radiation <button class="info-trigger" data-info="gwradiation" aria-label="Quadrupole radiation info">?</button></label>
                             <div class="tog-wrap"><input type="checkbox" id="gwradiation-toggle" role="switch" aria-checked="false">
                             <label for="gwradiation-toggle" class="tog tog-gwradiation"><span class="tog-thumb"></span></label></div></div>
                     </div>
