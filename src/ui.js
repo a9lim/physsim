@@ -116,6 +116,7 @@ export function setupUI(sim) {
         { id: 'spinorbit-toggle', prop: 'spinOrbitEnabled' },
         { id: 'barneshut-toggle', prop: 'barnesHutEnabled' },
         { id: 'yukawa-toggle', prop: 'yukawaEnabled' },
+        { id: 'axion-toggle', prop: 'axionEnabled' },
     ];
     forceToggles.forEach(({ id, prop }) => {
         const el = document.getElementById(id);
@@ -208,12 +209,20 @@ export function setupUI(sim) {
     gravEl.addEventListener('change', updateTidalDeps);
     coulEl.addEventListener('change', updateTidalDeps);
 
+    // ─── Axion requires Coulomb ───
+    const axionEl = document.getElementById('axion-toggle');
+    const updateAxionDeps = () => {
+        setDepState(axionEl, 'axionEnabled', !coulEl.checked);
+    };
+    coulEl.addEventListener('change', updateAxionDeps);
+
     // ─── Initialize all dependency states ───
     updateGravDeps();
     updateCoulDeps();
     updateRadDeps();
     updateTlDeps();
     updateTidalDeps();
+    updateAxionDeps();
 
     // ─── Black Hole requires Relativity + Gravity; locks collision to Merge ───
     const bhTogEl = document.getElementById('blackhole-toggle');
@@ -296,6 +305,26 @@ export function setupUI(sim) {
         const range = parseFloat(yukawaMuSlider.value);
         sim.physics.yukawaMu = 1 / range;
         yukawaMuLabel.textContent = range.toFixed(2);
+    });
+
+    // ─── Axion sliders ───
+    const axionToggle = document.getElementById('axion-toggle');
+    const axionSliders = document.getElementById('axion-sliders');
+    const axionGSlider = document.getElementById('axionGInput');
+    const axionGLabel = document.getElementById('axionGValue');
+    const axionMassSlider = document.getElementById('axionMassInput');
+    const axionMassLabel = document.getElementById('axionMassValue');
+
+    axionToggle.addEventListener('change', () => {
+        axionSliders.style.display = axionToggle.checked ? '' : 'none';
+    });
+    axionGSlider.addEventListener('input', () => {
+        sim.physics.axionG = parseFloat(axionGSlider.value);
+        axionGLabel.textContent = parseFloat(axionGSlider.value).toFixed(2);
+    });
+    axionMassSlider.addEventListener('input', () => {
+        sim.physics.axionMass = parseFloat(axionMassSlider.value);
+        axionMassLabel.textContent = parseFloat(axionMassSlider.value).toFixed(2);
     });
 
     sim.dom.speedInput.addEventListener('input', () => {
@@ -389,6 +418,7 @@ export function setupUI(sim) {
         blackhole: { title: 'Black Hole Mode', body: 'All particles become black holes: radius switches to the Schwarzschild radius $r_s = 2M$ and collisions are locked to Merge. Each black hole emits Hawking radiation at power $P = \\kappa / M^2$ (smaller black holes radiate faster). Emitted photons carry away mass-energy, shrinking the black hole until it evaporates completely. Requires Relativity.' },
         onepn: { title: '1PN Correction', body: 'First post-Newtonian $O(v^2/c^2)$ corrections. For gravity: the Einstein\u2013Infeld\u2013Hoffmann (EIH) force produces perihelion precession ($\\Delta\\phi \\approx 6\\pi M / a(1-e^2)$). For electromagnetism: the Darwin correction from the Darwin Lagrangian adds velocity-dependent terms beyond the Lorentz force. Each sector activates only when its velocity-dependent force (Gravitomagnetic or Magnetic) is on. Integrated with a velocity-Verlet scheme for second-order accuracy. Requires Relativity.' },
         yukawa: { title: 'Yukawa Potential', body: 'A screened potential $V(r) = -g^2 e^{-\\mu r}/r$ that falls off exponentially beyond range $1/\\mu$. Models short-range nuclear forces (pion exchange) and any interaction mediated by a massive particle. At short range it behaves like gravity; at long range it vanishes. The coupling $g^2$ sets the strength and $\\mu$ (the mediator mass) sets the range.' },
+        axion: { title: 'Axion Coupling', body: 'Models dark matter axions oscillating as a background field $a(t) = a_0 \\cos(m_a t)$, which modulates the electromagnetic coupling: $\\alpha_{\\text{eff}} = \\alpha(1 + g\\cos(m_a t))$. This makes Coulomb and magnetic forces oscillate periodically. The effect is the exact phenomenon that axion detection experiments (CASPEr, ABRACADABRA) search for. Energy is not conserved \u2014 the axion field is an external reservoir. Requires Coulomb.' },
     };
 
     if (typeof createInfoTip === 'function') {

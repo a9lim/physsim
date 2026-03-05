@@ -174,7 +174,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     if (toggles.coulombEnabled) {
-        const k = -(p.charge * sCharge);
+        const k = -(p.charge * sCharge) * toggles.axionModulation;
         const fDir = k * invR3;
         out.x += rx * fDir;
         out.y += ry * fDir;
