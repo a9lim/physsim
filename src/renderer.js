@@ -13,7 +13,6 @@ const _forceCompColors = {
     magnetic:    _PAL.extended.cyan,
     gravitomag:  _PAL.extended.rose,
     onepn:       _PAL.extended.orange,
-    onepnem:     _PAL.extended.orange,
     spinCurv:    _PAL.extended.purple,
     radiation:   _PAL.extended.yellow,
     torqueSO:    _PAL.extended.purple,
@@ -279,8 +278,8 @@ export default class Renderer {
         for (const p of particles) {
             // Sum all 8 component vectors (includes Boris display forces)
             const s = scale / p.mass;
-            let fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.force1PNEM.x + p.forceSpinCurv.x + p.forceRadiation.x) * s;
-            let fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.force1PNEM.y + p.forceSpinCurv.y + p.forceRadiation.y) * s;
+            let fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.forceSpinCurv.x + p.forceRadiation.x) * s;
+            let fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.forceSpinCurv.y + p.forceRadiation.y) * s;
             const mag = Math.sqrt(fx * fx + fy * fy);
             if (mag < 0.1 * invZoom) continue;
             this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
@@ -295,7 +294,6 @@ export default class Renderer {
             { key: 'forceMagnetic', color: _forceCompColors.magnetic },
             { key: 'forceGravitomag', color: _forceCompColors.gravitomag },
             { key: 'force1PN', color: _forceCompColors.onepn },
-            { key: 'force1PNEM', color: _forceCompColors.onepnem },
             { key: 'forceSpinCurv', color: _forceCompColors.spinCurv },
             { key: 'forceRadiation', color: _forceCompColors.radiation },
         ];

@@ -20,7 +20,6 @@ export function resetForces(particles) {
         p.forceMagnetic.set(0, 0);
         p.forceGravitomag.set(0, 0);
         p.force1PN.set(0, 0);
-        p.force1PNEM.set(0, 0);
         p.forceSpinCurv.set(0, 0);
         p.forceRadiation.set(0, 0);
         p.torqueSpinOrbit = 0;
@@ -221,8 +220,8 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
             const symY = coeff * (pvy * v2DotN - 3 * ny * v1DotN * v2DotN);
             out.x += symX;
             out.y += symY;
-            p.force1PNEM.x += symX;
-            p.force1PNEM.y += symY;
+            p.force1PN.x += symX;
+            p.force1PN.y += symY;
         }
     }
 
@@ -309,7 +308,6 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false) {
     for (let i = 0; i < particles.length; i++) {
         particles[i].force1PN.set(0, 0);
-        particles[i].force1PNEM.set(0, 0);
     }
     for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
@@ -354,8 +352,8 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
                 const coeff = 0.5 * p.charge * o.charge * invRSq;
                 const symX = coeff * (pvx * v2DotN - 3 * nx * v1DotN * v2DotN);
                 const symY = coeff * (pvy * v2DotN - 3 * ny * v1DotN * v2DotN);
-                p.force1PNEM.x += symX;
-                p.force1PNEM.y += symY;
+                p.force1PN.x += symX;
+                p.force1PN.y += symY;
             }
 
             // Bazanski cross-term (position-dependent)

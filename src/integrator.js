@@ -27,7 +27,7 @@ export default class Physics {
         this.relativityEnabled = true;
         this.barnesHutEnabled = false;
         this.bounceFriction = 0.4;
-        this.radiationEnabled = false;
+        this.radiationEnabled = true;
         this.blackHoleEnabled = false;
         this.tidalEnabled = false;
         this.tidalLockingEnabled = false;
@@ -241,8 +241,6 @@ export default class Physics {
                     const p = particles[i];
                     p._f1pnOld.x = p.force1PN.x;
                     p._f1pnOld.y = p.force1PN.y;
-                    p._f1pnEMOld.x = p.force1PNEM.x;
-                    p._f1pnEMOld.y = p.force1PNEM.y;
                 }
             }
 
@@ -526,8 +524,8 @@ export default class Physics {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const halfDtOverM = halfDt * p.invMass;
-                    p.w.x += (p.force1PN.x - p._f1pnOld.x + p.force1PNEM.x - p._f1pnEMOld.x) * halfDtOverM;
-                    p.w.y += (p.force1PN.y - p._f1pnOld.y + p.force1PNEM.y - p._f1pnEMOld.y) * halfDtOverM;
+                    p.w.x += (p.force1PN.x - p._f1pnOld.x) * halfDtOverM;
+                    p.w.y += (p.force1PN.y - p._f1pnOld.y) * halfDtOverM;
                 }
             }
 

@@ -22,14 +22,12 @@ export default class Particle {
         this.forceMagnetic = new Vec2(0, 0);
         this.forceGravitomag = new Vec2(0, 0);
         this.force1PN = new Vec2(0, 0);
-        this.force1PNEM = new Vec2(0, 0);
         this.forceSpinCurv = new Vec2(0, 0);
         this.forceRadiation = new Vec2(0, 0);
         this.torqueSpinOrbit = 0;
         this.torqueFrameDrag = 0;
         this.torqueTidal = 0;
         this._f1pnOld = { x: 0, y: 0 };
-        this._f1pnEMOld = { x: 0, y: 0 };
 
         this.mass = mass;
         this.charge = charge;
