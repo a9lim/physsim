@@ -24,6 +24,7 @@ export default class Particle {
         this.force1PN = new Vec2(0, 0);
         this.forceSpinCurv = new Vec2(0, 0);
         this.forceRadiation = new Vec2(0, 0);
+        this.forceYukawa = new Vec2(0, 0);
         this.torqueSpinOrbit = 0;
         this.torqueFrameDrag = 0;
         this.torqueTidal = 0;

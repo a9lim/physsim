@@ -115,6 +115,7 @@ export function setupUI(sim) {
         { id: 'signaldelay-toggle', prop: 'signalDelayEnabled' },
         { id: 'spinorbit-toggle', prop: 'spinOrbitEnabled' },
         { id: 'barneshut-toggle', prop: 'barnesHutEnabled' },
+        { id: 'yukawa-toggle', prop: 'yukawaEnabled' },
     ];
     forceToggles.forEach(({ id, prop }) => {
         const el = document.getElementById(id);
@@ -276,6 +277,27 @@ export function setupUI(sim) {
         frictionLabel.textContent = parseFloat(frictionSlider.value).toFixed(2);
     });
 
+    // ─── Yukawa sliders ───
+    const yukawaToggle = document.getElementById('yukawa-toggle');
+    const yukawaSliders = document.getElementById('yukawa-sliders');
+    const yukawaG2Slider = document.getElementById('yukawaG2Input');
+    const yukawaG2Label = document.getElementById('yukawaG2Value');
+    const yukawaMuSlider = document.getElementById('yukawaMuInput');
+    const yukawaMuLabel = document.getElementById('yukawaMuValue');
+
+    yukawaToggle.addEventListener('change', () => {
+        yukawaSliders.style.display = yukawaToggle.checked ? '' : 'none';
+    });
+    yukawaG2Slider.addEventListener('input', () => {
+        sim.physics.yukawaG2 = parseFloat(yukawaG2Slider.value);
+        yukawaG2Label.textContent = parseFloat(yukawaG2Slider.value).toFixed(2);
+    });
+    yukawaMuSlider.addEventListener('input', () => {
+        const range = parseFloat(yukawaMuSlider.value);
+        sim.physics.yukawaMu = 1 / range;
+        yukawaMuLabel.textContent = range.toFixed(2);
+    });
+
     sim.dom.speedInput.addEventListener('input', () => {
         const val = parseFloat(sim.dom.speedInput.value);
         sim.speedScale = val;
@@ -366,6 +388,7 @@ export function setupUI(sim) {
         topology: { title: 'Topology', body: 'Determines how the space is identified when boundaries are set to Loop.<br><b>Torus</b> \u2014 both axes wrap normally (like Pac-Man).<br><b>Klein bottle</b> \u2014 y-wrap mirrors the x-coordinate and reverses horizontal velocity. Non-orientable.<br><b>RP\u00B2</b> \u2014 both axes wrap with a perpendicular flip. Also non-orientable; the only closed 2D surface where every loop is orientation-reversing.' },
         blackhole: { title: 'Black Hole Mode', body: 'All particles become black holes: radius switches to the Schwarzschild radius $r_s = 2M$ and collisions are locked to Merge. Each black hole emits Hawking radiation at power $P = \\kappa / M^2$ (smaller black holes radiate faster). Emitted photons carry away mass-energy, shrinking the black hole until it evaporates completely. Requires Relativity.' },
         onepn: { title: '1PN Correction', body: 'First post-Newtonian $O(v^2/c^2)$ corrections. For gravity: the Einstein\u2013Infeld\u2013Hoffmann (EIH) force produces perihelion precession ($\\Delta\\phi \\approx 6\\pi M / a(1-e^2)$). For electromagnetism: the Darwin correction from the Darwin Lagrangian adds velocity-dependent terms beyond the Lorentz force. Each sector activates only when its velocity-dependent force (Gravitomagnetic or Magnetic) is on. Integrated with a velocity-Verlet scheme for second-order accuracy. Requires Relativity.' },
+        yukawa: { title: 'Yukawa Potential', body: 'A screened potential $V(r) = -g^2 e^{-\\mu r}/r$ that falls off exponentially beyond range $1/\\mu$. Models short-range nuclear forces (pion exchange) and any interaction mediated by a massive particle. At short range it behaves like gravity; at long range it vanishes. The coupling $g^2$ sets the strength and $\\mu$ (the mediator mass) sets the range.' },
     };
 
     if (typeof createInfoTip === 'function') {
