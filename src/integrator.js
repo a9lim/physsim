@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, LARMOR_K, RADIATION_THRESHOLD, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, MIN_FRAGMENT_MASS, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, HAWKING_K, MIN_BH_MASS } from './config.js';
+import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -346,7 +346,7 @@ export default class Physics {
 
                     const gamma = relOn ? Math.sqrt(1 + wMagSq) : 1;
                     const qSq = p.charge * p.charge;
-                    const tau = 2 * LARMOR_K * qSq * p.invMass;
+                    const tau = 2 / 3 * qSq * p.invMass;
 
                     // Term 1: jerk — τ·dF/dt / γ³
                     // Analytical jerk for gravity + Coulomb (from pairForce)
@@ -441,7 +441,7 @@ export default class Physics {
                         this.sim.totalRadiatedPy += dE * Math.sin(radAngle);
 
                         p._radAccum += dE;
-                        if (p._radAccum >= RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
+                        if (p._radAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
                             // sin²θ dipole pattern: peak emission ⊥ to acceleration
                             let theta, tries = 0;
                             do { theta = Math.random() * 6.283185307; }
@@ -476,8 +476,8 @@ export default class Physics {
             if (this.blackHoleEnabled && this.sim) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
-                    if (p.mass <= MIN_BH_MASS) continue;
-                    const power = HAWKING_K / (p.mass * p.mass);
+                    if (p.mass <= MIN_MASS) continue;
+                    const power = 1 / (15360 * Math.PI * p.mass * p.mass);
                     const dE = power * dtSub;
                     p.mass -= dE;
                     p.invMass = 1 / p.mass;
@@ -486,7 +486,7 @@ export default class Physics {
                     this.sim.totalRadiated += dE;
 
                     p._hawkAccum += dE;
-                    if (p._hawkAccum >= RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
+                    if (p._hawkAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
                         const emitAngle = Math.random() * 6.283185307;
                         const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
                         this.sim.photons.push(new Photon(
@@ -720,7 +720,7 @@ export default class Physics {
 
         for (let pi = 0; pi < particles.length; pi++) {
             const p = particles[pi];
-            if (p.mass < MIN_FRAGMENT_MASS * FRAGMENT_COUNT) continue;
+            if (p.mass < MIN_MASS * FRAGMENT_COUNT) continue;
 
             const rSq = p.radiusSq;
             const selfGravity = p.mass / rSq;

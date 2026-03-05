@@ -1,4 +1,4 @@
-import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K } from './config.js';
+import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, HISTORY_SIZE } from './config.js';
 
 const TWO_PI = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
@@ -41,6 +41,7 @@ export default class Renderer {
         this.isLight = false;
         this.trailHistory = new Map();
         this.heatmap = null;
+        this.signalDelay = false;
     }
 
     resize(width, height) {
@@ -74,6 +75,7 @@ export default class Renderer {
             this.trailHistory.clear();
         }
 
+        if (this.signalDelay) this.drawDelayGhosts(ctx, particles, isLight);
         this.drawParticles(ctx, particles, isLight);
         if (photons && photons.length) this.drawPhotons(ctx, photons, isLight);
 
@@ -217,29 +219,43 @@ export default class Renderer {
         }
     }
 
+    drawDelayGhosts(ctx, particles, isLight) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 0.15;
+        for (const p of particles) {
+            if (!p.histX || p.histCount < 2) continue;
+            const oldest = (p.histHead - p.histCount + HISTORY_SIZE) % HISTORY_SIZE;
+            const ox = p.histX[oldest];
+            const oy = p.histY[oldest];
+            ctx.beginPath();
+            ctx.arc(ox, oy, p.radius, 0, TWO_PI);
+            ctx.strokeStyle = isLight ? _r(p.color, 0.3) : _r(p.color, 0.4);
+            ctx.stroke();
+        }
+    }
+
     drawArrow(ctx, x1, y1, x2, y2, invZoom, color) {
         const dx = x2 - x1, dy = y2 - y1;
         const len = Math.sqrt(dx * dx + dy * dy);
         if (len < 0.5 * invZoom) return;
 
         const nx = dx / len, ny = dy / len;
-        const headLen = len < 2 * invZoom ? 0 : 8 * invZoom;
+        const hasHead = len >= 0.5;
+        const headLen = 0.5;
 
-        // Stop shaft at arrowhead base
-        const shaftX = x2 - nx * headLen;
-        const shaftY = y2 - ny * headLen;
         ctx.beginPath();
         ctx.moveTo(x1, y1);
-        ctx.lineTo(shaftX, shaftY);
+        ctx.lineTo(hasHead ? x2 - nx * headLen : x2, hasHead ? y2 - ny * headLen : y2);
         ctx.strokeStyle = color;
-        ctx.lineWidth = 3 * invZoom;
+        ctx.lineWidth = 0.25;
         ctx.stroke();
 
-        if (headLen > 0) {
+        if (hasHead) {
             ctx.beginPath();
             ctx.moveTo(x2, y2);
-            ctx.lineTo(x2 - nx * headLen + ny * headLen * 0.4, y2 - ny * headLen - nx * headLen * 0.4);
-            ctx.lineTo(x2 - nx * headLen - ny * headLen * 0.4, y2 - ny * headLen + nx * headLen * 0.4);
+            ctx.lineTo(x2 - nx * headLen + ny * headLen * 0.5, y2 - ny * headLen - nx * headLen * 0.5);
+            ctx.lineTo(x2 - nx * headLen - ny * headLen * 0.5, y2 - ny * headLen + nx * headLen * 0.5);
             ctx.closePath();
             ctx.fillStyle = color;
             ctx.fill();
@@ -311,7 +327,7 @@ export default class Renderer {
         const threshold = 1e-8;
 
         ctx.globalCompositeOperation = 'source-over';
-        ctx.lineWidth = 3 * invZoom;
+        ctx.lineWidth = 0.25;
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
 
@@ -330,19 +346,21 @@ export default class Renderer {
             ctx.arc(p.pos.x, p.pos.y, ringRadius, startAngle, endAngle, dir > 0);
             ctx.stroke();
 
-            const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
-            const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
-            const sweepDir = endAngle - dir * HALF_PI;
-            const h = 8 * invZoom;
-            const tipX = ax + Math.cos(sweepDir) * h;
-            const tipY = ay + Math.sin(sweepDir) * h;
-            const spread = h * 0.4;
-            ctx.beginPath();
-            ctx.moveTo(tipX, tipY);
-            ctx.lineTo(ax + Math.cos(endAngle) * spread, ay + Math.sin(endAngle) * spread);
-            ctx.lineTo(ax - Math.cos(endAngle) * spread, ay - Math.sin(endAngle) * spread);
-            ctx.closePath();
-            ctx.fill();
+            if (sweep * ringRadius >= 0.5) {
+                const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
+                const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
+                const sweepDir = endAngle - dir * HALF_PI;
+                const h = 0.5;
+                const tipX = ax + Math.cos(sweepDir) * h;
+                const tipY = ay + Math.sin(sweepDir) * h;
+                const spread = h * 0.4;
+                ctx.beginPath();
+                ctx.moveTo(tipX, tipY);
+                ctx.lineTo(ax + Math.cos(endAngle) * spread, ay + Math.sin(endAngle) * spread);
+                ctx.lineTo(ax - Math.cos(endAngle) * spread, ay - Math.sin(endAngle) * spread);
+                ctx.closePath();
+                ctx.fill();
+            }
         }
     }
 
