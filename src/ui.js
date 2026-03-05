@@ -43,21 +43,15 @@ export function setupUI(sim) {
         initSwipeDismiss(panel, { onDismiss: closePanel });
     }
 
-    // ─── Preset dialog ───
-    const presetDialog = document.getElementById('preset-dialog');
-    const presetBtn = document.getElementById('presetBtn');
-    const presetBackdrop = presetDialog.querySelector('.preset-backdrop');
-
-    const closePresetDialog = () => presetDialog.classList.remove('open');
-
-    presetBtn.addEventListener('click', () => presetDialog.classList.add('open'));
-    presetBackdrop.addEventListener('click', closePresetDialog);
-
-    presetDialog.querySelectorAll('.preset-card').forEach(card => {
-        card.addEventListener('click', () => {
-            loadPreset(card.dataset.preset, sim);
-            closePresetDialog();
-        });
+    // ─── Preset dropdown ───
+    const presetSelect = document.getElementById('preset-select');
+    presetSelect.addEventListener('change', () => {
+        const key = presetSelect.value;
+        if (key === 'none') {
+            document.getElementById('clearBtn').click();
+        } else if (key) {
+            loadPreset(key, sim);
+        }
     });
 
     // ─── Clear ───
@@ -79,12 +73,13 @@ export function setupUI(sim) {
     const pauseIcon = document.getElementById('pauseIcon');
     const playIcon = document.getElementById('playIcon');
 
-    pauseBtn.addEventListener('click', () => {
+    const togglePause = () => {
         sim.running = !sim.running;
         pauseIcon.hidden = !sim.running;
         playIcon.hidden = sim.running;
         pauseBtn.title = sim.running ? 'Pause' : 'Resume';
-    });
+    };
+    pauseBtn.addEventListener('click', togglePause);
 
     // ─── Mode toggles ───
     const bindToggleGroup = (id, attr, setter) => {
@@ -133,7 +128,8 @@ export function setupUI(sim) {
     // Disabling a parent also unchecks and disables its children
     const setDepState = (el, prop, disabled) => {
         el.disabled = disabled;
-        el.closest('.ctrl-row').classList.toggle('ctrl-disabled', disabled);
+        const row = el.closest('.ctrl-row') || el.closest('.checkbox-label');
+        if (row) row.classList.toggle('ctrl-disabled', disabled);
         if (disabled && el.checked) {
             el.checked = false;
             el.setAttribute('aria-checked', 'false');
@@ -155,51 +151,71 @@ export function setupUI(sim) {
     relativityEl.addEventListener('change', updateSdDeps);
     updateSdDeps();
 
-    // ─── Gravity → Gravitomagnetic ───
+    // ─── 1PN requires Relativity + (Magnetic or Gravitomagnetic) ───
     const gmEl = document.getElementById('gravitomag-toggle');
-    const updateGravDeps = () => {
-        setDepState(gmEl, 'gravitomagEnabled', !gravEl.checked);
-    };
-    gravEl.addEventListener('change', updateGravDeps);
-    updateGravDeps();
-
-
-    // ─── Coulomb → Magnetic ───
     const magEl = document.getElementById('magnetic-toggle');
-    const updateCoulDeps = () => {
-        setDepState(magEl, 'magneticEnabled', !coulEl.checked);
-    };
-    coulEl.addEventListener('change', updateCoulDeps);
-    updateCoulDeps();
-
-    // ─── 1PN requires Relativity + Magnetic + Gravitomagnetic ───
     const pnEl = document.getElementById('onepn-toggle');
     const updatePnDeps = () => {
-        setDepState(pnEl, 'onePNEnabled', !relativityEl.checked || !magEl.checked || !gmEl.checked);
+        setDepState(pnEl, 'onePNEnabled', !relativityEl.checked || (!magEl.checked && !gmEl.checked));
     };
     relativityEl.addEventListener('change', updatePnDeps);
     magEl.addEventListener('change', updatePnDeps);
     gmEl.addEventListener('change', updatePnDeps);
-    updatePnDeps();
 
-    // ─── Spin-Orbit requires Magnetic + Gravitomagnetic ───
+    // ─── Spin-Orbit requires Magnetic or Gravitomagnetic ───
     const soEl = document.getElementById('spinorbit-toggle');
     const updateSoDeps = () => {
-        setDepState(soEl, 'spinOrbitEnabled', !magEl.checked || !gmEl.checked);
+        setDepState(soEl, 'spinOrbitEnabled', !magEl.checked && !gmEl.checked);
     };
     magEl.addEventListener('change', updateSoDeps);
     gmEl.addEventListener('change', updateSoDeps);
-    updateSoDeps();
 
-    // ─── Radiation requires Magnetic ───
+    // ─── Gravity → Gravitomagnetic (cascades to 1PN, Spin-Orbit) ───
+    const updateGravDeps = () => {
+        setDepState(gmEl, 'gravitomagEnabled', !gravEl.checked);
+        updatePnDeps();
+        updateSoDeps();
+    };
+    gravEl.addEventListener('change', updateGravDeps);
+
+    // ─── Coulomb → Magnetic (cascades to 1PN, Spin-Orbit) ───
+    const updateCoulDeps = () => {
+        setDepState(magEl, 'magneticEnabled', !coulEl.checked);
+        updatePnDeps();
+        updateSoDeps();
+    };
+    coulEl.addEventListener('change', updateCoulDeps);
+
+    // ─── Radiation requires Coulomb ───
     const radEl = document.getElementById('radiation-toggle');
     const updateRadDeps = () => {
-        setDepState(radEl, 'radiationEnabled', !magEl.checked);
+        setDepState(radEl, 'radiationEnabled', !coulEl.checked);
     };
-    magEl.addEventListener('change', updateRadDeps);
-    updateRadDeps();
+    coulEl.addEventListener('change', updateRadDeps);
 
-    // ─── Black Hole requires Relativity; locks collision to Merge ───
+    // ─── Tidal Locking requires Gravity ───
+    const tlEl = document.getElementById('tidallocking-toggle');
+    const updateTlDeps = () => {
+        setDepState(tlEl, 'tidalLockingEnabled', !gravEl.checked);
+    };
+    gravEl.addEventListener('change', updateTlDeps);
+
+    // ─── Disintegration requires Gravity or Coulomb ───
+    const tidalEl = document.getElementById('tidal-toggle');
+    const updateTidalDeps = () => {
+        setDepState(tidalEl, 'tidalEnabled', !gravEl.checked && !coulEl.checked);
+    };
+    gravEl.addEventListener('change', updateTidalDeps);
+    coulEl.addEventListener('change', updateTidalDeps);
+
+    // ─── Initialize all dependency states ───
+    updateGravDeps();
+    updateCoulDeps();
+    updateRadDeps();
+    updateTlDeps();
+    updateTidalDeps();
+
+    // ─── Black Hole requires Relativity + Gravity; locks collision to Merge ───
     const bhTogEl = document.getElementById('blackhole-toggle');
     const collisionToggles = document.getElementById('collision-toggles');
     const syncBhEffects = () => {
@@ -214,10 +230,11 @@ export function setupUI(sim) {
         for (const p of sim.particles) p.updateColor();
     };
     const updateBhDeps = () => {
-        setDepState(bhTogEl, 'blackHoleEnabled', !relativityEl.checked);
+        setDepState(bhTogEl, 'blackHoleEnabled', !relativityEl.checked || !gravEl.checked);
         syncBhEffects();
     };
     relativityEl.addEventListener('change', updateBhDeps);
+    gravEl.addEventListener('change', updateBhDeps);
     updateBhDeps();
     bhTogEl.addEventListener('change', () => {
         sim.physics.blackHoleEnabled = bhTogEl.checked;
@@ -241,7 +258,6 @@ export function setupUI(sim) {
     document.getElementById('potentialToggle')?.addEventListener('change', (e) => {
         sim.heatmap.enabled = e.target.checked;
     });
-
 
     // ─── Slider value displays ───
     const massSlider = document.getElementById('massInput');
@@ -268,12 +284,13 @@ export function setupUI(sim) {
     });
 
     // ─── Step button ───
-    document.getElementById('stepBtn').addEventListener('click', () => {
+    const stepSim = () => {
         if (!sim.running) {
             sim.physics.update(sim.particles, PHYSICS_DT, sim.collisionMode, sim.boundaryMode, sim.topology, sim.domainW, sim.domainH, 0, 0);
             sim.renderer.render(sim.particles, 0, sim.camera, sim.photons);
         }
-    });
+    };
+    document.getElementById('stepBtn').addEventListener('click', stepSim);
 
     // ─── Zoom controls ───
     sim.camera.bindZoomButtons({
@@ -294,31 +311,15 @@ export function setupUI(sim) {
     document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
 
     // ─── Keyboard shortcuts ───
-    const presetKeys = ['solar', 'binary', 'galaxy', 'collision', 'magnetic'];
-    const togglePause = () => {
-        sim.running = !sim.running;
-        pauseIcon.hidden = !sim.running;
-        playIcon.hidden = sim.running;
-        pauseBtn.title = sim.running ? 'Pause' : 'Resume';
-    };
-
-    const stepSim = () => {
-        if (!sim.running) {
-            sim.physics.update(sim.particles, PHYSICS_DT, sim.collisionMode, sim.boundaryMode, sim.topology, sim.domainW, sim.domainH, 0, 0);
-            sim.renderer.render(sim.particles, 0, sim.camera, sim.photons);
-        }
-    };
-
     const shortcuts = [
         { key: 'Space', label: 'Pause / Play', group: 'Simulation', action: togglePause },
         { key: 'R', label: 'Reset simulation', group: 'Simulation', action: () => document.getElementById('clearBtn').click() },
         { key: '.', label: 'Step forward', group: 'Simulation', action: stepSim },
-        { key: 'P', label: 'Open presets', group: 'Simulation', action: () => presetDialog.classList.add('open') },
-        { key: '1', label: 'Solar System', group: 'Presets', action: () => { loadPreset('solar', sim); closePresetDialog(); } },
-        { key: '2', label: 'Binary Stars', group: 'Presets', action: () => { loadPreset('binary', sim); closePresetDialog(); } },
-        { key: '3', label: 'Galaxy', group: 'Presets', action: () => { loadPreset('galaxy', sim); closePresetDialog(); } },
-        { key: '4', label: 'Collision', group: 'Presets', action: () => { loadPreset('collision', sim); closePresetDialog(); } },
-        { key: '5', label: 'Magnetic', group: 'Presets', action: () => { loadPreset('magnetic', sim); closePresetDialog(); } },
+        { key: '1', label: 'Solar System', group: 'Presets', action: () => loadPreset('solar', sim) },
+        { key: '2', label: 'Binary Stars', group: 'Presets', action: () => loadPreset('binary', sim) },
+        { key: '3', label: 'Galaxy', group: 'Presets', action: () => loadPreset('galaxy', sim) },
+        { key: '4', label: 'Collision', group: 'Presets', action: () => loadPreset('collision', sim) },
+        { key: '5', label: 'Magnetic', group: 'Presets', action: () => loadPreset('magnetic', sim) },
         { key: 'V', label: 'Toggle velocity vectors', group: 'View', action: () => {
             const el = document.getElementById('velocityToggle');
             el.checked = !el.checked;
@@ -336,7 +337,7 @@ export function setupUI(sim) {
         }},
         { key: 'T', label: 'Toggle theme', group: 'View', action: toggleTheme },
         { key: 'S', label: 'Toggle sidebar', group: 'View', action: togglePanel },
-        { key: 'Escape', label: 'Close dialogs', group: 'View', action: closePresetDialog },
+        { key: 'Escape', label: 'Close panel', group: 'View', action: closePanel },
     ];
 
     if (typeof initShortcuts === 'function') {
@@ -364,7 +365,7 @@ export function setupUI(sim) {
         boundary: { title: 'Boundaries', body: '<b>Despawn</b> \u2014 particles are removed when they leave the viewport.<br><b>Loop</b> \u2014 particles wrap around periodically, creating an unbounded space (opens the topology selector).<br><b>Bounce</b> \u2014 particles reflect elastically off the edges.' },
         topology: { title: 'Topology', body: 'Determines how the space is identified when boundaries are set to Loop.<br><b>Torus</b> \u2014 both axes wrap normally (like Pac-Man).<br><b>Klein bottle</b> \u2014 y-wrap mirrors the x-coordinate and reverses horizontal velocity. Non-orientable.<br><b>RP\u00B2</b> \u2014 both axes wrap with a perpendicular flip. Also non-orientable; the only closed 2D surface where every loop is orientation-reversing.' },
         blackhole: { title: 'Black Hole Mode', body: 'All particles become black holes: radius switches to the Schwarzschild radius $r_s = 2M$ and collisions are locked to Merge. Each black hole emits Hawking radiation at power $P = \\kappa / M^2$ (smaller black holes radiate faster). Emitted photons carry away mass-energy, shrinking the black hole until it evaporates completely. Requires Relativity.' },
-        onepn: { title: '1PN Correction', body: 'First post-Newtonian $O(v^2/c^2)$ corrections. For gravity: the Einstein\u2013Infeld\u2013Hoffmann (EIH) force produces perihelion precession ($\\Delta\\phi \\approx 6\\pi M / a(1-e^2)$). For electromagnetism: the Darwin correction from the Darwin Lagrangian adds velocity-dependent terms beyond the Lorentz force. Each sector activates only when its parent force (Gravity or Coulomb) is on. Integrated with a velocity-Verlet scheme for second-order accuracy. Requires Relativity.' },
+        onepn: { title: '1PN Correction', body: 'First post-Newtonian $O(v^2/c^2)$ corrections. For gravity: the Einstein\u2013Infeld\u2013Hoffmann (EIH) force produces perihelion precession ($\\Delta\\phi \\approx 6\\pi M / a(1-e^2)$). For electromagnetism: the Darwin correction from the Darwin Lagrangian adds velocity-dependent terms beyond the Lorentz force. Each sector activates only when its velocity-dependent force (Gravitomagnetic or Magnetic) is on. Integrated with a velocity-Verlet scheme for second-order accuracy. Requires Relativity.' },
     };
 
     if (typeof createInfoTip === 'function') {

@@ -134,7 +134,7 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
 
         const Pn = m1 * w1n + m2 * w2n;
         const E = m1 * g1 + m2 * g2;
-        const M = Math.sqrt(E * E - Pn * Pn); // invariant mass
+        const M = Math.sqrt(Math.max(0, E * E - Pn * Pn)); // invariant mass; max(0,...) guards numerical underflow at near-c
 
         // COM frame boost parameters along normal
         const Gc = E / M;

@@ -75,8 +75,8 @@ export default class StatsDisplay {
         const fmt = (v) => Math.abs(v) > 999 ? v.toExponential(1) : v.toFixed(2);
         const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
         const gamma = physics.relativityEnabled ? Math.sqrt(1 + p.w.magSq()) : 1;
-        const totalFx = p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x;
-        const totalFy = p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y;
+        const totalFx = p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.force1PNEM.x + p.forceSpinCurv.x + p.forceRadiation.x;
+        const totalFy = p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.force1PNEM.y + p.forceSpinCurv.y + p.forceRadiation.y;
         const forceMag = Math.sqrt(totalFx * totalFx + totalFy * totalFy);
 
         dom.mass.textContent = fmt(p.mass);

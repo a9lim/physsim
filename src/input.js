@@ -21,6 +21,7 @@ export default class InputHandler {
         this._screenX = 0;
         this._screenY = 0;
 
+        this._posOut = new Vec2(0, 0);
         this._pinching = false;
         this._wasPinching = false;
         this._lastPinchDist = 0;
@@ -36,6 +37,14 @@ export default class InputHandler {
 
     /** Convert screen (client) coords to world coords via shared camera */
     getPos(clientX, clientY) {
+        const sx = clientX - this.canvasRect.left;
+        const sy = clientY - this.canvasRect.top;
+        const w = this.sim.camera.screenToWorld(sx, sy);
+        return this._posOut.set(w.x, w.y);
+    }
+
+    /** getPos that returns a new Vec2 (for values that must persist, e.g. dragStart) */
+    _getPosNew(clientX, clientY) {
         const sx = clientX - this.canvasRect.left;
         const sy = clientY - this.canvasRect.top;
         const w = this.sim.camera.screenToWorld(sx, sy);
@@ -81,7 +90,7 @@ export default class InputHandler {
         if (e.touches.length === 1 && !this._wasPinching) {
             const t = e.touches[0];
             this.isDragging = true;
-            this.dragStart = this.getPos(t.clientX, t.clientY);
+            this.dragStart = this._getPosNew(t.clientX, t.clientY);
             this.currentPos = this.dragStart.clone();
         }
     }
@@ -110,7 +119,7 @@ export default class InputHandler {
 
         if (e.touches.length === 1 && this.isDragging && !this._pinching) {
             const t = e.touches[0];
-            this.currentPos = this.getPos(t.clientX, t.clientY);
+            this.currentPos = this._getPosNew(t.clientX, t.clientY);
         }
     }
 
@@ -129,7 +138,7 @@ export default class InputHandler {
             if (this.isDragging && !this._wasPinching) {
                 this.isDragging = false;
                 const t = e.changedTouches[0];
-                this.spawnParticle(this.getPos(t.clientX, t.clientY));
+                this.spawnParticle(this._getPosNew(t.clientX, t.clientY));
                 return;
             }
 
@@ -141,7 +150,7 @@ export default class InputHandler {
 
     onMouseDown(e) {
         if (e.button === 2) {
-            const pos = this.getPos(e.clientX, e.clientY);
+            const pos = this._getPosNew(e.clientX, e.clientY);
             this.sim.particles = this.sim.particles.filter(p => p.pos.dist(pos) > p.radius);
             if (this.sim.selectedParticle && !this.sim.particles.includes(this.sim.selectedParticle)) {
                 this.sim.selectedParticle = null;
@@ -150,12 +159,13 @@ export default class InputHandler {
         }
 
         this.isDragging = true;
-        this.dragStart = this.getPos(e.clientX, e.clientY);
+        this.dragStart = this._getPosNew(e.clientX, e.clientY);
         this.currentPos = this.dragStart.clone();
     }
 
     onMouseMove(e) {
-        this.currentPos = this.getPos(e.clientX, e.clientY);
+        const pos = this.getPos(e.clientX, e.clientY);
+        this.currentPos.set(pos.x, pos.y);
         this._screenX = e.clientX;
         this._screenY = e.clientY;
 
@@ -178,7 +188,7 @@ export default class InputHandler {
         this.isDragging = false;
         if (e.button !== 0) return;
 
-        const endPos = this.getPos(e.clientX, e.clientY);
+        const endPos = this._getPosNew(e.clientX, e.clientY);
         const dragDist = this.dragStart.dist(endPos);
 
         // Short click on a particle selects it instead of spawning
@@ -207,16 +217,15 @@ export default class InputHandler {
     }
 
     spawnParticle(endPos) {
-        const dragVector = Vec2.sub(this.dragStart, endPos);
-
         const mode = this.mode;
         const mass = parseFloat(this.massInput.value);
         const charge = parseFloat(this.chargeInput.value);
         const spin = parseFloat(this.spinInput.value);
 
         if (mode === 'shoot') {
-            const velocity = dragVector.scale(0.02);
-            this.sim.addParticle(this.dragStart.x, this.dragStart.y, velocity.x, velocity.y, { mass, charge, spin });
+            const vx = (this.dragStart.x - endPos.x) * 0.02;
+            const vy = (this.dragStart.y - endPos.y) * 0.02;
+            this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin });
         } else if (mode === 'orbit') {
             let bestBody = null;
             let maxGForce = 0;

@@ -7,20 +7,6 @@ export class Rect {
     constructor(x, y, w, h) {
         this.x = x; this.y = y; this.w = w; this.h = h;
     }
-
-    contains(point) {
-        return (point.x >= this.x - this.w &&
-            point.x <= this.x + this.w &&
-            point.y >= this.y - this.h &&
-            point.y <= this.y + this.h);
-    }
-
-    intersects(range) {
-        return !(range.x - range.w > this.x + this.w ||
-            range.x + range.w < this.x - this.w ||
-            range.y - range.h > this.y + this.h ||
-            range.y + range.h < this.y - this.h);
-    }
 }
 
 const NONE = -1;
@@ -196,30 +182,23 @@ export default class QuadTreePool {
             this.totalMomentumY[idx] = momY;
             if (mass > 0) { this.comX[idx] = cx / mass; this.comY[idx] = cy / mass; }
         } else {
-            const children = [this.nw[idx], this.ne[idx], this.sw[idx], this.se[idx]];
-            for (const c of children) this.calculateMassDistribution(c);
+            const c0 = this.nw[idx], c1 = this.ne[idx], c2 = this.sw[idx], c3 = this.se[idx];
+            this.calculateMassDistribution(c0);
+            this.calculateMassDistribution(c1);
+            this.calculateMassDistribution(c2);
+            this.calculateMassDistribution(c3);
 
-            let mass = 0, charge = 0, magMom = 0, angMom = 0;
-            let cx = 0, cy = 0, momX = 0, momY = 0;
-
-            for (const c of children) {
-                mass += this.totalMass[c];
-                charge += this.totalCharge[c];
-                magMom += this.totalMagneticMoment[c];
-                angMom += this.totalAngularMomentum[c];
-                cx += this.comX[c] * this.totalMass[c];
-                cy += this.comY[c] * this.totalMass[c];
-                momX += this.totalMomentumX[c];
-                momY += this.totalMomentumY[c];
-            }
-
+            const mass = this.totalMass[c0] + this.totalMass[c1] + this.totalMass[c2] + this.totalMass[c3];
             this.totalMass[idx] = mass;
-            this.totalCharge[idx] = charge;
-            this.totalMagneticMoment[idx] = magMom;
-            this.totalAngularMomentum[idx] = angMom;
-            this.totalMomentumX[idx] = momX;
-            this.totalMomentumY[idx] = momY;
-            if (mass > 0) { this.comX[idx] = cx / mass; this.comY[idx] = cy / mass; }
+            this.totalCharge[idx] = this.totalCharge[c0] + this.totalCharge[c1] + this.totalCharge[c2] + this.totalCharge[c3];
+            this.totalMagneticMoment[idx] = this.totalMagneticMoment[c0] + this.totalMagneticMoment[c1] + this.totalMagneticMoment[c2] + this.totalMagneticMoment[c3];
+            this.totalAngularMomentum[idx] = this.totalAngularMomentum[c0] + this.totalAngularMomentum[c1] + this.totalAngularMomentum[c2] + this.totalAngularMomentum[c3];
+            this.totalMomentumX[idx] = this.totalMomentumX[c0] + this.totalMomentumX[c1] + this.totalMomentumX[c2] + this.totalMomentumX[c3];
+            this.totalMomentumY[idx] = this.totalMomentumY[c0] + this.totalMomentumY[c1] + this.totalMomentumY[c2] + this.totalMomentumY[c3];
+            if (mass > 0) {
+                this.comX[idx] = (this.comX[c0] * this.totalMass[c0] + this.comX[c1] * this.totalMass[c1] + this.comX[c2] * this.totalMass[c2] + this.comX[c3] * this.totalMass[c3]) / mass;
+                this.comY[idx] = (this.comY[c0] * this.totalMass[c0] + this.comY[c1] * this.totalMass[c1] + this.comY[c2] * this.totalMass[c2] + this.comY[c3] * this.totalMass[c3]) / mass;
+            }
         }
     }
 

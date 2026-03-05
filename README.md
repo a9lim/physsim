@@ -10,7 +10,7 @@ Everything runs in natural units (c = 1, G = 1). Particles store proper velocity
 
 ### Forces
 
-Ten distinct force types, all toggleable independently:
+Twelve distinct force types, all toggleable independently:
 
 - **Gravity** -- Newtonian 1/r^2 attraction between all massive particles, Plummer-softened.
 - **Coulomb** -- 1/r^2 electrostatic force; like charges repel, opposites attract.
@@ -19,6 +19,8 @@ Ten distinct force types, all toggleable independently:
 - **Gravitomagnetic dipole** -- 3 L_1 L_2 / r^4 interaction between spinning masses. Co-rotating masses attract (GEM sign convention).
 - **Frame-dragging** -- 4m(v x B_g) from moving/spinning masses, plus a torque that aligns neighboring spins.
 - **1PN (Einstein-Infeld-Hoffmann)** -- O(v^2/c^2) correction to gravity. Produces perihelion precession at the GR rate.
+- **1PN (Darwin EM)** -- O(v^2/c^2) correction to electromagnetism from the Darwin Lagrangian.
+- **1PN (Bazanski cross-term)** -- Mixed gravity-EM 1PN interaction from the Bazanski Lagrangian. Position-dependent 1/r^3 force coupling mass and charge.
 - **Larmor radiation** -- Accelerating charges lose energy via the Landau-Lifshitz force and emit photons.
 - **Stern-Gerlach** -- Translational force from spin-field gradient coupling (EM).
 - **Mathisson-Papapetrou** -- Gravitational analog of Stern-Gerlach for spinning masses.
@@ -33,7 +35,7 @@ Ten distinct force types, all toggleable independently:
 
 ### Integrator
 
-Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepping. The Boris rotation handles velocity-dependent magnetic forces exactly, preserving |v| through each step. Substep count adapts to acceleration magnitude and cyclotron frequency, capped at 16 substeps per frame. The 1PN correction uses a velocity-Verlet correction pass for second-order accuracy.
+Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepping. The Boris rotation handles velocity-dependent magnetic forces exactly, preserving |v| through each step. Substep count adapts to acceleration magnitude and cyclotron frequency, capped at 16 substeps per frame. The three 1PN sectors (EIH, Darwin EM, Bazanski) use a velocity-Verlet correction pass for second-order accuracy.
 
 ### Algorithms
 
@@ -80,29 +82,28 @@ Zero-dependency vanilla JavaScript with Canvas 2D rendering. All physics and ren
 ## Architecture
 
 ```
-main.js                     212 lines  Simulation class, fixed-timestep loop, window.sim
+main.js                     235 lines  Simulation class, fixed-timestep loop, window.sim
 index.html                  415 lines  UI structure, tab system, preset dialog
-styles.css                  560 lines  Project-specific CSS
-colors.js                    27 lines  Project color tokens (extends shared-tokens.js)
+styles.css                  436 lines  Project-specific CSS
+colors.js                    18 lines  Project color tokens (extends shared-tokens.js)
 src/
-  integrator.js             763 lines  Physics class: adaptive Boris substep loop
-  forces.js                 335 lines  Pairwise + Barnes-Hut force accumulation
-  signal-delay.js           315 lines  Light-cone solver on circular history buffers
-  ui.js                     338 lines  DOM setup, toggles, info tips, keyboard shortcuts
+  integrator.js             718 lines  Physics class: adaptive Boris substep loop
+  forces.js                 356 lines  Pairwise + Barnes-Hut force accumulation
+  signal-delay.js           248 lines  Light-cone solver on circular history buffers
+  ui.js                     356 lines  DOM setup, toggles, info tips, keyboard shortcuts
   renderer.js               406 lines  Canvas 2D: particles, trails, vectors, glow
-  input.js                  262 lines  Mouse/touch, Place/Shoot/Orbit spawn modes
-  collisions.js             259 lines  Merge, bounce (relativistic + classical)
-  quadtree.js               256 lines  SoA pool-based Barnes-Hut tree (zero GC)
-  potential.js              158 lines  PE computation (pairwise + tree traversal)
+  input.js                  260 lines  Mouse/touch, Place/Shoot/Orbit spawn modes
+  collisions.js             213 lines  Merge, bounce (relativistic + classical)
+  quadtree.js               235 lines  SoA pool-based Barnes-Hut tree (zero GC)
+  potential.js              141 lines  PE computation (pairwise + tree traversal)
   topology.js               129 lines  Torus / Klein / RP2 min-image + wrapping
-  energy.js                 127 lines  KE, PE, field energy, momentum, angular momentum
-  phase-plot.js             120 lines  Phase space plot (sidebar canvas)
-  sankey.js                  98 lines  Energy bar chart (orphaned, not imported)
-  stats-display.js           92 lines  Sidebar energy/momentum/drift readout
+  energy.js                 147 lines  KE, PE, field energy, momentum, angular momentum
+  phase-plot.js             116 lines  Phase space plot (sidebar canvas)
+  stats-display.js           91 lines  Sidebar energy/momentum/drift readout
   presets.js                 87 lines  Five preset scenarios
   heatmap.js                 83 lines  Gravitational potential field overlay
-  particle.js                79 lines  Particle entity definition
-  vec2.js                    69 lines  2D vector math
+  particle.js                95 lines  Particle entity definition
+  vec2.js                    65 lines  2D vector math
   config.js                  54 lines  Named constants
   relativity.js              41 lines  Proper velocity helpers
   photon.js                  19 lines  Radiation photon entity

@@ -156,13 +156,16 @@ class Simulation {
             while (this.accumulator >= PHYSICS_DT) {
                 this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
 
-                for (let i = this.photons.length - 1; i >= 0; i--) {
+                // Update photons, swap-and-pop dead ones (O(n) vs splice O(n²))
+                let pLen = this.photons.length;
+                for (let i = pLen - 1; i >= 0; i--) {
                     const ph = this.photons[i];
                     ph.update(PHYSICS_DT);
                     if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
-                        this.photons.splice(i, 1);
+                        this.photons[i] = this.photons[--pLen];
                     }
                 }
+                this.photons.length = pLen;
 
                 const toFragment = this.physics.checkTidalBreakup(this.particles);
                 for (const p of toFragment) {
@@ -227,8 +230,6 @@ class Simulation {
 
         requestAnimationFrame((t) => this.loop(t));
     }
-
-
 }
 
 window.sim = new Simulation();

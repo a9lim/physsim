@@ -190,15 +190,9 @@ export default class Physics {
         const hasMagnetic = this.magneticEnabled;
         const hasGM = this.gravitomagEnabled;
 
-        // Preliminary force pass: ensures Bz/Bgz are current for cyclotron
-        // frequency estimation in the adaptive substep loop below.
-        if ((hasMagnetic || hasGM) && this._forcesInit) {
-            resetForces(particles);
-            const prelimRoot = this.barnesHutEnabled
-                ? this._buildTree(particles)
-                : -1;
-            computeAllForces(particles, toggles, this.pool, prelimRoot, this.barnesHutEnabled, this.signalDelayEnabled, this.relativityEnabled, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
-        }
+        // Bz/Bgz for cyclotron frequency estimation persist from the previous
+        // frame's last substep (or from the bootstrap above). No preliminary
+        // force pass needed.
 
         // ─── Adaptive substepping ───
         // Re-evaluates dtSafe each iteration so substep size tracks changing fields.
@@ -223,7 +217,7 @@ export default class Physics {
                 }
             }
             const aMax = Math.sqrt(maxAccelSq);
-            let dtSafe = aMax > 0 ? Math.sqrt(SOFTENING / aMax) : dtRemain;
+            let dtSafe = aMax > 1e-20 ? Math.sqrt(SOFTENING / aMax) : dtRemain;
             if (maxCyclotron > 0) {
                 // At least 8 substeps per cyclotron orbit
                 const dtCyclotron = (2 * Math.PI / maxCyclotron) / 8;
@@ -289,86 +283,58 @@ export default class Physics {
                 p.w.y += p.force.y * halfDtOverM;
             }
 
-            // EM spin-orbit: dE_spin = −μ·(v·∇Bz)·dt, transferred to/from angw
-            if (hasMagnetic && this.spinOrbitEnabled) {
-                for (let i = 0; i < n; i++) {
-                    const p = particles[i];
-                    if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
-                    const pRSq = p.radius * p.radius;
-                    const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
-                    const vDotGradB = p.vel.x * p.dBzdx + p.vel.y * p.dBzdy;
-                    const dEspin = -mu * vDotGradB * dtSub;
-                    const I = INERTIA_K * p.mass * pRSq;
-                    if (Math.abs(I * p.angVel) > 1e-10) {
-                        p.angw += dEspin / (I * p.angVel);
-                        const sr = p.angw * p.radius;
-                        p.angVel = p.angw / Math.sqrt(1 + sr * sr);
-                    }
-                }
-            }
-
-            // GM spin-orbit: dE_spin = −L·(v·∇Bgz)·dt
-            if (hasGM && this.spinOrbitEnabled) {
+            // Spin-orbit energy transfer (EM + GM fused)
+            if (this.spinOrbitEnabled && (hasMagnetic || hasGM)) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < 1e-10) continue;
                     const pRSq = p.radius * p.radius;
-                    const L = INERTIA_K * p.mass * p.angVel * pRSq;
-                    const vDotGradBg = p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy;
-                    const dEspin = -L * vDotGradBg * dtSub;
-                    const I = INERTIA_K * p.mass * pRSq;
-                    if (Math.abs(I * p.angVel) > 1e-10) {
-                        p.angw += dEspin / (I * p.angVel);
-                        const sr = p.angw * p.radius;
-                        p.angVel = p.angw / Math.sqrt(1 + sr * sr);
+                    const IxOmega = INERTIA_K * p.mass * pRSq * p.angVel;
+                    if (Math.abs(IxOmega) < 1e-10) continue;
+
+                    if (hasMagnetic && Math.abs(p.charge) > 1e-10) {
+                        const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+                        p.angw -= mu * (p.vel.x * p.dBzdx + p.vel.y * p.dBzdy) * dtSub / IxOmega;
                     }
-                }
-            }
-
-            // Stern-Gerlach (EM) and Mathisson-Papapetrou (GM) translational kicks
-            // from spin-field gradient coupling
-            if (hasMagnetic && this.spinOrbitEnabled) {
-                for (let i = 0; i < n; i++) {
-                    const p = particles[i];
-                    if (Math.abs(p.angVel) < 1e-10 || Math.abs(p.charge) < 1e-10) continue;
-                    const pRSq = p.radius * p.radius;
-                    const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
-                    // F_SG = +μ·∇Bz
-                    p.w.x += mu * p.dBzdx * dtSub / p.mass;
-                    p.w.y += mu * p.dBzdy * dtSub / p.mass;
-                }
-            }
-            if (hasGM && this.spinOrbitEnabled) {
-                for (let i = 0; i < n; i++) {
-                    const p = particles[i];
-                    if (Math.abs(p.angVel) < 1e-10) continue;
-                    const pRSq = p.radius * p.radius;
-                    const L = INERTIA_K * p.mass * p.angVel * pRSq;
-                    // F_MP = −L·∇Bgz (GEM sign flip)
-                    p.w.x -= L * p.dBgzdx * dtSub / p.mass;
-                    p.w.y -= L * p.dBgzdy * dtSub / p.mass;
-                }
-            }
-
-            // Frame-dragging torque: aligns spins toward co-rotation (requires Relativity)
-            if (hasGM && relOn) {
-                for (let i = 0; i < n; i++) {
-                    const p = particles[i];
-                    if (!p._frameDragTorque) continue;
-                    const I = INERTIA_K * p.mass * p.radius * p.radius;
-                    p.angw += p._frameDragTorque * dtSub / I;
+                    if (hasGM) {
+                        const L = INERTIA_K * p.mass * p.angVel * pRSq;
+                        p.angw -= L * (p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy) * dtSub / IxOmega;
+                    }
                     const sr = p.angw * p.radius;
-                    p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
+                    p.angVel = p.angw / Math.sqrt(1 + sr * sr);
                 }
             }
 
-            // Tidal locking torque: drives spin toward synchronous rotation
-            if (this.tidalLockingEnabled) {
+            // Stern-Gerlach (EM) + Mathisson-Papapetrou (GM) translational kicks (fused)
+            if (this.spinOrbitEnabled && (hasMagnetic || hasGM)) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
-                    if (!p._tidalTorque) continue;
+                    if (Math.abs(p.angVel) < 1e-10) continue;
+                    const pRSq = p.radius * p.radius;
+                    const dtOverM = dtSub / p.mass;
+                    if (hasMagnetic && Math.abs(p.charge) > 1e-10) {
+                        const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+                        p.w.x += mu * p.dBzdx * dtOverM;
+                        p.w.y += mu * p.dBzdy * dtOverM;
+                    }
+                    if (hasGM) {
+                        const L = INERTIA_K * p.mass * p.angVel * pRSq;
+                        p.w.x -= L * p.dBgzdx * dtOverM;
+                        p.w.y -= L * p.dBgzdy * dtOverM;
+                    }
+                }
+            }
+
+            // Frame-dragging torque + tidal locking (fused)
+            if ((hasGM && relOn) || this.tidalLockingEnabled) {
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    let torque = 0;
+                    if (hasGM && relOn) torque += p._frameDragTorque;
+                    if (this.tidalLockingEnabled) torque += p._tidalTorque;
+                    if (torque === 0) continue;
                     const I = INERTIA_K * p.mass * p.radius * p.radius;
-                    p.angw += p._tidalTorque * dtSub / I;
+                    p.angw += torque * dtSub / I;
                     const sr = p.angw * p.radius;
                     p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
                 }
@@ -436,13 +402,13 @@ export default class Physics {
                         this.sim.totalRadiatedPx += dE * Math.cos(radAngle);
                         this.sim.totalRadiatedPy += dE * Math.sin(radAngle);
 
-                        p._radAccum = (p._radAccum || 0) + dE;
+                        p._radAccum += dE;
                         if (p._radAccum >= RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
                             // sin²θ dipole pattern: peak emission ⊥ to acceleration
                             const accelAngle = Math.atan2(ay, ax);
-                            let theta;
+                            let theta, tries = 0;
                             do { theta = Math.random() * 6.283185307; }
-                            while (Math.random() > Math.sin(theta) * Math.sin(theta));
+                            while (Math.random() > Math.sin(theta) * Math.sin(theta) && ++tries < 20);
                             let emitAngle = accelAngle + theta;
 
                             // Relativistic aberration: beam forward at high γ
@@ -482,7 +448,7 @@ export default class Physics {
                     p.radius = 2 * p.mass;
                     this.sim.totalRadiated += dE;
 
-                    p._hawkAccum = (p._hawkAccum || 0) + dE;
+                    p._hawkAccum += dE;
                     if (p._hawkAccum >= RADIATION_THRESHOLD && this.sim.photons.length < MAX_PHOTONS) {
                         const emitAngle = Math.random() * 6.283185307;
                         const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
@@ -508,7 +474,6 @@ export default class Physics {
                 p.angVel = relOn ? angwToAngVel(p.angw, p.radius) : p.angw;
                 p.pos.x += p.vel.x * dtSub;
                 p.pos.y += p.vel.y * dtSub;
-
             }
             this.simTime += dtSub;
 
@@ -520,7 +485,7 @@ export default class Physics {
                     p.vel.x = p.w.x * invG;
                     p.vel.y = p.w.y * invG;
                 }
-                compute1PNPairwise(particles, SOFTENING_SQ, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravityEnabled, this.coulombEnabled);
+                compute1PNPairwise(particles, SOFTENING_SQ, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled);
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const halfDtOverM = dtSub * 0.5 / p.mass;
@@ -659,8 +624,8 @@ export default class Physics {
         if (this.radiationEnabled) {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
-                p.forceRadiation.x = p._radDisplayX || 0;
-                p.forceRadiation.y = p._radDisplayY || 0;
+                p.forceRadiation.x = p._radDisplayX;
+                p.forceRadiation.y = p._radDisplayY;
             }
         }
 

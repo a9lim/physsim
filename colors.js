@@ -16,8 +16,3 @@ Object.freeze(_PALETTE.light);
 Object.freeze(_PALETTE.dark);
 Object.freeze(_FONT);
 Object.freeze(_PALETTE);
-
-// ---------- Expose for ES modules ----------
-window._PALETTE = _PALETTE;
-window._FONT = _FONT;
-window._r = _r;

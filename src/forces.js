@@ -128,7 +128,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p.forceCoulomb.y += ry * fDir;
     }
 
-    if (toggles.onePNEnabled && toggles.gravityEnabled) {
+    if (toggles.onePNEnabled && toggles.gravitomagEnabled) {
         // 1PN EIH symmetric remainder: O(v²/c²) gravity after subtracting the
         // GM Lorentz piece (handled by Boris when GM is on, absent when GM is off).
         // a = (m2/r²) * { n̂·R + v1·C1 + v2·C2 }
@@ -153,7 +153,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p.force1PN.y += fy;
     }
 
-    if (toggles.onePNEnabled && toggles.coulombEnabled) {
+    if (toggles.onePNEnabled && toggles.magneticEnabled) {
         // Darwin EM symmetric correction: O(v²/c²) from Darwin Lagrangian.
         // F₁_sym = (q₁q₂)/(2r²) × { v₁(v₂·n̂) − 3n̂(v₁·n̂)(v₂·n̂) }
         // NOT Newton's 3rd law — each particle uses its own velocity.
@@ -169,6 +169,18 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p.force1PNEM.y += symY;
     }
 
+    if (toggles.onePNEnabled && toggles.gravitomagEnabled && toggles.magneticEnabled) {
+        // Bazanski cross-term: gravity-EM 1PN mixed interaction (position-dependent only).
+        // F = [q₁q₂(m₁+m₂) − (q₁²m₂ + q₂²m₁)] / r³ along r̂
+        const crossCoeff = p.charge * sCharge * (p.mass + sMass)
+            - (p.charge * p.charge * sMass + sCharge * sCharge * p.mass);
+        const fDir = crossCoeff * invRSq * invRSq;
+        out.x += rx * fDir;
+        out.y += ry * fDir;
+        p.force1PN.x += rx * fDir;
+        p.force1PN.y += ry * fDir;
+    }
+
     if (toggles.magneticEnabled) {
         // Dipole-dipole radial: F = −3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
         const fDir = -3 * (pMagMoment * sMagMoment) * invRSq * invRSq * invR;
@@ -178,12 +190,12 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p.forceMagnetic.y += ry * fDir;
 
         // Bz from moving charge (Biot-Savart): B_z = q_s(v_s × r̂)_z / r²
-        p.Bz += sCharge * crossSV * invR * invRSq;
+        const BzMoving = sCharge * crossSV * invR * invRSq;
+        p.Bz += BzMoving;
 
         // ∇Bz for spin-orbit coupling (radial + angular terms)
-        const Bz_contribution = sCharge * crossSV * invR * invRSq;
-        p.dBzdx += 3 * Bz_contribution * rx * invRSq + sCharge * svy * invR * invRSq;
-        p.dBzdy += 3 * Bz_contribution * ry * invRSq - sCharge * svx * invR * invRSq;
+        p.dBzdx += 3 * BzMoving * rx * invRSq + sCharge * svy * invR * invRSq;
+        p.dBzdy += 3 * BzMoving * ry * invRSq - sCharge * svx * invR * invRSq;
 
         // Dipole-sourced Bz: equatorial field of z-aligned dipole, +μ/r³
         p.Bz += sMagMoment * invR * invRSq;
@@ -200,12 +212,12 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p.forceGravitomag.y += ry * fDir;
 
         // Bgz from moving mass: −m_s(v_s × r̂)_z / r² (negative: GEM convention)
-        p.Bgz -= sMass * crossSV * invR * invRSq;
+        const BgzMoving = -sMass * crossSV * invR * invRSq;
+        p.Bgz += BgzMoving;
 
         // ∇Bgz for spin-orbit coupling
-        const Bgz_contribution = -sMass * crossSV * invR * invRSq;
-        p.dBgzdx += 3 * Bgz_contribution * rx * invRSq - sMass * svy * invR * invRSq;
-        p.dBgzdy += 3 * Bgz_contribution * ry * invRSq + sMass * svx * invR * invRSq;
+        p.dBgzdx += 3 * BgzMoving * rx * invRSq - sMass * svy * invR * invRSq;
+        p.dBgzdy += 3 * BgzMoving * ry * invRSq + sMass * svx * invR * invRSq;
 
         // Spin-sourced Bgz: −2L/r³ (GEM analog of magnetic dipole field)
         p.Bgz -= 2 * sAngMomentum * invR * invRSq;
@@ -214,7 +226,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 
         // Frame-dragging torque: aligns spins toward co-rotation
         const torque = FRAME_DRAG_K * sMass * (sAngVel - p.angVel) * invR * invRSq;
-        p._frameDragTorque = (p._frameDragTorque || 0) + torque;
+        p._frameDragTorque += torque;
     }
 
     if (toggles.tidalLockingEnabled) {
@@ -237,7 +249,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
  * Recompute 1PN forces pairwise O(N²) for velocity-Verlet correction.
  * Called after drift to get F_1PN(new) for the correction kick.
  */
-export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravityEnabled = true, coulombEnabled = false) {
+export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false) {
     for (let i = 0; i < particles.length; i++) {
         particles[i].force1PN.set(0, 0);
         particles[i].force1PNEM.set(0, 0);
@@ -263,7 +275,7 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
             const nx = rx * invR, ny = ry * invR;
 
             // EIH gravity 1PN symmetric remainder
-            if (gravityEnabled) {
+            if (gravitomagEnabled) {
                 const v1Sq = pvx * pvx + pvy * pvy;
                 const v2Sq = svx * svx + svy * svy;
                 const nDotV1 = nx * pvx + ny * pvy;
@@ -279,7 +291,7 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
             }
 
             // Darwin EM 1PN
-            if (coulombEnabled) {
+            if (magneticEnabled) {
                 const v2DotN = svx * nx + svy * ny;
                 const v1DotN = pvx * nx + pvy * ny;
                 const coeff = 0.5 * p.charge * o.charge * invRSq;
@@ -287,6 +299,15 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
                 const symY = coeff * (pvy * v2DotN - 3 * ny * v1DotN * v2DotN);
                 p.force1PNEM.x += symX;
                 p.force1PNEM.y += symY;
+            }
+
+            // Bazanski cross-term (position-dependent)
+            if (gravitomagEnabled && magneticEnabled) {
+                const crossCoeff = p.charge * o.charge * (p.mass + o.mass)
+                    - (p.charge * p.charge * o.mass + o.charge * o.charge * p.mass);
+                const fDir = crossCoeff * invRSq * invRSq;
+                p.force1PN.x += rx * fDir;
+                p.force1PN.y += ry * fDir;
             }
         }
     }

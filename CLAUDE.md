@@ -17,29 +17,28 @@ Serve from the parent `a9lim.github.io/` directory -- shared files (`/shared-bas
 ## File Map
 
 ```
-main.js                     212 lines  Simulation class, fixed-timestep loop, window.sim
+main.js                     235 lines  Simulation class, fixed-timestep loop, window.sim
 index.html                  415 lines  UI structure, 4-tab sidebar, preset dialog, zoom controls
-styles.css                  560 lines  Project-specific CSS overrides
-colors.js                    27 lines  Project color tokens (particle hues, spin ring colors)
+styles.css                  436 lines  Project-specific CSS overrides
+colors.js                    18 lines  Project color tokens (particle hues, spin ring colors)
 src/
-  integrator.js             763 lines  Physics class: adaptive Boris substep loop, radiation, tidal
+  integrator.js             718 lines  Physics class: adaptive Boris substep loop, radiation, tidal
   forces.js                 335 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise()
-  signal-delay.js           315 lines  getDelayedState() (3-phase light-cone solver), interpolateHistory()
-  ui.js                     338 lines  setupUI(), toggle dependencies, info tips (infoData), keyboard shortcuts
+  signal-delay.js           248 lines  getDelayedState() (3-phase light-cone solver)
+  ui.js                     356 lines  setupUI(), toggle dependencies, info tips (infoData), keyboard shortcuts
   renderer.js               406 lines  Canvas 2D: particles, trails, spin rings, vectors, torque arcs, photons
-  input.js                  262 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
-  collisions.js             259 lines  handleCollisions(), resolveMerge(), resolveBounce() (rel + classical)
-  quadtree.js               256 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC
+  input.js                  260 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
+  collisions.js             213 lines  handleCollisions(), resolveMerge(), resolveBounce() (rel + classical)
+  quadtree.js               235 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC
   potential.js              158 lines  computePE(), treePE(), pairPE() (4 PE terms + 1PN PE)
   topology.js               129 lines  TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
-  energy.js                 127 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field
-  phase-plot.js             120 lines  PhasePlot: r vs v_r sidebar canvas (500-sample ring buffer)
-  sankey.js                  98 lines  SankeyOverlay: energy bar chart (orphaned -- not imported by any module)
-  stats-display.js           92 lines  StatsDisplay: energy/momentum/drift DOM updates, selected particle info
+  energy.js                 139 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field
+  phase-plot.js             116 lines  PhasePlot: r vs v_r sidebar canvas (500-sample ring buffer)
+  stats-display.js           91 lines  StatsDisplay: energy/momentum/drift DOM updates, selected particle info
   presets.js                 87 lines  PRESETS object (5 scenarios), loadPreset()
   heatmap.js                 83 lines  Heatmap: 48x48 grav+electrostatic potential field overlay, 6-frame interval
-  particle.js                83 lines  Particle entity: pos, vel, w, angw, per-type force vectors, history buffers
-  vec2.js                    69 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dot, dist
+  particle.js                95 lines  Particle entity: pos, vel, w, angw, per-type force vectors, history buffers
+  vec2.js                    65 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist
   config.js                  54 lines  Named constants (BH_THETA, SOFTENING, INERTIA_K, MAX_SUBSTEPS, WORLD_SCALE, HAWKING_K, etc.)
   relativity.js              41 lines  angwToAngVel(), angVelToAngw(), setVelocity()
   photon.js                  19 lines  Photon entity: pos, vel, energy, lifetime, emitterId
@@ -229,11 +228,11 @@ coupling = m_other + q₁q₂/m₁   (gravity + Coulomb when enabled)
 
 The mixed coupling `(m_other + q₁q₂/m)²` captures all four cross-terms: the tidal field (gravity or Coulomb) raises a bulge, and the same or other field torques it. The `q₁q₂/m` term reflects that charge is tied to mass (uniform q/m) and the restoring force is self-gravity. Applied as `angw += tau * dt / I` from all neighbors.
 
-### 1PN Corrections (EIH + Darwin EM)
+### 1PN Corrections (EIH + Darwin EM + Bazanski)
 
-Requires Relativity. The 1PN toggle gates two independent O(v^2/c^2) corrections:
+Requires Relativity. The 1PN toggle gates three O(v^2/c^2) correction sectors:
 
-Both 1PN sectors follow the same pattern: subtract the Lorentz-like piece (handled by Boris when the corresponding B-force toggle is on, absent when off) from the full O(v^2/c^2) correction, feed only the symmetric remainder as an E-like force. NOT Newton's 3rd law — each particle's force uses its own velocity. Both forces computed independently in the pair loop.
+The velocity-dependent sectors (EIH, Darwin EM) follow the same pattern: subtract the Lorentz-like piece (handled by Boris when the corresponding B-force toggle is on, absent when off) from the full O(v^2/c^2) correction, feed only the symmetric remainder as an E-like force. NOT Newton's 3rd law — each particle's force uses its own velocity. Both forces computed independently in the pair loop.
 
 **EIH (gravity 1PN)** — requires Gravity + 1PN. Symmetric remainder from EIH after subtracting the GM Lorentz piece:
 
@@ -250,12 +249,21 @@ Produces perihelion precession approximately 6*pi*M / (a*(1-e^2)) rad/orbit.
 F1_sym = (q1*q2)/(2*r^2) * { v1*(v2.n_hat) - 3*n_hat*(v1.n_hat)*(v2.n_hat) }
 ```
 
-**Velocity-Verlet**: stores `_f1pnOld` and `_f1pnEMOld` before drift, recomputes after drift via `compute1PNPairwise()` (always pairwise, even in BH mode), applies correction kick `(F_new - F_old) * dt / (2m)` for both EIH and Darwin forces.
+**Bazanski cross-term (gravity-EM 1PN)** — requires Gravity + Coulomb + GM + Magnetic + 1PN. Position-dependent mixed interaction from the Bazanski Lagrangian (no velocity cross-terms):
+
+```
+F_mixed = [q₁q₂(m₁+m₂) − (q₁²m₂ + q₂²m₁)] / r³   (along r̂)
+```
+
+Vanishes when q=0 (pure gravity) or m₁=m₂ with q₁=q₂ (identical particles). Accumulates into `force1PN`.
+
+**Velocity-Verlet**: stores `_f1pnOld` and `_f1pnEMOld` before drift, recomputes after drift via `compute1PNPairwise()` (always pairwise, even in BH mode), applies correction kick `(F_new - F_old) * dt / (2m)` for EIH, Darwin, and Bazanski forces.
 
 1PN PE (computed in `pairPE()`):
 ```
-U_1PN_grav = -(m1*m2/r) * [1.5*(v1^2+v2^2) - 3.5*(v1.v2) - 0.5*(v1.n)(v2.n) + m1/r + m2/r]
-U_1PN_em   = -(q1*q2)/(2*r) * [(v1.v2) + (v1.n_hat)(v2.n_hat)]
+U_1PN_grav  = -(m1*m2/r) * [1.5*(v1^2+v2^2) - 3.5*(v1.v2) - 0.5*(v1.n)(v2.n) + m1/r + m2/r]
+U_1PN_em    = -(q1*q2)/(2*r) * [(v1.v2) + (v1.n_hat)(v2.n_hat)]
+U_1PN_mixed = [q₁q₂(m₁+m₂) − (q₁²m₂ + q₂²m₁)] / (2r²)
 ```
 
 ### Radiation
@@ -342,7 +350,7 @@ Do NOT flip these signs.
 
 ## Potential Energy
 
-Computed separately from forces via `computePE()` in `potential.js`. Same BH theta criterion -- tree traversal via `treePE()` when BH on (divides by 2 to avoid double-counting), exact pairwise `pairPE()` with i < j when off. Five terms: gravitational (-m1*m2/r), Coulomb (+q1*q2/r), magnetic dipole (+mu1*mu2/r^3), GM dipole (-L1*L2/r^3), 1PN PE (velocity-dependent correction). All Plummer-softened.
+Computed separately from forces via `computePE()` in `potential.js`. Same BH theta criterion -- tree traversal via `treePE()` when BH on (divides by 2 to avoid double-counting), exact pairwise `pairPE()` with i < j when off. Six terms: gravitational (-m1*m2/r), Coulomb (+q1*q2/r), magnetic dipole (+mu1*mu2/r^3), GM dipole (-L1*L2/r^3), 1PN PE (velocity-dependent EIH + Darwin EM), Bazanski cross-term PE (position-dependent mixed gravity-EM). All Plummer-softened.
 
 ## Energy & Momentum (`src/energy.js`)
 
@@ -350,15 +358,16 @@ Computed separately from forces via `computePE()` in `potential.js`. Same BH the
 
 | Quantity | Relativistic | Classical |
 |---|---|---|
-| Linear KE | sum((gamma - 1) * m) | sum(0.5 * m * \|v\|^2) |
-| Spin KE | sum(INERTIA_K * m * (sqrt(1 + W^2*r^2) - 1)) | sum(0.5 * I * omega^2) |
+| Linear KE | sum(wSq / (gamma + 1) * m) | sum(0.5 * m * \|v\|^2) |
+| Spin KE | sum(INERTIA_K * m * srSq / (gammaRot + 1)) | sum(0.5 * I * omega^2) |
 | Momentum | sum(m * w) | sum(m * v) |
 | Angular mom. | sum(r x m*w) + sum(I * W) about COM | same |
 
 **Darwin field corrections** (O(v^2/c^2), computed when Magnetic or GM enabled but 1PN is off):
 - EM field energy: `-0.5 * sum_{i<j}(qi*qj/r) * [(vi.vj) + (vi.r_hat)(vj.r_hat)]`
 - GM field energy: `+0.5 * sum_{i<j}(mi*mj/r) * [(vi.vj) + (vi.r_hat)(vj.r_hat)]` (opposite sign)
-- Field momentum: analogous terms with `(vi + vj)` and `(vi + vj).r_hat`
+- Bazanski cross-term: `+0.5 * [q₁q₂(m₁+m₂) − (q₁²m₂ + q₂²m₁)] / r²` (position-dependent, no field momentum)
+- Field momentum: analogous terms with `(vi + vj)` and `(vi + vj).r_hat` (EM + GM only; Bazanski has no velocity terms)
 
 When 1PN is on, field energy terms are dropped (they are absorbed into the 1PN PE correction in `pairPE()`).
 
@@ -524,19 +533,22 @@ All world coordinates (particle positions, presets, camera resets) use `sim.doma
 - Theme: `data-theme` on `<html>` (not body). Light default for FOUC prevention.
 - Module-level `_miOut` objects in forces.js, energy.js, potential.js, signal-delay.js, collisions.js for zero-alloc minImage output.
 - Signal delay returns pre-allocated `_delayedOut` -- caller must read before next call.
+- Particle constructor declares all dynamic properties (`_radAccum`, `_hawkAccum`, `_radDisplayX`, `_radDisplayY`, `_frameDragTorque`, `_tidalTorque`, etc.) to prevent V8 hidden class transitions.
+- InputHandler pre-allocates `_posOut` Vec2 for `getPos()` to avoid per-call allocation on mouse move.
+- Relativistic KE uses `wSq / (gamma + 1)` instead of `gamma - 1` to avoid catastrophic cancellation at low velocities.
+- Relativistic bounce guards invariant mass: `Math.sqrt(Math.max(0, E*E - Pn*Pn))` to prevent NaN from floating-point underflow.
 
 ## Gotchas
 
 - Serve from `a9lim.github.io/` parent -- `/shared-base.css` and `/shared-tokens.js` use absolute paths
 - `#preset-dialog` needs both ID and `class="preset-dialog"` (shared CSS uses class, JS uses ID)
 - `photon.js` is imported by `integrator.js` for radiation -- not related to input modes
-- `sankey.js` exists but is orphaned (not imported by any module) -- was part of an earlier design
 - 1PN velocity-Verlet correction is always pairwise (via `compute1PNPairwise()`), even when BH is on
 - Radiation force uses jerk term only (no Schott damping term `-tau*F^2*v/m^2`)
 - Shoot mode velocity scale is 0.02 (drag pixels * 0.02 = velocity)
 - Spin-orbit, Stern-Gerlach, and Mathisson-Papapetrou are all gated by the same `spinOrbitEnabled` toggle
 - `compute1PNPairwise()` zeroes `force1PN` and `force1PNEM` before accumulating -- do not mix with `pairForce()` 1PN output in the same step
-- Preliminary force pass runs before adaptive substep loop when magnetic or GM forces are active (ensures B fields are current for cyclotron frequency estimation)
+- Adaptive substepping uses Bz/Bgz values persisting from the previous substep's force computation for cyclotron frequency estimation -- no separate preliminary force pass
 - History recording is strided (HISTORY_STRIDE=200) and happens after the substep loop, not inside each substep
 - Tab switching logic is in an inline `<script>` in index.html, not in ui.js or main.js
 - `shared-touch.js` is loaded in the HTML head (between shared-tokens.js and shared-utils.js) but not documented in the parent CLAUDE.md loading order

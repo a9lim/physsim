@@ -53,9 +53,8 @@ export default class PhasePlot {
         if (!this.enabled || this.count < 2) return;
 
         const dpr = devicePixelRatio || 1;
-        const cssW = this.canvas.clientWidth || 180;
-        const ps = cssW;
-        const pxW = Math.round(cssW * dpr);
+        const ps = this.canvas.clientWidth || 180;
+        const pxW = Math.round(ps * dpr);
         if (this.canvas.width !== pxW || this.canvas.height !== pxW) {
             this.canvas.width = pxW;
             this.canvas.height = pxW;

@@ -246,36 +246,3 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         return _delayedOut;
     }
 }
-
-/** Binary-search interpolation on a particle's circular history buffer. */
-export function interpolateHistory(p, t) {
-    if (!p.histX) return null;
-    if (p.histCount < 2) return null;
-
-    const N = HISTORY_SIZE;
-    const start = (p.histHead - p.histCount + N) % N;
-
-    const oldest = p.histTime[start];
-    const newest = p.histTime[(p.histHead - 1 + N) % N];
-    if (t < oldest || t > newest) return null;
-
-    let lo = 0, hi = p.histCount - 2;
-    while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (p.histTime[(start + mid) % N] <= t) lo = mid;
-        else hi = mid - 1;
-    }
-
-    const loIdx = (start + lo) % N;
-    const hiIdx = (loIdx + 1) % N;
-    const dt = p.histTime[hiIdx] - p.histTime[loIdx];
-    if (dt < 1e-12) return { x: p.histX[loIdx], y: p.histY[loIdx], vx: p.histVx[loIdx], vy: p.histVy[loIdx] };
-
-    const frac = (t - p.histTime[loIdx]) / dt;
-    return {
-        x:  p.histX[loIdx]  + frac * (p.histX[hiIdx]  - p.histX[loIdx]),
-        y:  p.histY[loIdx]  + frac * (p.histY[hiIdx]  - p.histY[loIdx]),
-        vx: p.histVx[loIdx] + frac * (p.histVx[hiIdx] - p.histVx[loIdx]),
-        vy: p.histVy[loIdx] + frac * (p.histVy[hiIdx] - p.histVy[loIdx]),
-    };
-}

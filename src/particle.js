@@ -44,6 +44,13 @@ export default class Particle {
         this.dBgzdx = 0;
         this.dBgzdy = 0;
         this._tidalTorque = 0;
+        this._frameDragTorque = 0;
+
+        // Radiation accumulators (used by integrator)
+        this._radAccum = 0;
+        this._hawkAccum = 0;
+        this._radDisplayX = 0;
+        this._radDisplayY = 0;
 
         // Signal delay history (lazy-allocated)
         this.histX = null;

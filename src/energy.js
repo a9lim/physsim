@@ -19,11 +19,13 @@ export function computeEnergies(particles, physics, sim) {
     for (const p of particles) {
         const rSq = p.radius * p.radius;
         if (relOn) {
-            const gamma = Math.sqrt(1 + p.w.magSq());
-            linearKE += (gamma - 1) * p.mass;
-            // Spin KE via rotational Lorentz factor: I/r²·(γ_rot − 1)
+            // Use w²/(γ+1) instead of (γ−1) to avoid catastrophic cancellation when |w|≪1
+            const wSq = p.w.magSq();
+            const gamma = Math.sqrt(1 + wSq);
+            linearKE += wSq / (gamma + 1) * p.mass;
             const srSq = p.angw * p.angw * rSq;
-            spinKE += INERTIA_K * p.mass * (Math.sqrt(1 + srSq) - 1);
+            const gammaRot = Math.sqrt(1 + srSq);
+            spinKE += INERTIA_K * p.mass * srSq / (gammaRot + 1);
         } else {
             const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
             linearKE += 0.5 * p.mass * speedSq;
@@ -75,14 +77,14 @@ export function computeEnergies(particles, physics, sim) {
     const magneticOn = physics.magneticEnabled;
     const gmOn = physics.gravitomagEnabled;
     const emFieldEnergyOn = magneticOn && !physics.onePNEnabled;
-    const gmFieldEnergyOn = gmOn && !(physics.onePNEnabled && physics.gravityEnabled);
+    const gmFieldEnergyOn = gmOn && !physics.onePNEnabled;
 
     const periodic = physics.periodic;
     const domW = physics.domainW;
     const domH = physics.domainH;
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
-    const topology = physics._topologyConst !== undefined ? physics._topologyConst : TORUS;
+    const topology = physics._topologyConst;
 
     if (magneticOn || gmOn) {
         for (let i = 0; i < n; i++) {
@@ -121,6 +123,14 @@ export function computeEnergies(particles, physics, sim) {
                     const coeff = mmInvR * 0.5;
                     fieldPx -= coeff * (svx + rx * svDotR);
                     fieldPy -= coeff * (svy + ry * svDotR);
+                }
+
+                // Bazanski cross-term field energy (suppressed when 1PN is on)
+                if (magneticOn && gmOn && !physics.onePNEnabled) {
+                    const invRSq = invR * invR;
+                    const crossCoeff = pi.charge * pj.charge * (pi.mass + pj.mass)
+                        - (pi.charge * pi.charge * pj.mass + pj.charge * pj.charge * pi.mass);
+                    fieldEnergy += 0.5 * crossCoeff * invRSq;
                 }
             }
         }

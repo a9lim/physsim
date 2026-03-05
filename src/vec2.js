@@ -49,10 +49,6 @@ export default class Vec2 {
         return this;
     }
 
-    dot(v) {
-        return this.x * v.x + this.y * v.y;
-    }
-
     dist(v) {
         const dx = this.x - v.x;
         const dy = this.y - v.y;
