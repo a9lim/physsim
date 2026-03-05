@@ -18,7 +18,7 @@ const _forceCompColors = {
     torqueSO:    _PAL.extended.purple,
     torqueFD:    _PAL.extended.rose,
     torqueTidal: _PAL.extended.red,
-    yukawa:      _PAL.extended.brown,
+    yukawa:      _PAL.extended.green,
 };
 
 // Spin ring colors by sign

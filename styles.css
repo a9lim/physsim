@@ -121,7 +121,7 @@ body {
 .tog-tidallocking { --tog-color: var(--ext-red); }
 .tog-onepn        { --tog-color: var(--ext-orange); }
 .tog-blackhole    { --tog-color: var(--text); }
-.tog-yukawa       { --tog-color: var(--ext-brown); }
+.tog-yukawa       { --tog-color: var(--ext-green); }
 .tog-axion        { --tog-color: var(--ext-blue); }
 .tog-gwradiation  { --tog-color: var(--ext-yellow); }
 
