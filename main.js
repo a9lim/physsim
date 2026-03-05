@@ -6,7 +6,7 @@ import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_BH_MASS, MAX_PHOTONS } from './src/config.js';
+import { WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS } from './src/config.js';
 import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
@@ -207,12 +207,12 @@ class Simulation {
                     this.particles.length = write;
                 }
 
-                // Hawking evaporation: remove particles below MIN_BH_MASS
+                // Hawking evaporation: remove particles below MIN_MASS
                 if (this.physics.blackHoleEnabled) {
                     let writeIdx = 0;
                     for (let i = 0; i < this.particles.length; i++) {
                         const p = this.particles[i];
-                        if (p.mass >= MIN_BH_MASS) {
+                        if (p.mass >= MIN_MASS) {
                             this.particles[writeIdx++] = p;
                             continue;
                         }
@@ -243,6 +243,7 @@ class Simulation {
 
         this.heatmap.update(this.particles, this.camera, this.width, this.height, this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled);
         this.phasePlot.update(this.particles, this.selectedParticle);
+        this.renderer.signalDelay = this.physics.signalDelayEnabled;
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);
         this.phasePlot.draw(this.renderer.isLight);
         if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);
