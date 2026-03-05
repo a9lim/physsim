@@ -32,12 +32,22 @@ class Simulation {
 
         this.phasePlot = new PhasePlot();
 
+        const sim = this;
         this.camera = createCamera({
             width: this.width, height: this.height,
             x: this.domainW / 2, y: this.domainH / 2,
             zoom: WORLD_SCALE,
             minZoom: ZOOM_MIN, maxZoom: ZOOM_MAX,
             wheelFactor: WHEEL_ZOOM_IN,
+            clamp(cam) {
+                const halfW = cam.viewportW / (2 * cam.zoom);
+                const halfH = cam.viewportH / (2 * cam.zoom);
+                const dw = sim.domainW, dh = sim.domainH;
+                if (halfW * 2 >= dw) cam.x = dw / 2;
+                else cam.x = clamp(cam.x, halfW, dw - halfW);
+                if (halfH * 2 >= dh) cam.y = dh / 2;
+                else cam.y = clamp(cam.y, halfH, dh - halfH);
+            },
         });
 
         this.input = new InputHandler(this.canvas, this);

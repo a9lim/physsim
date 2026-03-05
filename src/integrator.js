@@ -340,7 +340,8 @@ export default class Physics {
                 }
             }
 
-            // Landau-Lifshitz radiation reaction (jerk term only, no Schott damping)
+            // Landau-Lifshitz radiation reaction (full 1/c² terms)
+            // F_rad = τ·[dF/dt / γ³ − v·F²/(m·γ²) + F·(v·F)/(m·γ⁴)]
             if (this.radiationEnabled && this.sim) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
@@ -357,6 +358,8 @@ export default class Physics {
                     const qSq = p.charge * p.charge;
                     const tau = 2 * LARMOR_K * qSq / p.mass;
                     const invDt = 1 / dtSub;
+
+                    // Term 1: jerk — τ·dF/dt / γ³
                     let fRadX = tau * (p.force.x - p.prevForce.x) * invDt;
                     let fRadY = tau * (p.force.y - p.prevForce.y) * invDt;
 
@@ -364,6 +367,25 @@ export default class Physics {
                         const invG3 = 1 / (gamma * gamma * gamma);
                         fRadX *= invG3;
                         fRadY *= invG3;
+
+                        // Derive coordinate velocity from current proper velocity
+                        const invGamma = 1 / gamma;
+                        const vx = p.w.x * invGamma, vy = p.w.y * invGamma;
+                        const fx = p.force.x, fy = p.force.y;
+                        const fSq = fx * fx + fy * fy;
+                        const vDotF = vx * fx + vy * fy;
+                        const invM = 1 / p.mass;
+                        const g2 = gamma * gamma;
+
+                        // Term 2: −τ·v·F²/(m·γ²)
+                        const t2 = -tau * fSq * invM / g2;
+                        fRadX += t2 * vx;
+                        fRadY += t2 * vy;
+
+                        // Term 3: +τ·F·(v·F)/(m·γ⁴)
+                        const t3 = tau * vDotF * invM / (g2 * g2);
+                        fRadX += t3 * fx;
+                        fRadY += t3 * fy;
                     }
 
                     // Clamp: |F_rad·dt/m| ≤ LL_FORCE_CLAMP·|w| to prevent runaway
@@ -383,8 +405,8 @@ export default class Physics {
 
                     p.w.x += fRadX * dtSub / p.mass;
                     p.w.y += fRadY * dtSub / p.mass;
-                    p.forceRadiation.x += fRadX;
-                    p.forceRadiation.y += fRadY;
+                    p.forceRadiation.x = fRadX;
+                    p.forceRadiation.y = fRadY;
 
                     if (isNaN(p.w.x) || isNaN(p.w.y)) {
                         p.w.x = 0; p.w.y = 0;
