@@ -60,7 +60,7 @@ export const ROCHE_TRANSFER_RATE = 0.01;  // mass transfer rate coefficient
 export const DEFAULT_HUBBLE = 0.001;  // Hubble parameter
 
 // Higgs field: V(φ) = -(m_H²/4)φ² + (m_H²/8)φ⁴ (VEV=1, λ=m_H²/2)
-export const HIGGS_GRID = 64;
+export const HIGGS_GRID = 128;
 export const DEFAULT_HIGGS_MASS = 0.5;        // Higgs boson mass (mediator range ~ 1/m_H)
 export const HIGGS_PHI_MAX = 16;              // field value clamp (prevent runaway)
 
@@ -109,3 +109,15 @@ export const HEATMAP_MAX_ALPHA = 100;      // max alpha before cap
 // Rendering scales (force/velocity/torque vector lengths)
 export const VELOCITY_VECTOR_SCALE = 32;
 export const FORCE_VECTOR_SCALE = 256;
+
+/** Compute photon/fragment spawn offset from particle radius. */
+export function spawnOffset(radius) {
+    return Math.max(radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR);
+}
+
+/** Kerr-Newman event horizon radius: r+ = M + sqrt(M² - a² - Q²). */
+export function kerrNewmanRadius(M, radiusSq, angVel, charge) {
+    const a = INERTIA_K * radiusSq * Math.abs(angVel);
+    const disc = M * M - a * a - charge * charge;
+    return disc > 0 ? M + Math.sqrt(disc) : M * BH_NAKED_FLOOR;
+}

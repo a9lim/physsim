@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, BH_NAKED_FLOOR, SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -57,7 +57,7 @@ export default class Physics {
         this.axionEnabled = false;
         this.axionMass = DEFAULT_AXION_MASS;
         this.expansionEnabled = false;
-        this.hubbleParam = 0.001;
+        this.hubbleParam = DEFAULT_HUBBLE;
 
         this.higgsEnabled = false;
 
@@ -536,7 +536,7 @@ export default class Physics {
                     }
                     if (p.angw !== p.angw) p.angw = 0; // NaN guard
                     const sr = p.angw * p.radius;
-                    p.angVel = p.angw / Math.sqrt(1 + sr * sr);
+                    p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
                 }
             }
 
@@ -681,9 +681,10 @@ export default class Physics {
                             }
 
                             const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
+                            const pOff = spawnOffset(p.radius);
                             this.sim.photons.push(new Photon(
-                                p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
-                                p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                                p.pos.x + cosA * pOff,
+                                p.pos.y + sinA * pOff,
                                 cosA, sinA,
                                 p._radAccum, p.id
                             ));
@@ -700,8 +701,7 @@ export default class Physics {
                     const p = particles[i];
                     if (p.mass <= MIN_MASS) continue;
                     const M = p.mass;
-                    const I = INERTIA_K * M * p.radiusSq;
-                    const a = I * Math.abs(p.angVel) / M;
+                    const a = INERTIA_K * p.radiusSq * Math.abs(p.angVel);
                     const Q = p.charge;
                     const disc = M * M - a * a - Q * Q;
                     let power;
@@ -720,8 +720,7 @@ export default class Physics {
                     p.mass -= dE;
                     p.invMass = 1 / p.mass;
                     // Update Kerr-Newman radius
-                    const newDisc = p.mass * p.mass - a * a - Q * Q;
-                    p.radius = newDisc > 0 ? p.mass + Math.sqrt(newDisc) : p.mass * BH_NAKED_FLOOR;
+                    p.radius = kerrNewmanRadius(p.mass, p.radiusSq, p.angVel, p.charge);
                     p.radiusSq = p.radius * p.radius;
                     this.sim.totalRadiated += dE;
 
@@ -730,9 +729,10 @@ export default class Physics {
                     if (p._hawkAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
                         const emitAngle = Math.random() * TWO_PI;
                         const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
+                        const hOff = spawnOffset(p.radius);
                         this.sim.photons.push(new Photon(
-                            p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
-                            p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                            p.pos.x + cosA * hOff,
+                            p.pos.y + sinA * hOff,
                             cosA, sinA,
                             p._hawkAccum, p.id
                         ));
@@ -989,9 +989,10 @@ export default class Physics {
                         if (p._quadAccum >= MIN_MASS) {
                             const angle = _quadSample(d3Ixx, d3Ixy);
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                            const qOff = spawnOffset(p.radius);
                             const gph = new Photon(
-                                p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
-                                p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                                p.pos.x + cosA * qOff,
+                                p.pos.y + sinA * qOff,
                                 cosA, sinA, p._quadAccum, p.id);
                             gph.type = 'grav';
                             photons.push(gph);
@@ -1003,9 +1004,10 @@ export default class Physics {
                         if (p._emQuadAccum >= MIN_MASS && photons.length < MAX_PHOTONS) {
                             const angle = _quadSample(d3Qxx, d3Qxy);
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                            const eOff = spawnOffset(p.radius);
                             photons.push(new Photon(
-                                p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
-                                p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                                p.pos.x + cosA * eOff,
+                                p.pos.y + sinA * eOff,
                                 cosA, sinA, p._emQuadAccum, p.id));
                             this.sim.totalRadiatedPx += p._emQuadAccum * cosA;
                             this.sim.totalRadiatedPy += p._emQuadAccum * sinA;

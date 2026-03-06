@@ -1,11 +1,11 @@
 // ─── Higgs Scalar Field ───
 // Dynamical scalar field on a 2D grid with Mexican hat potential.
 // V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4  (VEV=1, lambda=mu^2=m_H^2/2)
-// m_H is the free parameter (slider 0.01-0.25, default 0.05)
-// Symplectic Euler integration, bilinear interpolation, CIC source deposition.
-// Self-force subtraction via analytical steady-state Green's function estimate.
+// m_H is the free parameter (slider 0.25-1, default 0.5)
+// Symplectic Euler field evolution; PQS (cubic B-spline) particle-grid coupling.
+// PQS gives C² interpolation and C¹ gradients — no grid-crossing artifacts.
 
-import { HIGGS_GRID, DEFAULT_HIGGS_MASS, HIGGS_SOURCE_STRENGTH, HIGGS_PHI_MAX, EPSILON } from './config.js';
+import { HIGGS_GRID, DEFAULT_HIGGS_MASS, HIGGS_PHI_MAX, EPSILON, kerrNewmanRadius } from './config.js';
 import { TORUS, KLEIN, RP2 } from './topology.js';
 
 const GRID = HIGGS_GRID;
@@ -26,13 +26,19 @@ export default class HiggsField {
         this._source = new Float64Array(GRID_SQ);
         this.mass = DEFAULT_HIGGS_MASS;
 
+        // PQS pre-allocated weight arrays (4 weights per axis)
+        this._pqs = { ix: 0, iy: 0, dx: 0, dy: 0 };
+        this._wx = new Float64Array(4);
+        this._wy = new Float64Array(4);
+        this._dwx = new Float64Array(4);
+        this._dwy = new Float64Array(4);
+
         // Offscreen canvas for rendering
         this.canvas = document.createElement('canvas');
         this.canvas.width = GRID;
         this.canvas.height = GRID;
         this._ctx = this.canvas.getContext('2d');
         this._imgData = this._ctx.createImageData(GRID, GRID);
-        this._cic = { ix: 0, iy: 0, fx: 0, fy: 0 };
 
         this.reset();
     }
@@ -80,22 +86,64 @@ export default class HiggsField {
         return ny * GRID + nx;
     }
 
-    /** Clamp-read phi at grid coords, clamping to boundary. */
+    /** Clamp-read phi at grid coords. */
     _phiAt(cx, cy) {
         if (cx < 0) cx = 0; else if (cx >= GRID) cx = GRID - 1;
         if (cy < 0) cy = 0; else if (cy >= GRID) cy = GRID - 1;
         return this.phi[cy * GRID + cx];
     }
 
-    /** Compute CIC fractional grid coords into pre-allocated this._cic. */
-    _cicCoords(x, y, invCellW, invCellH) {
+    /** Compute PQS (cubic B-spline) weights for position (x, y).
+     *  Stores base index + fractional offset in _pqs, value weights in _wx/_wy.
+     *  4×4 stencil: nodes [ix-1..ix+2] × [iy-1..iy+2].
+     */
+    _pqsCoords(x, y, invCellW, invCellH) {
         const gx = x * invCellW - 0.5;
         const gy = y * invCellH - 0.5;
-        const c = this._cic;
-        c.ix = Math.floor(gx);
-        c.iy = Math.floor(gy);
-        c.fx = gx - c.ix;
-        c.fy = gy - c.iy;
+        const p = this._pqs;
+        p.ix = Math.floor(gx);
+        p.iy = Math.floor(gy);
+
+        const dx = gx - p.ix;
+        p.dx = dx;
+        const tx = 1 - dx;
+        const dx2 = dx * dx;
+        const dx3 = dx2 * dx;
+        const wx = this._wx;
+        wx[0] = tx * tx * tx / 6;
+        wx[1] = (4 - 6 * dx2 + 3 * dx3) / 6;
+        wx[2] = (1 + 3 * dx + 3 * dx2 - 3 * dx3) / 6;
+        wx[3] = dx3 / 6;
+
+        const dy = gy - p.iy;
+        p.dy = dy;
+        const ty = 1 - dy;
+        const dy2 = dy * dy;
+        const dy3 = dy2 * dy;
+        const wy = this._wy;
+        wy[0] = ty * ty * ty / 6;
+        wy[1] = (4 - 6 * dy2 + 3 * dy3) / 6;
+        wy[2] = (1 + 3 * dy + 3 * dy2 - 3 * dy3) / 6;
+        wy[3] = dy3 / 6;
+    }
+
+    /** Deposit value at (x,y) into grid using PQS 4×4 stencil. */
+    _depositPQS(out, x, y, value, invCellW, invCellH) {
+        this._pqsCoords(x, y, invCellW, invCellH);
+        const { ix, iy } = this._pqs;
+        const wx = this._wx;
+        const wy = this._wy;
+        for (let jy = 0; jy < 4; jy++) {
+            const ny = iy + jy - 1;
+            if (ny < 0 || ny >= GRID) continue;
+            const rowOff = ny * GRID;
+            const wyj = wy[jy];
+            for (let jx = 0; jx < 4; jx++) {
+                const nx = ix + jx - 1;
+                if (nx < 0 || nx >= GRID) continue;
+                out[rowOff + nx] += value * wx[jx] * wyj;
+            }
+        }
     }
 
     /** Evolve field one timestep using symplectic Euler (kick-drift). */
@@ -117,14 +165,14 @@ export default class HiggsField {
                      : boundaryMode === 'bounce' ? BC_BOUNCE
                      : BC_DESPAWN;
 
-        // CIC source deposition: particles source the field (Yukawa coupling)
+        // PQS source deposition: particles source the field
         const src = this._source;
         src.fill(0);
         this._depositSources(particles, domainW, domainH);
         const cellArea = cellW * cellH;
         const invCellArea = cellArea > EPSILON ? 1 / cellArea : 0;
 
-        // Deposit thermal energy via CIC (drives phase transitions)
+        // Deposit thermal energy via PQS (drives phase transitions)
         thermal.fill(0);
         this._depositThermal(particles, domainW, domainH);
 
@@ -165,7 +213,7 @@ export default class HiggsField {
                         + muSqEff * phiVal
                         - muSq * phiVal * phiVal * phiVal
                         - damp * phiDot[i]
-                        + HIGGS_SOURCE_STRENGTH * src[i] * invCellArea;
+                        + src[i] * invCellArea;
 
             phiDot[i] += ddphi * dt;
             const newPhi = phi[i] + phiDot[i] * dt;
@@ -186,62 +234,37 @@ export default class HiggsField {
         }
     }
 
-    /** CIC deposition of particle baseMass as scalar source (VEV=1). */
+    /** PQS deposition of particle baseMass as scalar source. */
     _depositSources(particles, domainW, domainH) {
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const out = this._source;
-
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             if (p.baseMass < EPSILON) continue;
-            const s = p.baseMass;
-            this._cicCoords(p.pos.x, p.pos.y, invCellW, invCellH);
-            const { ix, iy, fx, fy } = this._cic;
-
-            if (ix >= 0 && ix < GRID && iy >= 0 && iy < GRID)
-                out[iy * GRID + ix] += s * (1 - fx) * (1 - fy);
-            if (ix + 1 < GRID && iy >= 0 && iy < GRID)
-                out[iy * GRID + ix + 1] += s * fx * (1 - fy);
-            if (ix >= 0 && ix < GRID && iy + 1 < GRID)
-                out[(iy + 1) * GRID + ix] += s * (1 - fx) * fy;
-            if (ix + 1 < GRID && iy + 1 < GRID)
-                out[(iy + 1) * GRID + ix + 1] += s * fx * fy;
+            this._depositPQS(this._source, p.pos.x, p.pos.y, p.baseMass, invCellW, invCellH);
         }
     }
 
-    /** CIC deposition of local kinetic energy density. */
+    /** PQS deposition of local kinetic energy density. */
     _depositThermal(particles, domainW, domainH) {
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const out = this._thermal;
-
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             const ke = 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y);
             if (ke < EPSILON) continue;
-            this._cicCoords(p.pos.x, p.pos.y, invCellW, invCellH);
-            const { ix, iy, fx, fy } = this._cic;
-
-            if (ix >= 0 && ix < GRID && iy >= 0 && iy < GRID)
-                out[iy * GRID + ix] += ke * (1 - fx) * (1 - fy);
-            if (ix + 1 < GRID && iy >= 0 && iy < GRID)
-                out[iy * GRID + ix + 1] += ke * fx * (1 - fy);
-            if (ix >= 0 && ix < GRID && iy + 1 < GRID)
-                out[(iy + 1) * GRID + ix] += ke * (1 - fx) * fy;
-            if (ix + 1 < GRID && iy + 1 < GRID)
-                out[(iy + 1) * GRID + ix + 1] += ke * fx * fy;
+            this._depositPQS(this._thermal, p.pos.x, p.pos.y, ke, invCellW, invCellH);
         }
     }
 
     /** Set particle effective masses: m = baseMass * |phi| (VEV=1).
-     *  Self-force subtraction removes the particle's own steady-state perturbation.
+     *  PQS interpolation is C² smooth — no self-force subtraction needed.
      */
     modulateMasses(particles, domainW, domainH, blackHoleEnabled) {
         const cellW = domainW / GRID;
@@ -249,48 +272,32 @@ export default class HiggsField {
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const cellArea = cellW * cellH;
-        const mHsq = Math.max(this.mass * this.mass, EPSILON);
-        const selfScale = HIGGS_SOURCE_STRENGTH / (cellArea * mHsq);
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             if (p.baseMass < EPSILON) continue;
 
-            this._cicCoords(p.pos.x, p.pos.y, invCellW, invCellH);
-            const ix = this._cic.ix, iy = this._cic.iy;
-            const fx = this._cic.fx, fy = this._cic.fy;
+            this._pqsCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+            const { ix, iy } = this._pqs;
+            const wx = this._wx;
+            const wy = this._wy;
 
-            // Bilinear sample of phi
-            let phiLocal = this._phiAt(ix, iy) * (1 - fx) * (1 - fy)
-                         + this._phiAt(ix + 1, iy) * fx * (1 - fy)
-                         + this._phiAt(ix, iy + 1) * (1 - fx) * fy
-                         + this._phiAt(ix + 1, iy + 1) * fx * fy;
-
-            // Self-force subtraction: remove own CIC-weighted perturbation
-            // Each CIC corner weight w_i deposits s*w_i, and we sample with w_i,
-            // so self-sample = selfBase * sum(w_i^2)
-            const selfBase = p.baseMass * selfScale;
-            const w00 = (1 - fx) * (1 - fy);
-            const w10 = fx * (1 - fy);
-            const w01 = (1 - fx) * fy;
-            const w11 = fx * fy;
-            phiLocal -= selfBase * (w00 * w00 + w10 * w10 + w01 * w01 + w11 * w11);
+            // PQS interpolation of phi (4×4 stencil, C² smooth)
+            let phiLocal = 0;
+            for (let jy = 0; jy < 4; jy++) {
+                const wyj = wy[jy];
+                for (let jx = 0; jx < 4; jx++) {
+                    phiLocal += this._phiAt(ix + jx - 1, iy + jy - 1) * wx[jx] * wyj;
+                }
+            }
 
             const newMass = Math.max(p.baseMass * Math.abs(phiLocal), EPSILON);
             if (newMass !== newMass) continue; // NaN guard
             p.mass = newMass;
 
-            // Update mass-derived quantities (color depends only on charge, skip getColor)
+            // Update mass-derived quantities
             if (blackHoleEnabled) {
-                const M = p.mass;
-                const rSq = p.radiusSq > EPSILON ? p.radiusSq : EPSILON;
-                const I = 0.4 * M * rSq; // INERTIA_K = 0.4
-                const omega = p.angVel || 0;
-                const a = M > EPSILON ? I * Math.abs(omega) / M : 0;
-                const Q = p.charge;
-                const disc = M * M - a * a - Q * Q;
-                p.radius = disc > EPSILON ? M + Math.sqrt(disc) : M * 0.5; // BH_NAKED_FLOOR
+                p.radius = kerrNewmanRadius(p.mass, p.radiusSq, p.angVel, p.charge);
             } else {
                 p.radius = Math.cbrt(p.mass);
             }
@@ -299,10 +306,8 @@ export default class HiggsField {
         }
     }
 
-    /** Apply gradient force: F = -baseMass * grad(phi) (VEV=1, coupling=1).
-     *  Gradient smoothing: central differences at each CIC corner node, then
-     *  bilinear interpolation. Uses a 12-point stencil for C⁰ continuity
-     *  across cell boundaries (vs raw bilinear which has gradient jumps).
+    /** Apply gradient force: F = -baseMass * grad(phi).
+     *  PQS gradient weights (derivative of cubic B-spline) give C¹ continuous forces.
      */
     applyForces(particles, domainW, domainH) {
         const cellW = domainW / GRID;
@@ -310,34 +315,43 @@ export default class HiggsField {
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const inv2CellW = 0.5 * invCellW;
-        const inv2CellH = 0.5 * invCellH;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             if (p.baseMass < EPSILON) continue;
 
-            this._cicCoords(p.pos.x, p.pos.y, invCellW, invCellH);
-            const ix = this._cic.ix, iy = this._cic.iy;
-            const fx = this._cic.fx, fy = this._cic.fy;
+            this._pqsCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+            const { ix, iy, dx, dy } = this._pqs;
+            const wx = this._wx;
+            const wy = this._wy;
 
-            // Central-difference gradient at each of the 4 CIC corner nodes
-            // gx(cx,cy) = (phi(cx+1,cy) - phi(cx-1,cy)) / (2*cellW)
-            const gx00 = (this._phiAt(ix + 1, iy) - this._phiAt(ix - 1, iy)) * inv2CellW;
-            const gx10 = (this._phiAt(ix + 2, iy) - this._phiAt(ix, iy)) * inv2CellW;
-            const gx01 = (this._phiAt(ix + 1, iy + 1) - this._phiAt(ix - 1, iy + 1)) * inv2CellW;
-            const gx11 = (this._phiAt(ix + 2, iy + 1) - this._phiAt(ix, iy + 1)) * inv2CellW;
+            // PQS gradient weights: dW/d(dx) for cubic B-spline
+            const tx = 1 - dx;
+            const dwx = this._dwx;
+            dwx[0] = -tx * tx * 0.5;
+            dwx[1] = dx * (-2 + 1.5 * dx);
+            dwx[2] = 0.5 + dx * (1 - 1.5 * dx);
+            dwx[3] = dx * dx * 0.5;
 
-            const gy00 = (this._phiAt(ix, iy + 1) - this._phiAt(ix, iy - 1)) * inv2CellH;
-            const gy10 = (this._phiAt(ix + 1, iy + 1) - this._phiAt(ix + 1, iy - 1)) * inv2CellH;
-            const gy01 = (this._phiAt(ix, iy + 2) - this._phiAt(ix, iy)) * inv2CellH;
-            const gy11 = (this._phiAt(ix + 1, iy + 2) - this._phiAt(ix + 1, iy)) * inv2CellH;
+            const ty = 1 - dy;
+            const dwy = this._dwy;
+            dwy[0] = -ty * ty * 0.5;
+            dwy[1] = dy * (-2 + 1.5 * dy);
+            dwy[2] = 0.5 + dy * (1 - 1.5 * dy);
+            dwy[3] = dy * dy * 0.5;
 
-            // Bilinear interpolation of node gradients
-            const gradX = gx00 * (1 - fx) * (1 - fy) + gx10 * fx * (1 - fy)
-                        + gx01 * (1 - fx) * fy + gx11 * fx * fy;
-            const gradY = gy00 * (1 - fx) * (1 - fy) + gy10 * fx * (1 - fy)
-                        + gy01 * (1 - fx) * fy + gy11 * fx * fy;
+            let gradX = 0, gradY = 0;
+            for (let jy = 0; jy < 4; jy++) {
+                const wyj = wy[jy];
+                const dwyj = dwy[jy];
+                for (let jx = 0; jx < 4; jx++) {
+                    const phi = this._phiAt(ix + jx - 1, iy + jy - 1);
+                    gradX += phi * dwx[jx] * wyj;
+                    gradY += phi * wx[jx] * dwyj;
+                }
+            }
+            gradX *= invCellW;
+            gradY *= invCellH;
 
             const forceX = -p.baseMass * gradX;
             const forceY = -p.baseMass * gradY;
