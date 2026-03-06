@@ -188,7 +188,7 @@ Requires Coulomb. Dynamical pseudoscalar field on a 64×64 grid with quadratic p
 
 **Source coupling**: Charged particles deposit `q²` into the field via PQS. Neutral particles neither source nor feel the axion field.
 
-**EM coupling modulation**: `α_eff(x) = α·(1 + a(x))`. Per-particle `p.axMod` (interpolated from local field value via `interpolateAxMod()`) replaces the old global `toggles.axMod` oscillation. All EM forces (Coulomb, magnetic dipole, Biot-Savart) use the local coupling. Applied in `pairForce()` and `pairPE()`.
+**EM coupling modulation**: `α_eff(x) = α·(1 + a(x))`. Per-particle `p.axMod` (interpolated from local field value via `interpolateAxMod()`) replaces the old global `toggles.axMod` oscillation. Clamped `≥ 0` to prevent EM force sign reversal (axion can screen EM to zero but never flip it). All EM forces (Coulomb, magnetic dipole, Biot-Savart) use the local coupling. Applied in `pairForce()` and `pairPE()`.
 
 **Gradient force**: `F = -q²·∇a`. PQS gradient (C¹ continuous). Accumulates into `forceAxion`. Applied as E-like force after external fields.
 
@@ -487,6 +487,7 @@ Particle color: neutral=slate `#8A7E72`. Charged: RGB lerp toward red (positive)
 - Higgs thermal correction subtracts KE_local directly from μ² (thermalK=1 baked in, linear in KE density ∝ T²)
 - Higgs/Axion field reset on preset load and clear; Higgs mass restoration to `baseMass` on toggle-off; Axion axMod reset to 1 on toggle-off
 - Axion `p.axMod` is per-particle (interpolated from local field), not a global oscillation -- `pairForce()` and `pairPE()` use `p.axMod`, not `toggles.axMod`
+- Axion `p.axMod` clamped `>= 0` -- without this, `a(x) < -1` reverses EM force signs causing runaway acceleration and radiation detonation
 - Axion coupling baked to 1 -- no `AXION_G` constant. Force is `F = -q²·∇a`, modulation is `α_eff = α·(1 + a(x))`
 - `magMoment`/`angMomentum` cache is set in `computeAllForces()` — if angVel changes mid-substep (spin-orbit, frame-drag), the cache reflects the *previous* computeAllForces state, which is consistent with the B-field gradients used in the same substep
 - Ghost particles must carry `magMoment`/`angMomentum` fields (set in `_addGhost()`) for BH leaf walk in `pairForce()`/`pairPE()`
