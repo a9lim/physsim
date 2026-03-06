@@ -44,14 +44,18 @@ export function resetForces(particles) {
  * In pairwise mode with signal delay, source positions are evaluated on the
  * past light cone rather than at the current time.
  */
-// Pre-allocated arrays for source dipole moments (grown as needed)
-let _srcMagMoment = new Float64Array(256);
-let _srcAngMomentum = new Float64Array(256);
-
 export function computeAllForces(particles, toggles, pool, root, barnesHutEnabled, relativityEnabled, simTime, periodic, domW, domH, topology = TORUS) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
     const n = particles.length;
+
+    // Cache dipole moments once per particle (valid for all pairForce/pairPE calls this substep)
+    for (let i = 0; i < n; i++) {
+        const p = particles[i];
+        const rSq = p.radiusSq;
+        p.magMoment = MAG_MOMENT_K * p.charge * p.angVel * rSq;
+        p.angMomentum = INERTIA_K * p.mass * p.angVel * rSq;
+    }
 
     const useSignalDelay = relativityEnabled;
 
@@ -61,19 +65,6 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
             calculateForce(particles[i], pool, root, BH_THETA, particles[i].force, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
         }
     } else {
-
-        // Precompute source dipole moments once per particle (not per pair)
-        if (n > _srcMagMoment.length) {
-            _srcMagMoment = new Float64Array(n * 2);
-            _srcAngMomentum = new Float64Array(n * 2);
-        }
-        for (let i = 0; i < n; i++) {
-            const o = particles[i];
-            const oRSq = o.radiusSq;
-            _srcMagMoment[i] = MAG_MOMENT_K * o.charge * o.angVel * oRSq;
-            _srcAngMomentum[i] = INERTIA_K * o.mass * o.angVel * oRSq;
-        }
-
         // When signal delay is off and 1PN is off, forces are symmetric — use j>i loop
         // (1PN uses per-particle velocity so forces are NOT symmetric; signal delay
         // makes source positions asymmetric)
@@ -84,14 +75,13 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
                 const p = particles[i];
                 for (let j = i + 1; j < n; j++) {
                     const o = particles[j];
-                    // Accumulate to both particles
                     pairForce(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
                         o.mass, o.charge, o.angVel,
-                        _srcMagMoment[j], _srcAngMomentum[j], p.force, toggles,
+                        o.magMoment, o.angMomentum, p.force, toggles,
                         periodic, domW, domH, halfDomW, halfDomH, topology);
                     pairForce(o, p.pos.x, p.pos.y, p.vel.x, p.vel.y,
                         p.mass, p.charge, p.angVel,
-                        _srcMagMoment[i], _srcAngMomentum[i], o.force, toggles,
+                        p.magMoment, p.angMomentum, o.force, toggles,
                         periodic, domW, domH, halfDomW, halfDomH, topology);
                 }
             }
@@ -119,7 +109,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
 
                     pairForce(p, sx, sy, svx, svy,
                         o.mass, o.charge, sAngVel,
-                        _srcMagMoment[j], _srcAngMomentum[j], p.force, toggles,
+                        o.magMoment, o.angMomentum, p.force, toggles,
                         periodic, domW, domH, halfDomW, halfDomH, topology);
                 }
             }
@@ -152,10 +142,9 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     // (v_s × r)_z — enters Biot-Savart-like field expressions
     const crossSV = svx * ry - svy * rx;
 
-    // Test particle dipole moments (use cached radiusSq)
-    const pRSq = p.radiusSq;
-    const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
-    const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
+    // Test particle dipole moments (cached per-substep in computeAllForces)
+    const pMagMoment = p.magMoment;
+    const pAngMomentum = p.angMomentum;
 
     // Relative velocity (source - particle) for analytical jerk
     const vrx = svx - p.vel.x, vry = svy - p.vel.y;
@@ -441,8 +430,7 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
                 } else {
                     sx = other.pos.x; sy = other.pos.y; svx = other.vel.x; svy = other.vel.y;
                 }
-                const otherRSq = other.radiusSq;
-                pairForce(particle, sx, sy, svx, svy, other.mass, other.charge, other.angVel, MAG_MOMENT_K * other.charge * other.angVel * otherRSq, INERTIA_K * other.mass * other.angVel * otherRSq, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
+                pairForce(particle, sx, sy, svx, svy, other.mass, other.charge, other.angVel, other.magMoment, other.angMomentum, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
             }
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             // Distant node: use aggregate (size/d < theta, computed as size²<theta²·d²)

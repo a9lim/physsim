@@ -126,7 +126,7 @@ export default class Physics {
         if (this._ghostCount < this._ghostPool.length) {
             g = this._ghostPool[this._ghostCount];
         } else {
-            g = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, w: { x: 0, y: 0, magSq() { return this.x * this.x + this.y * this.y; } }, mass: 0, charge: 0, angVel: 0, angw: 0, radius: 0, radiusSq: 0, invMass: 0, id: -1, isGhost: true, original: null };
+            g = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, w: { x: 0, y: 0, magSq() { return this.x * this.x + this.y * this.y; } }, mass: 0, charge: 0, angVel: 0, angw: 0, magMoment: 0, angMomentum: 0, radius: 0, radiusSq: 0, invMass: 0, id: -1, isGhost: true, original: null };
             this._ghostPool.push(g);
         }
         g.pos.x = sx; g.pos.y = sy;
@@ -138,6 +138,8 @@ export default class Physics {
         g.angVel = (flipVx || flipVy) ? -p.angVel : p.angVel;
         g.angw = (flipVx || flipVy) ? -p.angw : p.angw;
         g.radius = p.radius; g.radiusSq = p.radiusSq; g.invMass = p.invMass; g.id = -1;
+        g.magMoment = MAG_MOMENT_K * g.charge * g.angVel * g.radiusSq;
+        g.angMomentum = INERTIA_K * g.mass * g.angVel * g.radiusSq;
         g.original = p;
         this._ghostCount++;
         return g;
@@ -513,13 +515,12 @@ export default class Physics {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (Math.abs(p.angVel) < EPSILON) continue;
-                    const pRSq = p.radiusSq;
-                    const IxOmega = INERTIA_K * p.mass * pRSq * p.angVel;
+                    const IxOmega = p.angMomentum;
                     if (Math.abs(IxOmega) < EPSILON) continue;
                     const dtOverM = dtSub * p.invMass;
 
                     if (hasMagnetic && Math.abs(p.charge) > EPSILON) {
-                        const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
+                        const mu = p.magMoment;
                         // Energy transfer
                         p.angw -= mu * (p.vel.x * p.dBzdx + p.vel.y * p.dBzdy) * dtSub / IxOmega;
                         // Stern-Gerlach translational kick
@@ -527,7 +528,7 @@ export default class Physics {
                         p.w.y += mu * p.dBzdy * dtOverM;
                     }
                     if (hasGM) {
-                        const L = INERTIA_K * p.mass * p.angVel * pRSq;
+                        const L = p.angMomentum;
                         // Energy transfer
                         p.angw -= L * (p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy) * dtSub / IxOmega;
                         // Mathisson-Papapetrou translational kick
@@ -1045,14 +1046,14 @@ export default class Physics {
                         if (hasMagnetic) {
                             const absQ = p.charge > 0 ? p.charge : -p.charge;
                             if (absQ >= EPSILON) {
-                                const mu = MAG_MOMENT_K * p.charge * p.angVel * p.radiusSq;
+                                const mu = p.magMoment;
                                 p.torqueSpinOrbit += -mu * (vx * p.dBzdx + vy * p.dBzdy);
                                 p.forceSpinCurv.x += mu * p.dBzdx;
                                 p.forceSpinCurv.y += mu * p.dBzdy;
                             }
                         }
                         if (hasGM) {
-                            const L = INERTIA_K * p.mass * p.angVel * p.radiusSq;
+                            const L = p.angMomentum;
                             p.torqueSpinOrbit += -L * (vx * p.dBgzdx + vy * p.dBgzdy);
                             p.forceSpinCurv.x -= L * p.dBgzdx;
                             p.forceSpinCurv.y -= L * p.dBgzdy;

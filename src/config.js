@@ -60,7 +60,7 @@ export const ROCHE_TRANSFER_RATE = 0.01;  // mass transfer rate coefficient
 export const DEFAULT_HUBBLE = 0.001;  // Hubble parameter
 
 // Higgs field: V(φ) = -(m_H²/4)φ² + (m_H²/8)φ⁴ (VEV=1, λ=m_H²/2)
-export const HIGGS_GRID = 128;
+export const HIGGS_GRID = 64;
 export const DEFAULT_HIGGS_MASS = 0.5;        // Higgs boson mass (mediator range ~ 1/m_H)
 export const HIGGS_PHI_MAX = 16;              // field value clamp (prevent runaway)
 

@@ -39,13 +39,13 @@ src/
   energy.js                 ~147 lines computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field, Higgs field energy
   stats-display.js          ~126 lines StatsDisplay: energy/momentum/drift DOM updates (×100 display scale), selected particle info, force breakdown
   config.js                  ~123 lines Named constants, spawnOffset(), kerrNewmanRadius() helpers (softening, BH, numerical, simulation, input, display, Higgs)
-  particle.js               ~118 lines Particle entity: pos, vel, w, angw, baseMass, antimatter flag, per-type force vectors (incl. forceHiggs), history buffers
+  particle.js               ~120 lines Particle entity: pos, vel, w, angw, baseMass, antimatter flag, cached magMoment/angMomentum, per-type force vectors (incl. forceHiggs), history buffers
   phase-plot.js              117 lines PhasePlot: r vs v_r sidebar canvas (512-sample ring buffer)
   collisions.js             ~116 lines handleCollisions(), resolveMerge(), antimatter annihilation, baseMass conservation
   topology.js                112 lines TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
-  vec2.js                     65 lines Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist
-  photon.js                   40 lines Photon entity: pos, vel, energy, lifetime, emitterId, type ('em'/'grav'), gravitational lensing
-  relativity.js                33 lines angwToAngVel(), angVelToAngw(), setVelocity()
+  vec2.js                      62 lines Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist
+  photon.js                    89 lines Photon entity: pos, vel, energy, lifetime, emitterId, type ('em'/'grav'), gravitational lensing (BH tree walk)
+  relativity.js                 23 lines angwToAngVel(), setVelocity()
 ```
 
 ## Module Dependency Graph
@@ -66,7 +66,7 @@ forces.js        <- config, getDelayedState (signal-delay), TORUS + minImage (to
                     computeAllForces() uses relativityEnabled for signal delay (no separate param)
 energy.js        <- config (INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ), TORUS + minImage (topology)
                     (accesses sim.higgsField via window.sim for field energy)
-potential.js     <- config, TORUS + minImage (topology)
+potential.js     <- config (BH_THETA, YUKAWA_G2), TORUS + minImage (topology)
 stats-display.js <- computeEnergies (energy), config (DISPLAY_SCALE, STATS_THROTTLE_MASK, EPSILON)
 ui.js            <- loadPreset (presets), config (PHYSICS_DT, WORLD_SCALE), REFERENCE (reference)
 presets.js       <- config (WORLD_SCALE, SOFTENING_SQ)
@@ -77,7 +77,7 @@ input.js         <- Vec2, config (MAX_SPEED_RATIO, PINCH_DEBOUNCE, DRAG_THRESHOL
 collisions.js    <- config (INERTIA_K), relativity helpers (angwToAngVel), topology (TORUS, minImage, wrapPosition)
 signal-delay.js  <- config (HISTORY_SIZE, NR_TOLERANCE, EPSILON), TORUS + minImage (topology)
 save-load.js     <- Particle, angwToAngVel (relativity)
-effective-potential.js <- config (SOFTENING_SQ, BH_SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, YUKAWA_G2, AXION_G)
+effective-potential.js <- config (SOFTENING_SQ, BH_SOFTENING_SQ, YUKAWA_G2, AXION_G)
 higgs-field.js   <- config (HIGGS_GRID, DEFAULT_HIGGS_MASS, HIGGS_PHI_MAX, EPSILON, kerrNewmanRadius), topology (TORUS, KLEIN, RP2)
 particle.js      <- Vec2, config (HISTORY_SIZE, kerrNewmanRadius)
 reference.js     (no imports - pure data)
@@ -102,9 +102,11 @@ When relativity is off: `vel = w`, `angVel = angw` (identity).
 
 Key derived quantities:
 - Moment of inertia: `I = INERTIA_K * m * r²` (INERTIA_K = 0.4)
-- Magnetic moment: `mu = MAG_MOMENT_K * q * omega * r²` (MAG_MOMENT_K = 0.2)
-- Angular momentum: `L = I * omega`
+- Magnetic moment: `mu = MAG_MOMENT_K * q * omega * r²` (MAG_MOMENT_K = 0.2) — cached as `p.magMoment`
+- Angular momentum: `L = I * omega` — cached as `p.angMomentum`
 - Particle radius: `r = cbrt(mass)`; in BH mode: `kerrNewmanRadius(M, r², ω, Q)` → `r+ = M + sqrt(M²-a²-Q²)` where `a = INERTIA_K*r²*|ω|`
+
+`magMoment` and `angMomentum` are cached per particle at the start of `computeAllForces()` and used by `pairForce()`, `pairPE()`, BH tree leaf walks, spin-orbit coupling, display reconstruction, and effective potential plot. Ghost particles also carry these cached fields. The quadtree's `calculateMassDistribution()` computes them inline from current state (O(N) per build).
 
 ### Per-Particle Display Vectors
 
@@ -253,13 +255,13 @@ Energy transfer: `dE = -mu*(v·∇Bz)*dt` (EM), `dE = -L*(v·∇Bgz)*dt` (GM). C
 
 ### Disintegration
 
-Toggle (`disintegrationEnabled`), requires Gravity. Locks collision to Merge (prevents runaway particle creation). Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into 2 pieces (hardcoded `nf=2` in main.js). Min mass guard: `MIN_MASS * SPAWN_COUNT`.
+Toggle (`disintegrationEnabled`), requires Gravity. Locks collision to Merge (prevents runaway particle creation). Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into `SPAWN_COUNT` pieces (default 4). Min mass guard: `MIN_MASS * SPAWN_COUNT`.
 
 **Roche Lobe Overflow**: Eggleton formula. Continuous mass transfer toward companion through L1. Rate: `dM = overflow * ROCHE_TRANSFER_RATE * m`, capped 10%. Min packet: `MIN_MASS`. Returns `{ fragments, transfers }`.
 
 ### Photon Gravitational Lensing
 
-`dv = 2·M·r̂/r²·dt` (2× Newtonian, null geodesic). Velocity renormalized to c=1. Uses PHOTON_SOFTENING_SQ=4.
+`dv = 2·M·r̂/r²·dt` (2× Newtonian, null geodesic). Velocity renormalized to c=1. Uses PHOTON_SOFTENING_SQ=4. When Barnes-Hut is enabled, uses tree walk (`_treeDeflect()`) for O(log N) per photon instead of O(N). Pool/root passed from main.js loop; falls back to brute-force O(N) when BH is off.
 
 ### Cosmological Expansion
 
@@ -445,3 +447,6 @@ Particle color: neutral=slate `#8A7E72`. Charged: RGB lerp toward red (positive)
 - Higgs field `energy()` shifts potential by +μ²/4 so V(1)=0 -- without this, a constant negative offset dominates energy tracking
 - Higgs thermal correction subtracts KE_local directly from μ² (thermalK=1 baked in, linear in KE density ∝ T²)
 - Higgs field reset on preset load and clear; mass restoration to `baseMass` on toggle-off
+- `magMoment`/`angMomentum` cache is set in `computeAllForces()` — if angVel changes mid-substep (spin-orbit, frame-drag), the cache reflects the *previous* computeAllForces state, which is consistent with the B-field gradients used in the same substep
+- Ghost particles must carry `magMoment`/`angMomentum` fields (set in `_addGhost()`) for BH leaf walk in `pairForce()`/`pairPE()`
+- Photon `update()` takes optional `pool`/`root` for BH tree lensing; falls back to O(N) brute force when pool is null or root < 0

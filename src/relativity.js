@@ -8,17 +8,6 @@ export function angwToAngVel(angw, radius) {
     return angw / Math.sqrt(1 + angw * angw * radius * radius);
 }
 
-/** angVel -> angw: W = omega / sqrt(1 - omega^2 r^2). Clamps at MAX_SPEED_RATIO. */
-export function angVelToAngw(angVel, radius) {
-    const sr = angVel * radius;
-    const srSq = sr * sr;
-    if (srSq >= 1) {
-        const clampedSr = MAX_SPEED_RATIO;
-        return Math.sign(angVel) * clampedSr / (radius * Math.sqrt(1 - clampedSr * clampedSr));
-    }
-    return angVel / Math.sqrt(1 - srSq);
-}
-
 /** Set p.vel and p.w from (vx,vy), clamping |v| < MAX_SPEED_RATIO. */
 export function setVelocity(p, vx, vy) {
     const speedSq = vx * vx + vy * vy;

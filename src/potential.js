@@ -1,7 +1,7 @@
 // ─── Potential Energy Computation ───
 // Mirrors force calculation structure (BH tree or pairwise) for consistent PE.
 
-import { BH_THETA, INERTIA_K, MAG_MOMENT_K, YUKAWA_G2 } from './config.js';
+import { BH_THETA, YUKAWA_G2 } from './config.js';
 import { TORUS, minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -23,11 +23,9 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
             const p = particles[i];
             for (let j = i + 1; j < n; j++) {
                 const o = particles[j];
-                const oRSq = o.radiusSq;
                 pe += pairPE(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
                     o.mass, o.charge, o.angVel,
-                    MAG_MOMENT_K * o.charge * o.angVel * oRSq,
-                    INERTIA_K * o.mass * o.angVel * oRSq, toggles,
+                    o.magMoment, o.angMomentum, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology);
             }
         }
@@ -70,11 +68,9 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
                 const other = pool.points[base + i];
                 if (other === particle) continue;
                 if (other.isGhost && other.original === particle) continue;
-                const oRSq = other.radiusSq;
                 pe += pairPE(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y,
                     other.mass, other.charge, other.angVel,
-                    MAG_MOMENT_K * other.charge * other.angVel * oRSq,
-                    INERTIA_K * other.mass * other.angVel * oRSq, toggles,
+                    other.magMoment, other.angMomentum, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology);
             }
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
@@ -109,9 +105,8 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
     const rSq = rx * rx + ry * ry + toggles.softeningSq;
     const invRSq = 1 / rSq;
     const invR = Math.sqrt(invRSq);
-    const pRSq = p.radiusSq;
-    const pMagMoment = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
-    const pAngMomentum = INERTIA_K * p.mass * p.angVel * pRSq;
+    const pMagMoment = p.magMoment;
+    const pAngMomentum = p.angMomentum;
 
     let pe = 0;
     if (toggles.gravityEnabled)  pe -= p.mass * sMass * invR;
