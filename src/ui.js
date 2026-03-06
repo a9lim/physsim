@@ -235,7 +235,7 @@ export function setupUI(sim) {
     const potentialModeBar = document.getElementById('potential-mode-toggles');
     potentialToggle?.addEventListener('change', (e) => {
         sim.heatmap.enabled = e.target.checked;
-        potentialModeBar.hidden = !e.target.checked;
+        potentialModeBar.style.display = e.target.checked ? '' : 'none';
     });
     potentialModeBar?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-potential]');
