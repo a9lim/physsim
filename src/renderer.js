@@ -460,14 +460,14 @@ export default class Renderer {
 
         // Batch by type to minimize fillStyle/shadowColor changes
         for (let pass = 0; pass < 2; pass++) {
-            const isGW = pass === 1;
-            const color = isGW ? _PAL.extended.green : _PAL.extended.yellow;
-            const glowColor = isGW ? '#50987880' : '#FFDC6480';
+            const isGrav = pass === 1;
+            const color = isGrav ? _PAL.extended.red : _PAL.extended.yellow;
+            const glowColor = _r(color, 0.5);
             ctx.fillStyle = color;
 
             for (let i = 0, len = photons.length; i < len; i++) {
                 const ph = photons[i];
-                if ((ph.type === 'gw') !== isGW) continue;
+                if ((ph.type === 'grav') !== isGrav) continue;
                 const alpha = 1 - ph.lifetime / PHOTON_LIFETIME;
                 if (alpha <= 0) continue;
                 const size = 0.2 + ph.energy * 20;

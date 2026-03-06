@@ -10,7 +10,7 @@ export default class Photon {
         this.alive = true;
         this.emitterId = emitterId;
         this.age = 0; // substeps since emission (self-absorption guard)
-        this.type = 'em'; // 'em' for electromagnetic, 'gw' for gravitational wave
+        this.type = 'em'; // 'em' for electromagnetic, 'grav' for graviton
     }
 
     update(dt, particles) {
