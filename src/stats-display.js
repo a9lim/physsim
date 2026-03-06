@@ -1,6 +1,8 @@
 import { computeEnergies } from './energy.js';
 
-const fmt = (v) => Math.abs(v) > 999 ? v.toExponential(2) : v.toFixed(2);
+const DISPLAY_SCALE = 100;
+const fmt = (v) => { v *= DISPLAY_SCALE; return Math.abs(v) > 999 ? v.toExponential(2) : v.toFixed(2); };
+const fmtRaw = (v) => Math.abs(v) > 999 ? v.toExponential(2) : v.toFixed(2);
 const fmtDrift = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
 
 export default class StatsDisplay {
@@ -82,8 +84,8 @@ export default class StatsDisplay {
         const totalFy = p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.forceSpinCurv.y + p.forceRadiation.y + p.forceYukawa.y;
         const forceMag = Math.sqrt(totalFx * totalFx + totalFy * totalFy);
 
-        dom.mass.textContent = fmt(p.mass);
-        dom.charge.textContent = fmt(p.charge);
+        dom.mass.textContent = fmtRaw(p.mass);
+        dom.charge.textContent = fmtRaw(p.charge);
         const surfaceV = p.angVel * p.radius;
         dom.spin.textContent = surfaceV.toFixed(4) + 'c';
         dom.speed.textContent = speed.toFixed(4) + 'c';
