@@ -239,6 +239,15 @@ export default class Physics {
         // frame's last substep (or from the bootstrap above). No preliminary
         // force pass needed.
 
+        // Clear reconstructed radiation display from previous frame so it
+        // doesn't leak into the first substep's snapshot (forceRadiation is
+        // only set by Larmor for charged particles — neutral ones would carry
+        // stale values from reconstruction, accumulating frame over frame).
+        for (let i = 0; i < n; i++) {
+            particles[i].forceRadiation.x = 0;
+            particles[i].forceRadiation.y = 0;
+        }
+
         // ─── Adaptive substepping ───
         // Re-evaluates dtSafe each iteration so substep size tracks changing fields.
         let dtRemain = dt;
@@ -759,9 +768,12 @@ export default class Physics {
                     if (dE > 1e-10 && totalKE > 1e-20) {
                         const f = 0.5 * dE / totalKE;
                         const scale = 1 - f;
+                        const fOverDt = f / dt;
                         const invKE = 1 / totalKE;
                         for (let i = 0; i < n; i++) {
                             const p = particles[i];
+                            p._radDisplayX -= p.mass * p.w.x * fOverDt;
+                            p._radDisplayY -= p.mass * p.w.y * fOverDt;
                             p.w.x *= scale;
                             p.w.y *= scale;
                             // Distribute energy to each particle proportional to KE
