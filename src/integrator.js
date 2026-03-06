@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, BH_NAKED_FLOOR } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -22,8 +22,8 @@ const _disintMiOut = { x: 0, y: 0 };
  */
 function _quadSample(Axx, Axy) {
     const peak2 = Axx * Axx + Axy * Axy;
-    if (peak2 < 1e-30) return Math.random() * TWO_PI;
-    for (let tries = 0; tries < 30; tries++) {
+    if (peak2 < EPSILON_SQ * EPSILON_SQ) return Math.random() * TWO_PI;
+    for (let tries = 0; tries < MAX_REJECTION_SAMPLES; tries++) {
         const phi = Math.random() * TWO_PI;
         const c2 = Math.cos(2 * phi), s2 = Math.sin(2 * phi);
         const h = Axx * c2 + Axy * s2;
@@ -107,7 +107,7 @@ export default class Physics {
         } else {
             this._toggles.axMod = 1.0;
         }
-        this._toggles.softeningSq = this.blackHoleEnabled ? 1 : SOFTENING_SQ;
+        this._toggles.softeningSq = this.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
     }
 
     /** Pool-allocate a ghost at (sx, sy) mirroring p. Flips for non-orientable topologies. */
@@ -250,7 +250,7 @@ export default class Physics {
         let dtRemain = dt;
         let totalSteps = 0;
         let lastRoot = -1;
-        while (dtRemain > 1e-15 && totalSteps < MAX_SUBSTEPS) {
+        while (dtRemain > EPSILON && totalSteps < MAX_SUBSTEPS) {
             let maxAccelSq = 0;
             let maxCyclotron = 0;
             for (let i = 0; i < n; i++) {
@@ -275,7 +275,7 @@ export default class Physics {
                 }
             }
             const aMax = Math.sqrt(maxAccelSq);
-            let dtSafe = aMax > 1e-20 ? Math.sqrt(SOFTENING / aMax) : dtRemain;
+            let dtSafe = aMax > EPSILON_SQ ? Math.sqrt((this.blackHoleEnabled ? BH_SOFTENING : SOFTENING) / aMax) : dtRemain;
             if (maxCyclotron > 0) {
                 const dtCyclotron = 0.7853981633974483 / maxCyclotron; // (2π/8) = π/4
                 if (dtCyclotron < dtSafe) dtSafe = dtCyclotron;
@@ -337,13 +337,13 @@ export default class Physics {
             if (this.spinOrbitEnabled && (hasMagnetic || hasGM)) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
-                    if (Math.abs(p.angVel) < 1e-10) continue;
+                    if (Math.abs(p.angVel) < EPSILON) continue;
                     const pRSq = p.radiusSq;
                     const IxOmega = INERTIA_K * p.mass * pRSq * p.angVel;
-                    if (Math.abs(IxOmega) < 1e-10) continue;
+                    if (Math.abs(IxOmega) < EPSILON) continue;
                     const dtOverM = dtSub * p.invMass;
 
-                    if (hasMagnetic && Math.abs(p.charge) > 1e-10) {
+                    if (hasMagnetic && Math.abs(p.charge) > EPSILON) {
                         const mu = MAG_MOMENT_K * p.charge * p.angVel * pRSq;
                         // Energy transfer
                         p.angw -= mu * (p.vel.x * p.dBzdx + p.vel.y * p.dBzdy) * dtSub / IxOmega;
@@ -375,6 +375,7 @@ export default class Physics {
                     if (torque === 0) continue;
                     const I = INERTIA_K * p.mass * p.radiusSq;
                     p.angw += torque * dtSub / I;
+                    if (p.angw !== p.angw) p.angw = 0; // NaN guard
                     const sr = p.angw * p.radius;
                     p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
                 }
@@ -385,10 +386,10 @@ export default class Physics {
             if (this.radiationEnabled && this.coulombEnabled && this.sim) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
-                    if (Math.abs(p.charge) < 1e-10) continue;
+                    if (Math.abs(p.charge) < EPSILON) continue;
 
                     const wMagSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                    if (wMagSq < 1e-20) continue;
+                    if (wMagSq < EPSILON_SQ) continue;
 
                     const gamma = relOn ? Math.sqrt(1 + wMagSq) : 1;
                     const qSq = p.charge * p.charge;
@@ -410,7 +411,7 @@ export default class Physics {
                         const c2 = (h1 + 2 * h2) / (h2 * hSum);
                         jerkX += c0 * p._otherFx0 + c1 * p._otherFx1 + c2 * otherFx;
                         jerkY += c0 * p._otherFy0 + c1 * p._otherFy1 + c2 * otherFy;
-                    } else if (p._otherCount >= 1 && p._otherDt1 > 1e-20) {
+                    } else if (p._otherCount >= 1 && p._otherDt1 > EPSILON_SQ) {
                         // O(dt) 2-point backward fallback
                         const invDt = 1 / p._otherDt1;
                         jerkX += (otherFx - p._otherFx1) * invDt;
@@ -456,7 +457,7 @@ export default class Physics {
                     const fRadMag = Math.sqrt(fRadX * fRadX + fRadY * fRadY);
                     const fExtMag = Math.sqrt(p.force.x * p.force.x + p.force.y * p.force.y);
                     const maxFRad = LL_FORCE_CLAMP * fExtMag;
-                    if (fRadMag > maxFRad && fRadMag > 1e-20) {
+                    if (fRadMag > maxFRad && fRadMag > EPSILON_SQ) {
                         const scale = maxFRad / fRadMag;
                         fRadX *= scale;
                         fRadY *= scale;
@@ -491,11 +492,11 @@ export default class Physics {
                             // sin²θ dipole pattern: peak emission ⊥ to acceleration
                             let theta, tries = 0;
                             do { theta = Math.random() * TWO_PI; }
-                            while (Math.random() > Math.sin(theta) * Math.sin(theta) && ++tries < 20);
+                            while (Math.random() > Math.sin(theta) * Math.sin(theta) && ++tries < MAX_REJECTION_SAMPLES);
                             let emitAngle = accelAngle + theta;
 
                             // Relativistic aberration: beam forward at high γ
-                            if (gamma > 1.01) {
+                            if (gamma > ABERRATION_THRESHOLD) {
                                 const beta = Math.sqrt(1 - 1 / (gamma * gamma));
                                 const velAngle = Math.atan2(p.vel.y, p.vel.x);
                                 const delta = emitAngle - velAngle;
@@ -529,7 +530,7 @@ export default class Physics {
                     const Q = p.charge;
                     const disc = M * M - a * a - Q * Q;
                     let power;
-                    if (disc > 1e-10) {
+                    if (disc > EPSILON) {
                         const rPlus = M + Math.sqrt(disc);
                         const kappa = Math.sqrt(disc) / (rPlus * rPlus + a * a);
                         const T = kappa / TWO_PI;
@@ -539,13 +540,13 @@ export default class Physics {
                     } else {
                         power = 0; // extremal: no radiation
                     }
-                    const dE = power * dtSub;
+                    const dE = Math.min(power * dtSub, p.mass);
                     if (dE <= 0) continue;
                     p.mass -= dE;
                     p.invMass = 1 / p.mass;
                     // Update Kerr-Newman radius
                     const newDisc = p.mass * p.mass - a * a - Q * Q;
-                    p.radius = newDisc > 0 ? p.mass + Math.sqrt(newDisc) : p.mass * 0.5;
+                    p.radius = newDisc > 0 ? p.mass + Math.sqrt(newDisc) : p.mass * BH_NAKED_FLOOR;
                     p.radiusSq = p.radius * p.radius;
                     this.sim.totalRadiated += dE;
 
@@ -623,6 +624,7 @@ export default class Physics {
 
             // Photon absorption: p = E/c = E (natural units)
             if (this.radiationEnabled && this.sim && this.sim.photons.length > 0) {
+                const softening = this.blackHoleEnabled ? BH_SOFTENING : SOFTENING;
                 const photons = this.sim.photons;
                 for (let pi = photons.length - 1; pi >= 0; pi--) {
                     const ph = photons[pi];
@@ -630,7 +632,7 @@ export default class Physics {
                     ph.age++;
                     // Query quadtree for nearby particles (reuses pooled array)
                     const candidates = this.pool.queryReuse(root,
-                        ph.pos.x, ph.pos.y, SOFTENING, SOFTENING);
+                        ph.pos.x, ph.pos.y, softening, softening);
                     for (let ci = 0; ci < candidates.length; ci++) {
                         const target = candidates[ci];
                         if (target.isGhost) continue;
@@ -703,7 +705,7 @@ export default class Physics {
                 // Backward difference for residual forces (magnetic, GM, 1PN, spin-curv)
                 const resFx = Fx - p.forceGravity.x - p.forceCoulomb.x - p.forceYukawa.x;
                 const resFy = Fy - p.forceGravity.y - p.forceCoulomb.y - p.forceYukawa.y;
-                if (p._qResCount >= 2 && dt > 1e-15) {
+                if (p._qResCount >= 2 && dt > EPSILON) {
                     // O(dt²) 3-point backward derivative (uniform dt = PHYSICS_DT)
                     const invDt = 1 / dt;
                     const c0 = 0.5 * invDt;
@@ -711,7 +713,7 @@ export default class Physics {
                     const c2 = 1.5 * invDt;
                     Jx += c0 * p._qResFx0 + c1 * p._qResFx1 + c2 * resFx;
                     Jy += c0 * p._qResFy0 + c1 * p._qResFy1 + c2 * resFy;
-                } else if (p._qResCount >= 1 && dt > 1e-15) {
+                } else if (p._qResCount >= 1 && dt > EPSILON) {
                     // O(dt) 2-point backward fallback
                     Jx += (resFx - p._qResFx1) / dt;
                     Jy += (resFy - p._qResFy1) / dt;
@@ -752,10 +754,10 @@ export default class Physics {
                     for (let i = 0; i < n; i++) {
                         const p = particles[i];
                         const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                        totalKE += wSq > 1e-20 ? p.mass * wSq / (Math.sqrt(1 + wSq) + 1) : 0;
+                        totalKE += wSq > EPSILON_SQ ? p.mass * wSq / (Math.sqrt(1 + wSq) + 1) : 0;
                     }
                     let dE = quadPower * dt;
-                    if (totalKE > 1e-20) dE = Math.min(dE, 0.01 * totalKE);
+                    if (totalKE > EPSILON_SQ) dE = Math.min(dE, QUADRUPOLE_POWER_CLAMP * totalKE);
 
                     // Split dE proportionally between GW and EM channels
                     const gwFrac = gwPower / quadPower;
@@ -765,8 +767,8 @@ export default class Physics {
                     this.sim.totalRadiated += dE;
 
                     // Tangential drag + per-particle accumulation (both ∝ KE)
-                    if (dE > 1e-10 && totalKE > 1e-20) {
-                        const f = 0.5 * dE / totalKE;
+                    if (dE > EPSILON && totalKE > EPSILON_SQ) {
+                        const f = Math.min(0.5 * dE / totalKE, 1);
                         const scale = 1 - f;
                         const fOverDt = f / dt;
                         const invKE = 1 / totalKE;
@@ -778,7 +780,7 @@ export default class Physics {
                             p.w.y *= scale;
                             // Distribute energy to each particle proportional to KE
                             const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                            const ke = wSq > 1e-20 ? p.mass * wSq / (Math.sqrt(1 + wSq) + 1) : 0;
+                            const ke = wSq > EPSILON_SQ ? p.mass * wSq / (Math.sqrt(1 + wSq) + 1) : 0;
                             const frac = ke * invKE;
                             p._quadAccum += gwDE * frac;
                             p._emQuadAccum += emDE * frac;
@@ -843,10 +845,10 @@ export default class Physics {
                 }
                 if (soEnabled) {
                     const absAngVel = p.angVel > 0 ? p.angVel : -p.angVel;
-                    if (absAngVel >= 1e-10) {
+                    if (absAngVel >= EPSILON) {
                         if (hasMagnetic) {
                             const absQ = p.charge > 0 ? p.charge : -p.charge;
-                            if (absQ >= 1e-10) {
+                            if (absQ >= EPSILON) {
                                 const mu = MAG_MOMENT_K * p.charge * p.angVel * p.radiusSq;
                                 p.torqueSpinOrbit += -mu * (vx * p.dBzdx + vy * p.dBzdy);
                                 p.forceSpinCurv.x += mu * p.dBzdx;
@@ -920,11 +922,11 @@ export default class Physics {
         const _topo = this._topologyConst;
         const useTree = this.barnesHutEnabled && lastRoot >= 0;
         const disintSearchR = Math.max(_domW, _domH) * 0.5;
-        const softeningSq = this.blackHoleEnabled ? 1 : SOFTENING_SQ;
+        const softeningSq = this.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
 
         for (let pi = 0; pi < particles.length; pi++) {
             const p = particles[pi];
-            if (p.mass < MIN_MASS * FRAGMENT_COUNT) continue;
+            if (p.mass < MIN_MASS * SPAWN_COUNT) continue;
 
             const rSq = p.radiusSq;
             const selfGravity = p.mass / rSq;
@@ -980,14 +982,14 @@ export default class Physics {
 
             if (maxTidal + centrifugal + coulombSelf > selfGravity) {
                 fragments.push(p);
-            } else if (strongestOther && strongestDist > 1e-10 && p.mass > MIN_MASS * 4) {
+            } else if (strongestOther && strongestDist > EPSILON && p.mass > MIN_MASS * 4) {
                 // Roche lobe overflow: Eggleton formula r_Roche ≈ 0.462·d·(m/(m+M))^(1/3)
                 const d = strongestDist;
                 const q = p.mass / (p.mass + strongestOther.mass);
                 const rRoche = 0.462 * d * Math.cbrt(q);
                 if (p.radius > rRoche * ROCHE_THRESHOLD) {
                     const l1Mag = Math.sqrt(strongestDx * strongestDx + strongestDy * strongestDy);
-                    if (l1Mag > 1e-10) {
+                    if (l1Mag > EPSILON) {
                         const l1x = strongestDx / l1Mag, l1y = strongestDy / l1Mag;
                         const overflow = p.radius / rRoche - ROCHE_THRESHOLD;
                         const dM = Math.min(overflow * ROCHE_TRANSFER_RATE * p.mass, p.mass * 0.1);

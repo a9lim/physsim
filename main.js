@@ -6,7 +6,7 @@ import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, SPAWN_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR } from './src/config.js';
 import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
@@ -184,7 +184,7 @@ class Simulation {
 
         // Spin is surface velocity as fraction of c; convert to angular celerity
         let sv = options.spin ?? 0;
-        sv = Math.max(-0.99, Math.min(0.99, sv));
+        sv = Math.max(-MAX_SPEED_RATIO, Math.min(MAX_SPEED_RATIO, sv));
         const absSV = Math.abs(sv);
         p.angw = absSV > 0 ? Math.sign(sv) * absSV / (p.radius * Math.sqrt(1 - absSV * absSV)) : 0;
         setVelocity(p, vx, vy);
@@ -194,12 +194,12 @@ class Simulation {
     }
 
     loop(timestamp) {
-        const rawDt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
+        const rawDt = Math.min((timestamp - this.lastTime) / 1000, MAX_FRAME_DT);
         this.lastTime = timestamp;
 
         if (this.running) {
             this.accumulator += rawDt * this.speedScale;
-            const maxAccum = PHYSICS_DT * MAX_SUBSTEPS * 4;
+            const maxAccum = PHYSICS_DT * MAX_SUBSTEPS * ACCUMULATOR_CAP;
             if (this.accumulator > maxAccum) this.accumulator = maxAccum;
 
             while (this.accumulator >= PHYSICS_DT) {
@@ -230,12 +230,12 @@ class Simulation {
                     // Build set for O(1) lookup, spawn fragments, then compact
                     const fragSet = new Set(toFragment);
                     for (const p of toFragment) {
-                        const nf = FRAGMENT_COUNT;
+                        const nf = SPAWN_COUNT;
                         const fragMass = p.mass / nf;
                         const fragCharge = p.charge / nf;
                         for (let fi = 0; fi < nf; fi++) {
                             const angle = (TWO_PI * fi) / nf;
-                            const offset = p.radius * 1.5;
+                            const offset = Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR);
                             const fx = p.pos.x + Math.cos(angle) * offset;
                             const fy = p.pos.y + Math.sin(angle) * offset;
                             const tangVx = -Math.sin(angle) * p.angVel * offset;
@@ -267,12 +267,13 @@ class Simulation {
                         // Final burst: emit remaining mass-energy as photons
                         const burstE = Math.max(0, p.mass);
                         if (burstE > 0) {
-                            const nBurst = Math.min(5, MAX_PHOTONS - this.photons.length);
+                            const nBurst = Math.min(SPAWN_COUNT, MAX_PHOTONS - this.photons.length);
                             for (let j = 0; j < nBurst; j++) {
                                 const angle = Math.random() * TWO_PI;
                                 const cosA = Math.cos(angle), sinA = Math.sin(angle);
                                 this.photons.push(new Photon(
-                                    p.pos.x + cosA * 3, p.pos.y + sinA * 3,
+                                    p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                                    p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
                                     cosA, sinA, burstE / nBurst, p.id
                                 ));
                                 this.totalRadiatedPx += (burstE / nBurst) * cosA;
@@ -293,7 +294,7 @@ class Simulation {
             this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
             this.physics.relativityEnabled,
             this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
-            this.topology, this.physics.blackHoleEnabled ? 1 : SOFTENING_SQ,
+            this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
             this.physics.yukawaEnabled, this.physics.yukawaMu);
         this.phasePlot.update(this.particles, this.selectedParticle);
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);

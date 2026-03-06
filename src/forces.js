@@ -2,7 +2,7 @@
 // Pairwise and Barnes-Hut force accumulation. Separates E-like (position-dependent)
 // from B-like (velocity-dependent) forces for the Boris integrator.
 
-import { BH_THETA, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_G2 } from './config.js';
+import { BH_THETA, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_G2, EPSILON } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { TORUS, minImage } from './topology.js';
 
@@ -314,7 +314,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const dw = p.angVel - wOrbit;
         let coupling = 0;
         if (toggles.gravityEnabled) coupling += sMass;
-        if (toggles.coulombEnabled) coupling += p.charge * sCharge / p.mass;
+        if (toggles.coulombEnabled && p.mass > EPSILON) coupling += p.charge * sCharge / p.mass;
         const ri3 = p.radiusSq * p.radius;
         const invR6 = invRSq * invRSq * invRSq;
         p._tidalTorque -= TIDAL_STRENGTH * coupling * coupling * ri3 * invR6 * dw;

@@ -1,4 +1,5 @@
 import Vec2 from './vec2.js';
+import { MAX_SPEED_RATIO, PINCH_DEBOUNCE, DRAG_THRESHOLD, SHOOT_VELOCITY_SCALE, ORBIT_SEARCH_RADIUS } from './config.js';
 
 export default class InputHandler {
     constructor(canvas, sim) {
@@ -131,7 +132,7 @@ export default class InputHandler {
                 this._pinching = false;
                 this._wasPinching = true;
                 // 300ms guard prevents accidental spawn after pinch
-                setTimeout(() => { this._wasPinching = false; }, 300);
+                setTimeout(() => { this._wasPinching = false; }, PINCH_DEBOUNCE);
                 return;
             }
 
@@ -192,7 +193,7 @@ export default class InputHandler {
         const dragDist = this.dragStart.dist(endPos);
 
         // Short click on a particle selects it instead of spawning
-        if (dragDist < 5) {
+        if (dragDist < DRAG_THRESHOLD) {
             const hit = this.findParticleAt(endPos);
             if (hit) {
                 this.sim.selectedParticle = hit;
@@ -223,8 +224,8 @@ export default class InputHandler {
         const spin = parseFloat(this.spinInput.value);
 
         if (mode === 'shoot') {
-            const vx = (this.dragStart.x - endPos.x) * 0.02;
-            const vy = (this.dragStart.y - endPos.y) * 0.02;
+            const vx = (this.dragStart.x - endPos.x) * SHOOT_VELOCITY_SCALE;
+            const vy = (this.dragStart.y - endPos.y) * SHOOT_VELOCITY_SCALE;
             this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin });
         } else if (mode === 'orbit') {
             let bestBody = null;
@@ -232,7 +233,7 @@ export default class InputHandler {
 
             for (const p of this.sim.particles) {
                 const d = p.pos.dist(this.dragStart);
-                if (d > 10) {
+                if (d > ORBIT_SEARCH_RADIUS) {
                     const force = p.mass / (d * d);
                     if (force > maxGForce) {
                         maxGForce = force;
@@ -246,7 +247,7 @@ export default class InputHandler {
                 const r = rVec.mag();
                 const dir = rVec.normalize();
 
-                const vMag = Math.min(Math.sqrt(bestBody.mass / r), 0.99);
+                const vMag = Math.min(Math.sqrt(bestBody.mass / r), MAX_SPEED_RATIO);
                 const vx = -dir.y * vMag;
                 const vy = dir.x * vMag;
                 this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin });

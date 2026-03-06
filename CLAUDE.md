@@ -41,9 +41,9 @@ src/
   particle.js               ~115 lines Particle entity: pos, vel, w, angw, per-type force vectors, history buffers
   topology.js                112 lines TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
   vec2.js                     65 lines Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist
-  config.js                   59 lines Named constants (BH_THETA, SOFTENING, INERTIA_K, Yukawa, Axion, Roche, Hubble, GW, etc.)
+  config.js                  ~101 lines Named constants (softening, BH, numerical thresholds, simulation control, input, display, rendering scales)
   photon.js                   40 lines Photon entity: pos, vel, energy, lifetime, emitterId, type ('em'/'grav'), gravitational lensing
-  relativity.js               33 lines angwToAngVel(), angVelToAngw(), setVelocity()
+  relativity.js                34 lines angwToAngVel(), angVelToAngw(), setVelocity()
 ```
 
 ## Module Dependency Graph
@@ -61,16 +61,16 @@ integrator.js (Physics)
 
 forces.js        <- config, getDelayedState (signal-delay), TORUS + minImage (topology)
                     computeAllForces() uses relativityEnabled for signal delay (no separate param)
-energy.js        <- config (INERTIA_K, SOFTENING_SQ), TORUS + minImage (topology)
+energy.js        <- config (INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ), TORUS + minImage (topology)
 potential.js     <- config, TORUS + minImage (topology)
-stats-display.js <- computeEnergies (energy)
+stats-display.js <- computeEnergies (energy), config (DISPLAY_SCALE, STATS_THROTTLE_MASK, EPSILON)
 ui.js            <- loadPreset (presets), config (PHYSICS_DT, WORLD_SCALE), REFERENCE (reference)
 presets.js       <- config (WORLD_SCALE, SOFTENING_SQ)
-renderer.js      <- config (MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, HISTORY_SIZE)
+renderer.js      <- config (MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, HISTORY_SIZE, VELOCITY_VECTOR_SCALE, FORCE_VECTOR_SCALE)
 heatmap.js       <- config (SOFTENING_SQ, BH_THETA), getDelayedState (signal-delay)
-input.js         <- Vec2
-collisions.js    <- INERTIA_K (config), relativity helpers, topology
-signal-delay.js  <- HISTORY_SIZE (config), TORUS + minImage (topology)
+input.js         <- Vec2, config (MAX_SPEED_RATIO, PINCH_DEBOUNCE, DRAG_THRESHOLD, SHOOT_VELOCITY_SCALE, ORBIT_SEARCH_RADIUS)
+collisions.js    <- config (INERTIA_K, COLLISION_SAFE_DIST, OVERLAP_FACTOR, EPSILON), relativity helpers, topology
+signal-delay.js  <- config (HISTORY_SIZE, NR_TOLERANCE, EPSILON), TORUS + minImage (topology)
 save-load.js     <- Particle, angwToAngVel (relativity)
 reference.js     (no imports - pure data)
 ```
@@ -79,7 +79,7 @@ reference.js     (no imports - pure data)
 
 ### Natural Units
 
-c = 1, G = 1 throughout. All velocities are fractions of c. All forces are dimensionless.
+c = 1, G = 1, ħ = 1 throughout. All velocities are fractions of c. All forces are dimensionless. ħ = 1 is used in Hawking radiation terms (surface gravity, temperature, power).
 
 ### State Variables
 
@@ -124,7 +124,7 @@ After all substeps: record signal-delay history (strided, once per HISTORY_STRID
 
 ### Adaptive Substepping
 
-- `dtSafe_accel = sqrt(SOFTENING / a_max)`
+- `dtSafe_accel = sqrt(softening / a_max)` (softening = BH_SOFTENING or SOFTENING)
 - `dtSafe_cyclotron = (2*pi / omega_c) / 8` where `omega_c = max(|q*Bz/m|, 4*|Bgz|)`
 - Capped at MAX_SUBSTEPS = 32 per frame
 
@@ -136,7 +136,7 @@ After all substeps: record signal-delay history (strided, once per HISTORY_STRID
 
 ### E-like Forces (radial, position-dependent)
 
-All use Plummer softening: `r_eff = sqrt(r² + SOFTENING_SQ)` (SOFTENING = 8, SOFTENING_SQ = 64).
+All use Plummer softening: `r_eff = sqrt(r² + SOFTENING_SQ)` (SOFTENING = 8, SOFTENING_SQ = 64; BH mode: BH_SOFTENING = 4, BH_SOFTENING_SQ = 16).
 
 | Force | Formula | PE | Toggle |
 |---|---|---|---|
@@ -194,12 +194,12 @@ Both quadrupole types use TT-projected angular emission pattern via rejection sa
 ### Black Hole Mode
 
 Toggle under Relativity (`physics.blackHoleEnabled`):
-- **Kerr-Newman horizon**: `r+ = M + sqrt(M²-a²-Q²)`, naked singularity floor at `M*0.5`
-- **Ergosphere**: dashed ring at `r_ergo = M + sqrt(M²-a²)`
-- **Reduced softening**: SOFTENING_SQ = 1 (not 64)
+- **Kerr-Newman horizon**: `r+ = M + sqrt(M²-a²-Q²)`, naked singularity floor at `M*BH_NAKED_FLOOR`
+- **Ergosphere**: dashed ring at `r_ergo = M + sqrt(M²-a²)` (theme text color, purely visual)
+- **Reduced softening**: BH_SOFTENING_SQ = 16 (not 64)
 - **Collision lock**: forced to Merge
 - **Hawking radiation**: `κ = sqrt(disc)/(r+²+a²)`, `T = κ/(2π)`, `P = σT⁴A` where `σ = π²/60`, `A = 4π(r+²+a²)`. Extremal BHs stop radiating.
-- **Evaporation**: below MIN_MASS → removed with photon burst
+- **Evaporation**: below MIN_MASS → removed with `SPAWN_COUNT` photon burst
 
 ### Signal Delay
 
@@ -218,7 +218,7 @@ Energy transfer: `dE = -mu*(v·∇Bz)*dt` (EM), `dE = -L*(v·∇Bgz)*dt` (GM). C
 
 ### Disintegration
 
-Toggle (`disintegrationEnabled`), requires Gravity. Locks collision to Merge (prevents runaway particle creation). Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into 4 pieces. Min mass: `MIN_MASS * 4`.
+Toggle (`disintegrationEnabled`), requires Gravity. Locks collision to Merge (prevents runaway particle creation). Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into `SPAWN_COUNT` pieces. Min mass: `MIN_MASS * SPAWN_COUNT`.
 
 **Roche Lobe Overflow**: Eggleton formula. Continuous mass transfer toward companion through L1. Rate: `dM = overflow * ROCHE_TRANSFER_RATE * m`, capped 10%. Min packet: `MIN_MASS`. Returns `{ fragments, transfers }`.
 
@@ -242,7 +242,7 @@ Do NOT flip these signs.
 
 ## Potential Energy
 
-`computePE()` in `potential.js`. Tree traversal via `treePE()` when BH on (divides by 2), exact pairwise `pairPE()` with i < j when off. Seven terms: gravitational, Coulomb (with axion), magnetic dipole, GM dipole, 1PN (EIH + Darwin EM), Bazanski, Yukawa. All Plummer-softened (reduced to 1 in BH mode).
+`computePE()` in `potential.js`. Tree traversal via `treePE()` when BH on (divides by 2), exact pairwise `pairPE()` with i < j when off. Seven terms: gravitational, Coulomb (with axion), magnetic dipole, GM dipole, 1PN (EIH + Darwin EM), Bazanski, Yukawa. All Plummer-softened (reduced to BH_SOFTENING_SQ in BH mode).
 
 ## Energy & Momentum
 
@@ -312,7 +312,7 @@ Canvas 2D. Dark mode: additive blending (`lighter`).
 - **Particles**: `r = cbrt(mass)` (BH: Kerr-Newman r+), glow in dark mode
 - **Spin rings**: arc length ∝ |omega*r|, cyan=positive, orange=negative
 - **Trails**: circular Float32Array[256], wrap-detection for periodic boundaries
-- **Force vectors**: scale=256 (÷ mass for accel). Component colors: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green
+- **Force vectors**: scale=FORCE_VECTOR_SCALE (÷ mass for accel). Component colors: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green
 - **Torque arcs**: spin-orbit=purple, frame-drag=rose, tidal=red, total=accent
 - **Photons**: yellow (EM, `type: 'em'`) / red (gravitons, `type: 'grav'`), alpha fades over PHOTON_LIFETIME=256
 - **Signal delay ghosts**: stroked outline at oldest history position
@@ -351,3 +351,5 @@ Particle color: neutral=slate `#8A7E72`. Charged: RGB lerp toward red (positive)
 - World coordinates use `sim.domainW/H` (viewport / WORLD_SCALE), not pixel dimensions
 - `forceRadiation` is cleared for all particles before the substep loop to prevent stale accumulation (neutral particles with 1 substep)
 - `.mode-toggles` in shared-base.css sets `display: grid` which overrides `hidden` attribute -- use `style.display` toggling instead
+- All numerical thresholds (EPSILON, NR_TOLERANCE, etc.) are in config.js -- do not use inline `1e-10` or similar
+- Precision guards: NaN check on angw after torque, Hawking mass floor, invariant mass degeneracy in relativistic bounce, gamma sqrt guard in setVelocity, tidal coupling mass>0 check, quadrupole energy fraction clamp

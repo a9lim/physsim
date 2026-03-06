@@ -1,7 +1,7 @@
 // ─── Collision Detection & Resolution ───
 // Quadtree-accelerated overlap detection with merge or bounce resolution.
 
-import { INERTIA_K } from './config.js';
+import { INERTIA_K, COLLISION_SAFE_DIST, OVERLAP_FACTOR, EPSILON } from './config.js';
 import { setVelocity, angwToAngVel } from './relativity.js';
 import { TORUS, minImage, wrapPosition } from './topology.js';
 
@@ -101,14 +101,15 @@ export function resolveMerge(p1, p2, relativityEnabled, periodic, miDx, miDy) {
 
 /** Elastic bounce with spin friction. Relativistic: Lorentz boost to COM frame. */
 export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityEnabled, miDx, miDy) {
-    const safeDist = dist === 0 ? 0.0001 : dist;
+    const safeDist = dist === 0 ? COLLISION_SAFE_DIST : dist;
 
     let nx, ny;
     if (dist === 0) {
         nx = Math.random() - 0.5;
         ny = Math.random() - 0.5;
         const m = Math.sqrt(nx * nx + ny * ny);
-        nx /= m; ny /= m;
+        if (m > 0) { nx /= m; ny /= m; }
+        else { nx = 1; ny = 0; }
     } else {
         nx = miDx / safeDist;
         ny = miDy / safeDist;
@@ -137,6 +138,9 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
         const Pn = m1 * w1n + m2 * w2n;
         const E = m1 * g1 + m2 * g2;
         const M = Math.sqrt(Math.max(0, E * E - Pn * Pn)); // invariant mass; max(0,...) guards numerical underflow at near-c
+
+        // Degenerate invariant mass (collinear ultra-relativistic): COM frame is undefined
+        if (M < EPSILON) return;
 
         // COM frame boost parameters along normal
         const Gc = E / M;
@@ -202,7 +206,7 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
         setVelocityFromVel(p2, v2nFinal, v2tFinal, nx, ny, tx, ty);
     }
 
-    const overlap = (minDist - safeDist) / 2 + minDist * 0.01;
+    const overlap = (minDist - safeDist) / 2 + minDist * OVERLAP_FACTOR;
     p1.pos.x -= nx * overlap;
     p1.pos.y -= ny * overlap;
     p2.pos.x += nx * overlap;

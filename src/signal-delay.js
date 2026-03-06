@@ -3,7 +3,7 @@
 // via NR convergence to segment, exact quadratic on that segment, and
 // constant-velocity extrapolation past the buffer.
 
-import { HISTORY_SIZE } from './config.js';
+import { HISTORY_SIZE, NR_TOLERANCE, EPSILON } from './config.js';
 import { TORUS, minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -27,7 +27,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     const tOldest = source.histTime[start];
     const tNewest = source.histTime[newest];
     const timeSpan = simTime - tOldest;
-    if (timeSpan < 1e-12) return null;
+    if (timeSpan < NR_TOLERANCE) return null;
 
     // Cache history array references to avoid repeated property lookups
     const histX = source.histX, histY = source.histY;
@@ -73,7 +73,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         const hiIdx = (loIdx + 1) % N;
         const tLo = histTime[loIdx];
         const segDt = histTime[hiIdx] - tLo;
-        if (segDt < 1e-12) {
+        if (segDt < NR_TOLERANCE) {
             if (segK < count - 2) { segK++; prevSegK = -1; continue; }
             break buffer;
         }
@@ -103,11 +103,11 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         }
 
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 1e-12) break;               // source ≈ observer, skip to quadratic
+        if (dist < NR_TOLERANCE) break;               // source ≈ observer, skip to quadratic
 
         const g  = dist - (simTime - t);
         const gp = (dx * vxEff + dy * vyEff) / dist + 1;
-        if (Math.abs(gp) < 1e-12) break;
+        if (Math.abs(gp) < NR_TOLERANCE) break;
 
         t -= g / gp;
 
@@ -130,7 +130,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             const hiIdx = (loIdx + 1) % N;
             const tLo = histTime[loIdx];
             const segDt = histTime[hiIdx] - tLo;
-            if (segDt < 1e-12) continue;
+            if (segDt < NR_TOLERANCE) continue;
 
             const xLo = histX[loIdx], yLo = histY[loIdx];
             const xHi = histX[hiIdx], yHi = histY[hiIdx];
@@ -166,16 +166,16 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
             const sqrtDisc = Math.sqrt(disc);
             let s;
-            if (Math.abs(a) < 1e-12) {
+            if (Math.abs(a) < NR_TOLERANCE) {
                 // v ~ c: degenerate linear case
-                if (Math.abs(h) < 1e-12) continue;
+                if (Math.abs(h) < NR_TOLERANCE) continue;
                 s = -c / (2 * h);
             } else {
                 const s1 = (-h + sqrtDisc) / a;
                 const s2 = (-h - sqrtDisc) / a;
                 // Prefer most recent valid root (largest s in [0, segDt])
-                const ok1 = s1 >= -1e-9 && s1 <= segDt + 1e-9;
-                const ok2 = s2 >= -1e-9 && s2 <= segDt + 1e-9;
+                const ok1 = s1 >= -EPSILON && s1 <= segDt + EPSILON;
+                const ok2 = s2 >= -EPSILON && s2 <= segDt + EPSILON;
                 if (ok1 && ok2) s = Math.max(s1, s2);
                 else if (ok1) s = s1;
                 else if (ok2) s = s2;
@@ -224,15 +224,15 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
         const sqrtDisc = Math.sqrt(disc);
         let s;
-        if (Math.abs(a) < 1e-12) {
-            if (Math.abs(h) < 1e-12) return null;
+        if (Math.abs(a) < NR_TOLERANCE) {
+            if (Math.abs(h) < NR_TOLERANCE) return null;
             s = -c / (2 * h);
         } else {
             const s1 = (-h + sqrtDisc) / a;
             const s2 = (-h - sqrtDisc) / a;
             // Pick s <= 0 root closest to 0 (most recent past)
-            const ok1 = s1 <= 1e-9;
-            const ok2 = s2 <= 1e-9;
+            const ok1 = s1 <= EPSILON;
+            const ok2 = s2 <= EPSILON;
             if (ok1 && ok2) s = Math.max(s1, s2);
             else if (ok1) s = s1;
             else if (ok2) s = s2;

@@ -1,6 +1,5 @@
 import { computeEnergies } from './energy.js';
-
-const DISPLAY_SCALE = 100;
+import { DISPLAY_SCALE, STATS_THROTTLE_MASK, EPSILON } from './config.js';
 const fmt = (v) => { v *= DISPLAY_SCALE; return Math.abs(v) > 999 ? v.toExponential(2) : v.toFixed(2); };
 const fmtRaw = (v) => Math.abs(v) > 999 ? v.toExponential(2) : v.toFixed(2);
 const fmtDrift = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
@@ -23,7 +22,7 @@ export default class StatsDisplay {
 
     updateEnergy(particles, physics, sim) {
         // Throttle DOM writes to every 4th frame (stats are display-only)
-        if (++this._frameCount & 3) return;
+        if (++this._frameCount & STATS_THROTTLE_MASK) return;
 
         const e = computeEnergies(particles, physics, sim);
         const angMom = e.orbitalAngMom + e.spinAngMom;
@@ -106,7 +105,7 @@ export default class StatsDisplay {
         for (const f of forces) {
             if (!f.row) continue;
             const mag = Math.sqrt(f.vec.x * f.vec.x + f.vec.y * f.vec.y);
-            if (mag > 1e-10) {
+            if (mag > EPSILON) {
                 f.row.hidden = false;
                 f.val.textContent = fmt(mag);
             } else {

@@ -1,8 +1,8 @@
 // ─── Phase Space Plot ───
 // r vs v_r relative to the most massive body; 500-sample ring buffer.
-import { TWO_PI } from './config.js';
+import { TWO_PI, PHASE_BUFFER_LEN } from './config.js';
 
-const BUFFER_LEN = 500;
+const BUFFER_LEN = PHASE_BUFFER_LEN;
 const MARGIN = 24;
 
 export default class PhasePlot {

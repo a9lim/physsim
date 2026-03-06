@@ -1,7 +1,7 @@
 // ─── Energy & Momentum Computation ───
 // Three-pass accumulator: KE + momentum, angular momentum about COM, Darwin field corrections.
 
-import { INERTIA_K, SOFTENING_SQ, AXION_G } from './config.js';
+import { INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ, AXION_G } from './config.js';
 import { TORUS, minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -74,7 +74,7 @@ export function computeEnergies(particles, physics, sim) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
     const topology = physics._topologyConst;
-    const softeningSq = physics.blackHoleEnabled ? 1 : SOFTENING_SQ;
+    const softeningSq = physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
     const axMod = physics.axionEnabled
         ? 1 + AXION_G * Math.cos(physics.axionMass * physics.simTime)
         : 1.0;

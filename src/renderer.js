@@ -1,4 +1,4 @@
-import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, PI, TWO_PI, HALF_PI } from './config.js';
+import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, PI, TWO_PI, HALF_PI, VELOCITY_VECTOR_SCALE, FORCE_VECTOR_SCALE } from './config.js';
 const _PAL = window._PALETTE;
 const _r = window._r;
 
@@ -191,7 +191,7 @@ export default class Renderer {
 
         // Cache BH state once instead of window.sim lookup per particle
         const bhEnabled = window.sim && window.sim.physics.blackHoleEnabled;
-        const ergoStyle = isLight ? _r(_PAL.extended.purple, 0.3) : _r(_PAL.extended.purple, 0.4);
+        const ergoStyle = isLight ? _r(_PAL.light.text, 0.3) : _r(_PAL.dark.text, 0.4);
         const neutralGlow = !isLight ? _r(_PAL.dark.text, 0.5) : null;
 
         // Batch all particle fills with same shadow state to minimize state changes
@@ -286,7 +286,7 @@ export default class Renderer {
     }
 
     drawVelocityVectors(ctx, particles, invZoom, isLight) {
-        const scale = 40;
+        const scale = VELOCITY_VECTOR_SCALE;
         const color = isLight ? _PAL.light.text : _PAL.dark.text;
         for (const p of particles) {
             const vx = p.vel.x * scale, vy = p.vel.y * scale;
@@ -297,7 +297,7 @@ export default class Renderer {
     }
 
     drawForceVectors(ctx, particles, invZoom, isLight) {
-        const scale = 256;
+        const scale = FORCE_VECTOR_SCALE;
         const color = isLight ? _PAL.accent : _PAL.accentLight;
         for (const p of particles) {
             // Sum all 8 component vectors (includes Boris display forces)
@@ -311,7 +311,7 @@ export default class Renderer {
     }
 
     drawForceComponentVectors(ctx, particles, invZoom, isLight) {
-        const scale = 256;
+        const scale = FORCE_VECTOR_SCALE;
         const threshold = 0.1 * invZoom;
         const threshSq = threshold * threshold;
         // Iterate particles in outer loop to maximize cache locality
@@ -352,7 +352,7 @@ export default class Renderer {
     }
 
     _drawTorqueArc(ctx, particles, invZoom, color, offset, getValue) {
-        const scale = 256 / INERTIA_K;
+        const scale = FORCE_VECTOR_SCALE / INERTIA_K;
         const maxSweep = TWO_PI;
         const threshold = 1e-8;
 

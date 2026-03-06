@@ -1,5 +1,5 @@
 import Vec2 from './vec2.js';
-import { HISTORY_SIZE, INERTIA_K } from './config.js';
+import { HISTORY_SIZE, INERTIA_K, BH_NAKED_FLOOR } from './config.js';
 
 const _PAL = window._PALETTE;
 const _hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -98,7 +98,7 @@ export default class Particle {
             const a = I * Math.abs(omega) / M;  // spin parameter J/M
             const Q = this.charge;
             const disc = M * M - a * a - Q * Q;
-            this.radius = disc > 0 ? M + Math.sqrt(disc) : M * 0.5; // naked singularity floor
+            this.radius = disc > 0 ? M + Math.sqrt(disc) : M * BH_NAKED_FLOOR;
         } else {
             this.radius = Math.cbrt(this.mass);
         }

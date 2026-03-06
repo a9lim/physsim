@@ -2,14 +2,14 @@
 // 48x48 offscreen canvas, diverging colormap, updates every 6 frames.
 // When Barnes-Hut is enabled, uses tree walk for O(GRID² log N) instead of O(GRID² N).
 
-import { SOFTENING_SQ, BH_THETA, YUKAWA_G2 } from './config.js';
+import { SOFTENING_SQ, BH_THETA, YUKAWA_G2, HEATMAP_INTERVAL, HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 
 const GRID_SIZE = 48;
 const GRID_SQ = GRID_SIZE * GRID_SIZE;
-const UPDATE_INTERVAL = 6;
-const SENSITIVITY = 3;   // tanh scaling: phi * SENSITIVITY -> 0-1
-const MAX_ALPHA = 100;
+const UPDATE_INTERVAL = HEATMAP_INTERVAL;
+const SENSITIVITY = HEATMAP_SENSITIVITY;
+const MAX_ALPHA = HEATMAP_MAX_ALPHA;
 
 /** Fast tanh approximation: rational Padé x(27+x²)/(27+9x²), max error ~0.4% */
 function fastTanh(x) {

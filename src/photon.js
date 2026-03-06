@@ -1,5 +1,5 @@
 import Vec2 from './vec2.js';
-import { PHOTON_SOFTENING_SQ } from './config.js';
+import { PHOTON_SOFTENING_SQ, EPSILON } from './config.js';
 
 export default class Photon {
     constructor(x, y, vx, vy, energy, emitterId = -1) {
@@ -27,7 +27,7 @@ export default class Photon {
             }
             // Renormalize to c = 1
             const v = Math.sqrt(this.vel.x * this.vel.x + this.vel.y * this.vel.y);
-            if (v > 1e-10) {
+            if (v > EPSILON) {
                 this.vel.x /= v;
                 this.vel.y /= v;
             }
