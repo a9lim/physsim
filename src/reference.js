@@ -158,7 +158,7 @@ export const REFERENCE = {
 <p>This is the exact effect searched for by axion detection experiments like CASPEr and ABRACADABRA.</p>
 `,
     },
-    gwradiation: {
+    quadradiation: {
         title: 'Quadrupole Radiation',
         body: `
 <p>Gravitational wave emission from the mass quadrupole moment:</p>

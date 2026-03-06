@@ -43,14 +43,14 @@ export default class Physics {
         this.axionG = DEFAULT_AXION_G;
         this.axionMass = DEFAULT_AXION_MASS;
 
-        this.gwRadiationEnabled = false;
+        this.quadRadiationEnabled = false;
         this.expansionEnabled = false;
         this.hubbleParam = 0.001;
 
         this.sim = null;
         this.simTime = 0;
         this._quadHistory = []; // {Ixx, Ixy, Iyy, Qxx, Qxy, Qyy, t}
-        this._gwAccum = 0;
+        this._quadAccum = 0;
 
         this.domainW = 0;
         this.domainH = 0;
@@ -663,8 +663,8 @@ export default class Physics {
             }
         }
 
-        // Gravitational wave radiation (quadrupole formula)
-        if (this.gwRadiationEnabled && n >= 2 && this.sim) {
+        // Quadrupole radiation (mass + EM quadrupole formula)
+        if (this.quadRadiationEnabled && n >= 2 && this.sim) {
             let Ixx = 0, Ixy = 0, Iyy = 0;
             let Qxx = 0, Qxy = 0, Qyy = 0;
             for (let i = 0; i < n; i++) {
@@ -698,8 +698,8 @@ export default class Physics {
                     const d2Iyy_b = (h[n3 - 1].Iyy - 2 * h[n3 - 2].Iyy + h[n3 - 3].Iyy) / (dt2 * dt3);
                     const d3Iyy = (d2Iyy_a - d2Iyy_b) / halfDtSum;
 
-                    // GW power: P = (1/5)·(d³I_ij/dt³)²
-                    let gwPower = 0.2 * (d3Ixx * d3Ixx + 2 * d3Ixy * d3Ixy + d3Iyy * d3Iyy);
+                    // Quadrupole power: P = (1/5)·(d³I_ij/dt³)²
+                    let quadPower = 0.2 * (d3Ixx * d3Ixx + 2 * d3Ixy * d3Ixy + d3Iyy * d3Iyy);
 
                     // EM quadrupole: P_em = (1/180)·(d³Q_ij/dt³)²
                     if (this.radiationEnabled && this.coulombEnabled) {
@@ -713,13 +713,13 @@ export default class Physics {
                         const d2Qyy_b = (h[n3 - 1].Qyy - 2 * h[n3 - 2].Qyy + h[n3 - 3].Qyy) / (dt2 * dt3);
                         const d3Qyy = (d2Qyy_a - d2Qyy_b) / halfDtSum;
                         const emQuadPower = (1 / 180) * (d3Qxx * d3Qxx + 2 * d3Qxy * d3Qxy + d3Qyy * d3Qyy);
-                        gwPower += emQuadPower;
+                        quadPower += emQuadPower;
                     }
 
-                    if (gwPower > 0) {
-                        const dE = gwPower * dt;
+                    if (quadPower > 0) {
+                        const dE = quadPower * dt;
                         this.sim.totalRadiated += dE;
-                        this._gwAccum += dE;
+                        this._quadAccum += dE;
 
                         // Apply orbital decay: radial kick toward COM
                         if (dE > 1e-10) {
@@ -743,7 +743,7 @@ export default class Physics {
                         }
 
                         // Emit graviton when accumulated energy exceeds threshold
-                        if (this._gwAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
+                        if (this._quadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
                             const angle = Math.random() * 6.283185307;
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
                             let gComX = 0, gComY = 0, gTotalM = 0;
@@ -753,12 +753,12 @@ export default class Physics {
                                 gTotalM += particles[i].mass;
                             }
                             gComX /= gTotalM; gComY /= gTotalM;
-                            const gph = new Photon(gComX + cosA * 3, gComY + sinA * 3, cosA, sinA, this._gwAccum, -1);
-                            gph.type = 'gw';
+                            const gph = new Photon(gComX + cosA * 3, gComY + sinA * 3, cosA, sinA, this._quadAccum, -1);
+                            gph.type = 'grav';
                             this.sim.photons.push(gph);
-                            this.sim.totalRadiatedPx += this._gwAccum * cosA;
-                            this.sim.totalRadiatedPy += this._gwAccum * sinA;
-                            this._gwAccum = 0;
+                            this.sim.totalRadiatedPx += this._quadAccum * cosA;
+                            this.sim.totalRadiatedPy += this._quadAccum * sinA;
+                            this._quadAccum = 0;
                         }
                     }
                 }

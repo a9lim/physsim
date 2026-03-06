@@ -123,7 +123,7 @@ body {
 .tog-blackhole    { --tog-color: var(--text); }
 .tog-yukawa       { --tog-color: var(--ext-green); }
 .tog-axion        { --tog-color: var(--ext-blue); }
-.tog-gwradiation  { --tog-color: var(--ext-yellow); }
+.tog-quadradiation { --tog-color: var(--ext-yellow); }
 
 .ctrl-row {
     display: flex;
