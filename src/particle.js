@@ -48,6 +48,8 @@ export default class Particle {
         // Radiation accumulators (used by integrator)
         this._radAccum = 0;
         this._hawkAccum = 0;
+        this._quadAccum = 0;    // GW quadrupole
+        this._emQuadAccum = 0;  // EM quadrupole
         this._radDisplayX = 0;
         this._radDisplayY = 0;
         // 3-point backward difference history for non-1/r² force jerk
