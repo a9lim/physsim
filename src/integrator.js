@@ -740,10 +740,15 @@ export default class Physics {
                     // Tangential drag: uniform fractional deceleration removes dE from system
                     // dKE ≈ 2·f·KE for small f, so f = dE/(2·KE) gives smooth inspiral
                     if (dE > 1e-10 && totalKE > 1e-20) {
-                        const scale = 1 - 0.5 * dE / totalKE;
+                        const f = 0.5 * dE / totalKE;
+                        const scale = 1 - f;
+                        const fOverDt = f / dt;
                         for (let i = 0; i < n; i++) {
-                            particles[i].w.x *= scale;
-                            particles[i].w.y *= scale;
+                            const p = particles[i];
+                            p._radDisplayX -= p.mass * p.w.x * fOverDt;
+                            p._radDisplayY -= p.mass * p.w.y * fOverDt;
+                            p.w.x *= scale;
+                            p.w.y *= scale;
                         }
                     }
 
