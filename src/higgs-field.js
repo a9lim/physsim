@@ -2,7 +2,8 @@
 // Dynamical scalar field on a 2D grid with Mexican hat potential.
 // V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4
 // VEV v = mu / sqrt(lambda), Higgs boson mass m_H = mu * sqrt(2)
-// Leapfrog integration, bilinear interpolation, CIC source deposition.
+// Symplectic Euler integration, bilinear interpolation, CIC source deposition.
+// Self-force subtraction via analytical steady-state Green's function estimate.
 
 import { HIGGS_GRID, HIGGS_LAMBDA, DEFAULT_HIGGS_VEV, DEFAULT_HIGGS_COUPLING, DEFAULT_HIGGS_THERMAL_K, HIGGS_DAMPING, EPSILON } from './config.js';
 import { TORUS, KLEIN, RP2 } from './topology.js';
@@ -14,6 +15,9 @@ const GRID_SQ = GRID * GRID;
 const BC_DESPAWN = 0;
 const BC_BOUNCE = 1;
 const BC_LOOP = 2;
+
+// Field value clamp: prevent runaway in the wave equation
+const PHI_MAX = 50;
 
 export default class HiggsField {
     constructor() {
@@ -35,7 +39,7 @@ export default class HiggsField {
         this.canvas.height = GRID;
         this._ctx = this.canvas.getContext('2d');
         this._imgData = this._ctx.createImageData(GRID, GRID);
-        this._grad = { x: 0, y: 0 };
+        this._cic = { ix: 0, iy: 0, fx: 0, fy: 0 };
 
         this.reset();
     }
@@ -86,8 +90,27 @@ export default class HiggsField {
         return ny * GRID + nx;
     }
 
+    /** Clamp-read phi at grid coords, clamping to boundary. */
+    _phiAt(cx, cy) {
+        if (cx < 0) cx = 0; else if (cx >= GRID) cx = GRID - 1;
+        if (cy < 0) cy = 0; else if (cy >= GRID) cy = GRID - 1;
+        return this.phi[cy * GRID + cx];
+    }
+
+    /** Compute CIC fractional grid coords into pre-allocated this._cic. */
+    _cicCoords(x, y, invCellW, invCellH) {
+        const gx = x * invCellW - 0.5;
+        const gy = y * invCellH - 0.5;
+        const c = this._cic;
+        c.ix = Math.floor(gx);
+        c.iy = Math.floor(gy);
+        c.fx = gx - c.ix;
+        c.fy = gy - c.iy;
+    }
+
     /** Evolve field one timestep using symplectic Euler (kick-drift). */
     update(dt, particles, boundaryMode, topoConst, domainW, domainH) {
+        if (dt <= 0) return;
         const phi = this.phi;
         const phiDot = this.phiDot;
         const lap = this._laplacian;
@@ -96,8 +119,10 @@ export default class HiggsField {
         const v = this.vev;
         const lam = this.lambda;
         const muSq = v * v * lam; // mu^2 = v^2 * lambda
+
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellWSq = 1 / (cellW * cellW);
         const invCellHSq = 1 / (cellH * cellH);
         const invCellArea = 1 / (cellW * cellH);
@@ -142,7 +167,7 @@ export default class HiggsField {
             const phiVal = phi[i];
 
             // Thermal correction: mu^2_eff = mu^2 - thermalK * T^2_local
-            // thermal[i] is KE density ∝ T^2, so linear dependence gives correct T^2
+            // thermal[i] is KE density ~ T^2, so linear dependence gives correct T^2
             let muSqEff = muSq;
             if (thermK > 0 && thermal[i] > 0) {
                 muSqEff -= thermK * thermal[i];
@@ -157,7 +182,21 @@ export default class HiggsField {
                         - damp * phiDot[i];
 
             phiDot[i] += ddphi * dt;
-            phi[i] += phiDot[i] * dt;
+            const newPhi = phi[i] + phiDot[i] * dt;
+
+            // Clamp field to prevent numerical blowup
+            if (newPhi !== newPhi) { // NaN guard
+                phi[i] = v;
+                phiDot[i] = 0;
+            } else if (newPhi > PHI_MAX) {
+                phi[i] = PHI_MAX;
+                phiDot[i] = 0;
+            } else if (newPhi < -PHI_MAX) {
+                phi[i] = -PHI_MAX;
+                phiDot[i] = 0;
+            } else {
+                phi[i] = newPhi;
+            }
         }
     }
 
@@ -165,18 +204,18 @@ export default class HiggsField {
     _depositSources(particles, domainW, domainH) {
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return;
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
         const src = this._source;
         const invV = this.vev > EPSILON ? 1 / this.vev : 0;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
+            if (p.baseMass < EPSILON) continue;
             const strength = p.baseMass * invV;
-            const gx = p.pos.x / cellW - 0.5;
-            const gy = p.pos.y / cellH - 0.5;
-            const ix = Math.floor(gx);
-            const iy = Math.floor(gy);
-            const fx = gx - ix;
-            const fy = gy - iy;
+            this._cicCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+            const { ix, iy, fx, fy } = this._cic;
 
             if (ix >= 0 && ix < GRID && iy >= 0 && iy < GRID)
                 src[iy * GRID + ix] += strength * (1 - fx) * (1 - fy);
@@ -193,17 +232,17 @@ export default class HiggsField {
     _depositThermal(particles, domainW, domainH) {
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return;
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
         const out = this._thermal;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             const ke = 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y);
-            const gx = p.pos.x / cellW - 0.5;
-            const gy = p.pos.y / cellH - 0.5;
-            const ix = Math.floor(gx);
-            const iy = Math.floor(gy);
-            const fx = gx - ix;
-            const fy = gy - iy;
+            if (ke < EPSILON) continue;
+            this._cicCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+            const { ix, iy, fx, fy } = this._cic;
 
             if (ix >= 0 && ix < GRID && iy >= 0 && iy < GRID)
                 out[iy * GRID + ix] += ke * (1 - fx) * (1 - fy);
@@ -216,75 +255,71 @@ export default class HiggsField {
         }
     }
 
-    /** Bilinear interpolation of field value at world position. */
-    sample(x, y, domainW, domainH) {
-        const cellW = domainW / GRID;
-        const cellH = domainH / GRID;
-        const gx = x / cellW - 0.5;
-        const gy = y / cellH - 0.5;
-        const ix = Math.floor(gx);
-        const iy = Math.floor(gy);
-        const fx = gx - ix;
-        const fy = gy - iy;
-
-        const phi = this.phi;
-        const _g = (cx, cy) => {
-            if (cx < 0) cx = 0; else if (cx >= GRID) cx = GRID - 1;
-            if (cy < 0) cy = 0; else if (cy >= GRID) cy = GRID - 1;
-            return phi[cy * GRID + cx];
-        };
-
-        return _g(ix, iy) * (1 - fx) * (1 - fy)
-             + _g(ix + 1, iy) * fx * (1 - fy)
-             + _g(ix, iy + 1) * (1 - fx) * fy
-             + _g(ix + 1, iy + 1) * fx * fy;
-    }
-
-    /** Bilinear gradient at world position. Writes into out.x, out.y. */
-    gradient(x, y, domainW, domainH, out) {
-        const cellW = domainW / GRID;
-        const cellH = domainH / GRID;
-        const gx = x / cellW - 0.5;
-        const gy = y / cellH - 0.5;
-        const ix = Math.floor(gx);
-        const iy = Math.floor(gy);
-        const fx = gx - ix;
-        const fy = gy - iy;
-
-        const phi = this.phi;
-        const _g = (cx, cy) => {
-            if (cx < 0) cx = 0; else if (cx >= GRID) cx = GRID - 1;
-            if (cy < 0) cy = 0; else if (cy >= GRID) cy = GRID - 1;
-            return phi[cy * GRID + cx];
-        };
-
-        const v00 = _g(ix, iy);
-        const v10 = _g(ix + 1, iy);
-        const v01 = _g(ix, iy + 1);
-        const v11 = _g(ix + 1, iy + 1);
-
-        out.x = ((v10 - v00) * (1 - fy) + (v11 - v01) * fy) / cellW;
-        out.y = ((v01 - v00) * (1 - fx) + (v11 - v10) * fx) / cellH;
-    }
-
-    /** Set particle effective masses from local field value: m = baseMass * |phi| / VEV. */
+    /**
+     * Set particle effective masses from local field value: m = baseMass * |phi| / VEV.
+     * Subtracts the analytical self-perturbation before sampling to avoid self-interaction.
+     *
+     * Self-field estimate: in linearized steady state (-nabla^2 + m_H^2) dphi = source,
+     * ignoring the Laplacian (local approx), dphi_cell ~ source_cell / m_H^2.
+     * The self-contribution to the bilinear sample is sum(w_i^2) * selfBase.
+     */
     modulateMasses(particles, domainW, domainH, blackHoleEnabled) {
         const v = this.vev;
         if (v < EPSILON) return;
         const invV = 1 / v;
+        const lam = this.lambda;
+        const mHsq = 2 * lam * v * v; // Higgs boson mass squared
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return;
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
+        const cellArea = cellW * cellH;
+
+        // selfScale = coupling / (v * cellArea * mHsq), so selfBase = baseMass * selfScale
+        const selfDenom = v * cellArea * mHsq;
+        const selfScale = selfDenom > EPSILON ? this.coupling / selfDenom : 0;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            const phiLocal = this.sample(p.pos.x, p.pos.y, domainW, domainH);
-            p.mass = Math.max(p.baseMass * Math.abs(phiLocal * invV), 0.001);
+            if (p.baseMass < EPSILON) continue;
+
+            this._cicCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+            const ix = this._cic.ix, iy = this._cic.iy;
+            const fx = this._cic.fx, fy = this._cic.fy;
+
+            // CIC weights
+            const w00 = (1 - fx) * (1 - fy);
+            const w10 = fx * (1 - fy);
+            const w01 = (1 - fx) * fy;
+            const w11 = fx * fy;
+
+            // Bilinear sample of phi
+            const phiRaw = this._phiAt(ix, iy) * w00
+                         + this._phiAt(ix + 1, iy) * w10
+                         + this._phiAt(ix, iy + 1) * w01
+                         + this._phiAt(ix + 1, iy + 1) * w11;
+
+            // Subtract self-perturbation: dphi_self_sampled = selfBase * sum(w_i^2)
+            const selfBase = p.baseMass * selfScale;
+            const selfSample = selfBase * (w00 * w00 + w10 * w10 + w01 * w01 + w11 * w11);
+            const phiLocal = phiRaw - selfSample;
+
+            const newMass = Math.max(p.baseMass * Math.abs(phiLocal * invV), EPSILON);
+            // NaN guard
+            if (newMass !== newMass) continue;
+            p.mass = newMass;
+
             // Update mass-derived quantities (color depends only on charge, skip getColor)
             if (blackHoleEnabled) {
                 const M = p.mass;
-                const I = 0.4 * M * p.radiusSq; // INERTIA_K = 0.4
-                const a = I * Math.abs(p.angVel || 0) / M;
+                const rSq = p.radiusSq > EPSILON ? p.radiusSq : EPSILON;
+                const I = 0.4 * M * rSq; // INERTIA_K = 0.4
+                const omega = p.angVel || 0;
+                const a = M > EPSILON ? I * Math.abs(omega) / M : 0;
                 const Q = p.charge;
                 const disc = M * M - a * a - Q * Q;
-                p.radius = disc > 0 ? M + Math.sqrt(disc) : M * 0.5; // BH_NAKED_FLOOR
+                p.radius = disc > EPSILON ? M + Math.sqrt(disc) : M * 0.5; // BH_NAKED_FLOOR
             } else {
                 p.radius = Math.cbrt(p.mass);
             }
@@ -293,24 +328,67 @@ export default class HiggsField {
         }
     }
 
-    /** Apply gradient force: F = -(baseMass/VEV) * coupling * grad(phi). */
+    /**
+     * Apply gradient force: F = -(baseMass/VEV) * coupling * grad(phi).
+     * Subtracts the analytical self-force gradient to prevent self-interaction.
+     *
+     * Self-force gradient (derived from CIC kernel symmetry):
+     *   selfGradX = selfBase * (2fx - 1) * ((1-fy)^2 + fy^2) / cellW
+     *   selfGradY = selfBase * (2fy - 1) * ((1-fx)^2 + fx^2) / cellH
+     */
     applyForces(particles, domainW, domainH) {
         const v = this.vev;
         if (v < EPSILON) return;
         const invV = 1 / v;
         const coup = this.coupling;
-        const grad = this._grad;
+        const lam = this.lambda;
+        const mHsq = 2 * lam * v * v;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return;
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
+        const cellArea = cellW * cellH;
+
+        const selfDenom = v * cellArea * mHsq;
+        const selfScale = selfDenom > EPSILON ? coup / selfDenom : 0;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            this.gradient(p.pos.x, p.pos.y, domainW, domainH, grad);
-            const c = -p.baseMass * invV * coup;
-            const fx = c * grad.x;
-            const fy = c * grad.y;
-            p.force.x += fx;
-            p.force.y += fy;
-            p.forceHiggs.x = fx;
-            p.forceHiggs.y = fy;
+            if (p.baseMass < EPSILON) continue;
+
+            this._cicCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+            const ix = this._cic.ix, iy = this._cic.iy;
+            const fx = this._cic.fx, fy = this._cic.fy;
+
+            // Sample 4 corner phi values
+            const v00 = this._phiAt(ix, iy);
+            const v10 = this._phiAt(ix + 1, iy);
+            const v01 = this._phiAt(ix, iy + 1);
+            const v11 = this._phiAt(ix + 1, iy + 1);
+
+            // Bilinear gradient of total field
+            let gradX = ((v10 - v00) * (1 - fy) + (v11 - v01) * fy) * invCellW;
+            let gradY = ((v01 - v00) * (1 - fx) + (v11 - v10) * fx) * invCellH;
+
+            // Subtract analytical self-force gradient
+            const selfBase = p.baseMass * selfScale;
+            const fy2 = fy * fy;
+            const fx2 = fx * fx;
+            gradX -= selfBase * (2 * fx - 1) * ((1 - fy) * (1 - fy) + fy2) * invCellW;
+            gradY -= selfBase * (2 * fy - 1) * ((1 - fx) * (1 - fx) + fx2) * invCellH;
+
+            const coeff = -p.baseMass * invV * coup;
+            const forceX = coeff * gradX;
+            const forceY = coeff * gradY;
+
+            // NaN guard
+            if (forceX !== forceX || forceY !== forceY) continue;
+
+            p.force.x += forceX;
+            p.force.y += forceY;
+            p.forceHiggs.x = forceX;
+            p.forceHiggs.y = forceY;
         }
     }
 
@@ -318,16 +396,18 @@ export default class HiggsField {
     energy(domainW, domainH) {
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return 0;
         const cellArea = cellW * cellH;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
         const phi = this.phi;
         const phiDot = this.phiDot;
         const lam = this.lambda;
-        const muSq = this.vev * this.vev * lam;
+        const v = this.vev;
+        const muSq = v * v * lam;
 
         // V(v) = -mu^4/(4*lambda), offset to make V(VEV)=0
-        const vacOffset = 0.25 * muSq * muSq / lam;
+        const vacOffset = lam > EPSILON ? 0.25 * muSq * muSq / lam : 0;
         let total = 0;
         for (let iy = 0; iy < GRID; iy++) {
             for (let ix = 0; ix < GRID; ix++) {
@@ -344,14 +424,16 @@ export default class HiggsField {
                 const dyPhi = (phiB - p) * invCellH;
                 const gradE = 0.5 * (dxPhi * dxPhi + dyPhi * dyPhi);
 
-                // Potential: V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4 + 1/4 mu^4/lambda
+                // Potential: V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4 + vacOffset
                 // Shifted so V(VEV) = 0 (vacuum has zero energy)
                 const pot = -0.5 * muSq * p * p + 0.25 * lam * p * p * p * p + vacOffset;
 
                 total += (ke + gradE + pot) * cellArea;
             }
         }
-        return total;
+
+        // NaN guard
+        return total === total ? total : 0;
     }
 
     /** Render field deviation from VEV to offscreen canvas. */
@@ -359,8 +441,8 @@ export default class HiggsField {
         const phi = this.phi;
         const v = this.vev;
         const data = this._imgData.data;
-        const halfV = v * 0.5;
-        const invHalfV = halfV > 0 ? 1 / halfV : 0;
+        const halfV = Math.max(v * 0.5, EPSILON);
+        const invHalfV = 1 / halfV;
 
         for (let i = 0; i < GRID_SQ; i++) {
             const deviation = phi[i] - v;
