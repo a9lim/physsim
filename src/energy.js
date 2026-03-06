@@ -1,7 +1,7 @@
 // ─── Energy & Momentum Computation ───
 // Three-pass accumulator: KE + momentum, angular momentum about COM, Darwin field corrections.
 
-import { INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ, AXION_G } from './config.js';
+import { INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ } from './config.js';
 import { TORUS, minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -75,9 +75,6 @@ export function computeEnergies(particles, physics, sim) {
     const halfDomH = domH * 0.5;
     const topology = physics._topologyConst;
     const softeningSq = physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
-    const axMod = physics.axionEnabled
-        ? 1 + AXION_G * Math.cos(physics.axionMass * physics.simTime)
-        : 1.0;
 
     if (magneticOn || gmOn) {
         for (let i = 0; i < n; i++) {
@@ -102,8 +99,11 @@ export function computeEnergies(particles, physics, sim) {
                 const svx = pi.vel.x + pj.vel.x, svy = pi.vel.y + pj.vel.y;
                 const svDotR = svx * rx + svy * ry;
 
+                // Use average of both particles' local axion coupling
+                const pairAxMod = (pi.axMod + pj.axMod) * 0.5;
+
                 if (magneticOn) {
-                    const qqInvR = pi.charge * pj.charge * invR * axMod;
+                    const qqInvR = pi.charge * pj.charge * invR * pairAxMod;
                     if (emFieldEnergyOn) fieldEnergy -= 0.5 * qqInvR * velTerm;
                     const coeff = qqInvR * 0.5;
                     fieldPx += coeff * (svx + rx * svDotR);
@@ -123,7 +123,7 @@ export function computeEnergies(particles, physics, sim) {
                     const invRSq = invR * invR;
                     const crossCoeff = pi.charge * pj.charge * (pi.mass + pj.mass)
                         - (pi.charge * pi.charge * pj.mass + pj.charge * pj.charge * pi.mass);
-                    fieldEnergy += 0.5 * crossCoeff * invRSq * axMod;
+                    fieldEnergy += 0.5 * crossCoeff * invRSq * pairAxMod;
                 }
             }
         }
@@ -135,11 +135,17 @@ export function computeEnergies(particles, physics, sim) {
         higgsFieldEnergy = sim.higgsField.energy(physics.domainW, physics.domainH);
     }
 
+    // Axion field energy
+    let axionFieldEnergy = 0;
+    if (physics.axionEnabled && sim && sim.axionField) {
+        axionFieldEnergy = sim.axionField.energy(physics.domainW, physics.domainH);
+    }
+
     return {
         linearKE, spinKE,
         pe: physics.potentialEnergy,
         fieldEnergy, fieldPx, fieldPy,
-        higgsFieldEnergy,
+        higgsFieldEnergy, axionFieldEnergy,
         px, py,
         orbitalAngMom, spinAngMom,
         comX, comY,

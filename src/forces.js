@@ -25,6 +25,7 @@ export function resetForces(particles) {
         p.forceYukawa.x = p.forceYukawa.y = 0;
         p.forceExternal.x = p.forceExternal.y = 0;
         p.forceHiggs.x = p.forceHiggs.y = 0;
+        p.forceAxion.x = p.forceAxion.y = 0;
         p.torqueSpinOrbit = 0;
         p.torqueFrameDrag = 0;
         p.torqueTidal = 0;
@@ -164,7 +165,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     if (toggles.coulombEnabled) {
-        const k = -(p.charge * sCharge) * toggles.axMod;
+        const k = -(p.charge * sCharge) * p.axMod;
         const fDir = k * invR3;
         out.x += rx * fDir;
         out.y += ry * fDir;
@@ -229,8 +230,8 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     if (toggles.magneticEnabled) {
-        // Axion modulation: all EM charge-dependent terms scale with α_eff
-        const axMod = toggles.axMod;
+        // Axion modulation: all EM charge-dependent terms scale with local α_eff
+        const axMod = p.axMod;
         // Dipole-dipole radial: F = −3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
         const fDir = -3 * (pMagMoment * sMagMoment) * invR5 * axMod;
         out.x += rx * fDir;

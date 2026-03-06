@@ -4,6 +4,7 @@ import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
 import Heatmap from './src/heatmap.js';
 import HiggsField from './src/higgs-field.js';
+import AxionField from './src/axion-field.js';
 import PhasePlot from './src/phase-plot.js';
 import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
@@ -35,6 +36,9 @@ class Simulation {
 
         this.higgsField = new HiggsField();
         this.renderer.higgsField = this.higgsField;
+
+        this.axionField = new AxionField();
+        this.renderer.axionField = this.axionField;
 
         this.phasePlot = new PhasePlot();
         this.effPotPlot = new EffectivePotentialPlot();
@@ -73,6 +77,7 @@ class Simulation {
             energyDrift: document.getElementById('energyDrift'),
             fieldE: document.getElementById('fieldE'),
             higgsFieldE: document.getElementById('higgsFieldE'),
+            axionFieldE: document.getElementById('axionFieldE'),
             radiatedE: document.getElementById('radiatedE'),
             momentum: document.getElementById('momentum'),
             particleMom: document.getElementById('particleMom'),
@@ -129,6 +134,8 @@ class Simulation {
             fbExternalVal: document.getElementById('fb-external-val'),
             fbHiggs: document.getElementById('fb-higgs'),
             fbHiggsVal: document.getElementById('fb-higgs-val'),
+            fbAxion: document.getElementById('fb-axion'),
+            fbAxionVal: document.getElementById('fb-axion-val'),
         };
 
         // Mount sidebar canvases

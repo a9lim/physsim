@@ -305,26 +305,31 @@ export const REFERENCE = {
         body: `
 <p>The axion is a hypothetical particle originally proposed to solve the strong CP problem in quantum chromodynamics — the puzzle of why the strong force conserves CP symmetry despite having no reason to. It has since become a leading dark matter candidate.</p>
 
-<h3>The Oscillating Background</h3>
-<p>If axions constitute the dark matter, they would form a coherent, oscillating classical field pervading all of space:</p>
-<p>$$a(t) = a_0\\cos(m_a t)$$</p>
-<p>The mass $m_a$ sets the oscillation frequency. For ultralight axions ($m_a \\sim 10^{-22}$ eV), the period is measured in years; for QCD axions ($m_a \\sim 10^{-5}$ eV), it's nanoseconds. The field oscillates everywhere simultaneously, like a cosmic metronome.</p>
+<h3>The Dynamical Field</h3>
+<p>The axion is a real pseudoscalar field $a(\\mathbf{x},t)$ on a 64×64 grid, governed by the Klein-Gordon equation with a quadratic potential:</p>
+<p>$$\\frac{\\partial^2 a}{\\partial t^2} = \\nabla^2 a - m_a^2\\,a - 2m_a\\dot{a} + \\text{source}$$</p>
+<p>The potential $V(a) = \\frac{1}{2}m_a^2 a^2$ has its minimum at $a=0$ — unlike the Higgs, there is no symmetry breaking. The field naturally oscillates around zero with frequency $m_a$. Critical damping $2m_a$ prevents field ringing.</p>
 
 <h3>Coupling to Electromagnetism</h3>
-<p>The axion-photon coupling modulates the effective fine structure constant:</p>
-<p>$$\\alpha_{\\text{eff}} = \\alpha\\left(1 + g_{a\\gamma\\gamma}\\,a_0\\cos(m_a t)\\right)$$</p>
-<p>All electromagnetic forces oscillate at the axion frequency. Coulomb attraction, magnetic interactions, and radiation rates wobble periodically. Energy is not conserved — the axion field acts as an infinite external reservoir.</p>
+<p>Charged particles source the field proportionally to $q^2$ via PQS (cubic B-spline) deposition. The local field value modulates the effective fine structure constant:</p>
+<p>$$\\alpha_{\\text{eff}}(\\mathbf{x}) = \\alpha\\left(1 + a(\\mathbf{x})\\right)$$</p>
+<p>All electromagnetic forces — Coulomb, magnetic dipole, Biot-Savart — use the <em>local</em> coupling evaluated at each particle's position. Spatial variation in the field creates regions of stronger and weaker EM interaction.</p>
+
+<h3>Gradient Force</h3>
+<p>Charged particles feel a gradient force from the axion field:</p>
+<p>$$\\mathbf{F}_a = -q^2\\,\\nabla a$$</p>
+<p>This arises because the particle's EM interaction energy depends on position through $a(\\mathbf{x})$. Neutral particles neither source nor feel the axion field.</p>
 
 <h3>Detection Experiments</h3>
-<p>This oscillating coupling is exactly what several major experiments search for:</p>
+<p>The oscillating axion-photon coupling is what several major experiments search for:</p>
 <ul>
 <li><b>ADMX</b>: a resonant microwave cavity that converts dark matter axions to photons in a strong magnetic field</li>
 <li><b>ABRACADABRA</b>: searches for oscillating magnetic flux in a toroidal magnet induced by the axion-photon coupling</li>
 <li><b>CASPEr</b>: looks for oscillating nuclear spin precession driven by axion-nucleon interaction</li>
 </ul>
 
-<h3>Parametric Resonance</h3>
-<p>Watch orbital stability as you change the axion mass $m_a$. When the oscillation frequency approaches a system's natural orbital frequency, parametric resonance can pump energy into the orbit and unbind it — even a tiny coupling amplitude can destabilize orbits at the right frequency.</p>
+<h3>Field Visualization</h3>
+<p>The field overlay shows $a > 0$ in orange and $a < 0$ in blue, with opacity proportional to field amplitude. Watch how charged particles source field excitations that propagate outward and modulate the local EM coupling strength.</p>
 `,
     },
 

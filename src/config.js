@@ -45,9 +45,10 @@ export const TIDAL_STRENGTH = 2.0;
 export const YUKAWA_G2 = 1.0;            // coupling strength (fixed)
 export const DEFAULT_YUKAWA_MU = 0.05;  // mediator mass (inverse range)
 
-// Axion dark matter: oscillating EM coupling α_eff = α·(1 + g·cos(m_a·t))
-export const AXION_G = 0.5;              // coupling amplitude (fixed)
-export const DEFAULT_AXION_MASS = 0.05; // oscillation frequency (m_a)
+// Axion field: V(a) = 1/2 m_a² a² (quadratic potential, no SSB)
+export const AXION_GRID = 64;
+export const AXION_A_MAX = 8;            // field value clamp (prevent runaway)
+export const DEFAULT_AXION_MASS = 0.05; // mediator mass (oscillation frequency)
 
 // Photon gravitational lensing
 export const PHOTON_SOFTENING_SQ = 4;  // smaller than particle softening for tighter lensing

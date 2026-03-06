@@ -27,6 +27,8 @@ export default class Particle {
         this.forceYukawa = new Vec2(0, 0);
         this.forceExternal = new Vec2(0, 0);
         this.forceHiggs = new Vec2(0, 0);
+        this.forceAxion = new Vec2(0, 0);
+        this.axMod = 1; // local EM coupling modulation from axion field
         this.torqueSpinOrbit = 0;
         this.torqueFrameDrag = 0;
         this.torqueTidal = 0;

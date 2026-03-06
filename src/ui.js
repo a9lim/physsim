@@ -66,6 +66,7 @@ export function setupUI(sim) {
         sim.totalRadiatedPx = 0;
         sim.totalRadiatedPy = 0;
         if (sim.higgsField) sim.higgsField.reset();
+        if (sim.axionField) sim.axionField.reset();
         sim.camera.reset(sim.domainW / 2, sim.domainH / 2, WORLD_SCALE);
         showToast('Simulation cleared');
     });
@@ -230,6 +231,11 @@ export function setupUI(sim) {
             if (id === 'higgs-toggle' && !tEl[id].checked) {
                 for (const p of sim.particles) { p.mass = p.baseMass; p.updateColor(); }
             }
+            // Axion: reset axMod to 1 and clear field when toggled off
+            if (id === 'axion-toggle' && !tEl[id].checked) {
+                for (const p of sim.particles) p.axMod = 1;
+                if (sim.axionField) sim.axionField.reset();
+            }
             updateAllDeps();
         });
     });
@@ -294,8 +300,10 @@ export function setupUI(sim) {
     const axionMassSlider = document.getElementById('axionMassInput');
     const axionMassLabel = document.getElementById('axionMassValue');
     axionMassSlider.addEventListener('input', () => {
-        sim.physics.axionMass = parseFloat(axionMassSlider.value);
-        axionMassLabel.textContent = parseFloat(axionMassSlider.value).toFixed(2);
+        const m = parseFloat(axionMassSlider.value);
+        sim.physics.axionMass = m;
+        if (sim.axionField) sim.axionField.mass = m;
+        axionMassLabel.textContent = m.toFixed(2);
     });
 
     // ─── Hubble slider ───
@@ -451,7 +459,7 @@ export function setupUI(sim) {
         blackhole: { title: 'Black Hole', body: 'Kerr\u2013Newman horizons ($r_+ = M+\\sqrt{M^2-a^2-Q^2}$), ergospheres, and Hawking radiation. Extremal BHs stop radiating. Requires Relativity + Gravity.' },
         onepn: { title: '1PN Corrections', body: '$O(v^2/c^2)$ post-Newtonian terms: EIH perihelion precession, Darwin EM corrections, Bazanski cross-terms. Requires Relativity.' },
         yukawa: { title: 'Yukawa', body: 'Screened $e^{-\\mu r}/r$ potential \u2014 gravity-like at short range, vanishes exponentially beyond $1/\\mu$. Models massive-mediator forces.' },
-        axion: { title: 'Axion Coupling', body: 'Oscillating dark matter field modulates EM coupling: $\\alpha_{\\text{eff}} = \\alpha(1+g\\cos m_a t)$. Energy not conserved. Requires Coulomb.' },
+        axion: { title: 'Axion Field', body: 'Dynamical pseudoscalar field with $V(a)=\\frac{1}{2}m_a^2 a^2$. Charged particles source the field and feel gradient force $F=-q^2\\nabla a$. Local EM modulation: $\\alpha_{\\text{eff}}=\\alpha(1+a(x))$. Requires Coulomb.' },
         expansion: { title: 'Expansion', body: 'Hubble flow ($v_H = Hr$) from domain center. Bound systems resist expansion; unbound particles drift apart.' },
         higgs: { title: 'Higgs Field', body: 'Scalar field with Mexican hat potential. Particles acquire mass from local field value ($m = m_0|\\phi|$). High temperature restores symmetry \u2014 particles become massless.' },
         external: { title: 'External Fields', body: '<b>Gravity</b> \u2014 uniform $\\mathbf{F}=m\\mathbf{g}$. <b>Electric</b> \u2014 uniform $\\mathbf{F}=q\\mathbf{E}$. <b>Magnetic $B_z$</b> \u2014 cyclotron motion via Boris rotation.' },

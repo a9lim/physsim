@@ -112,6 +112,7 @@ export function loadState(state, sim) {
     if (state.axionMass != null) ph.axionMass = state.axionMass;
     if (state.hubbleParam != null) ph.hubbleParam = state.hubbleParam;
     if (sim.higgsField) sim.higgsField.reset();
+    if (sim.axionField) sim.axionField.reset();
 
     if (state.settings) {
         const col = state.settings.collision || 'pass';

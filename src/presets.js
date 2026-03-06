@@ -276,7 +276,7 @@ export const PRESETS = {
 
     axion: {
         name: 'Axion Field',
-        desc: 'Dark matter axion oscillates the electromagnetic coupling',
+        desc: 'Dynamical pseudoscalar field modulates EM coupling spatially',
         toggles: {
             gravity: false, coulomb: true, magnetic: true, gravitomag: false,
             relativity: true, onepn: false, blackhole: false,
@@ -507,6 +507,7 @@ export function loadPreset(name, sim) {
     sim.selectedParticle = null;
     sim.physics._forcesInit = false;
     if (sim.higgsField) sim.higgsField.reset();
+    if (sim.axionField) sim.axionField.reset();
     sim.camera.reset(sim.domainW / 2, sim.domainH / 2, WORLD_SCALE);
 
     // 2. Apply physics toggles in dependency order

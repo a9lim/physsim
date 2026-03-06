@@ -2,7 +2,7 @@
 // V_eff(r) = V(r) + L²/(2μr²) for selected particle vs most massive body.
 // Draws curve + current-position marker on a sidebar canvas.
 
-import { TWO_PI, SOFTENING_SQ, BH_SOFTENING_SQ, YUKAWA_G2, AXION_G } from './config.js';
+import { TWO_PI, SOFTENING_SQ, BH_SOFTENING_SQ, YUKAWA_G2 } from './config.js';
 
 const N_SAMPLES = 200;
 const MARGIN = 28;
@@ -51,8 +51,7 @@ export default class EffectivePotentialPlot {
         const gm = physics.gravitomagEnabled;
         const yuk = physics.yukawaEnabled;
         const softSq = physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
-        const axMod = physics.axionEnabled
-            ? 1 + AXION_G * Math.cos(physics.axionMass * physics.simTime) : 1;
+        const axMod = sel.axMod;
 
         // Magnetic/GM moments (cached per-substep in computeAllForces)
         const selMu = sel.magMoment;

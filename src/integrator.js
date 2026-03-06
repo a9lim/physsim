@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -90,7 +90,6 @@ export default class Physics {
             yukawaEnabled: false,
             yukawaMu: 0.2,
             axionEnabled: false,
-            axMod: 1.0,
             softeningSq: SOFTENING_SQ,
         };
 
@@ -111,11 +110,6 @@ export default class Physics {
         this._toggles.yukawaEnabled = this.yukawaEnabled;
         this._toggles.yukawaMu = this.yukawaMu;
         this._toggles.axionEnabled = this.axionEnabled;
-        if (this.axionEnabled) {
-            this._toggles.axMod = 1 + AXION_G * Math.cos(this.axionMass * this.simTime);
-        } else {
-            this._toggles.axMod = 1.0;
-        }
         this._toggles.softeningSq = this.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
         this._toggles.higgsEnabled = this.higgsEnabled;
     }
@@ -236,6 +230,15 @@ export default class Physics {
             if (Bext !== 0) {
                 p.Bz += Bext;
             }
+        }
+    }
+
+    /** Sync per-particle axMod: interpolate from axion field or default to 1. */
+    _syncAxionField(particles, width, height) {
+        if (this.axionEnabled && this.sim && this.sim.axionField) {
+            this.sim.axionField.interpolateAxMod(particles, width, height);
+        } else {
+            for (let i = 0, n = particles.length; i < n; i++) particles[i].axMod = 1;
         }
     }
 
@@ -392,6 +395,7 @@ export default class Physics {
                 p.angVel = relOn ? angwToAngVel(p.angw, p.radius) : p.angw;
             }
             resetForces(particles);
+            this._syncAxionField(particles, width, height);
             const initRoot = this.barnesHutEnabled
                 ? this._buildTree(particles)
                 : -1;
@@ -399,6 +403,9 @@ export default class Physics {
             this._applyExternalFields(particles);
             if (this.higgsEnabled && this.sim && this.sim.higgsField) {
                 this.sim.higgsField.applyForces(particles, width, height);
+            }
+            if (this.axionEnabled && this.sim && this.sim.axionField) {
+                this.sim.axionField.applyForces(particles, width, height);
             }
             if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, initRoot);
             if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
@@ -795,6 +802,11 @@ export default class Physics {
                 this.sim.higgsField.modulateMasses(particles, width, height, this.blackHoleEnabled);
             }
 
+            // Axion field evolution (axMod interpolation deferred to step 7)
+            if (this.axionEnabled && this.sim && this.sim.axionField) {
+                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height);
+            }
+
             // Step 5: Rebuild quadtree at new positions
             const root = this._buildTree(particles);
             lastRoot = root;
@@ -851,10 +863,14 @@ export default class Physics {
 
             // Step 7: Recompute forces and B fields for next substep
             resetForces(particles);
+            this._syncAxionField(particles, width, height);
             computeAllForces(particles, toggles, this.pool, root, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
             this._applyExternalFields(particles);
             if (this.higgsEnabled && this.sim && this.sim.higgsField) {
                 this.sim.higgsField.applyForces(particles, width, height);
+            }
+            if (this.axionEnabled && this.sim && this.sim.axionField) {
+                this.sim.axionField.applyForces(particles, width, height);
             }
             if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, root);
             if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
