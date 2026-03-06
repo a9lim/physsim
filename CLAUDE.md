@@ -200,7 +200,7 @@ Toggle under Relativity (`physics.blackHoleEnabled`):
 - **Ergosphere**: dashed ring at `r_ergo = M + sqrt(M²-a²)` (theme text color, purely visual)
 - **Reduced softening**: BH_SOFTENING_SQ = 16 (not 64)
 - **Collision lock**: forced to Merge
-- **Hawking radiation**: `κ = sqrt(disc)/(r+²+a²)`, `T = κ/(2π)`, `P = σT⁴A` where `σ = π²/60`, `A = 4π(r+²+a²)`. Extremal BHs stop radiating.
+- **Hawking radiation** (requires Radiation toggle): `κ = sqrt(disc)/(r+²+a²)`, `T = κ/(2π)`, `P = σT⁴A` where `σ = π²/60`, `A = 4π(r+²+a²)`. Extremal BHs stop radiating.
 - **Evaporation**: below MIN_MASS → removed with `SPAWN_COUNT` photon burst
 
 ### Signal Delay
@@ -251,7 +251,7 @@ Collision mode `'bounce'` and boundary mode `'bounce'` both use the same Hertz c
 δ = overlap depth (r₁ + r₂ - dist for particles, r - wall_dist for boundaries)
 F = K * δ^1.5 (repulsive, along separation/wall normal)
 ```
-Default stiffness `K = DEFAULT_REPEL_STIFFNESS = 500`. Tangential friction transfers torque between spinning particles (collision) or from wall sliding (boundary). Integrated as forces within the Boris substep loop for stability.
+Stiffness K=1 (baked in). Tangential friction transfers torque between spinning particles (collision) or from wall sliding (boundary). Integrated as forces within the Boris substep loop for stability.
 
 **Particle-particle**: `_applyRepulsion()` / `_repelPair()` in integrator.js. Uses quadtree neighbor query when Barnes-Hut is on, O(n²) brute force when off. Friction torque accumulates into `_tidalTorque`.
 

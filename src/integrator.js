@@ -689,7 +689,7 @@ export default class Physics {
             }
 
             // Hawking radiation: Kerr-Newman temperature
-            if (this.blackHoleEnabled && this.sim) {
+            if (this.blackHoleEnabled && this.radiationEnabled && this.sim) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     if (p.mass <= MIN_MASS) continue;
