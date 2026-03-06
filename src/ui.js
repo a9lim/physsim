@@ -83,6 +83,14 @@ export function setupUI(sim) {
     pauseBtn.addEventListener('click', togglePause);
 
     // ─── Mode toggles ───
+    const collisionToggles = document.getElementById('collision-toggles');
+    const boundaryToggles = document.getElementById('boundary-toggles');
+    const frictionGroup = document.getElementById('friction-group');
+
+    const updateFrictionVisibility = () => {
+        frictionGroup.style.display = (sim.collisionMode === 'bounce' || sim.boundaryMode === 'bounce') ? '' : 'none';
+    };
+
     const bindToggleGroup = (id, attr, setter) => {
         const group = document.getElementById(id);
         group.addEventListener('click', (e) => {
@@ -94,16 +102,20 @@ export function setupUI(sim) {
         });
     };
 
-    bindToggleGroup('collision-toggles', 'collision', (v) => { sim.collisionMode = v; });
+    bindToggleGroup('collision-toggles', 'collision', (v) => {
+        sim.collisionMode = v;
+        updateFrictionVisibility();
+    });
     bindToggleGroup('boundary-toggles', 'boundary', (v) => {
         sim.boundaryMode = v;
         document.getElementById('topology-group').style.display = v === 'loop' ? '' : 'none';
+        updateFrictionVisibility();
     });
     bindToggleGroup('topology-toggles', 'topology', (v) => { sim.topology = v; });
     bindToggleGroup('interaction-toggles', 'mode', (v) => { sim.input.mode = v; });
 
-    // ─── Force toggles ───
-    const forceToggles = [
+    // ─── Physics toggles ───
+    const toggleDefs = [
         { id: 'gravity-toggle', prop: 'gravityEnabled' },
         { id: 'coulomb-toggle', prop: 'coulombEnabled' },
         { id: 'magnetic-toggle', prop: 'magneticEnabled' },
@@ -119,125 +131,59 @@ export function setupUI(sim) {
         { id: 'yukawa-toggle', prop: 'yukawaEnabled' },
         { id: 'axion-toggle', prop: 'axionEnabled' },
         { id: 'quadradiation-toggle', prop: 'quadRadiationEnabled' },
+        { id: 'blackhole-toggle', prop: 'blackHoleEnabled' },
+        { id: 'expansion-toggle', prop: 'expansionEnabled' },
     ];
-    forceToggles.forEach(({ id, prop }) => {
-        const el = document.getElementById(id);
-        el.addEventListener('change', () => {
-            sim.physics[prop] = el.checked;
-            el.setAttribute('aria-checked', el.checked);
-        });
+
+    // Cache elements and prop lookup
+    const tEl = {};
+    const propById = {};
+    toggleDefs.forEach(({ id, prop }) => {
+        tEl[id] = document.getElementById(id);
+        propById[id] = prop;
     });
 
-    // ─── Force toggle dependency helper ───
-    // Disabling a parent also unchecks and disables its children
-    const setDepState = (el, prop, disabled) => {
+    // ─── Declarative dependency graph ───
+    // Evaluated in order: parents before children so cascading disables propagate
+    const DEPS = [
+        ['gravitomag-toggle', () => !tEl['gravity-toggle'].checked],
+        ['magnetic-toggle', () => !tEl['coulomb-toggle'].checked],
+        ['signaldelay-toggle', () => !tEl['relativity-toggle'].checked],
+        ['radiation-toggle', () => !tEl['coulomb-toggle'].checked],
+        ['tidallocking-toggle', () => !tEl['gravity-toggle'].checked],
+        ['disintegration-toggle', () => !tEl['gravity-toggle'].checked],
+        ['axion-toggle', () => !tEl['coulomb-toggle'].checked],
+        ['blackhole-toggle', () => !tEl['relativity-toggle'].checked || !tEl['gravity-toggle'].checked],
+        // Children of toggles that may have been disabled above
+        ['onepn-toggle', () => !tEl['relativity-toggle'].checked || (!tEl['magnetic-toggle'].checked && !tEl['gravitomag-toggle'].checked)],
+        ['spinorbit-toggle', () => !tEl['magnetic-toggle'].checked && !tEl['gravitomag-toggle'].checked],
+        ['quadradiation-toggle', () => !tEl['radiation-toggle'].checked],
+    ];
+
+    const setDepState = (id, disabled) => {
+        const el = tEl[id];
         el.disabled = disabled;
         const row = el.closest('.ctrl-row') || el.closest('.checkbox-label');
         if (row) row.classList.toggle('ctrl-disabled', disabled);
         if (disabled && el.checked) {
             el.checked = false;
             el.setAttribute('aria-checked', 'false');
-            sim.physics[prop] = false;
+            sim.physics[propById[id]] = false;
         }
     };
 
-    const relativityEl = document.getElementById('relativity-toggle');
-    const bhEl = document.getElementById('barneshut-toggle');
-    const gravEl = document.getElementById('gravity-toggle');
-    const coulEl = document.getElementById('coulomb-toggle');
+    // Slider groups toggled by their parent checkbox
+    const yukawaSliders = document.getElementById('yukawa-sliders');
+    const axionSliders = document.getElementById('axion-sliders');
+    const hubbleGroup = document.getElementById('hubble-group');
 
-    // ─── Signal Delay requires Relativity ───
-    const sdEl = document.getElementById('signaldelay-toggle');
-    const updateSdDeps = () => {
-        setDepState(sdEl, 'signalDelayEnabled', !relativityEl.checked);
-    };
-    relativityEl.addEventListener('change', updateSdDeps);
-    updateSdDeps();
+    const updateAllDeps = () => {
+        // 1. Cascade dependency graph
+        for (const [id, disabledFn] of DEPS) setDepState(id, disabledFn());
 
-    // ─── 1PN requires Relativity + (Magnetic or Gravitomagnetic) ───
-    const gmEl = document.getElementById('gravitomag-toggle');
-    const magEl = document.getElementById('magnetic-toggle');
-    const pnEl = document.getElementById('onepn-toggle');
-    const updatePnDeps = () => {
-        setDepState(pnEl, 'onePNEnabled', !relativityEl.checked || (!magEl.checked && !gmEl.checked));
-    };
-    relativityEl.addEventListener('change', updatePnDeps);
-    magEl.addEventListener('change', updatePnDeps);
-    gmEl.addEventListener('change', updatePnDeps);
-
-    // ─── Spin-Orbit requires Magnetic or Gravitomagnetic ───
-    const soEl = document.getElementById('spinorbit-toggle');
-    const updateSoDeps = () => {
-        setDepState(soEl, 'spinOrbitEnabled', !magEl.checked && !gmEl.checked);
-    };
-    magEl.addEventListener('change', updateSoDeps);
-    gmEl.addEventListener('change', updateSoDeps);
-
-    // ─── Gravity → Gravitomagnetic (cascades to 1PN, Spin-Orbit) ───
-    const updateGravDeps = () => {
-        setDepState(gmEl, 'gravitomagEnabled', !gravEl.checked);
-        updatePnDeps();
-        updateSoDeps();
-    };
-    gravEl.addEventListener('change', updateGravDeps);
-
-    // ─── Coulomb → Magnetic (cascades to 1PN, Spin-Orbit) ───
-    const updateCoulDeps = () => {
-        setDepState(magEl, 'magneticEnabled', !coulEl.checked);
-        updatePnDeps();
-        updateSoDeps();
-    };
-    coulEl.addEventListener('change', updateCoulDeps);
-
-    // ─── Radiation requires Coulomb ───
-    const radEl = document.getElementById('radiation-toggle');
-    const updateRadDeps = () => {
-        setDepState(radEl, 'radiationEnabled', !coulEl.checked);
-    };
-    coulEl.addEventListener('change', updateRadDeps);
-
-    // ─── Tidal Locking requires Gravity ───
-    const tlEl = document.getElementById('tidallocking-toggle');
-    const updateTlDeps = () => {
-        setDepState(tlEl, 'tidalLockingEnabled', !gravEl.checked);
-    };
-    gravEl.addEventListener('change', updateTlDeps);
-
-    // ─── Disintegration requires Gravity ───
-    const disintEl = document.getElementById('disintegration-toggle');
-    const updateDisintDeps = () => {
-        setDepState(disintEl, 'disintegrationEnabled', !gravEl.checked);
-    };
-    gravEl.addEventListener('change', updateDisintDeps);
-
-    // ─── Axion requires Coulomb ───
-    const axionEl = document.getElementById('axion-toggle');
-    const updateAxionDeps = () => {
-        setDepState(axionEl, 'axionEnabled', !coulEl.checked);
-    };
-    coulEl.addEventListener('change', updateAxionDeps);
-
-    // ─── Quadrupole Radiation requires Radiation ───
-    const quadEl = document.getElementById('quadradiation-toggle');
-    const updateQuadDeps = () => {
-        setDepState(quadEl, 'quadRadiationEnabled', !radEl.checked);
-    };
-    radEl.addEventListener('change', updateQuadDeps);
-
-    // ─── Initialize all dependency states ───
-    updateGravDeps();
-    updateCoulDeps();
-    updateRadDeps();
-    updateTlDeps();
-    updateDisintDeps();
-    updateAxionDeps();
-    updateQuadDeps();
-
-    // ─── Black Hole requires Relativity + Gravity; locks collision to Merge ───
-    const bhTogEl = document.getElementById('blackhole-toggle');
-    const collisionToggles = document.getElementById('collision-toggles');
-    const syncBhEffects = () => {
-        if (bhTogEl.checked) {
+        // 2. Black hole locks collision to merge
+        const bhOn = tEl['blackhole-toggle'].checked;
+        if (bhOn) {
             sim.collisionMode = 'merge';
             collisionToggles.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
             collisionToggles.querySelector('[data-collision="merge"]').classList.add('active');
@@ -246,19 +192,35 @@ export function setupUI(sim) {
             collisionToggles.classList.remove('ctrl-disabled');
         }
         for (const p of sim.particles) p.updateColor();
+
+        // 3. Expansion locks boundary to despawn
+        if (tEl['expansion-toggle'].checked) {
+            sim.boundaryMode = 'despawn';
+            boundaryToggles.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            boundaryToggles.querySelector('[data-boundary="despawn"]').classList.add('active');
+            boundaryToggles.classList.add('ctrl-disabled');
+            document.getElementById('topology-group').style.display = 'none';
+        } else {
+            boundaryToggles.classList.remove('ctrl-disabled');
+        }
+
+        // 4. Slider group visibility
+        yukawaSliders.style.display = tEl['yukawa-toggle'].checked ? '' : 'none';
+        axionSliders.style.display = tEl['axion-toggle'].checked ? '' : 'none';
+        hubbleGroup.style.display = tEl['expansion-toggle'].checked ? '' : 'none';
+        updateFrictionVisibility();
     };
-    const updateBhDeps = () => {
-        setDepState(bhTogEl, 'blackHoleEnabled', !relativityEl.checked || !gravEl.checked);
-        syncBhEffects();
-    };
-    relativityEl.addEventListener('change', updateBhDeps);
-    gravEl.addEventListener('change', updateBhDeps);
-    updateBhDeps();
-    bhTogEl.addEventListener('change', () => {
-        sim.physics.blackHoleEnabled = bhTogEl.checked;
-        bhTogEl.setAttribute('aria-checked', bhTogEl.checked);
-        syncBhEffects();
+
+    // Wire every toggle: sync physics prop + re-evaluate all deps
+    toggleDefs.forEach(({ id, prop }) => {
+        tEl[id].addEventListener('change', () => {
+            sim.physics[prop] = tEl[id].checked;
+            tEl[id].setAttribute('aria-checked', tEl[id].checked);
+            updateAllDeps();
+        });
     });
+
+    updateAllDeps();
 
     // ─── Visual toggles ───
     document.getElementById('trailsToggle').addEventListener('change', (e) => {
@@ -295,45 +257,26 @@ export function setupUI(sim) {
         frictionLabel.textContent = parseFloat(frictionSlider.value).toFixed(2);
     });
 
-    // ─── Yukawa sliders ───
-    const yukawaToggle = document.getElementById('yukawa-toggle');
-    const yukawaSliders = document.getElementById('yukawa-sliders');
+    // ─── Yukawa slider ───
     const yukawaMuSlider = document.getElementById('yukawaMuInput');
     const yukawaMuLabel = document.getElementById('yukawaMuValue');
-
-    yukawaToggle.addEventListener('change', () => {
-        yukawaSliders.style.display = yukawaToggle.checked ? '' : 'none';
-    });
     yukawaMuSlider.addEventListener('input', () => {
         const range = parseFloat(yukawaMuSlider.value);
         sim.physics.yukawaMu = 1 / range;
         yukawaMuLabel.textContent = range.toFixed(2);
     });
 
-    // ─── Axion sliders ───
-    const axionToggle = document.getElementById('axion-toggle');
-    const axionSliders = document.getElementById('axion-sliders');
+    // ─── Axion slider ───
     const axionMassSlider = document.getElementById('axionMassInput');
     const axionMassLabel = document.getElementById('axionMassValue');
-
-    axionToggle.addEventListener('change', () => {
-        axionSliders.style.display = axionToggle.checked ? '' : 'none';
-    });
     axionMassSlider.addEventListener('input', () => {
         sim.physics.axionMass = parseFloat(axionMassSlider.value);
         axionMassLabel.textContent = parseFloat(axionMassSlider.value).toFixed(2);
     });
 
-    // ─── Expansion toggle + Hubble slider ───
-    const expansionEl = document.getElementById('expansion-toggle');
-    const hubbleGroup = document.getElementById('hubble-group');
+    // ─── Hubble slider ───
     const hubbleSlider = document.getElementById('hubbleInput');
     const hubbleLabel = document.getElementById('hubbleValue');
-
-    expansionEl.addEventListener('change', () => {
-        sim.physics.expansionEnabled = expansionEl.checked;
-        hubbleGroup.style.display = expansionEl.checked ? '' : 'none';
-    });
     hubbleSlider.addEventListener('input', () => {
         sim.physics.hubbleParam = parseFloat(hubbleSlider.value);
         hubbleLabel.textContent = parseFloat(hubbleSlider.value).toFixed(4);

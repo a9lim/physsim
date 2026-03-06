@@ -20,7 +20,7 @@ export const WHEEL_ZOOM_IN = 1.1;
 
 export const MAX_SUBSTEPS = 32;
 export const PHYSICS_DT = 1 / 128;
-export const DEFAULT_SPEED_SCALE = 128;
+export const DEFAULT_SPEED_SCALE = 64;
 export const MAX_SPEED_RATIO = 0.99;
 
 // Radiation: tau = 2q^2/(3m), P = 2q^2*a^2/3
