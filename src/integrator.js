@@ -69,7 +69,7 @@ export default class Physics {
             yukawaEnabled: false,
             yukawaMu: 0.2,
             axionEnabled: false,
-            axionModulation: 1.0,
+            axMod: 1.0,
             softeningSq: SOFTENING_SQ,
         };
 
@@ -91,9 +91,9 @@ export default class Physics {
         this._toggles.yukawaMu = this.yukawaMu;
         this._toggles.axionEnabled = this.axionEnabled;
         if (this.axionEnabled) {
-            this._toggles.axionModulation = 1 + this.axionG * Math.cos(this.axionMass * this.simTime);
+            this._toggles.axMod = 1 + this.axionG * Math.cos(this.axionMass * this.simTime);
         } else {
-            this._toggles.axionModulation = 1.0;
+            this._toggles.axMod = 1.0;
         }
         this._toggles.softeningSq = this.blackHoleEnabled ? 1 : SOFTENING_SQ;
     }

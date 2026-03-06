@@ -173,7 +173,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     if (toggles.coulombEnabled) {
-        const k = -(p.charge * sCharge) * toggles.axionModulation;
+        const k = -(p.charge * sCharge) * toggles.axMod;
         const fDir = k * invR3;
         out.x += rx * fDir;
         out.y += ry * fDir;
@@ -239,7 +239,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 
     if (toggles.magneticEnabled) {
         // Axion modulation: all EM charge-dependent terms scale with α_eff
-        const axMod = toggles.axionModulation;
+        const axMod = toggles.axMod;
         // Dipole-dipole radial: F = −3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
         const fDir = -3 * (pMagMoment * sMagMoment) * invR5 * axMod;
         out.x += rx * fDir;
