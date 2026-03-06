@@ -33,10 +33,10 @@ src/
   signal-delay.js            250 lines getDelayedState() (3-phase light-cone solver)
   collisions.js              210 lines handleCollisions(), resolveMerge(), resolveBounce() (rel + classical)
   save-load.js              ~210 lines saveState(), loadState(), downloadState(), uploadState(), quickSave(), quickLoad()
-  heatmap.js                ~190 lines Heatmap: 48x48 grav+electrostatic potential field overlay, signal-delayed positions, 6-frame interval
+  heatmap.js                ~190 lines Heatmap: 48x48 grav+electrostatic+Yukawa potential field overlay, mode selector, signal-delayed positions, 6-frame interval
   potential.js              ~160 lines computePE(), treePE(), pairPE() (7 PE terms: grav, Coulomb, mag dipole, GM dipole, 1PN, Bazanski, Yukawa)
   energy.js                  139 lines computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field
-  stats-display.js          ~115 lines StatsDisplay: energy/momentum/drift DOM updates, selected particle info, force breakdown
+  stats-display.js          ~115 lines StatsDisplay: energy/momentum/drift DOM updates (×100 display scale), selected particle info, force breakdown
   phase-plot.js              116 lines PhasePlot: r vs v_r sidebar canvas (500-sample ring buffer)
   particle.js               ~115 lines Particle entity: pos, vel, w, angw, per-type force vectors, history buffers
   topology.js                112 lines TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
@@ -60,6 +60,7 @@ integrator.js (Physics)
      TORUS + KLEIN + RP2 + minImage + wrapPosition (topology)
 
 forces.js        <- config, getDelayedState (signal-delay), TORUS + minImage (topology)
+                    computeAllForces() uses relativityEnabled for signal delay (no separate param)
 energy.js        <- config (INERTIA_K, SOFTENING_SQ), TORUS + minImage (topology)
 potential.js     <- config, TORUS + minImage (topology)
 stats-display.js <- computeEnergies (energy)
@@ -162,11 +163,11 @@ coupling = m_other + q₁q₂/m₁
 
 ### Yukawa Potential
 
-Independent toggle. `F = -g²·m₁m₂·exp(-μr)/r²·(1+μr)`. Parameters: `yukawaG2` (default 1.0), `yukawaMu` (default 0.2). Includes analytical jerk for radiation reaction.
+Independent toggle. `F = -g²·m₁m₂·exp(-μr)/r²·(1+μr)`. Parameters: `yukawaG2` (default 1.0), `yukawaMu` (default 0.05). Slider shows μ directly (range 0.01–0.25). Includes analytical jerk for radiation reaction.
 
 ### Axion Dark Matter Coupling
 
-Requires Coulomb. Modulates EM coupling: `α_eff = α·(1 + g·cos(m_a·t))`. Applied as `axionModulation` multiplier on all charge-dependent terms. Energy not conserved (external reservoir).
+Requires Coulomb. Modulates EM coupling: `α_eff = α·(1 + g·cos(m_a·t))`. Applied as `axionModulation` multiplier on all charge-dependent terms. Default `axionMass = 0.05` (slider range 0.01–0.25). Energy not conserved (external reservoir).
 
 ### 1PN Corrections (EIH + Darwin EM + Bazanski)
 
@@ -180,11 +181,15 @@ NOT Newton's 3rd law — each particle uses its own velocity. Velocity-Verlet: s
 
 ### Radiation
 
-Requires Coulomb.
+Requires Gravity or Coulomb. Single toggle controls three mechanisms:
 
-**Landau-Lifshitz force**: `F_rad = tau * [dF/dt / gamma³ - v*F²/(m*gamma²) + F*(v·F)/(m*gamma⁴)]` where `tau = 2q²/(3m)`. Jerk is hybrid: analytical for gravity+Coulomb (accumulated into `p.jerk`), numerical backward difference for residual forces. Power-dissipation terms only active when relativity on. Clamped: `|F_rad| <= 0.5 * |F_ext|`.
+**Larmor dipole** (requires Coulomb): Landau-Lifshitz force `F_rad = tau * [dF/dt / gamma³ - v*F²/(m*gamma²) + F*(v·F)/(m*gamma⁴)]` where `tau = 2q²/(3m)`. Jerk is hybrid: analytical for gravity+Coulomb (accumulated into `p.jerk`), numerical backward difference for residual forces. Power-dissipation terms only active when relativity on. Clamped: `|F_rad| <= 0.5 * |F_ext|`. Photon emission accumulated in `_radAccum`, dipole pattern with relativistic aberration.
 
-**Photon emission**: Energy accumulated in `_radAccum`. Dipole pattern with relativistic aberration. **Absorption**: quadtree query, self-absorption guard (age < 3).
+**EM quadrupole** (requires Coulomb): `P_EM = (1/180)|d³Q_ij/dt³|²` where `Q_ij = Σ q·xᵢxⱼ`. Per-particle energy distribution proportional to KE fraction. Emits photons (`type: 'em'`).
+
+**GW quadrupole** (requires Gravity): `P_GW = (1/5)|d³I_ij/dt³|²` where `I_ij` is the reduced mass quadrupole. Per-particle energy distribution proportional to KE fraction. Energy extracted via tangential velocity scaling `scale = 1 - dE/(2·KE)`. Emits gravitons (`type: 'grav'`, rendered red).
+
+Both quadrupole types use TT-projected angular emission pattern via rejection sampling (`_quadSample`). Photon **absorption**: quadtree query, self-absorption guard (age < 3).
 
 ### Black Hole Mode
 
@@ -198,7 +203,7 @@ Toggle under Relativity (`physics.blackHoleEnabled`):
 
 ### Signal Delay
 
-Requires Relativity. Three-phase solver on per-particle circular history buffers (Float64Array[256], recorded every 64 `update()` calls):
+Auto-activates with Relativity (no separate toggle). Three-phase solver on per-particle circular history buffers (Float64Array[256], recorded every 64 `update()` calls):
 1. Newton-Raphson segment search (up to 6 iterations)
 2. Exact quadratic solve on converged segment
 3. Constant-velocity extrapolation for t_ret before recorded history
@@ -216,10 +221,6 @@ Energy transfer: `dE = -mu*(v·∇Bz)*dt` (EM), `dE = -L*(v·∇Bgz)*dt` (GM). C
 Toggle (`disintegrationEnabled`), requires Gravity. Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into 4 pieces. Min mass: `MIN_MASS * 4`.
 
 **Roche Lobe Overflow**: Eggleton formula. Continuous mass transfer toward companion through L1. Rate: `dM = overflow * ROCHE_TRANSFER_RATE * m`, capped 10%. Returns `{ fragments, transfers }`.
-
-### GW Radiation
-
-Toggle (`quadRadiationEnabled`), requires Radiation. Mass quadrupole 3rd time derivative via hybrid analytical+numerical jerk: `P_GW = (1/5)|d³I_ij/dt³|²`. Also computes EM quadrupole `P_EM = (1/180)|d³Q_ij/dt³|²` when Coulomb enabled. Energy extracted via tangential velocity scaling `scale = 1 - dE/(2·KE)`. Drag accumulated into `_radDisplayX/Y` for the radiation force arrow. Emits graviton particles (`type: 'grav'`, rendered red).
 
 ### Photon Gravitational Lensing
 
@@ -274,13 +275,13 @@ Aggregates: `totalMass`, `totalCharge`, `totalMagneticMoment`, `totalAngularMome
 
 ```
 Forces:                        Physics:
-  Gravity                        Relativity
-    -> Gravitomagnetic             -> Signal Delay
-    -> Tidal Locking               -> 1PN              [requires Magnetic or GM]
-  Coulomb                          -> Black Hole       [+Gravity, locks collision to Merge]
-    -> Magnetic                  Spin-Orbit            [requires Magnetic or GM]
-    -> Axion                     Radiation             [requires Coulomb]
-  Yukawa               [independent]  -> GW Radiation
+  Gravity                        Relativity          [signal delay auto-activates]
+    -> Gravitomagnetic             -> 1PN             [requires Magnetic or GM]
+    -> Tidal Locking               -> Black Hole      [+Gravity, locks collision to Merge]
+  Coulomb                        Spin-Orbit           [requires Magnetic or GM]
+    -> Magnetic                  Radiation             [requires Gravity or Coulomb]
+    -> Axion                       Larmor + EM quad   [when Coulomb on]
+  Yukawa               [independent]  GW quad         [when Gravity on]
 Disintegration                   [requires Gravity]
 Barnes-Hut                       [independent]
 Expansion                        [independent, in Engine tab]
@@ -290,7 +291,7 @@ Expansion                        [independent, in Engine tab]
 
 Implemented as a declarative `DEPS` array in `ui.js`, evaluated in topological order by `updateAllDeps()` on every toggle change. Each entry maps a toggle ID to a disabled-condition function. `setDepState()` applies `.ctrl-disabled` class and auto-unchecks disabled toggles. Cascades automatically because DEPS are ordered parents-before-children.
 
-Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, signal delay, spin-orbit, radiation, tidal locking, GW radiation. Defaults off: Yukawa, Axion, Disintegration, Expansion, Barnes-Hut.
+Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit, radiation, tidal locking. Defaults off: Yukawa, Axion, Disintegration, Expansion, Barnes-Hut, Black Hole.
 
 ## UI
 
@@ -348,3 +349,5 @@ Particle color: neutral=slate `#8A7E72`. Charged: RGB lerp toward red (positive)
 - Heatmap signal delay is expensive (GRID²×N delay solves) -- mitigated by 6-frame update interval
 - Reference overlay uses `renderMathInElement` from KaTeX auto-render (loaded deferred)
 - World coordinates use `sim.domainW/H` (viewport / WORLD_SCALE), not pixel dimensions
+- `forceRadiation` is cleared for all particles before the substep loop to prevent stale accumulation (neutral particles with 1 substep)
+- `.mode-toggles` in shared-base.css sets `display: grid` which overrides `hidden` attribute -- use `style.display` toggling instead
