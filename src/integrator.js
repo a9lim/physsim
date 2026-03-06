@@ -237,7 +237,71 @@ export default class Physics {
         }
     }
 
-    /** Apply short-range repulsive contact force (Hertz model) when collisionMode is 'repel'. */
+    /** Apply Hertz wall repulsion for boundary mode 'bounce'. */
+    _applyBoundaryForces(particles, width, height, offX, offY) {
+        const K = this.repelStiffness;
+        const friction = this.bounceFriction;
+        const left = offX, top = offY;
+        const right = offX + width, bottom = offY + height;
+        for (let i = 0, n = particles.length; i < n; i++) {
+            const p = particles[i];
+            const r = p.radius;
+            // Left wall
+            let delta = r - (p.pos.x - left);
+            if (delta > 0) {
+                const Fn = K * delta * Math.sqrt(delta);
+                p.force.x += Fn;
+                p.forceExternal.x += Fn;
+                if (friction > 0) {
+                    const vt = p.vel.y + p.angVel * r;
+                    const Ft = -friction * Fn * Math.max(-1, Math.min(1, vt * 10));
+                    p.force.y += Ft;
+                    p._tidalTorque += r * Ft;
+                }
+            }
+            // Right wall
+            delta = r - (right - p.pos.x);
+            if (delta > 0) {
+                const Fn = K * delta * Math.sqrt(delta);
+                p.force.x -= Fn;
+                p.forceExternal.x -= Fn;
+                if (friction > 0) {
+                    const vt = -p.vel.y - p.angVel * r;
+                    const Ft = -friction * Fn * Math.max(-1, Math.min(1, vt * 10));
+                    p.force.y -= Ft;
+                    p._tidalTorque -= r * Ft;
+                }
+            }
+            // Top wall
+            delta = r - (p.pos.y - top);
+            if (delta > 0) {
+                const Fn = K * delta * Math.sqrt(delta);
+                p.force.y += Fn;
+                p.forceExternal.y += Fn;
+                if (friction > 0) {
+                    const vt = -p.vel.x + p.angVel * r;
+                    const Ft = -friction * Fn * Math.max(-1, Math.min(1, vt * 10));
+                    p.force.x -= Ft;
+                    p._tidalTorque += r * Ft;
+                }
+            }
+            // Bottom wall
+            delta = r - (bottom - p.pos.y);
+            if (delta > 0) {
+                const Fn = K * delta * Math.sqrt(delta);
+                p.force.y -= Fn;
+                p.forceExternal.y -= Fn;
+                if (friction > 0) {
+                    const vt = p.vel.x - p.angVel * r;
+                    const Ft = -friction * Fn * Math.max(-1, Math.min(1, vt * 10));
+                    p.force.x += Ft;
+                    p._tidalTorque -= r * Ft;
+                }
+            }
+        }
+    }
+
+    /** Apply short-range repulsive contact force (Hertz model) when collisionMode is 'bounce'. */
     _applyRepulsion(particles, pool, root) {
         const K = this.repelStiffness;
         const friction = this.bounceFriction;
@@ -333,7 +397,8 @@ export default class Physics {
                 : -1;
             computeAllForces(particles, toggles, this.pool, initRoot, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
             this._applyExternalFields(particles);
-            if (collisionMode === 'repel') this._applyRepulsion(particles, this.pool, initRoot);
+            if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, initRoot);
+            if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
             this._forcesInit = true;
         }
 
@@ -474,8 +539,8 @@ export default class Physics {
                 }
             }
 
-            // Frame-dragging torque + tidal locking + repel contact torque (fused)
-            if ((hasGM && relOn) || this.tidalLockingEnabled || collisionMode === 'repel') {
+            // Frame-dragging torque + tidal locking + bounce contact torque (fused)
+            if ((hasGM && relOn) || this.tidalLockingEnabled || collisionMode === 'bounce') {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     let torque = 0;
@@ -725,8 +790,8 @@ export default class Physics {
             const root = this._buildTree(particles);
             lastRoot = root;
 
-            // Step 6: Collisions (repel mode uses force-based repulsion instead)
-            if (collisionMode !== 'pass' && collisionMode !== 'repel') {
+            // Step 6: Collisions (bounce uses force-based Hertz repulsion; only merge goes here)
+            if (collisionMode === 'merge') {
                 const annihilations = handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled, this.periodic, this.domainW, this.domainH, this._topologyConst);
                 n = particles.length;
                 // Annihilation: emit photon burst from matter-antimatter collisions
@@ -792,7 +857,8 @@ export default class Physics {
             resetForces(particles);
             computeAllForces(particles, toggles, this.pool, root, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
             this._applyExternalFields(particles);
-            if (collisionMode === 'repel') this._applyRepulsion(particles, this.pool, root);
+            if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, root);
+            if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
         }
 
         // Record signal delay history (strided: ~60 snapshots/sec at 100× speed)
@@ -1017,17 +1083,12 @@ export default class Physics {
             } else if (boundaryMode === 'loop') {
                 wrapPosition(p, this._topologyConst, width, height);
             } else if (boundaryMode === 'bounce') {
-                let bounced = false;
-                if (p.pos.x < left + p.radius) { p.pos.x = left + p.radius; p.w.x *= -1; bounced = true; }
-                else if (p.pos.x > right - p.radius) { p.pos.x = right - p.radius; p.w.x *= -1; bounced = true; }
-                if (p.pos.y < top + p.radius) { p.pos.y = top + p.radius; p.w.y *= -1; bounced = true; }
-                else if (p.pos.y > bottom - p.radius) { p.pos.y = bottom - p.radius; p.w.y *= -1; bounced = true; }
-
-                if (bounced) {
-                    const invG = relOn ? 1 / Math.sqrt(1 + p.w.x * p.w.x + p.w.y * p.w.y) : 1;
-                    p.vel.x = p.w.x * invG;
-                    p.vel.y = p.w.y * invG;
-                }
+                // Safety clamp: Hertz wall forces handle repulsion during substeps,
+                // but clamp position to prevent deep penetration at extreme speeds
+                if (p.pos.x < left) p.pos.x = left;
+                else if (p.pos.x > right) p.pos.x = right;
+                if (p.pos.y < top) p.pos.y = top;
+                else if (p.pos.y > bottom) p.pos.y = bottom;
             }
 
             particles[writeIdx++] = p;

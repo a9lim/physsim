@@ -17,31 +17,32 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 ## File Map
 
 ```
-main.js                     ~310 lines Simulation class, fixed-timestep loop, save/load wiring, window.sim
-index.html                  ~474 lines UI structure, 4-tab sidebar, reference overlay, zoom controls
-styles.css                  ~230 lines Project-specific CSS overrides (control rows, form controls, overlay, theme icons now in shared-base.css)
+main.js                     ~350 lines Simulation class, fixed-timestep loop, save/load wiring, pair production, window.sim
+index.html                  ~493 lines UI structure, 4-tab sidebar, reference overlay, zoom controls, external field sliders, antimatter button
+styles.css                  ~234 lines Project-specific CSS overrides (control rows, form controls, overlay, theme icons now in shared-base.css)
 colors.js                    18 lines  Project color tokens (particle hues, spin ring colors)
 src/
-  integrator.js             ~966 lines Physics class: adaptive Boris substep loop, radiation, tidal, GW quadrupole, expansion, Roche overflow
-  ui.js                     ~440 lines setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
-  renderer.js               ~490 lines Canvas 2D: particles, trails, spin rings, ergosphere, vectors, torque arcs, photons/gravitons, delay ghosts
+  integrator.js            ~1205 lines Physics class: adaptive Boris substep loop, radiation, tidal, GW quadrupole, expansion, Roche overflow, external fields, Hertz bounce
+  ui.js                     ~498 lines setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts, external field sliders, antimatter toggle
+  renderer.js               ~484 lines Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons/gravitons, delay ghosts
   forces.js                 ~460 lines pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa force
-  presets.js                ~497 lines PRESETS object (13 scenarios in 4 groups), loadPreset(), declarative SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
-  reference.js              ~285 lines REFERENCE object: extended physics reference content for each concept (KaTeX math)
+  presets.js                ~517 lines PRESETS object (13 scenarios in 4 groups), loadPreset(), declarative SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER, external field defaults
+  reference.js              ~282 lines REFERENCE object: extended physics reference content for each concept (KaTeX math)
   quadtree.js               ~280 lines QuadTreePool: SoA flat typed arrays, pool-based, zero GC
-  input.js                   260 lines InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
+  input.js                  ~262 lines InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip, antimatter flag passthrough
   signal-delay.js            250 lines getDelayedState() (3-phase light-cone solver)
-  collisions.js              210 lines handleCollisions(), resolveMerge(), resolveBounce() (rel + classical)
-  save-load.js              ~210 lines saveState(), loadState(), downloadState(), uploadState(), quickSave(), quickLoad()
+  collisions.js             ~113 lines handleCollisions(), resolveMerge(), antimatter annihilation
+  save-load.js              ~199 lines saveState(), loadState(), downloadState(), uploadState(), quickSave(), quickLoad()
+  effective-potential.js    ~207 lines EffectivePotentialPlot: V_eff(r) sidebar canvas, auto-scaling, current position marker
   heatmap.js                ~190 lines Heatmap: 48x48 grav+electrostatic+Yukawa potential field overlay, mode selector, signal-delayed positions, 6-frame interval
   potential.js              ~160 lines computePE(), treePE(), pairPE() (7 PE terms: grav, Coulomb, mag dipole, GM dipole, 1PN, Bazanski, Yukawa)
   energy.js                  139 lines computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin field
-  stats-display.js          ~115 lines StatsDisplay: energy/momentum/drift DOM updates (×100 display scale), selected particle info, force breakdown
+  stats-display.js          ~121 lines StatsDisplay: energy/momentum/drift DOM updates (×100 display scale), selected particle info, force breakdown
   phase-plot.js              116 lines PhasePlot: r vs v_r sidebar canvas (500-sample ring buffer)
-  particle.js               ~115 lines Particle entity: pos, vel, w, angw, per-type force vectors, history buffers
+  particle.js               ~122 lines Particle entity: pos, vel, w, angw, antimatter flag, per-type force vectors, history buffers
   topology.js                112 lines TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
   vec2.js                     65 lines Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist
-  config.js                  ~101 lines Named constants (softening, BH, numerical thresholds, simulation control, input, display, rendering scales)
+  config.js                  ~104 lines Named constants (softening, BH, numerical thresholds, simulation control, input, display, rendering scales, pair production)
   photon.js                   40 lines Photon entity: pos, vel, energy, lifetime, emitterId, type ('em'/'grav'), gravitational lensing
   relativity.js                34 lines angwToAngVel(), angVelToAngw(), setVelocity()
 ```
@@ -51,7 +52,7 @@ src/
 ```
 main.js (Simulation, window.sim)
   <- Physics (integrator), Renderer, InputHandler, Particle, Heatmap, PhasePlot,
-     StatsDisplay, setupUI, config, Photon, relativity helpers, save-load
+     EffectivePotentialPlot, StatsDisplay, setupUI, config, Photon, relativity helpers, save-load
 
 integrator.js (Physics)
   <- QuadTreePool + Rect, config, Photon, angwToAngVel,
@@ -72,6 +73,7 @@ input.js         <- Vec2, config (MAX_SPEED_RATIO, PINCH_DEBOUNCE, DRAG_THRESHOL
 collisions.js    <- config (INERTIA_K, COLLISION_SAFE_DIST, OVERLAP_FACTOR, EPSILON), relativity helpers, topology
 signal-delay.js  <- config (HISTORY_SIZE, NR_TOLERANCE, EPSILON), TORUS + minImage (topology)
 save-load.js     <- Particle, angwToAngVel (relativity)
+effective-potential.js <- config (SOFTENING_SQ, BH_SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, YUKAWA_G2, AXION_G)
 reference.js     (no imports - pure data)
 ```
 
@@ -100,7 +102,7 @@ Key derived quantities:
 
 ### Per-Particle Display Vectors
 
-Force vectors (8 Vec2s, reset each substep via `resetForces()`): `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag`, `force1PN`, `forceSpinCurv`, `forceRadiation`, `forceYukawa`. `forceSpinCurv` accumulates both Stern-Gerlach and Mathisson-Papapetrou.
+Force vectors (9 Vec2s, reset each substep via `resetForces()`): `forceGravity`, `forceCoulomb`, `forceMagnetic`, `forceGravitomag`, `force1PN`, `forceSpinCurv`, `forceRadiation`, `forceYukawa`, `forceExternal`. `forceSpinCurv` accumulates both Stern-Gerlach and Mathisson-Papapetrou. `forceExternal` accumulates uniform gravity (F=mg) and electric field (F=qE) forces.
 
 Torque scalars (3): `torqueSpinOrbit` (EM + GM spin-orbit power), `torqueFrameDrag`, `torqueTidal`. Rendered as circular arc arrows.
 
@@ -110,22 +112,22 @@ Per substep (inside `Physics.update()` while loop):
 
 1. Store `_f1pnOld` (if 1PN enabled)
 2. **Half-kick**: `w += F/m * dt/2` (E-like forces)
-3. **Boris rotation**: rotate w in combined Bz + Bgz plane (preserves |v| exactly)
+3. **Boris rotation**: rotate w in combined Bz + Bgz + extBz plane (preserves |v| exactly)
 4. **Half-kick**: `w += F/m * dt/2`
 5. Spin-orbit energy coupling, Stern-Gerlach/Mathisson-Papapetrou kicks, frame-drag torque
 6. Radiation reaction (Landau-Lifshitz)
 7. **Drift**: `vel = w / sqrt(1 + w²)`, `pos += vel * dt`
 8. Cosmological expansion (if enabled)
 9. **1PN velocity-Verlet correction**: recompute 1PN at new positions (always pairwise via `compute1PNPairwise()`), kick `w += (F_new - F_old) * dt / (2m)`
-10. Rebuild quadtree, handle collisions, photon absorption
-11. Reset forces + compute new forces for next substep
+10. Rebuild quadtree, handle collisions (with annihilation), repel contact forces, photon absorption
+11. Apply external fields (uniform g, E, Bz), reset forces + compute new forces for next substep
 
 After all substeps: record signal-delay history (strided, once per HISTORY_STRIDE=64 `update()` calls), compute PE, reconstruct velocity-dependent display forces.
 
 ### Adaptive Substepping
 
 - `dtSafe_accel = sqrt(softening / a_max)` (softening = BH_SOFTENING or SOFTENING)
-- `dtSafe_cyclotron = (2*pi / omega_c) / 8` where `omega_c = max(|q*Bz/m|, 4*|Bgz|)`
+- `dtSafe_cyclotron = (2*pi / omega_c) / 8` where `omega_c = max(|q*Bz/m|, 4*|Bgz|, |q*extBz/m|)`
 - Capped at MAX_SUBSTEPS = 32 per frame
 
 ### Fixed-Timestep Loop
@@ -230,6 +232,39 @@ Toggle (`disintegrationEnabled`), requires Gravity. Locks collision to Merge (pr
 
 Toggle (`expansionEnabled`). `pos += H*(pos - center)*dt` (Hubble flow), `w *= (1 - H*dt)` (redshift). Default `hubbleParam = 0.001`. Enabling expansion locks boundary mode to "despawn" (particles leave the domain).
 
+### External Background Fields
+
+Uniform fields applied via `_applyExternalFields()` in integrator. No toggle — controlled by slider values (default 0).
+
+| Field | Parameter | Effect | Integration |
+|---|---|---|---|
+| Gravity | `extGravity`, `extGravityAngle` | `F = m·g` along angle (default π/2 = down) | E-like (half-kick), accumulates into `forceExternal` |
+| Electric | `extElectric`, `extElectricAngle` | `F = q·E` along angle (default 0 = right) | E-like (half-kick), accumulates into `forceExternal` |
+| Magnetic | `extBz` | Uniform Bz field | B-like (Boris rotation, exact cyclotron orbits) |
+
+Direction angle sliders auto-show when strength > 0. Angles stored as radians internally, displayed as degrees. External Bz adds to per-particle `p.Bz` and is included in cyclotron frequency estimation for adaptive substepping.
+
+### Bounce (Hertz Contact)
+
+Collision mode `'bounce'` and boundary mode `'bounce'` both use the same Hertz contact model:
+```
+δ = overlap depth (r₁ + r₂ - dist for particles, r - wall_dist for boundaries)
+F = K * δ^1.5 (repulsive, along separation/wall normal)
+```
+Default stiffness `K = DEFAULT_REPEL_STIFFNESS = 500`. Tangential friction transfers torque between spinning particles (collision) or from wall sliding (boundary). Integrated as forces within the Boris substep loop for stability.
+
+**Particle-particle**: `_applyRepulsion()` / `_repelPair()` in integrator.js. Uses quadtree neighbor query when Barnes-Hut is on, O(n²) brute force when off. Friction torque accumulates into `_tidalTorque`.
+
+**Boundary walls**: `_applyBoundaryForces()` in integrator.js. Checks all four domain edges per particle. Force accumulates into `forceExternal`. Safety clamp in step 8 prevents deep penetration at extreme speeds.
+
+### Antimatter & Pair Production
+
+**Antimatter flag**: `p.antimatter` boolean on each particle. Toggled via toolbar button (keyboard `A`). Affects spawn mode — new particles created with current antimatter state.
+
+**Annihilation**: When matter + antimatter particles merge (collision mode = merge), the lesser mass is annihilated from both particles. Energy `E = 2·m_annihilated` (rest mass energy, c=1) is emitted as `SPAWN_COUNT` photons. If both particles are fully consumed, both are removed. Handled in `handleCollisions()` which returns `annihilations` array; photon emission in integrator's substep loop.
+
+**Pair production**: Energetic photons (`energy ≥ PAIR_PROD_MIN_ENERGY = 2`) near a massive body (`dist < PAIR_PROD_RADIUS = 8`) can spontaneously produce a matter + antimatter pair. Probability `PAIR_PROD_PROB = 0.005` per substep per eligible photon. Pair spawns perpendicular to photon direction, each with mass = photon_energy / 2. Processed in `main.js` loop after photon updates.
+
 ## Sign Conventions (IMPORTANT)
 
 All GEM interactions are **attractive** (gravity has one sign of "charge"):
@@ -252,10 +287,13 @@ Darwin field corrections (O(v²/c²)) computed when Magnetic or GM enabled but 1
 
 ## Collisions
 
-Detection via quadtree query. Ghost particles resolve against `original`. ID comparison prevents double-processing.
+Three modes: pass, bounce, merge.
 
-- **Merge**: conserves mass, charge, momentum (m*w), angular momentum. Minimum-image for periodic boundaries.
-- **Bounce**: relativistic (Lorentz-boost to COM frame) or classical. Tangential friction (default 0.4) couples linear and spin. Overlap separation after resolution.
+- **Pass**: no collision detection.
+- **Bounce**: Hertz contact repulsion (see Bounce section under Force Types). Handled in integrator via `_applyRepulsion()`, not in `handleCollisions()`.
+- **Merge**: quadtree-accelerated overlap detection. Ghost particles resolve against `original`. ID comparison prevents double-processing. Conserves mass, charge, momentum (m*w), angular momentum. Minimum-image for periodic boundaries. Matter+antimatter triggers annihilation (see Antimatter section).
+
+`handleCollisions()` (merge only) returns `annihilations` array of `{x, y, energy, px, py}` for photon emission by the integrator.
 
 ## Topology
 
@@ -295,13 +333,13 @@ Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit
 
 ## UI
 
-4-tab sidebar: Settings (mass/charge/spin sliders, spawn mode, force/physics toggles), Engine (BH, collisions, boundary/topology, visuals, speed), Stats (energy/momentum/drift), Particle (selected details, force breakdown, phase plot).
+4-tab sidebar: Settings (mass/charge/spin sliders, spawn mode, force/physics toggles), Engine (BH, collisions, boundary/topology, external fields, visuals, speed), Stats (energy/momentum/drift), Particle (selected details, force breakdown, phase plot, effective potential plot).
 
-Topbar: Home | Brand "No-Hair" | Pause/Step/Reset/Save/Load | Theme | Panel toggle.
+Topbar: Home | Brand "No-Hair" | Pause/Step/Reset/Save/Load | Antimatter toggle | Theme | Panel toggle.
 
 Preset selector uses `<optgroup>` categories: Gravity, EM, Exotic, Cosmological. 13 presets total (9 via keyboard `1`-`9`, rest dropdown-only).
 
-Sim speed slider: range 1–128, default 64. Bounce friction slider only visible when collision mode or boundary mode is "bounce" (controlled by `updateFrictionVisibility()` inside `updateAllDeps()`). Expansion toggle locks boundary mode to "despawn".
+Sim speed slider: range 1–128, default 64. Bounce friction slider only visible when collision mode or boundary mode is "bounce" (controlled by `updateFrictionVisibility()` inside `updateAllDeps()`). Expansion toggle locks boundary mode to "despawn". External fields section in Engine tab: 5 sliders (g strength, g angle, E strength, E angle, Bz), direction sliders auto-show when strength > 0. Antimatter toolbar button (`A` key) toggles `sim.antimatterMode` — new particles spawn as antimatter when active.
 
 Tab switching via `shared-tabs.js` (loaded as plain `<script>` at end of body). Info tips via `createInfoTip()`. Shift+click opens reference overlay from `REFERENCE` in `reference.js`. Responsive: 900px → bottom sheet, 600px/440px shared breakpoints.
 
@@ -312,10 +350,13 @@ Canvas 2D. Dark mode: additive blending (`lighter`).
 - **Particles**: `r = cbrt(mass)` (BH: Kerr-Newman r+), glow in dark mode
 - **Spin rings**: arc length ∝ |omega*r|, cyan=positive, orange=negative
 - **Trails**: circular Float32Array[256], wrap-detection for periodic boundaries
-- **Force vectors**: scale=FORCE_VECTOR_SCALE (÷ mass for accel). Component colors: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green
+- **Antimatter rings**: dashed white circle (`#888` light / `#ccc` dark) around antimatter particles, radius = p.radius + 0.4
+- **Force vectors**: scale=FORCE_VECTOR_SCALE (÷ mass for accel). Component colors: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green, external=white
 - **Torque arcs**: spin-orbit=purple, frame-drag=rose, tidal=red, total=accent
 - **Photons**: yellow (EM, `type: 'em'`) / red (gravitons, `type: 'grav'`), alpha fades over PHOTON_LIFETIME=256
 - **Signal delay ghosts**: stroked outline at oldest history position
+
+**Effective potential plot** (`EffectivePotentialPlot`): Sidebar canvas below phase plot. Shows V_eff(r) = V(r) + L²/(2μr²) for the selected particle relative to the most massive other body. 200-sample curve with auto-scaling axes. Blue curve (`#5C92A8CC`), accent dot at current orbital separation. Includes gravity, Coulomb, magnetic dipole, GM dipole, and Yukawa terms. Uses reduced mass μ = m₁m₂/(m₁+m₂).
 
 Particle color: neutral=slate `#8A7E72`. Charged: RGB lerp toward red (positive) or blue (negative), intensity=`|q|/5`. Uses inline hex parser (`_hex`) since `_parseHex` from shared-tokens.js is script-scoped.
 
@@ -353,3 +394,10 @@ Particle color: neutral=slate `#8A7E72`. Charged: RGB lerp toward red (positive)
 - `.mode-toggles` in shared-base.css sets `display: grid` which overrides `hidden` attribute -- use `style.display` toggling instead
 - All numerical thresholds (EPSILON, NR_TOLERANCE, etc.) are in config.js -- do not use inline `1e-10` or similar
 - Precision guards: NaN check on angw after torque, Hawking mass floor, invariant mass degeneracy in relativistic bounce, gamma sqrt guard in setVelocity, tidal coupling mass>0 check, quadrupole energy fraction clamp
+- Bounce collision uses `_applyRepulsion()` which needs O(n²) fallback when Barnes-Hut is off (root < 0) -- do not early-return on root < 0
+- Bounce boundary uses `_applyBoundaryForces()` as a substep force; step 8 is a safety clamp only (no velocity reversal)
+- `handleCollisions()` only runs for merge mode; returns `annihilations` array -- integrator must emit photons for each event
+- Antimatter flag must be saved/loaded (`p.antimatter` in save-load.js) and passed through input.js spawn calls
+- Old save files with `collision: 'repel'` are migrated to `'bounce'` in loadState()
+- External field sliders reset to 0 on preset load (in SLIDER_MAP defaults)
+- External Bz enters Boris rotation alongside particle-sourced Bz -- included in `needBoris` condition check

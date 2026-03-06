@@ -112,7 +112,8 @@ export function loadState(state, sim) {
     if (state.hubbleParam != null) ph.hubbleParam = state.hubbleParam;
 
     if (state.settings) {
-        sim.collisionMode = state.settings.collision || 'pass';
+        const col = state.settings.collision || 'pass';
+        sim.collisionMode = col === 'repel' ? 'bounce' : col;
         sim.boundaryMode = state.settings.boundary || 'despawn';
         sim.topology = state.settings.topology || 'torus';
         sim.speedScale = state.settings.speed || 100;

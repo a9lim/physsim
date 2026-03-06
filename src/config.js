@@ -83,9 +83,7 @@ export const PAIR_PROD_RADIUS = 8;        // proximity to massive body required
 export const PAIR_PROD_PROB = 0.005;      // probability per substep per eligible photon
 
 // Collisions
-export const COLLISION_SAFE_DIST = 0.0001; // fallback distance when particles overlap exactly
-export const OVERLAP_FACTOR = 0.01;        // post-bounce separation as fraction of minDist
-export const DEFAULT_REPEL_STIFFNESS = 500; // Hertz contact stiffness for repel mode
+export const DEFAULT_REPEL_STIFFNESS = 500; // Hertz contact stiffness for bounce mode
 
 // Input
 export const PINCH_DEBOUNCE = 300;         // ms guard after pinch-to-zoom

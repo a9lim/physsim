@@ -197,7 +197,7 @@ export const REFERENCE = {
         title: 'Collision Modes',
         body: `
 <h3>Pass</h3><p>Particles move through each other freely.</p>
-<h3>Bounce</h3><p>Elastic collision with spin-dependent surface friction. Relativistic bounces use Lorentz-boosted normal components.</p>
+<h3>Bounce</h3><p>Hertz contact repulsion: \\(F = K\\delta^{3/2}\\) where \\(\\delta\\) is overlap depth. Tangential friction transfers torque between spinning particles. Integrated as a force within the Boris substep loop for stability.</p>
 <h3>Merge</h3><p>Overlapping particles combine, conserving total mass, charge, momentum, and angular momentum.</p>
 `,
     },
@@ -206,7 +206,7 @@ export const REFERENCE = {
         body: `
 <h3>Despawn</h3><p>Particles removed when leaving viewport.</p>
 <h3>Loop</h3><p>Periodic boundaries with topology selection.</p>
-<h3>Bounce</h3><p>Elastic reflection off edges.</p>
+<h3>Bounce</h3><p>Hertz contact repulsion off walls (\\(F = K\\delta^{3/2}\\)), with friction torque from sliding. Integrated as a force each substep.</p>
 `,
     },
     topology: {

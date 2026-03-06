@@ -262,7 +262,7 @@ export default class Renderer {
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.beginPath();
                 ctx.arc(p.pos.x, p.pos.y, p.radius + 0.4, 0, TWO_PI);
-                ctx.strokeStyle = isLight ? '#509878' : '#60C890';
+                ctx.strokeStyle = isLight ? '#888' : '#ccc';
                 ctx.lineWidth = 0.25;
                 ctx.setLineDash([0.5, 0.3]);
                 ctx.stroke();
