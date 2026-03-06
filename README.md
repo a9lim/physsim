@@ -23,6 +23,7 @@ Everything runs in natural units (c = 1, G = 1). Particles store proper velocity
 - **Stern-Gerlach / Mathisson-Papapetrou** -- Translational forces from spin-field gradient coupling (EM and gravitational).
 - **Yukawa** -- Screened force V(r) = -g^2 exp(-mu*r)/r between massive particles, with configurable coupling strength and range.
 - **Axion dark matter** -- Oscillating modulation of the electromagnetic coupling constant, simulating an axion-like background field.
+- **Higgs scalar field** -- Dynamical real scalar field on a 48x48 grid with Mexican hat potential V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4. Particles acquire effective mass m = baseMass * |phi/v| via Yukawa coupling to the field and feel gradient forces F = -(baseMass/v) * coupling * grad(phi). Thermal corrections restore symmetry at high energy density (phase transitions).
 
 ### Additional Physics
 
@@ -34,6 +35,8 @@ Everything runs in natural units (c = 1, G = 1). Particles store proper velocity
 - **Gravitational wave radiation** -- Mass and EM quadrupole formula with hybrid analytical+numerical jerk, orbital decay via tangential drag, and graviton emission (rendered red).
 - **Black hole mode** -- Kerr-Newman horizons: r+ = M + sqrt(M^2 - a^2 - Q^2) with spin parameter a = J/M and charge Q. Collisions lock to merge. Hawking radiation at the Kerr-Newman surface gravity temperature; extremal black holes stop radiating. Sub-threshold black holes evaporate with a final photon burst.
 - **Cosmological expansion** -- Hubble flow with peculiar velocity redshift. Locks boundary mode to despawn.
+- **Antimatter & pair production** -- Particles carry an antimatter flag; matter-antimatter mergers annihilate with photon emission. Energetic photons near massive bodies can spontaneously produce particle-antiparticle pairs.
+- **External background fields** -- Uniform gravitational (F=mg), electric (F=qE), and magnetic (Bz) fields with configurable strength and direction. External Bz integrated exactly via Boris rotation.
 
 ### Integrator
 
@@ -58,14 +61,15 @@ Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepp
 | `1`--`9` | Load preset directly |
 | `V` / `F` / `C` | Toggle velocity / force / component vectors |
 | `T` / `S` | Toggle theme / sidebar |
+| `A` | Toggle antimatter spawn mode |
 | `?` | Keyboard shortcut help |
 
 ### Sidebar Tabs
 
-1. **Settings** -- Particle mass / charge / spin sliders, spawn mode, force toggles, physics toggles. Preset selector with four category groups (Gravity, EM, Exotic, Cosmological).
-2. **Engine** -- Barnes-Hut, collision mode, bounce friction (visible only in bounce mode), boundary mode, topology, visual overlays, sim speed (1–128x, default 64x).
-3. **Stats** -- Energy breakdown (linear KE, spin KE, PE, field, radiated, drift), conserved quantities (momentum, angular momentum).
-4. **Particle** -- Selected particle details (mass, charge, spin, speed, gamma, per-force breakdown) and phase space plot.
+1. **Settings** -- Particle mass / charge / spin sliders, spawn mode, force toggles (gravity, Coulomb, magnetic, gravitomagnetic, Yukawa, axion, Higgs), physics toggles (relativity, 1PN, black hole, spin-orbit, radiation, tidal locking, disintegration). Preset selector with four category groups (Gravity, EM, Exotic, Cosmological).
+2. **Engine** -- Barnes-Hut, collision mode, bounce friction (visible only in bounce mode), boundary mode, topology, external fields (g, E, Bz), visual overlays (heatmap, vectors, trails), sim speed (1–128x, default 64x), cosmological expansion.
+3. **Stats** -- Energy breakdown (linear KE, spin KE, PE, field, Higgs field, radiated, drift), conserved quantities (momentum, angular momentum).
+4. **Particle** -- Selected particle details (mass, charge, spin, speed, gamma, per-force breakdown), phase space plot, effective potential plot.
 
 ## Running Locally
 
@@ -84,33 +88,35 @@ Zero-dependency vanilla JavaScript with Canvas 2D rendering. All physics and ren
 ## Architecture
 
 ```
-main.js                     ~310 lines  Simulation class, fixed-timestep loop, window.sim
-index.html                  ~474 lines  UI structure, tab system, reference overlay
-styles.css                  ~500 lines  Project-specific CSS
+main.js                     ~364 lines  Simulation class, fixed-timestep loop, Higgs field init, window.sim
+index.html                  ~514 lines  UI structure, tab system, reference overlay, Higgs sliders
+styles.css                  ~235 lines  Project-specific CSS overrides
 colors.js                     18 lines  Project color tokens (extends shared-tokens.js)
 src/
-  integrator.js             ~966 lines  Physics: adaptive Boris substep loop, radiation, tidal, GW, expansion
-  ui.js                     ~440 lines  DOM setup, declarative toggle dependencies, info tips, shortcuts
-  renderer.js               ~490 lines  Canvas 2D: particles, trails, vectors, photons, glow
-  forces.js                 ~460 lines  Pairwise + Barnes-Hut force accumulation, 1PN
-  presets.js                ~497 lines  Thirteen preset scenarios (Gravity / EM / Exotic / Cosmological)
-  reference.js              ~285 lines  Extended physics reference (KaTeX math)
+  integrator.js            ~1216 lines  Physics: adaptive Boris substep loop, radiation, tidal, GW, expansion, Higgs, external fields, Hertz bounce
+  ui.js                     ~536 lines  DOM setup, declarative toggle dependencies, info tips, shortcuts, Higgs slider wiring
+  renderer.js               ~494 lines  Canvas 2D: particles, trails, vectors, photons, glow, Higgs overlay
+  forces.js                 ~461 lines  Pairwise + Barnes-Hut force accumulation, 1PN, Yukawa
+  presets.js                ~586 lines  Fifteen preset scenarios (Gravity / EM / Exotic / Cosmological)
+  higgs-field.js            ~393 lines  Higgs scalar field: Mexican hat potential, symplectic Euler, CIC deposition, mass modulation, gradient force, phase transitions
+  reference.js              ~309 lines  Extended physics reference (KaTeX math)
   quadtree.js               ~280 lines  SoA pool-based Barnes-Hut tree (zero GC)
-  input.js                   260 lines  Mouse/touch, Place/Shoot/Orbit spawn modes
+  input.js                  ~262 lines  Mouse/touch, Place/Shoot/Orbit spawn modes
   signal-delay.js            250 lines  Light-cone solver on circular history buffers
-  collisions.js              210 lines  Merge, bounce (relativistic + classical)
-  save-load.js              ~210 lines  State serialization, quick save/load, file export/import
-  heatmap.js                ~190 lines  Gravitational + electric potential field overlay
+  effective-potential.js    ~207 lines  V_eff(r) sidebar canvas, auto-scaling, current position marker
+  save-load.js              ~203 lines  State serialization, quick save/load, file export/import
+  heatmap.js                ~190 lines  Gravitational + electric + Yukawa potential field overlay
   potential.js              ~160 lines  PE computation (pairwise + tree traversal)
-  energy.js                  139 lines  KE, PE, field energy, momentum, angular momentum
-  stats-display.js          ~115 lines  Sidebar energy/momentum/drift readout
+  energy.js                 ~147 lines  KE, PE, field energy, Higgs field energy, momentum, angular momentum
+  stats-display.js          ~126 lines  Sidebar energy/momentum/drift readout, force breakdown
+  particle.js               ~124 lines  Particle entity (incl. baseMass, forceHiggs, antimatter flag)
+  collisions.js             ~118 lines  Merge, antimatter annihilation, baseMass conservation
   phase-plot.js              116 lines  Phase space plot (sidebar canvas)
-  particle.js               ~115 lines  Particle entity definition
   topology.js                112 lines  Torus / Klein / RP2 min-image + wrapping
+  config.js                 ~111 lines  Named constants (softening, BH, numerical, Higgs, pair production)
   vec2.js                     65 lines  2D vector math
-  config.js                   60 lines  Named constants
   photon.js                   40 lines  Radiation photon entity
-  relativity.js               33 lines  Proper velocity helpers
+  relativity.js               34 lines  Proper velocity helpers
 ```
 
 ## Sibling Projects
