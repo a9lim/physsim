@@ -74,7 +74,8 @@ export function computeEnergies(particles, physics, sim) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
     const topology = physics._topologyConst;
-    const axionMod = physics.axionEnabled 
+    const softeningSq = physics.blackHoleEnabled ? 1 : SOFTENING_SQ;
+    const axionMod = physics.axionEnabled
         ? 1 + physics.axionG * Math.cos(physics.axionMass * physics.simTime)
         : 1.0;
 
@@ -90,7 +91,7 @@ export function computeEnergies(particles, physics, sim) {
                 } else {
                     dx = pj.pos.x - pi.pos.x; dy = pj.pos.y - pi.pos.y;
                 }
-                const rSq = dx * dx + dy * dy + SOFTENING_SQ;
+                const rSq = dx * dx + dy * dy + softeningSq;
                 const invR = 1 / Math.sqrt(rSq);
                 const rx = dx * invR, ry = dy * invR;
                 const viDotVj = pi.vel.x * pj.vel.x + pi.vel.y * pj.vel.y;

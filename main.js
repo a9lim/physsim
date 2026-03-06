@@ -6,7 +6,7 @@ import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS } from './src/config.js';
+import { WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ } from './src/config.js';
 import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
@@ -293,7 +293,7 @@ class Simulation {
             this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
             this.physics.signalDelayEnabled, this.physics.relativityEnabled,
             this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
-            this.topology);
+            this.topology, this.physics.blackHoleEnabled ? 1 : SOFTENING_SQ);
         this.phasePlot.update(this.particles, this.selectedParticle);
         this.renderer.signalDelay = this.physics.signalDelayEnabled;
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);

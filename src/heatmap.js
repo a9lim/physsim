@@ -25,7 +25,7 @@ function fastTanh(x) {
  */
 let _hmStack = new Int32Array(256);
 
-function treePotential(pool, rootIdx, wx, wy, thetaSq) {
+function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq) {
     let stackTop = 0;
     if (_hmStack.length < pool.maxNodes) _hmStack = new Int32Array(pool.maxNodes);
     _hmStack[stackTop++] = rootIdx;
@@ -45,7 +45,7 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq) {
             for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
                 const p = pool.points[base + i];
                 const pdx = wx - p.pos.x, pdy = wy - p.pos.y;
-                const rSq = pdx * pdx + pdy * pdy + SOFTENING_SQ;
+                const rSq = pdx * pdx + pdy * pdy + softeningSq;
                 const invR = 1 / Math.sqrt(rSq);
                 gP -= p.mass * invR;
                 eP += p.charge * invR;
@@ -53,7 +53,7 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq) {
             _treeOut.g += gP;
             _treeOut.e += eP;
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
-            const rSq = dSq + SOFTENING_SQ;
+            const rSq = dSq + softeningSq;
             const invR = 1 / Math.sqrt(rSq);
             _treeOut.g -= pool.totalMass[nodeIdx] * invR;
             _treeOut.e += pool.totalCharge[nodeIdx] * invR;
@@ -85,7 +85,7 @@ export default class Heatmap {
         this._imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
     }
 
-    update(particles, camera, width, height, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology) {
+    update(particles, camera, width, height, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology, softeningSq = SOFTENING_SQ) {
         if (!this.enabled) return;
         if (++this.frameCount % UPDATE_INTERVAL !== 0) return;
 
@@ -110,7 +110,7 @@ export default class Heatmap {
                 if (useTree) {
                     _treeOut.g = 0;
                     _treeOut.e = 0;
-                    treePotential(pool, root, wx, wy, thetaSq);
+                    treePotential(pool, root, wx, wy, thetaSq, softeningSq);
                     gPhi = _treeOut.g;
                     ePhi = _treeOut.e;
                 } else {
@@ -126,7 +126,7 @@ export default class Heatmap {
                             px = p.pos.x; py = p.pos.y;
                         }
                         const dx = wx - px, dy = wy - py;
-                        const rSq = dx * dx + dy * dy + SOFTENING_SQ;
+                        const rSq = dx * dx + dy * dy + softeningSq;
                         const invR = 1 / Math.sqrt(rSq);
                         gPhi -= p.mass * invR;
                         ePhi += p.charge * invR;

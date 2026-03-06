@@ -1,7 +1,7 @@
 // ─── Potential Energy Computation ───
 // Mirrors force calculation structure (BH tree or pairwise) for consistent PE.
 
-import { BH_THETA, SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K } from './config.js';
+import { BH_THETA, INERTIA_K, MAG_MOMENT_K } from './config.js';
 import { TORUS, minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };

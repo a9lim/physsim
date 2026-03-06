@@ -584,7 +584,7 @@ export default class Physics {
                     p.vel.x = p.w.x * invG;
                     p.vel.y = p.w.y * invG;
                 }
-                compute1PNPairwise(particles, SOFTENING_SQ, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled);
+                compute1PNPairwise(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled);
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const halfDtOverM = halfDt * p.invMass;
@@ -865,6 +865,7 @@ export default class Physics {
         const _topo = this._topologyConst;
         const useTree = this.barnesHutEnabled && lastRoot >= 0;
         const tidalSearchR = Math.max(_domW, _domH) * 0.5;
+        const softeningSq = this.blackHoleEnabled ? 1 : SOFTENING_SQ;
 
         for (let pi = 0; pi < particles.length; pi++) {
             const p = particles[pi];
@@ -885,14 +886,14 @@ export default class Physics {
             let strongestDx = 0, strongestDy = 0, strongestDist = 0;
 
             const _checkNeighbor = (other, dx, dy) => {
-                const distSq = dx * dx + dy * dy + SOFTENING_SQ;
+                const distSq = dx * dx + dy * dy + softeningSq;
                 const invDistSq = 1 / distSq;
                 const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius * Math.sqrt(invDistSq) * invDistSq;
                 if (tidalAccel > maxTidal) {
                     maxTidal = tidalAccel;
                     strongestOther = other;
                     strongestDx = dx; strongestDy = dy;
-                    strongestDist = Math.sqrt(distSq - SOFTENING_SQ);
+                    strongestDist = Math.sqrt(distSq - softeningSq);
                 }
             };
 
