@@ -168,7 +168,7 @@
                 <div class="tab-panel active" id="tab-settings" role="tabpanel">
                     <div class="panel-section">
                         <h2 class="group-label">Preset</h2>
-                        <select id="preset-select" class="preset-select">
+                        <select id="preset-select" class="sim-select">
                             <option value="none" selected>None</option>
                             <optgroup label="Gravity">
                                 <option value="kepler">Kepler Orbits</option>
@@ -440,34 +440,19 @@
         <p>Left Click to Spawn · Right Click to Remove · Scroll to Zoom</p>
     </div>
 
-    <div id="reference-overlay" class="reference-overlay" hidden>
-        <div class="reference-panel glass">
+    <div id="reference-overlay" class="sim-overlay" hidden>
+        <div class="sim-overlay-panel glass">
             <div class="stats-header">
                 <h2 id="reference-title" class="stats-title">Reference</h2>
                 <button id="reference-close" class="tool-btn" aria-label="Close reference">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
             </div>
-            <div id="reference-body" class="reference-body scrollbar-thin"></div>
+            <div id="reference-body" class="sim-overlay-body scrollbar-thin"></div>
         </div>
     </div>
 
-    <script>
-    (function () {
-        const btns = document.querySelectorAll('.tab-btn');
-        const panels = document.querySelectorAll('.tab-panel');
-        btns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                btns.forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
-                panels.forEach(p => p.classList.remove('active'));
-                btn.classList.add('active');
-                btn.setAttribute('aria-selected', 'true');
-                const target = document.getElementById('tab-' + btn.dataset.tab);
-                if (target) target.classList.add('active');
-            });
-        });
-    })();
-    </script>
+    <script src="/shared-tabs.js"></script>
     <script type="module" src="main.js?v=3"></script>
 </body>
 

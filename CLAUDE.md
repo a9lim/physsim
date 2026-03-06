@@ -19,7 +19,7 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 ```
 main.js                     ~310 lines Simulation class, fixed-timestep loop, save/load wiring, window.sim
 index.html                  ~474 lines UI structure, 4-tab sidebar, reference overlay, zoom controls
-styles.css                  ~500 lines Project-specific CSS overrides, reference overlay styles
+styles.css                  ~230 lines Project-specific CSS overrides (control rows, form controls, overlay, theme icons now in shared-base.css)
 colors.js                    18 lines  Project color tokens (particle hues, spin ring colors)
 src/
   integrator.js             ~966 lines Physics class: adaptive Boris substep loop, radiation, tidal, GW quadrupole, expansion, Roche overflow
@@ -302,7 +302,7 @@ Preset selector uses `<optgroup>` categories: Gravity, EM, Exotic, Cosmological.
 
 Sim speed slider: range 1–128, default 64. Bounce friction slider only visible when collision mode or boundary mode is "bounce" (controlled by `updateFrictionVisibility()` inside `updateAllDeps()`). Expansion toggle locks boundary mode to "despawn".
 
-Tab switching in inline `<script>` in index.html (not in a module). Info tips via `createInfoTip()`. Shift+click opens reference overlay from `REFERENCE` in `reference.js`. Responsive: 900px → bottom sheet, 600px/440px shared breakpoints.
+Tab switching via `shared-tabs.js` (loaded as plain `<script>` at end of body). Info tips via `createInfoTip()`. Shift+click opens reference overlay from `REFERENCE` in `reference.js`. Responsive: 900px → bottom sheet, 600px/440px shared breakpoints.
 
 ## Renderer
 

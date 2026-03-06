@@ -69,11 +69,6 @@ body {
     stroke-width: 2.5;
 }
 
-/* Theme toggle icon swap */
-#themeToggleBtn .icon-sun,
-#themeToggleBtn .icon-moon { display: none; }
-[data-theme="light"] #themeToggleBtn .icon-sun { display: inline; }
-[data-theme="dark"] #themeToggleBtn .icon-moon { display: inline; }
 
 /* ═══════════════════════════════════════════════
    Control Panel — Overrides
@@ -89,21 +84,6 @@ body {
 
 #control-panel.open {
     pointer-events: auto;
-}
-
-/* ═══════════════════════════════════════════════
-   Panel Sections
-   ═══════════════════════════════════════════════ */
-
-.panel-section {
-    margin-bottom: 0.7rem;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-}
-
-.panel-section:last-of-type {
-    margin-bottom: 0;
 }
 
 /* ═══════════════════════════════════════════════
@@ -125,23 +105,6 @@ body {
 .tog-axion        { --tog-color: var(--ext-blue); }
 .tog-quadradiation { --tog-color: var(--ext-yellow); }
 
-.ctrl-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 4px 0;
-}
-
-.ctrl-row label {
-    font-size: 0.78rem;
-    color: var(--text);
-    cursor: pointer;
-}
-
-.ctrl-sub { padding-left: 20px; }
-.ctrl-sub label { font-size: 0.72rem; color: var(--text-secondary); }
-.ctrl-disabled { opacity: 0.4; pointer-events: none; }
-
 /* ═══════════════════════════════════════════════
    Particle Tooltip & Selection
    ═══════════════════════════════════════════════ */
@@ -160,20 +123,6 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
-.stat-sub {
-    padding-left: 20px;
-}
-
-.stat-sub .stat-label {
-    font-size: 0.72rem;
-    color: var(--text-muted);
-}
-
-.stat-sub .stat-value {
-    font-size: 0.72rem;
-    color: var(--text-secondary);
-}
-
 #selected-particle-section .stat-value {
     color: var(--accent);
 }
@@ -188,12 +137,6 @@ body {
 /* ═══════════════════════════════════════════════
    Controls
    ═══════════════════════════════════════════════ */
-
-.control-group {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-}
 
 label {
     font-size: 0.78rem;
@@ -223,6 +166,14 @@ label {
 #hint-bar.fade-out {
     opacity: 0;
     pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════
+   Reference Overlay — z-index override
+   ═══════════════════════════════════════════════ */
+
+#reference-overlay {
+    z-index: 9999;
 }
 
 /* ═══════════════════════════════════════════════
@@ -278,224 +229,4 @@ label {
         -webkit-backdrop-filter: none;
         background: var(--bg-panel-solid);
     }
-}
-
-/* ═══════════════════════════════════════════════
-   Form Controls (moved from shared-base.css)
-   ═══════════════════════════════════════════════ */
-
-/* Slider value display */
-.slider-value {
-    font-family: var(--font-mono);
-    color: var(--text);
-    font-weight: 600;
-    font-size: 0.78rem;
-    font-variant-numeric: tabular-nums;
-}
-
-/* Range sliders */
-input[type=range] {
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    width: 100%;
-    background: transparent;
-    cursor: pointer;
-    height: 20px;
-}
-
-input[type=range]::-webkit-slider-runnable-track {
-    width: 100%;
-    height: 2px;
-    background: var(--slider-track);
-    border-radius: 1px;
-}
-
-input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    height: 16px;
-    width: 16px;
-    border-radius: 50%;
-    background: var(--accent);
-    margin-top: -7px;
-    border: none;
-    transition: box-shadow 180ms var(--ease-in-out), transform 180ms var(--ease-in-out);
-}
-
-input[type=range]:focus::-webkit-slider-thumb {
-    box-shadow: 0 0 0 4px var(--accent-subtle);
-}
-
-input[type=range]:active::-webkit-slider-thumb {
-    transform: scale(1.15);
-}
-
-input[type=range]::-moz-range-track {
-    width: 100%;
-    height: 2px;
-    background: var(--slider-track);
-    border-radius: 1px;
-    border: none;
-}
-
-input[type=range]::-moz-range-thumb {
-    height: 16px;
-    width: 16px;
-    border-radius: 50%;
-    background: var(--accent);
-    border: none;
-}
-
-/* Segmented control (mode toggles) */
-.mode-toggles {
-    display: grid;
-    grid-auto-columns: 1fr;
-    grid-auto-flow: column;
-    gap: 1px;
-    background: var(--border);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-}
-
-.mode-btn {
-    background: var(--bg-panel-solid);
-    border: none;
-    padding: 8px 12px;
-    font-family: var(--font-body);
-    font-size: 0.78rem;
-    font-weight: 400;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: background 0.2s, color 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0;
-    line-height: 1;
-}
-
-.mode-btn:hover {
-    color: var(--text);
-}
-
-.mode-btn.active {
-    background: var(--accent-subtle);
-    color: var(--accent);
-    font-weight: 500;
-}
-
-/* Checkbox toggle */
-.checkbox-label {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: pointer;
-}
-
-input[type="checkbox"] {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 36px;
-    height: 20px;
-    background: var(--slider-track);
-    border-radius: 10px;
-    position: relative;
-    cursor: pointer;
-    transition: background 180ms var(--ease-in-out);
-    flex-shrink: 0;
-}
-
-input[type="checkbox"]::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 14px;
-    height: 14px;
-    background: var(--text-muted);
-    border-radius: 50%;
-    transition: all 180ms var(--ease-in-out);
-}
-
-input[type="checkbox"]:checked {
-    background: var(--accent-subtle);
-}
-
-input[type="checkbox"]:checked::after {
-    left: 19px;
-    background: var(--accent);
-}
-
-/* Preset dropdown */
-.preset-select {
-    width: 100%;
-    padding: 6px 10px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: var(--bg-panel);
-    color: var(--text);
-    font-family: var(--font-body);
-    font-size: 0.82rem;
-}
-
-/* Reference overlay */
-.reference-overlay[hidden] {
-    display: none !important;
-}
-.reference-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    backdrop-filter: blur(4px);
-}
-.reference-panel {
-    max-width: 600px;
-    width: 90vw;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--radius-lg, 12px);
-    overflow: hidden;
-}
-.reference-body {
-    padding: 1rem 1.2rem;
-    overflow-y: auto;
-    font-size: 0.85rem;
-    line-height: 1.6;
-    -webkit-overflow-scrolling: touch;
-}
-.reference-body .katex-display {
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-}
-@media (max-width: 600px) {
-    .reference-panel {
-        width: 100vw;
-        max-width: 100vw;
-        max-height: 100vh;
-        height: 100vh;
-        border-radius: 0;
-    }
-    .reference-overlay {
-        align-items: stretch;
-    }
-    .reference-body {
-        font-size: 0.8rem;
-        padding: 0.75rem 1rem;
-    }
-}
-.reference-body h3 {
-    margin: 1em 0 0.3em;
-    font-size: 0.9rem;
-}
-.reference-body p {
-    margin: 0.4em 0;
-}
-.reference-body ul, .reference-body ol {
-    margin: 0.4em 0;
-    padding-left: 1.2em;
 }
