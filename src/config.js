@@ -59,8 +59,9 @@ export const ROCHE_TRANSFER_RATE = 0.01;  // mass transfer rate coefficient
 // Cosmological expansion
 export const DEFAULT_HUBBLE = 0.001;  // Hubble parameter
 
-// Higgs field: V(φ) = -½μ²φ² + ¼φ⁴ (λ=1, VEV=1, coupling=1, thermalK=1, damping=critical)
+// Higgs field: V(φ) = -(m_H²/4)φ² + (m_H²/8)φ⁴ (VEV=1, λ=m_H²/2)
 export const HIGGS_GRID = 48;
+export const DEFAULT_HIGGS_MASS = 0.05;       // Higgs boson mass (mediator range ~ 1/m_H)
 export const HIGGS_SOURCE_STRENGTH = 0.01;    // particle->field source coupling (weak: delta_phi/v ~ 3% for m=10)
 export const HIGGS_PHI_MAX = 16;              // field value clamp (prevent runaway)
 
@@ -88,7 +89,7 @@ export const PAIR_PROD_MIN_ENERGY = 2;    // minimum photon energy for pair prod
 export const PAIR_PROD_RADIUS = 8;        // proximity to massive body required
 export const PAIR_PROD_PROB = 0.005;      // probability per substep per eligible photon
 export const PAIR_PROD_MAX_PARTICLES = 32; // suppress pair production above this particle count
-export const PAIR_PROD_MIN_AGE = 32;      // photon must survive this many ticks before it can pair-produce
+export const PAIR_PROD_MIN_AGE = 64;      // photon must survive this many ticks before it can pair-produce
 
 // Input
 export const PINCH_DEBOUNCE = 300;         // ms guard after pinch-to-zoom

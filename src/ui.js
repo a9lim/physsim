@@ -183,6 +183,7 @@ export function setupUI(sim) {
     const yukawaSliders = document.getElementById('yukawa-sliders');
     const axionSliders = document.getElementById('axion-sliders');
     const hubbleGroup = document.getElementById('hubble-group');
+    const higgsSliders = document.getElementById('higgs-sliders');
 
     const updateAllDeps = () => {
         // 1. Cascade dependency graph
@@ -216,6 +217,7 @@ export function setupUI(sim) {
         yukawaSliders.style.display = tEl['yukawa-toggle'].checked ? '' : 'none';
         axionSliders.style.display = tEl['axion-toggle'].checked ? '' : 'none';
         hubbleGroup.style.display = tEl['expansion-toggle'].checked ? '' : 'none';
+        if (higgsSliders) higgsSliders.style.display = tEl['higgs-toggle'].checked ? '' : 'none';
         updateFrictionVisibility();
     };
 
@@ -303,6 +305,17 @@ export function setupUI(sim) {
         sim.physics.hubbleParam = parseFloat(hubbleSlider.value);
         hubbleLabel.textContent = parseFloat(hubbleSlider.value).toFixed(4);
     });
+
+    // ─── Higgs mass slider ───
+    const higgsMassSlider = document.getElementById('higgsMassInput');
+    const higgsMassLabel = document.getElementById('higgsMassValue');
+    if (higgsMassSlider) {
+        higgsMassSlider.addEventListener('input', () => {
+            const m = parseFloat(higgsMassSlider.value);
+            sim.higgsField.mass = m;
+            higgsMassLabel.textContent = m.toFixed(2);
+        });
+    }
 
     // ─── External field sliders ───
     const extGravitySlider = document.getElementById('extGravityInput');

@@ -486,6 +486,7 @@ const SLIDER_MAP = {
     yukawaMu: 'yukawaMuInput',
     axionMass: 'axionMassInput',
     hubble: 'hubbleInput',
+    higgsMass: 'higgsMassInput',
     extGravity: 'extGravityInput',
     extGravityAngle: 'extGravityAngleInput',
     extElectric: 'extElectricInput',
@@ -558,7 +559,7 @@ export function loadPreset(name, sim) {
     }
 
     // 5. Reset external fields (presets can override via settings)
-    const extDefaults = { extGravity: 0, extGravityAngle: 90, extElectric: 0, extElectricAngle: 0, extBz: 0 };
+    const extDefaults = { extGravity: 0, extGravityAngle: 90, extElectric: 0, extElectricAngle: 0, extBz: 0, higgsMass: 0.05 };
     for (const [key, elId] of Object.entries(SLIDER_MAP)) {
         if (key in extDefaults && !(preset.settings && key in preset.settings)) {
             const el = document.getElementById(elId);

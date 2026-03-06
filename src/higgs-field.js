@@ -1,11 +1,11 @@
 // ─── Higgs Scalar Field ───
 // Dynamical scalar field on a 2D grid with Mexican hat potential.
-// V(phi) = -1/2 mu^2 phi^2 + 1/4 phi^4  (lambda = 1)
-// VEV v = mu, Higgs boson mass m_H = v * sqrt(2)
+// V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4  (VEV=1, lambda=mu^2=m_H^2/2)
+// m_H is the free parameter (slider 0.01-0.25, default 0.05)
 // Symplectic Euler integration, bilinear interpolation, CIC source deposition.
 // Self-force subtraction via analytical steady-state Green's function estimate.
 
-import { HIGGS_GRID, HIGGS_SOURCE_STRENGTH, HIGGS_PHI_MAX, EPSILON } from './config.js';
+import { HIGGS_GRID, DEFAULT_HIGGS_MASS, HIGGS_SOURCE_STRENGTH, HIGGS_PHI_MAX, EPSILON } from './config.js';
 import { TORUS, KLEIN, RP2 } from './topology.js';
 
 const GRID = HIGGS_GRID;
@@ -24,6 +24,7 @@ export default class HiggsField {
         this._laplacian = new Float64Array(GRID_SQ);
         this._thermal = new Float64Array(GRID_SQ);
         this._source = new Float64Array(GRID_SQ);
+        this.mass = DEFAULT_HIGGS_MASS;
 
         // Offscreen canvas for rendering
         this.canvas = document.createElement('canvas');
@@ -149,21 +150,21 @@ export default class HiggsField {
         }
 
         // Kick phiDot, then drift phi (symplectic Euler)
-        // All = 1: VEV=1, lambda=1, muSq=1, thermalK=1, damping ratio=1
-        // Critical damping = 2 * m_H = 2*sqrt(2)
-        const DAMP = 2 * Math.SQRT2;
+        // VEV=1, λ = m_H²/2, μ² = m_H²/2, critical damping = 2*m_H
+        const mH = this.mass;
+        const muSq = 0.5 * mH * mH; // μ² = λ = m_H²/2 (VEV=1)
+        const damp = 2 * mH;
         for (let i = 0; i < GRID_SQ; i++) {
             const phiVal = phi[i];
 
-            // Thermal correction: mu^2_eff = 1 - KE_local
-            const muSqEff = 1 - thermal[i];
+            // Thermal correction: μ²_eff = μ² - KE_local
+            const muSqEff = muSq - thermal[i];
 
-            // Klein-Gordon: d^2 phi/dt^2 = nabla^2 phi + mu^2_eff * phi - phi^3
-            //               - damping * dphi/dt + source
+            // Klein-Gordon: d²φ/dt² = ∇²φ + μ²_eff·φ - λφ³ - damping·φ̇ + source
             const ddphi = lap[i]
                         + muSqEff * phiVal
-                        - phiVal * phiVal * phiVal
-                        - DAMP * phiDot[i]
+                        - muSq * phiVal * phiVal * phiVal
+                        - damp * phiDot[i]
                         + HIGGS_SOURCE_STRENGTH * src[i] * invCellArea;
 
             phiDot[i] += ddphi * dt;
@@ -249,7 +250,8 @@ export default class HiggsField {
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
         const cellArea = cellW * cellH;
-        const selfScale = HIGGS_SOURCE_STRENGTH / (2 * cellArea);
+        const mHsq = Math.max(this.mass * this.mass, EPSILON);
+        const selfScale = HIGGS_SOURCE_STRENGTH / (cellArea * mHsq);
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -307,7 +309,8 @@ export default class HiggsField {
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
         const cellArea = cellW * cellH;
-        const selfScale = HIGGS_SOURCE_STRENGTH / (2 * cellArea);
+        const mHsq = Math.max(this.mass * this.mass, EPSILON);
+        const selfScale = HIGGS_SOURCE_STRENGTH / (cellArea * mHsq);
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -360,6 +363,9 @@ export default class HiggsField {
         const invCellH = 1 / cellH;
         const phi = this.phi;
         const phiDot = this.phiDot;
+        const muSq = 0.5 * this.mass * this.mass;
+        // V(VEV) = -½μ²·1² + ¼λ·1⁴ = -½μ² + ¼μ² = -¼μ², offset = +¼μ²
+        const vacOffset = 0.25 * muSq;
         let total = 0;
         for (let iy = 0; iy < GRID; iy++) {
             for (let ix = 0; ix < GRID; ix++) {
@@ -376,8 +382,8 @@ export default class HiggsField {
                 const dyPhi = (phiB - p) * invCellH;
                 const gradE = 0.5 * (dxPhi * dxPhi + dyPhi * dyPhi);
 
-                // V(phi) = -1/2 phi^2 + 1/4 phi^4 + 1/4  (shifted so V(1) = 0)
-                const pot = -0.5 * p * p + 0.25 * p * p * p * p + 0.25;
+                // V(φ) = -½μ²φ² + ¼λφ⁴ + vacOffset  (λ=μ², shifted so V(1)=0)
+                const pot = -0.5 * muSq * p * p + 0.25 * muSq * p * p * p * p + vacOffset;
 
                 total += (ke + gradE + pot) * cellArea;
             }
