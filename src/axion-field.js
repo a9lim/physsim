@@ -106,7 +106,9 @@ export default class AxionField extends ScalarField {
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            p.axMod = 1 + this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH);
+            // Clamp >= 0: axion can screen EM to zero but never reverse sign
+            const aLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH);
+            p.axMod = aLocal > -1 ? 1 + aLocal : 0;
         }
     }
 
