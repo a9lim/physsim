@@ -11,16 +11,17 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
     let pe = 0;
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
+    const n = particles.length;
 
     if (barnesHutEnabled && root >= 0) {
-        for (let i = 0; i < particles.length; i++) {
+        for (let i = 0; i < n; i++) {
             pe += treePE(particles[i], pool, root, bhTheta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
         }
         pe *= 0.5; // tree counts each pair from both sides
     } else {
-        for (let i = 0; i < particles.length; i++) {
+        for (let i = 0; i < n; i++) {
             const p = particles[i];
-            for (let j = i + 1; j < particles.length; j++) {
+            for (let j = i + 1; j < n; j++) {
                 const o = particles[j];
                 const oRSq = o.radiusSq;
                 pe += pairPE(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
@@ -35,25 +36,35 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
     return pe;
 }
 
-/** Recursive BH tree walk for PE; same theta criterion as force calculation. */
-export function treePE(particle, pool, nodeIdx, theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
-    if (pool.totalMass[nodeIdx] === 0) return 0;
+// Pre-allocated stack for iterative tree walk
+let _peStack = new Int32Array(256);
 
-    let dx, dy;
-    if (periodic) {
-        minImage(particle.pos.x, particle.pos.y, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
-        dx = _miOut.x; dy = _miOut.y;
-    } else {
-        dx = pool.comX[nodeIdx] - particle.pos.x;
-        dy = pool.comY[nodeIdx] - particle.pos.y;
-    }
-    const dSq = dx * dx + dy * dy;
-    const d = Math.sqrt(dSq);
-    const size = pool.bw[nodeIdx] * 2;
+/** Iterative BH tree walk for PE; same theta criterion as force calculation. */
+export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
+    const thetaSq = theta * theta;
+    const px = particle.pos.x, py = particle.pos.y;
+    let pe = 0;
+    let stackTop = 0;
+    if (_peStack.length < pool.maxNodes) _peStack = new Int32Array(pool.maxNodes);
+    _peStack[stackTop++] = rootIdx;
 
-    if ((!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) || (pool.divided[nodeIdx] && (size / d < theta))) {
-        if (!pool.divided[nodeIdx]) {
-            let pe = 0;
+    while (stackTop > 0) {
+        const nodeIdx = _peStack[--stackTop];
+        if (pool.totalMass[nodeIdx] === 0) continue;
+
+        let dx, dy;
+        if (periodic) {
+            minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
+            dx = _miOut.x; dy = _miOut.y;
+        } else {
+            dx = pool.comX[nodeIdx] - px;
+            dy = pool.comY[nodeIdx] - py;
+        }
+        const dSq = dx * dx + dy * dy;
+        const size = pool.bw[nodeIdx] * 2;
+
+        if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
+            // Leaf: sum individual particles
             const base = nodeIdx * pool.nodeCapacity;
             for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
                 const other = pool.points[base + i];
@@ -66,23 +77,24 @@ export function treePE(particle, pool, nodeIdx, theta, toggles, periodic, domW, 
                     INERTIA_K * other.mass * other.angVel * oRSq, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology);
             }
-            return pe;
-        } else {
+        } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
+            // Distant node: use aggregate
             const nodeMass = pool.totalMass[nodeIdx];
             const avgVx = nodeMass > 0 ? pool.totalMomentumX[nodeIdx] / nodeMass : 0;
             const avgVy = nodeMass > 0 ? pool.totalMomentumY[nodeIdx] / nodeMass : 0;
-            return pairPE(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy,
+            pe += pairPE(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy,
                 nodeMass, pool.totalCharge[nodeIdx], 0,
                 pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], toggles,
                 periodic, domW, domH, halfDomW, halfDomH, topology);
+        } else if (pool.divided[nodeIdx]) {
+            _peStack[stackTop++] = pool.nw[nodeIdx];
+            _peStack[stackTop++] = pool.ne[nodeIdx];
+            _peStack[stackTop++] = pool.sw[nodeIdx];
+            _peStack[stackTop++] = pool.se[nodeIdx];
         }
-    } else if (pool.divided[nodeIdx]) {
-        return treePE(particle, pool, pool.nw[nodeIdx], theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology)
-            + treePE(particle, pool, pool.ne[nodeIdx], theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology)
-            + treePE(particle, pool, pool.sw[nodeIdx], theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology)
-            + treePE(particle, pool, pool.se[nodeIdx], theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
     }
-    return 0;
+
+    return pe;
 }
 
 /** Pairwise PE: gravity + Coulomb + magnetic dipole + GM dipole + 1PN correction. */
@@ -94,8 +106,7 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
     } else {
         rx = sx - p.pos.x; ry = sy - p.pos.y;
     }
-    const bhSoft = (window.sim && window.sim.physics.blackHoleEnabled) ? 1 : SOFTENING_SQ;
-    const rSq = rx * rx + ry * ry + bhSoft;
+    const rSq = rx * rx + ry * ry + toggles.softeningSq;
     const invRSq = 1 / rSq;
     const invR = Math.sqrt(invRSq);
     const pRSq = p.radiusSq;

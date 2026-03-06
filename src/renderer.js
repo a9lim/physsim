@@ -194,41 +194,65 @@ export default class Renderer {
         const blendMode = isLight ? 'source-over' : 'lighter';
         ctx.globalCompositeOperation = blendMode;
 
-        for (const p of particles) {
-            ctx.beginPath();
-            ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
-            ctx.fillStyle = p.color;
+        // Cache BH state once instead of window.sim lookup per particle
+        const bhEnabled = window.sim && window.sim.physics.blackHoleEnabled;
+        const ergoStyle = isLight ? _r(_PAL.extended.purple, 0.3) : _r(_PAL.extended.purple, 0.4);
+        const neutralGlow = !isLight ? _r(_PAL.dark.text, 0.5) : null;
 
-            if (!isLight) {
-                if (p.charge !== 0) {
-                    ctx.shadowBlur = Math.min(Math.abs(p.charge) * 3 + 10, 50);
-                    ctx.shadowColor = p.color;
-                } else {
-                    ctx.shadowBlur = 5;
-                    ctx.shadowColor = _r(_PAL.dark.text, 0.5);
-                }
-            } else {
-                ctx.shadowBlur = 0;
+        // Batch all particle fills with same shadow state to minimize state changes
+        if (isLight) {
+            ctx.shadowBlur = 0;
+            for (let i = 0, len = particles.length; i < len; i++) {
+                const p = particles[i];
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
+                ctx.fill();
             }
+        } else {
+            // Dark mode: group by shadow state to reduce changes
+            // First pass: uncharged particles (uniform shadow)
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = neutralGlow;
+            for (let i = 0, len = particles.length; i < len; i++) {
+                const p = particles[i];
+                if (p.charge !== 0) continue;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
+                ctx.fill();
+            }
+            // Second pass: charged particles (per-particle shadow)
+            for (let i = 0, len = particles.length; i < len; i++) {
+                const p = particles[i];
+                if (p.charge === 0) continue;
+                const absQ = p.charge > 0 ? p.charge : -p.charge;
+                ctx.shadowBlur = absQ * 3 + 10 < 50 ? absQ * 3 + 10 : 50;
+                ctx.shadowColor = p.color;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
+                ctx.fill();
+            }
+        }
 
-            ctx.fill();
-
+        // Spin rings + ergospheres (less frequent, ok to iterate once)
+        ctx.shadowBlur = 0;
+        for (let i = 0, len = particles.length; i < len; i++) {
+            const p = particles[i];
             if (p.angVel !== 0) {
                 this.drawSpinRing(ctx, p, isLight, blendMode);
             }
-
-            // Ergosphere ring for BH mode
-            if (window.sim && window.sim.physics.blackHoleEnabled && p.mass > 0) {
+            if (bhEnabled && p.mass > 0) {
                 const M = p.mass;
                 const I = INERTIA_K * M * p.radiusSq;
-                const a = I * Math.abs(p.angVel) / M;
+                const a = I * (p.angVel > 0 ? p.angVel : -p.angVel) / M;
                 const rErgo = M + Math.sqrt(Math.max(0, M * M - a * a));
                 if (rErgo > p.radius + 0.3) {
                     ctx.globalCompositeOperation = 'source-over';
-                    ctx.shadowBlur = 0;
                     ctx.beginPath();
                     ctx.arc(p.pos.x, p.pos.y, rErgo, 0, TWO_PI);
-                    ctx.strokeStyle = isLight ? _r(_PAL.extended.purple, 0.3) : _r(_PAL.extended.purple, 0.4);
+                    ctx.strokeStyle = ergoStyle;
                     ctx.lineWidth = 0.15;
                     ctx.setLineDash([0.3, 0.3]);
                     ctx.stroke();
@@ -243,14 +267,14 @@ export default class Renderer {
         ctx.globalCompositeOperation = 'source-over';
         ctx.shadowBlur = 0;
         ctx.lineWidth = 0.15;
-        for (const p of particles) {
+        const ghostAlpha = isLight ? 0.3 : 0.4;
+        for (let i = 0, len = particles.length; i < len; i++) {
+            const p = particles[i];
             if (!p.histX || p.histCount < 2) continue;
             const oldest = (p.histHead - p.histCount + HISTORY_SIZE) % HISTORY_SIZE;
-            const ox = p.histX[oldest];
-            const oy = p.histY[oldest];
             ctx.beginPath();
-            ctx.arc(ox, oy, p.radius, 0, TWO_PI);
-            ctx.strokeStyle = isLight ? _r(p.color, 0.3) : _r(p.color, 0.4);
+            ctx.arc(p.histX[oldest], p.histY[oldest], p.radius, 0, TWO_PI);
+            ctx.strokeStyle = _r(p.color, ghostAlpha);
             ctx.stroke();
         }
     }
@@ -309,24 +333,31 @@ export default class Renderer {
 
     drawForceComponentVectors(ctx, particles, invZoom, isLight) {
         const scale = 256;
-        const forces = [
-            { key: 'forceGravity', color: _forceCompColors.gravity },
-            { key: 'forceCoulomb', color: _forceCompColors.coulomb },
-            { key: 'forceMagnetic', color: _forceCompColors.magnetic },
-            { key: 'forceGravitomag', color: _forceCompColors.gravitomag },
-            { key: 'force1PN', color: _forceCompColors.onepn },
-            { key: 'forceSpinCurv', color: _forceCompColors.spinCurv },
-            { key: 'forceRadiation', color: _forceCompColors.radiation },
-            { key: 'forceYukawa', color: _forceCompColors.yukawa },
-        ];
-        for (const { key, color } of forces) {
-            for (const p of particles) {
-                const s = scale / p.mass;
-                let fx = p[key].x * s, fy = p[key].y * s;
-                const mag = Math.sqrt(fx * fx + fy * fy);
-                if (mag < 0.1 * invZoom) continue;
-                this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
-            }
+        const threshold = 0.1 * invZoom;
+        const threshSq = threshold * threshold;
+        // Iterate particles in outer loop to maximize cache locality
+        for (let i = 0, len = particles.length; i < len; i++) {
+            const p = particles[i];
+            const s = scale / p.mass;
+            const px = p.pos.x, py = p.pos.y;
+            // Inline each force to avoid dynamic property lookup
+            let fx, fy;
+            fx = p.forceGravity.x * s; fy = p.forceGravity.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.gravity);
+            fx = p.forceCoulomb.x * s; fy = p.forceCoulomb.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.coulomb);
+            fx = p.forceMagnetic.x * s; fy = p.forceMagnetic.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.magnetic);
+            fx = p.forceGravitomag.x * s; fy = p.forceGravitomag.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.gravitomag);
+            fx = p.force1PN.x * s; fy = p.force1PN.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.onepn);
+            fx = p.forceSpinCurv.x * s; fy = p.forceSpinCurv.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.spinCurv);
+            fx = p.forceRadiation.x * s; fy = p.forceRadiation.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.radiation);
+            fx = p.forceYukawa.x * s; fy = p.forceYukawa.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.yukawa);
         }
     }
 
@@ -425,20 +456,32 @@ export default class Renderer {
         // Caller already guards photons && photons.length
         ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
         ctx.shadowBlur = 0;
-        for (const ph of photons) {
-            const alpha = 1 - ph.lifetime / PHOTON_LIFETIME;
-            if (alpha <= 0) continue;
-            const size = 0.2 + ph.energy * 20;
-            ctx.globalAlpha = alpha * (isLight ? 0.6 : 0.8);
-            ctx.fillStyle = ph.type === 'gw' ? _PAL.extended.green : _PAL.extended.yellow;
-            ctx.beginPath();
-            ctx.arc(ph.pos.x, ph.pos.y, Math.min(size, 5), 0, TWO_PI);
-            ctx.fill();
-            if (!isLight) {
-                ctx.shadowBlur = Math.min(size * 3, 15);
-                ctx.shadowColor = ph.type === 'gw' ? '#50987880' : '#FFDC6480';
+        const alphaScale = isLight ? 0.6 : 0.8;
+
+        // Batch by type to minimize fillStyle/shadowColor changes
+        for (let pass = 0; pass < 2; pass++) {
+            const isGW = pass === 1;
+            const color = isGW ? _PAL.extended.green : _PAL.extended.yellow;
+            const glowColor = isGW ? '#50987880' : '#FFDC6480';
+            ctx.fillStyle = color;
+
+            for (let i = 0, len = photons.length; i < len; i++) {
+                const ph = photons[i];
+                if ((ph.type === 'gw') !== isGW) continue;
+                const alpha = 1 - ph.lifetime / PHOTON_LIFETIME;
+                if (alpha <= 0) continue;
+                const size = 0.2 + ph.energy * 20;
+                const r = size < 5 ? size : 5;
+                ctx.globalAlpha = alpha * alphaScale;
+                ctx.beginPath();
+                ctx.arc(ph.pos.x, ph.pos.y, r, 0, TWO_PI);
                 ctx.fill();
-                ctx.shadowBlur = 0;
+                if (!isLight) {
+                    ctx.shadowBlur = size * 3 < 15 ? size * 3 : 15;
+                    ctx.shadowColor = glowColor;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
             }
         }
         ctx.globalAlpha = 1;
