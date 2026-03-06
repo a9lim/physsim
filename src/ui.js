@@ -267,9 +267,9 @@ export function setupUI(sim) {
     const yukawaMuSlider = document.getElementById('yukawaMuInput');
     const yukawaMuLabel = document.getElementById('yukawaMuValue');
     yukawaMuSlider.addEventListener('input', () => {
-        const range = parseFloat(yukawaMuSlider.value);
-        sim.physics.yukawaMu = 1 / range;
-        yukawaMuLabel.textContent = range.toFixed(2);
+        const mu = parseFloat(yukawaMuSlider.value);
+        sim.physics.yukawaMu = mu;
+        yukawaMuLabel.textContent = mu.toFixed(2);
     });
 
     // ─── Axion slider ───

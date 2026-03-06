@@ -54,7 +54,7 @@ function syncUI(sim) {
     const hubbleEl = document.getElementById('hubbleInput');
     if (hubbleEl) { hubbleEl.value = ph.hubbleParam; hubbleEl.dispatchEvent(new Event('input')); }
     const yukawaMuEl = document.getElementById('yukawaMuInput');
-    if (yukawaMuEl) { yukawaMuEl.value = 1 / ph.yukawaMu; yukawaMuEl.dispatchEvent(new Event('input')); }
+    if (yukawaMuEl) { yukawaMuEl.value = ph.yukawaMu; yukawaMuEl.dispatchEvent(new Event('input')); }
     const axionMassEl = document.getElementById('axionMassInput');
     if (axionMassEl) { axionMassEl.value = ph.axionMass; axionMassEl.dispatchEvent(new Event('input')); }
 }

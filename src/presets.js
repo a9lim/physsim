@@ -252,7 +252,7 @@ export const PRESETS = {
             radiation: false, tidallocking: false, spinorbit: false, disintegration: false,
             barneshut: false, yukawa: true, axion: false, expansion: false,
         },
-        settings: { collision: 'bounce', boundary: 'bounce', speed: 128, yukawaRange: 15 },
+        settings: { collision: 'bounce', boundary: 'bounce', speed: 128, yukawaMu: 1 / 15 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
@@ -418,7 +418,7 @@ const MODE_GROUPS = {
 const SLIDER_MAP = {
     speed: 'speedInput',
     friction: 'frictionInput',
-    yukawaRange: 'yukawaMuInput',
+    yukawaMu: 'yukawaMuInput',
     axionMass: 'axionMassInput',
     hubble: 'hubbleInput',
 };
