@@ -65,7 +65,7 @@ export const HIGGS_LAMBDA = 1.0;               // quartic self-coupling (fixed)
 export const DEFAULT_HIGGS_VEV = 1.0;          // vacuum expectation value
 export const DEFAULT_HIGGS_COUPLING = 0.5;     // particle-field source strength
 export const DEFAULT_HIGGS_THERMAL_K = 0.5;    // thermal correction coupling
-export const HIGGS_DAMPING = 0.02;             // numerical damping coefficient
+export const HIGGS_DAMPING = 1.0;              // damping ratio (1.0 = critical, scales with 2*m_H)
 
 // Numerical thresholds
 export const EPSILON = 1e-9;          // general "effectively zero" guard

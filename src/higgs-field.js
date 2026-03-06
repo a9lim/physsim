@@ -159,7 +159,9 @@ export default class HiggsField {
 
         // Kick phiDot, then drift phi (symplectic Euler)
         const thermK = this.thermalK;
-        const damp = this.damping;
+        // Adaptive damping: this.damping is a ratio of critical damping (2 * m_H)
+        const mH = Math.sqrt(Math.max(2 * lam * v * v, EPSILON));
+        const damp = this.damping * 2 * mH;
         for (let i = 0; i < GRID_SQ; i++) {
             const phiVal = phi[i];
 
