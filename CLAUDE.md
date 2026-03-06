@@ -18,15 +18,15 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 
 ```
 main.js                     ~310 lines Simulation class, fixed-timestep loop, save/load wiring, window.sim
-index.html                  ~470 lines UI structure, 4-tab sidebar, reference overlay, zoom controls
+index.html                  ~474 lines UI structure, 4-tab sidebar, reference overlay, zoom controls
 styles.css                  ~500 lines Project-specific CSS overrides, reference overlay styles
 colors.js                    18 lines  Project color tokens (particle hues, spin ring colors)
 src/
-  integrator.js             ~960 lines Physics class: adaptive Boris substep loop, radiation, tidal, GW quadrupole, expansion, Roche overflow
-  ui.js                     ~510 lines setupUI(), toggle dependencies, info tips, reference overlay, keyboard shortcuts
+  integrator.js             ~966 lines Physics class: adaptive Boris substep loop, radiation, tidal, GW quadrupole, expansion, Roche overflow
+  ui.js                     ~440 lines setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
   renderer.js               ~490 lines Canvas 2D: particles, trails, spin rings, ergosphere, vectors, torque arcs, photons/gravitons, delay ghosts
   forces.js                 ~460 lines pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa force
-  presets.js                ~365 lines PRESETS object (9 scenarios), loadPreset(), TOGGLE_MAP/TOGGLE_ORDER
+  presets.js                ~497 lines PRESETS object (13 scenarios in 4 groups), loadPreset(), declarative SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   reference.js              ~285 lines REFERENCE object: extended physics reference content for each concept (KaTeX math)
   quadtree.js               ~280 lines QuadTreePool: SoA flat typed arrays, pool-based, zero GC
   input.js                   260 lines InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
@@ -219,7 +219,7 @@ Toggle (`disintegrationEnabled`), requires Gravity. Fragments when tidal + centr
 
 ### GW Radiation
 
-Toggle (`quadRadiationEnabled`), requires Radiation. Mass quadrupole 3rd time derivative via finite differences (5-sample buffer): `P_GW = (1/5)|d³I_ij/dt³|²`. Also computes EM quadrupole when Coulomb enabled. Emits graviton particles (`type: 'grav'`, rendered red).
+Toggle (`quadRadiationEnabled`), requires Radiation. Mass quadrupole 3rd time derivative via hybrid analytical+numerical jerk: `P_GW = (1/5)|d³I_ij/dt³|²`. Also computes EM quadrupole `P_EM = (1/180)|d³Q_ij/dt³|²` when Coulomb enabled. Energy extracted via tangential velocity scaling `scale = 1 - dE/(2·KE)`. Drag accumulated into `_radDisplayX/Y` for the radiation force arrow. Emits graviton particles (`type: 'grav'`, rendered red).
 
 ### Photon Gravitational Lensing
 
@@ -227,7 +227,7 @@ Toggle (`quadRadiationEnabled`), requires Radiation. Mass quadrupole 3rd time de
 
 ### Cosmological Expansion
 
-Toggle (`expansionEnabled`). `pos += H*(pos - center)*dt` (Hubble flow), `w *= (1 - H*dt)` (redshift). Default `hubbleParam = 0.001`.
+Toggle (`expansionEnabled`). `pos += H*(pos - center)*dt` (Hubble flow), `w *= (1 - H*dt)` (redshift). Default `hubbleParam = 0.001`. Enabling expansion locks boundary mode to "despawn" (particles leave the domain).
 
 ## Sign Conventions (IMPORTANT)
 
@@ -288,15 +288,19 @@ Expansion                        [independent, in Engine tab]
 
 1PN internally: EIH requires `gravitomagEnabled`, Darwin EM requires `magneticEnabled`. Bazanski requires both.
 
-Disabled sub-toggles: `.ctrl-disabled` class applied by `setDepState()` in `ui.js`. Parent off → children auto-unchecked.
+Implemented as a declarative `DEPS` array in `ui.js`, evaluated in topological order by `updateAllDeps()` on every toggle change. Each entry maps a toggle ID to a disabled-condition function. `setDepState()` applies `.ctrl-disabled` class and auto-unchecks disabled toggles. Cascades automatically because DEPS are ordered parents-before-children.
 
-Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, signal delay, spin-orbit, radiation. Defaults off: Yukawa, Axion, GW, Disintegration, Tidal Locking, Expansion, Barnes-Hut.
+Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, signal delay, spin-orbit, radiation, tidal locking, GW radiation. Defaults off: Yukawa, Axion, Disintegration, Expansion, Barnes-Hut.
 
 ## UI
 
 4-tab sidebar: Settings (mass/charge/spin sliders, spawn mode, force/physics toggles), Engine (BH, collisions, boundary/topology, visuals, speed), Stats (energy/momentum/drift), Particle (selected details, force breakdown, phase plot).
 
 Topbar: Home | Brand "No-Hair" | Pause/Step/Reset/Save/Load | Theme | Panel toggle.
+
+Preset selector uses `<optgroup>` categories: Gravity, EM, Exotic, Cosmological. 13 presets total (9 via keyboard `1`-`9`, rest dropdown-only).
+
+Sim speed slider: range 1–128, default 64. Bounce friction slider only visible when collision mode or boundary mode is "bounce" (controlled by `updateFrictionVisibility()` inside `updateAllDeps()`). Expansion toggle locks boundary mode to "despawn".
 
 Tab switching in inline `<script>` in index.html (not in a module). Info tips via `createInfoTip()`. Shift+click opens reference overlay from `REFERENCE` in `reference.js`. Responsive: 900px → bottom sheet, 600px/440px shared breakpoints.
 

@@ -28,12 +28,12 @@ Everything runs in natural units (c = 1, G = 1). Particles store proper velocity
 
 - **Signal delay** -- Forces use source positions from the past light cone, solved analytically with a three-phase algorithm (Newton-Raphson segment search, exact quadratic solve, constant-velocity extrapolation).
 - **Spin-orbit coupling** -- Energy transfer between translational and rotational kinetic energy via field gradients.
-- **Tidal breakup** -- Roche-limit fragmentation when tidal, centrifugal, and Coulomb stresses exceed self-gravity. Includes Roche lobe overflow with continuous mass transfer.
+- **Disintegration** -- Roche-limit fragmentation when tidal, centrifugal, and Coulomb stresses exceed self-gravity. Includes Roche lobe overflow with continuous mass transfer.
 - **Tidal locking** -- Dissipative tidal torque drives spin toward synchronous rotation with the orbital frequency.
 - **Photon emission & absorption** -- Accelerating charges emit photons in a Larmor dipole pattern with relativistic aberration. Photons carry energy and momentum, experience gravitational lensing (2x Newtonian deflection), and are absorbed on contact.
-- **Gravitational wave radiation** -- Quadrupole formula with orbital decay and graviton emission (rendered red).
+- **Gravitational wave radiation** -- Mass and EM quadrupole formula with hybrid analytical+numerical jerk, orbital decay via tangential drag, and graviton emission (rendered red).
 - **Black hole mode** -- Kerr-Newman horizons: r+ = M + sqrt(M^2 - a^2 - Q^2) with spin parameter a = J/M and charge Q. Collisions lock to merge. Hawking radiation at the Kerr-Newman surface gravity temperature; extremal black holes stop radiating. Sub-threshold black holes evaporate with a final photon burst.
-- **Cosmological expansion** -- Hubble flow with peculiar velocity redshift.
+- **Cosmological expansion** -- Hubble flow with peculiar velocity redshift. Locks boundary mode to despawn.
 
 ### Integrator
 
@@ -62,8 +62,8 @@ Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepp
 
 ### Sidebar Tabs
 
-1. **Settings** -- Particle mass / charge / spin sliders, spawn mode, force toggles, physics toggles.
-2. **Engine** -- Barnes-Hut, collision mode, bounce friction, boundary mode, topology, visual overlays, sim speed.
+1. **Settings** -- Particle mass / charge / spin sliders, spawn mode, force toggles, physics toggles. Preset selector with four category groups (Gravity, EM, Exotic, Cosmological).
+2. **Engine** -- Barnes-Hut, collision mode, bounce friction (visible only in bounce mode), boundary mode, topology, visual overlays, sim speed (1–128x, default 64x).
 3. **Stats** -- Energy breakdown (linear KE, spin KE, PE, field, radiated, drift), conserved quantities (momentum, angular momentum).
 4. **Particle** -- Selected particle details (mass, charge, spin, speed, gamma, per-force breakdown) and phase space plot.
 
@@ -85,15 +85,15 @@ Zero-dependency vanilla JavaScript with Canvas 2D rendering. All physics and ren
 
 ```
 main.js                     ~310 lines  Simulation class, fixed-timestep loop, window.sim
-index.html                  ~470 lines  UI structure, tab system, reference overlay
+index.html                  ~474 lines  UI structure, tab system, reference overlay
 styles.css                  ~500 lines  Project-specific CSS
 colors.js                     18 lines  Project color tokens (extends shared-tokens.js)
 src/
-  integrator.js             ~960 lines  Physics: adaptive Boris substep loop, radiation, tidal, GW, expansion
-  ui.js                     ~510 lines  DOM setup, toggles, info tips, keyboard shortcuts
+  integrator.js             ~966 lines  Physics: adaptive Boris substep loop, radiation, tidal, GW, expansion
+  ui.js                     ~440 lines  DOM setup, declarative toggle dependencies, info tips, shortcuts
   renderer.js               ~490 lines  Canvas 2D: particles, trails, vectors, photons, glow
   forces.js                 ~460 lines  Pairwise + Barnes-Hut force accumulation, 1PN
-  presets.js                ~365 lines  Nine preset scenarios
+  presets.js                ~497 lines  Thirteen preset scenarios (Gravity / EM / Exotic / Cosmological)
   reference.js              ~285 lines  Extended physics reference (KaTeX math)
   quadtree.js               ~280 lines  SoA pool-based Barnes-Hut tree (zero GC)
   input.js                   260 lines  Mouse/touch, Place/Shoot/Orbit spawn modes
