@@ -37,7 +37,7 @@ export const TIDAL_STRENGTH = 2.0;
 export const FRAGMENT_COUNT = 4;
 
 // Yukawa potential: V(r) = -g²·exp(-μr)/r
-export const DEFAULT_YUKAWA_G2 = 1.0;   // coupling strength
+export const YUKAWA_G2 = 1.0;            // coupling strength (fixed)
 export const DEFAULT_YUKAWA_MU = 0.2;   // mediator mass (inverse range)
 
 // Axion dark matter: oscillating EM coupling α_eff = α·(1 + g·cos(m_a·t))

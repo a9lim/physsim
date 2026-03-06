@@ -55,8 +55,6 @@ function syncUI(sim) {
     if (frictionEl) { frictionEl.value = ph.bounceFriction; frictionEl.dispatchEvent(new Event('input')); }
     const hubbleEl = document.getElementById('hubbleInput');
     if (hubbleEl) { hubbleEl.value = ph.hubbleParam; hubbleEl.dispatchEvent(new Event('input')); }
-    const yukawaG2El = document.getElementById('yukawaG2Input');
-    if (yukawaG2El) { yukawaG2El.value = ph.yukawaG2; yukawaG2El.dispatchEvent(new Event('input')); }
     const yukawaMuEl = document.getElementById('yukawaMuInput');
     if (yukawaMuEl) { yukawaMuEl.value = 1 / ph.yukawaMu; yukawaMuEl.dispatchEvent(new Event('input')); }
     const axionGEl = document.getElementById('axionGInput');
@@ -92,7 +90,6 @@ export function saveState(sim) {
         'expansionEnabled']) {
         state.toggles[key] = ph[key];
     }
-    state.yukawaG2 = ph.yukawaG2;
     state.yukawaMu = ph.yukawaMu;
     state.axionG = ph.axionG;
     state.axionMass = ph.axionMass;
@@ -115,7 +112,6 @@ export function loadState(state, sim) {
     for (const [key, val] of Object.entries(state.toggles)) {
         if (key in ph) ph[key] = val;
     }
-    if (state.yukawaG2 != null) ph.yukawaG2 = state.yukawaG2;
     if (state.yukawaMu != null) ph.yukawaMu = state.yukawaMu;
     if (state.axionG != null) ph.axionG = state.axionG;
     if (state.axionMass != null) ph.axionMass = state.axionMass;

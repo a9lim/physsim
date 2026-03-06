@@ -298,17 +298,11 @@ export function setupUI(sim) {
     // ─── Yukawa sliders ───
     const yukawaToggle = document.getElementById('yukawa-toggle');
     const yukawaSliders = document.getElementById('yukawa-sliders');
-    const yukawaG2Slider = document.getElementById('yukawaG2Input');
-    const yukawaG2Label = document.getElementById('yukawaG2Value');
     const yukawaMuSlider = document.getElementById('yukawaMuInput');
     const yukawaMuLabel = document.getElementById('yukawaMuValue');
 
     yukawaToggle.addEventListener('change', () => {
         yukawaSliders.style.display = yukawaToggle.checked ? '' : 'none';
-    });
-    yukawaG2Slider.addEventListener('input', () => {
-        sim.physics.yukawaG2 = parseFloat(yukawaG2Slider.value);
-        yukawaG2Label.textContent = parseFloat(yukawaG2Slider.value).toFixed(2);
     });
     yukawaMuSlider.addEventListener('input', () => {
         const range = parseFloat(yukawaMuSlider.value);

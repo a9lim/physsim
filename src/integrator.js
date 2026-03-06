@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_G2, DEFAULT_YUKAWA_MU, DEFAULT_AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, ROCHE_MIN_PACKET, DEFAULT_HUBBLE } from './config.js';
+import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, DEFAULT_AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, ROCHE_MIN_PACKET, DEFAULT_HUBBLE } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -36,7 +36,6 @@ export default class Physics {
         this.onePNEnabled = true;
 
         this.yukawaEnabled = false;
-        this.yukawaG2 = DEFAULT_YUKAWA_G2;
         this.yukawaMu = DEFAULT_YUKAWA_MU;
 
         this.axionEnabled = false;
@@ -68,7 +67,6 @@ export default class Physics {
             onePNEnabled: true,
             tidalLockingEnabled: false,
             yukawaEnabled: false,
-            yukawaG2: 1.0,
             yukawaMu: 0.2,
             axionEnabled: false,
             axionModulation: 1.0,
@@ -90,7 +88,6 @@ export default class Physics {
         this._toggles.onePNEnabled = this.onePNEnabled;
         this._toggles.tidalLockingEnabled = this.tidalLockingEnabled;
         this._toggles.yukawaEnabled = this.yukawaEnabled;
-        this._toggles.yukawaG2 = this.yukawaG2;
         this._toggles.yukawaMu = this.yukawaMu;
         this._toggles.axionEnabled = this.axionEnabled;
         if (this.axionEnabled) {

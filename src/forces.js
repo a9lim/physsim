@@ -2,7 +2,7 @@
 // Pairwise and Barnes-Hut force accumulation. Separates E-like (position-dependent)
 // from B-like (velocity-dependent) forces for the Boris integrator.
 
-import { BH_THETA, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH } from './config.js';
+import { BH_THETA, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_G2 } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { TORUS, minImage } from './topology.js';
 
@@ -288,18 +288,17 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     if (toggles.yukawaEnabled) {
-        const g2 = toggles.yukawaG2;
         const mu = toggles.yukawaMu;
         const r = 1 / invR;
         const expMuR = Math.exp(-mu * r);
         // F = g² · exp(-μr) · (1/r² + μ/r) · r̂  (attractive, like gravity)
-        const fDir = g2 * p.mass * sMass * expMuR * (invRSq + mu * invR) * invR;
+        const fDir = YUKAWA_G2 * p.mass * sMass * expMuR * (invRSq + mu * invR) * invR;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceYukawa.x += rx * fDir;
         p.forceYukawa.y += ry * fDir;
         // Analytical jerk for radiation reaction
-        const jBase = g2 * p.mass * sMass * expMuR;
+        const jBase = YUKAWA_G2 * p.mass * sMass * expMuR;
         const term1 = (invRSq + mu * invR) * invR;
         const jRadial = -(3 * invRSq + 2 * mu * invR + mu * mu) * rDotVr * jBase * invRSq * invR;
         p.jerk.x += vrx * jBase * term1 + rx * jRadial;
