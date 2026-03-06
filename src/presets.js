@@ -22,7 +22,7 @@ export const PRESETS = {
         toggles: {
             gravity: true, coulomb: false, magnetic: false, gravitomag: false,
             relativity: false, onepn: false, signaldelay: false, blackhole: false,
-            radiation: false, tidallocking: false, spinorbit: false, tidal: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: false, tidallocking: false, spinorbit: false, disintegration: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'pass', boundary: 'despawn', speed: 100 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
@@ -47,7 +47,7 @@ export const PRESETS = {
         toggles: {
             gravity: true, coulomb: false, magnetic: false, gravitomag: true,
             relativity: true, onepn: true, signaldelay: false, blackhole: false,
-            radiation: false, tidallocking: false, spinorbit: false, tidal: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: false, tidallocking: false, spinorbit: false, disintegration: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'pass', boundary: 'despawn', speed: 100 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: true, potential: false },
@@ -69,7 +69,7 @@ export const PRESETS = {
         toggles: {
             gravity: false, coulomb: true, magnetic: true, gravitomag: false,
             relativity: true, onepn: false, signaldelay: false, blackhole: false,
-            radiation: false, tidallocking: false, spinorbit: true, tidal: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: false, tidallocking: false, spinorbit: true, disintegration: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'pass', boundary: 'despawn', speed: 50, interaction: 'orbit' },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
@@ -97,7 +97,7 @@ export const PRESETS = {
         toggles: {
             gravity: false, coulomb: true, magnetic: true, gravitomag: false,
             relativity: true, onepn: false, signaldelay: false, blackhole: false,
-            radiation: true, tidallocking: false, spinorbit: false, tidal: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: true, tidallocking: false, spinorbit: false, disintegration: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'pass', boundary: 'despawn', speed: 50, interaction: 'shoot' },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
@@ -116,7 +116,7 @@ export const PRESETS = {
         toggles: {
             gravity: true, coulomb: false, magnetic: false, gravitomag: false,
             relativity: false, onepn: false, signaldelay: false, blackhole: false,
-            radiation: false, tidallocking: true, spinorbit: false, tidal: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: false, tidallocking: true, spinorbit: false, disintegration: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'pass', boundary: 'despawn', speed: 100 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
@@ -139,7 +139,7 @@ export const PRESETS = {
         toggles: {
             gravity: true, coulomb: false, magnetic: false, gravitomag: true,
             relativity: true, onepn: false, signaldelay: false, blackhole: true,
-            radiation: false, tidallocking: false, spinorbit: false, tidal: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: false, tidallocking: false, spinorbit: false, disintegration: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'merge', boundary: 'despawn', speed: 150 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
@@ -165,7 +165,7 @@ export const PRESETS = {
         toggles: {
             gravity: true, coulomb: false, magnetic: false, gravitomag: true,
             relativity: true, onepn: true, signaldelay: true, blackhole: false,
-            radiation: false, tidallocking: false, spinorbit: false, tidal: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: false, tidallocking: false, spinorbit: false, disintegration: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'pass', boundary: 'despawn', speed: 50 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
@@ -187,7 +187,7 @@ export const PRESETS = {
         toggles: {
             gravity: false, coulomb: true, magnetic: true, gravitomag: false,
             relativity: true, onepn: false, signaldelay: false, blackhole: false,
-            radiation: false, tidallocking: false, spinorbit: true, tidal: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: false, tidallocking: false, spinorbit: true, disintegration: false, barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'bounce', boundary: 'loop', topology: 'torus', speed: 100, friction: 0.4 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
@@ -214,7 +214,7 @@ export const PRESETS = {
         toggles: {
             gravity: true, coulomb: false, magnetic: false, gravitomag: true,
             relativity: false, onepn: false, signaldelay: false, blackhole: false,
-            radiation: false, tidallocking: false, spinorbit: false, tidal: false, barneshut: true, yukawa: false, axion: false, quadradiation: false, expansion: false,
+            radiation: false, tidallocking: false, spinorbit: false, disintegration: false, barneshut: true, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
         settings: { collision: 'merge', boundary: 'despawn', speed: 150 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
@@ -255,7 +255,7 @@ const TOGGLE_MAP = {
     radiation: 'radiation-toggle',
     tidallocking: 'tidallocking-toggle',
     spinorbit: 'spinorbit-toggle',
-    tidal: 'tidal-toggle',
+    disintegration: 'disintegration-toggle',
     barneshut: 'barneshut-toggle',
     yukawa: 'yukawa-toggle',
     axion: 'axion-toggle',
@@ -268,7 +268,7 @@ const TOGGLE_ORDER = [
     'gravity', 'coulomb', 'relativity',
     'gravitomag', 'magnetic',
     'signaldelay', 'onepn', 'blackhole',
-    'tidallocking', 'spinorbit', 'radiation', 'tidal', 'barneshut',
+    'tidallocking', 'spinorbit', 'radiation', 'disintegration', 'barneshut',
     'yukawa', 'axion', 'quadradiation', 'expansion',
 ];
 

@@ -216,7 +216,7 @@ class Simulation {
                 }
                 this.photons.length = pLen;
 
-                const { fragments: toFragment, transfers: rocheTransfers } = this.physics.checkTidalBreakup(this.particles, this.physics._lastRoot);
+                const { fragments: toFragment, transfers: rocheTransfers } = this.physics.checkDisintegration(this.particles, this.physics._lastRoot);
                 // Handle Roche lobe overflow mass transfers
                 for (const t of rocheTransfers) {
                     t.source.mass -= t.mass;

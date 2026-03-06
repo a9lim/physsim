@@ -12,8 +12,8 @@ import { handleCollisions } from './collisions.js';
 import { computePE } from './potential.js';
 import { TORUS, KLEIN, RP2, minImage, wrapPosition } from './topology.js';
 
-// Reused by tidal breakup to avoid per-call allocation
-const _tidalMiOut = { x: 0, y: 0 };
+// Reused by disintegration to avoid per-call allocation
+const _disintMiOut = { x: 0, y: 0 };
 
 export default class Physics {
     constructor() {
@@ -29,7 +29,7 @@ export default class Physics {
         this.bounceFriction = 0.4;
         this.radiationEnabled = true;
         this.blackHoleEnabled = false;
-        this.tidalEnabled = false;
+        this.disintegrationEnabled = false;
         this.tidalLockingEnabled = false;
         this.signalDelayEnabled = true;
         this.spinOrbitEnabled = true;
@@ -855,8 +855,8 @@ export default class Physics {
         this.potentialEnergy = computePE(particles, toggles, this.pool, root >= 0 ? root : -1, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst);
     }
 
-    checkTidalBreakup(particles, lastRoot) {
-        if (!this.tidalEnabled) return { fragments: [], transfers: [] };
+    checkDisintegration(particles, lastRoot) {
+        if (!this.disintegrationEnabled) return { fragments: [], transfers: [] };
         const fragments = [];
         const transfers = [];
         const _periodic = this.periodic;
@@ -864,7 +864,7 @@ export default class Physics {
         const _domW = this.domainW, _domH = this.domainH;
         const _topo = this._topologyConst;
         const useTree = this.barnesHutEnabled && lastRoot >= 0;
-        const tidalSearchR = Math.max(_domW, _domH) * 0.5;
+        const disintSearchR = Math.max(_domW, _domH) * 0.5;
         const softeningSq = this.blackHoleEnabled ? 1 : SOFTENING_SQ;
 
         for (let pi = 0; pi < particles.length; pi++) {
@@ -899,14 +899,14 @@ export default class Physics {
 
             if (useTree) {
                 const candidates = this.pool.queryReuse(lastRoot,
-                    p.pos.x, p.pos.y, tidalSearchR, tidalSearchR);
+                    p.pos.x, p.pos.y, disintSearchR, disintSearchR);
                 for (let ci = 0; ci < candidates.length; ci++) {
                     const other = candidates[ci];
                     if (other === p || (other.isGhost && other.original === p)) continue;
                     let dx = other.pos.x - p.pos.x, dy = other.pos.y - p.pos.y;
                     if (_periodic) {
-                        minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _tidalMiOut);
-                        dx = _tidalMiOut.x; dy = _tidalMiOut.y;
+                        minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _disintMiOut);
+                        dx = _disintMiOut.x; dy = _disintMiOut.y;
                     }
                     _checkNeighbor(other, dx, dy);
                 }
@@ -916,8 +916,8 @@ export default class Physics {
                     if (other === p) continue;
                     let dx = other.pos.x - p.pos.x, dy = other.pos.y - p.pos.y;
                     if (_periodic) {
-                        minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _tidalMiOut);
-                        dx = _tidalMiOut.x; dy = _tidalMiOut.y;
+                        minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _disintMiOut);
+                        dx = _disintMiOut.x; dy = _disintMiOut.y;
                     }
                     _checkNeighbor(other, dx, dy);
                 }

@@ -172,9 +172,9 @@ Requires Coulomb. Modulates EM coupling: `α_eff = α·(1 + g·cos(m_a·t))`. Ap
 
 Requires Relativity. Three O(v²/c²) sectors, all accumulate into `force1PN`:
 
-- **EIH** (Gravity + 1PN): Symmetric remainder from EIH after subtracting GM Lorentz piece. Produces perihelion precession ~6πM/a(1-e²) rad/orbit.
-- **Darwin EM** (Coulomb + 1PN): Symmetric remainder from Darwin Lagrangian after subtracting Lorentz force.
-- **Bazanski** (Gravity + Coulomb + GM + Magnetic + 1PN): Position-dependent mixed 1/r³ force. `F = [q₁q₂(m₁+m₂) − (q₁²m₂ + q₂²m₁)] / r³`. Vanishes for identical particles.
+- **EIH** (GM + 1PN): Symmetric remainder from EIH after subtracting GM Lorentz piece. Produces perihelion precession ~6πM/a(1-e²) rad/orbit.
+- **Darwin EM** (Magnetic + 1PN): Symmetric remainder from Darwin Lagrangian after subtracting Lorentz force.
+- **Bazanski** (GM + Magnetic + 1PN): Position-dependent mixed 1/r³ force. `F = [q₁q₂(m₁+m₂) − (q₁²m₂ + q₂²m₁)] / r³`. Vanishes for identical particles.
 
 NOT Newton's 3rd law — each particle uses its own velocity. Velocity-Verlet: stores `_f1pnOld` before drift, recomputes after via `compute1PNPairwise()` (always pairwise, even in BH mode).
 
@@ -211,15 +211,15 @@ Requires Magnetic + GM + Spin-Orbit toggle. Independent of Relativity.
 
 Energy transfer: `dE = -mu*(v·∇Bz)*dt` (EM), `dE = -L*(v·∇Bgz)*dt` (GM). Center-of-mass kicks: Stern-Gerlach `F = +mu*∇Bz`, Mathisson-Papapetrou `F = -L*∇Bgz` (GEM flip). Both accumulate into `forceSpinCurv`. Field gradients computed in `pairForce()`.
 
-### Tidal Breakup
+### Disintegration
 
-Independent toggle. Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into 4 pieces. Min mass: `MIN_MASS * 4`.
+Toggle (`disintegrationEnabled`), requires Gravity. Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into 4 pieces. Min mass: `MIN_MASS * 4`.
 
 **Roche Lobe Overflow**: Eggleton formula. Continuous mass transfer toward companion through L1. Rate: `dM = overflow * ROCHE_TRANSFER_RATE * m`, capped 10%. Returns `{ fragments, transfers }`.
 
 ### GW Radiation
 
-Toggle (`quadRadiationEnabled`), requires Gravity. Mass quadrupole 3rd time derivative via finite differences (5-sample buffer): `P_GW = (1/5)|d³I_ij/dt³|²`. Also computes EM quadrupole when Radiation + Coulomb enabled. Emits graviton particles (`type: 'grav'`, rendered red).
+Toggle (`quadRadiationEnabled`), requires Radiation. Mass quadrupole 3rd time derivative via finite differences (5-sample buffer): `P_GW = (1/5)|d³I_ij/dt³|²`. Also computes EM quadrupole when Coulomb enabled. Emits graviton particles (`type: 'grav'`, rendered red).
 
 ### Photon Gravitational Lensing
 
@@ -276,22 +276,21 @@ Aggregates: `totalMass`, `totalCharge`, `totalMagneticMoment`, `totalAngularMome
 Forces:                        Physics:
   Gravity                        Relativity
     -> Gravitomagnetic             -> Signal Delay
-    -> GW Radiation                -> 1PN              [also requires Magnetic + GM]
-  Coulomb                          -> Black Hole       [locks collision to Merge]
-    -> Magnetic                  Tidal                 [independent]
-    -> Axion                     Spin-Orbit            [requires Magnetic + GM]
-  Yukawa               [independent]
-                                 Radiation             [requires Coulomb]
-Disintegration                   [independent]
+    -> Tidal Locking               -> 1PN              [requires Magnetic or GM]
+  Coulomb                          -> Black Hole       [+Gravity, locks collision to Merge]
+    -> Magnetic                  Spin-Orbit            [requires Magnetic or GM]
+    -> Axion                     Radiation             [requires Coulomb]
+  Yukawa               [independent]  -> GW Radiation
+Disintegration                   [requires Gravity]
 Barnes-Hut                       [independent]
 Expansion                        [independent, in Engine tab]
 ```
 
-1PN internally: EIH requires `gravityEnabled`, Darwin EM requires `coulombEnabled`.
+1PN internally: EIH requires `gravitomagEnabled`, Darwin EM requires `magneticEnabled`. Bazanski requires both.
 
 Disabled sub-toggles: `.ctrl-disabled` class applied by `setDepState()` in `ui.js`. Parent off → children auto-unchecked.
 
-Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, signal delay, spin-orbit, radiation. Defaults off: Yukawa, Axion, GW, Tidal, Expansion, Barnes-Hut.
+Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, signal delay, spin-orbit, radiation. Defaults off: Yukawa, Axion, GW, Disintegration, Tidal Locking, Expansion, Barnes-Hut.
 
 ## UI
 
@@ -339,7 +338,7 @@ Particle color: neutral=slate `#8A7E72`. Charged: RGB lerp toward red (positive)
 - Adaptive substepping uses Bz/Bgz from previous substep's force computation -- no preliminary force pass
 - History recording is strided (HISTORY_STRIDE=64) after the substep loop, counting `update()` calls, not substeps
 - After merge collisions, `particles.length` changes -- update loop variable `n`
-- `checkTidalBreakup()` returns `{ fragments, transfers }` (not a flat array)
+- `checkDisintegration()` returns `{ fragments, transfers }` (not a flat array)
 - GW quadrupole history buffer needs 4+ samples for 3rd derivative -- first frames produce no output
 - Radiation power-dissipation terms (−v·F²/mγ² and +F·(v·F)/mγ⁴) only active when relativity on
 - Heatmap signal delay is expensive (GRID²×N delay solves) -- mitigated by 6-frame update interval

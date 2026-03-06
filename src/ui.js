@@ -111,7 +111,7 @@ export function setupUI(sim) {
         { id: 'onepn-toggle', prop: 'onePNEnabled' },
         { id: 'relativity-toggle', prop: 'relativityEnabled' },
         { id: 'radiation-toggle', prop: 'radiationEnabled' },
-        { id: 'tidal-toggle', prop: 'tidalEnabled' },
+        { id: 'disintegration-toggle', prop: 'disintegrationEnabled' },
         { id: 'tidallocking-toggle', prop: 'tidalLockingEnabled' },
         { id: 'signaldelay-toggle', prop: 'signalDelayEnabled' },
         { id: 'spinorbit-toggle', prop: 'spinOrbitEnabled' },
@@ -203,13 +203,12 @@ export function setupUI(sim) {
     };
     gravEl.addEventListener('change', updateTlDeps);
 
-    // ─── Disintegration requires Gravity or Coulomb ───
-    const tidalEl = document.getElementById('tidal-toggle');
-    const updateTidalDeps = () => {
-        setDepState(tidalEl, 'tidalEnabled', !gravEl.checked && !coulEl.checked);
+    // ─── Disintegration requires Gravity ───
+    const disintEl = document.getElementById('disintegration-toggle');
+    const updateDisintDeps = () => {
+        setDepState(disintEl, 'disintegrationEnabled', !gravEl.checked);
     };
-    gravEl.addEventListener('change', updateTidalDeps);
-    coulEl.addEventListener('change', updateTidalDeps);
+    gravEl.addEventListener('change', updateDisintDeps);
 
     // ─── Axion requires Coulomb ───
     const axionEl = document.getElementById('axion-toggle');
@@ -218,19 +217,19 @@ export function setupUI(sim) {
     };
     coulEl.addEventListener('change', updateAxionDeps);
 
-    // ─── Quadrupole Radiation requires Gravity ───
+    // ─── Quadrupole Radiation requires Radiation ───
     const quadEl = document.getElementById('quadradiation-toggle');
     const updateQuadDeps = () => {
-        setDepState(quadEl, 'quadRadiationEnabled', !gravEl.checked);
+        setDepState(quadEl, 'quadRadiationEnabled', !radEl.checked);
     };
-    gravEl.addEventListener('change', updateQuadDeps);
+    radEl.addEventListener('change', updateQuadDeps);
 
     // ─── Initialize all dependency states ───
     updateGravDeps();
     updateCoulDeps();
     updateRadDeps();
     updateTlDeps();
-    updateTidalDeps();
+    updateDisintDeps();
     updateAxionDeps();
     updateQuadDeps();
 
@@ -431,7 +430,7 @@ export function setupUI(sim) {
         gravitomag: { title: 'Gravitomagnetic', body: 'The gravitational analog of magnetism, from general relativity\'s gravitoelectromagnetic (GEM) framework. Spinning masses interact via $F = 3L_1 L_2 / r^4$ (co-rotating masses attract, unlike EM dipoles which repel). Moving masses feel a Lorentz-like force $\\mathbf{F} = 4m(\\mathbf{v} \\times \\mathbf{B}_g)$. Frame-dragging torque gradually aligns nearby spins. Requires Gravity.' },
         relativity: { title: 'Relativity', body: 'Switches the simulation between relativistic and classical mechanics. When on, the state variable is proper velocity $\\mathbf{w} = \\gamma\\mathbf{v}$ (which can grow without bound), and coordinate velocity is derived as $\\mathbf{v} = \\mathbf{w}/\\sqrt{1+w^2}$, enforcing $|v| < c$. When off, $\\mathbf{v} = \\mathbf{w}$ with no speed limit.' },
         radiation: { title: 'Radiation', body: 'Accelerating charges radiate energy (Larmor power: $P = 2q^2 a^2/3$). The Landau\u2013Lifshitz reaction force decelerates the emitter with three terms: a jerk term ($\\dot{\\mathbf{F}}/\\gamma^3$), a radiative drag ($-\\mathbf{v}F^2/m\\gamma^2$), and a force-aligned correction ($+\\mathbf{F}(\\mathbf{v}\\!\\cdot\\!\\mathbf{F})/m\\gamma^4$). Emitted photons are visible particles that carry away energy and momentum, causing orbital decay of charged particles. Requires Coulomb.' },
-        tidal: { title: 'Disintegration', body: 'Particles break apart when disruptive forces exceed their self-gravity. The sim checks tidal stretching from neighbors ($\\propto M R / r^3$), centrifugal stress from rapid spin, and Coulomb self-repulsion. When the combined outward forces win, the particle splits into 3 fragments.' },
+        disintegration: { title: 'Disintegration', body: 'Particles break apart when disruptive forces exceed their self-gravity. The sim checks tidal stretching from neighbors ($\\propto M R / r^3$), centrifugal stress from rapid spin, and Coulomb self-repulsion. When the combined outward forces win, the particle splits into 3 fragments.' },
         tidallocking: { title: 'Tidal Locking', body: 'Tidal torque drives spin toward synchronous rotation ($\\omega_{\\text{spin}} \\to \\omega_{\\text{orbit}}$). The torque is $\\tau \\propto -(M + q_1 q_2/m)^2 R^3 / r^6 \\cdot \\Delta\\omega$. The mixed coupling captures all cross-terms between gravitational and electrostatic tidal fields. Requires Gravity.' },
         signaldelay: { title: 'Signal Delay', body: 'Forces propagate at the speed of light instead of acting instantaneously. Each particle sees others at their past positions on the light cone: $|\\mathbf{x}_{\\text{src}}(t_{\\text{ret}}) - \\mathbf{x}_{\\text{obs}}| = t_{\\text{now}} - t_{\\text{ret}}$. The delayed time is solved analytically using recorded position histories. Requires Relativity.' },
         spinorbit: { title: 'Spin\u2013Orbit', body: 'Couples translational and rotational motion through field gradients. Moving through a non-uniform magnetic or gravitomagnetic field transfers energy between a particle\'s orbit and its spin. Also applies translational kicks: Stern\u2013Gerlach force ($\\mathbf{F} = \\mu\\nabla B$) for EM, and Mathisson\u2013Papapetrou force ($\\mathbf{F} = -L\\nabla B_g$) for gravity.' },

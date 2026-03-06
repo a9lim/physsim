@@ -194,8 +194,8 @@ export const REFERENCE = {
 <p>The mixed coupling $(M + q_1 q_2/m)^2$ captures all four cross-terms between gravitational and electrostatic tidal fields.</p>
 `,
     },
-    tidal: {
-        title: 'Tidal Disintegration',
+    disintegration: {
+        title: 'Disintegration',
         body: `
 <p>Particles break apart when disruptive forces exceed self-gravity:</p>
 <p>$$\\frac{\\text{TIDAL\\_STRENGTH} \\cdot M_{\\text{other}} \\cdot r}{d^3} + \\omega^2 r + \\frac{q^2}{4r^2} > \\frac{m}{r^2}$$</p>

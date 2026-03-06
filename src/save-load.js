@@ -14,7 +14,7 @@ const TOGGLE_SYNC = [
     ['tidalLockingEnabled', 'tidallocking-toggle'],
     ['spinOrbitEnabled', 'spinorbit-toggle'],
     ['radiationEnabled', 'radiation-toggle'],
-    ['tidalEnabled', 'tidal-toggle'],
+    ['disintegrationEnabled', 'disintegration-toggle'],
     ['barnesHutEnabled', 'barneshut-toggle'],
     ['yukawaEnabled', 'yukawa-toggle'],
     ['axionEnabled', 'axion-toggle'],
@@ -86,7 +86,7 @@ export function saveState(sim) {
     const ph = sim.physics;
     for (const key of ['gravityEnabled', 'coulombEnabled', 'magneticEnabled',
         'gravitomagEnabled', 'relativityEnabled', 'barnesHutEnabled',
-        'radiationEnabled', 'blackHoleEnabled', 'tidalEnabled',
+        'radiationEnabled', 'blackHoleEnabled', 'disintegrationEnabled',
         'tidalLockingEnabled', 'signalDelayEnabled', 'spinOrbitEnabled',
         'onePNEnabled', 'yukawaEnabled', 'axionEnabled', 'quadRadiationEnabled',
         'expansionEnabled']) {
