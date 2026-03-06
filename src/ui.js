@@ -313,17 +313,11 @@ export function setupUI(sim) {
     // ─── Axion sliders ───
     const axionToggle = document.getElementById('axion-toggle');
     const axionSliders = document.getElementById('axion-sliders');
-    const axionGSlider = document.getElementById('axionGInput');
-    const axionGLabel = document.getElementById('axionGValue');
     const axionMassSlider = document.getElementById('axionMassInput');
     const axionMassLabel = document.getElementById('axionMassValue');
 
     axionToggle.addEventListener('change', () => {
         axionSliders.style.display = axionToggle.checked ? '' : 'none';
-    });
-    axionGSlider.addEventListener('input', () => {
-        sim.physics.axionG = parseFloat(axionGSlider.value);
-        axionGLabel.textContent = parseFloat(axionGSlider.value).toFixed(2);
     });
     axionMassSlider.addEventListener('input', () => {
         sim.physics.axionMass = parseFloat(axionMassSlider.value);
