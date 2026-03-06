@@ -13,16 +13,16 @@ const _miOut = { x: 0, y: 0 };
 export function resetForces(particles) {
     for (let i = 0, n = particles.length; i < n; i++) {
         const p = particles[i];
-        p.force.set(0, 0);
-        p.jerk.set(0, 0);
-        p.forceGravity.set(0, 0);
-        p.forceCoulomb.set(0, 0);
-        p.forceMagnetic.set(0, 0);
-        p.forceGravitomag.set(0, 0);
-        p.force1PN.set(0, 0);
-        p.forceSpinCurv.set(0, 0);
-        p.forceRadiation.set(0, 0);
-        p.forceYukawa.set(0, 0);
+        p.force.x = p.force.y = 0;
+        p.jerk.x = p.jerk.y = 0;
+        p.forceGravity.x = p.forceGravity.y = 0;
+        p.forceCoulomb.x = p.forceCoulomb.y = 0;
+        p.forceMagnetic.x = p.forceMagnetic.y = 0;
+        p.forceGravitomag.x = p.forceGravitomag.y = 0;
+        p.force1PN.x = p.force1PN.y = 0;
+        p.forceSpinCurv.x = p.forceSpinCurv.y = 0;
+        p.forceRadiation.x = p.forceRadiation.y = 0;
+        p.forceYukawa.x = p.forceYukawa.y = 0;
         p.torqueSpinOrbit = 0;
         p.torqueFrameDrag = 0;
         p.torqueTidal = 0;
@@ -141,10 +141,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         rx = sx - p.pos.x; ry = sy - p.pos.y;
     }
     const rawRSq = rx * rx + ry * ry;
-    // Plummer softening: r²_eff = r² + ε² (consistent with PE in potential.js)
-    // Reduced in BH mode where Schwarzschild radius provides physical softening
-    const bhSoft = (window.sim && window.sim.physics.blackHoleEnabled) ? 1 : SOFTENING_SQ;
-    const rSq = rawRSq + bhSoft;
+    const rSq = rawRSq + toggles.softeningSq;
     const invRSq = 1 / rSq;
     const invR = Math.sqrt(invRSq);       // 1/r via sqrt(1/r²) — one sqrt instead of sqrt + division
     const invR3 = invR * invRSq;          // 1 / r_eff³
@@ -330,26 +327,28 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
  * Called after drift to get F_1PN(new) for the correction kick.
  */
 export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false) {
-    for (let i = 0; i < particles.length; i++) {
-        particles[i].force1PN.set(0, 0);
+    const n = particles.length;
+    for (let i = 0; i < n; i++) {
+        particles[i].force1PN.x = particles[i].force1PN.y = 0;
     }
-    for (let i = 0; i < particles.length; i++) {
+    for (let i = 0; i < n; i++) {
         const p = particles[i];
-        for (let j = 0; j < particles.length; j++) {
+        const px = p.pos.x, py = p.pos.y;
+        const pvx = p.vel.x, pvy = p.vel.y;
+        const pMass = p.mass, pCharge = p.charge;
+        for (let j = 0; j < n; j++) {
             if (i === j) continue;
             const o = particles[j];
             let rx, ry;
             if (periodic) {
-                minImage(p.pos.x, p.pos.y, o.pos.x, o.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                minImage(px, py, o.pos.x, o.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
                 rx = _miOut.x; ry = _miOut.y;
             } else {
-                rx = o.pos.x - p.pos.x; ry = o.pos.y - p.pos.y;
+                rx = o.pos.x - px; ry = o.pos.y - py;
             }
             const rSq = rx * rx + ry * ry + SOFTENING_SQ_VAL;
-            const r = Math.sqrt(rSq);
-            const invR = 1 / r;
             const invRSq = 1 / rSq;
-            const pvx = p.vel.x, pvy = p.vel.y;
+            const invR = Math.sqrt(invRSq);
             const svx = o.vel.x, svy = o.vel.y;
             const nx = rx * invR, ny = ry * invR;
 
@@ -361,9 +360,10 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
                 const nDotV2 = nx * svx + ny * svy;
                 const radial = -v1Sq - 2 * v2Sq
                     + 1.5 * nDotV2 * nDotV2
-                    + 5 * p.mass * invR + 4 * o.mass * invR;
+                    + 5 * pMass * invR + 4 * o.mass * invR;
                 const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
                 const v2Coeff = 3 * nDotV2;
+                const r = 1 / invR;
                 const base = o.mass * invRSq * invR;
                 p.force1PN.x += base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
                 p.force1PN.y += base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
@@ -373,7 +373,7 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
             if (magneticEnabled) {
                 const v2DotN = svx * nx + svy * ny;
                 const v1DotN = pvx * nx + pvy * ny;
-                const coeff = 0.5 * p.charge * o.charge * invRSq;
+                const coeff = 0.5 * pCharge * o.charge * invRSq;
                 const symX = coeff * (pvx * v2DotN - 3 * nx * v1DotN * v2DotN);
                 const symY = coeff * (pvy * v2DotN - 3 * ny * v1DotN * v2DotN);
                 p.force1PN.x += symX;
@@ -382,8 +382,8 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
 
             // Bazanski cross-term (position-dependent)
             if (gravitomagEnabled && magneticEnabled) {
-                const crossCoeff = p.charge * o.charge * (p.mass + o.mass)
-                    - (p.charge * p.charge * o.mass + o.charge * o.charge * p.mass);
+                const crossCoeff = pCharge * o.charge * (pMass + o.mass)
+                    - (pCharge * pCharge * o.mass + o.charge * o.charge * pMass);
                 const fDir = crossCoeff * invRSq * invRSq;
                 p.force1PN.x += rx * fDir;
                 p.force1PN.y += ry * fDir;
@@ -393,35 +393,44 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
 }
 
 /**
- * Recursive Barnes-Hut tree walk. Uses aggregate multipole data for distant
+ * Iterative Barnes-Hut tree walk. Uses aggregate multipole data for distant
  * nodes (size/d < theta), individual particles for nearby leaves.
  * Signal delay is applied at leaf level (individual particles); distant
  * nodes use current-time aggregates (retarded correction is negligible at
  * distances where the BH approximation kicks in).
  */
-export function calculateForce(particle, pool, nodeIdx, theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime) {
-    if (pool.totalMass[nodeIdx] === 0) return;
+// Pre-allocated stack for iterative tree walk (avoids recursion overhead)
+let _bhStack = new Int32Array(256);
 
-    let dx, dy;
-    if (periodic) {
-        minImage(particle.pos.x, particle.pos.y, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
-        dx = _miOut.x; dy = _miOut.y;
-    } else {
-        dx = pool.comX[nodeIdx] - particle.pos.x;
-        dy = pool.comY[nodeIdx] - particle.pos.y;
-    }
-    const dSq = dx * dx + dy * dy;
-    const d = Math.sqrt(dSq);
-    const size = pool.bw[nodeIdx] * 2;
+export function calculateForce(particle, pool, rootIdx, theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime) {
+    const thetaSq = theta * theta;
+    const px = particle.pos.x, py = particle.pos.y;
+    let stackTop = 0;
+    if (_bhStack.length < pool.maxNodes) _bhStack = new Int32Array(pool.maxNodes);
+    _bhStack[stackTop++] = rootIdx;
 
-    if ((!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) || (pool.divided[nodeIdx] && (size / d < theta))) {
-        if (!pool.divided[nodeIdx]) {
+    while (stackTop > 0) {
+        const nodeIdx = _bhStack[--stackTop];
+        if (pool.totalMass[nodeIdx] === 0) continue;
+
+        let dx, dy;
+        if (periodic) {
+            minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
+            dx = _miOut.x; dy = _miOut.y;
+        } else {
+            dx = pool.comX[nodeIdx] - px;
+            dy = pool.comY[nodeIdx] - py;
+        }
+        const dSq = dx * dx + dy * dy;
+        const size = pool.bw[nodeIdx] * 2;
+
+        if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
+            // Leaf node: iterate individual particles
             const base = nodeIdx * pool.nodeCapacity;
             for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
                 const other = pool.points[base + i];
                 if (other === particle) continue;
                 if (other.isGhost && other.original === particle) continue;
-                // Signal delay: use retarded position for real (non-ghost) leaf particles
                 const real = other.isGhost ? other.original : other;
                 let sx, sy, svx, svy;
                 if (useSignalDelay && !other.isGhost && real.histCount >= 2) {
@@ -434,16 +443,18 @@ export function calculateForce(particle, pool, nodeIdx, theta, out, toggles, per
                 const otherRSq = other.radiusSq;
                 pairForce(particle, sx, sy, svx, svy, other.mass, other.charge, other.angVel, MAG_MOMENT_K * other.charge * other.angVel * otherRSq, INERTIA_K * other.mass * other.angVel * otherRSq, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
             }
-        } else {
-            // Distant node: use current-time aggregate (retarded correction negligible)
-            const avgVx = pool.totalMass[nodeIdx] > 0 ? pool.totalMomentumX[nodeIdx] / pool.totalMass[nodeIdx] : 0;
-            const avgVy = pool.totalMass[nodeIdx] > 0 ? pool.totalMomentumY[nodeIdx] / pool.totalMass[nodeIdx] : 0;
-            pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, pool.totalMass[nodeIdx], pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
+        } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
+            // Distant node: use aggregate (size/d < theta, computed as size²<theta²·d²)
+            const nodeMass = pool.totalMass[nodeIdx];
+            const avgVx = nodeMass > 0 ? pool.totalMomentumX[nodeIdx] / nodeMass : 0;
+            const avgVy = nodeMass > 0 ? pool.totalMomentumY[nodeIdx] / nodeMass : 0;
+            pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, nodeMass, pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
+        } else if (pool.divided[nodeIdx]) {
+            // Push children onto stack
+            _bhStack[stackTop++] = pool.nw[nodeIdx];
+            _bhStack[stackTop++] = pool.ne[nodeIdx];
+            _bhStack[stackTop++] = pool.sw[nodeIdx];
+            _bhStack[stackTop++] = pool.se[nodeIdx];
         }
-    } else if (pool.divided[nodeIdx]) {
-        calculateForce(particle, pool, pool.nw[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
-        calculateForce(particle, pool, pool.ne[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
-        calculateForce(particle, pool, pool.sw[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
-        calculateForce(particle, pool, pool.se[nodeIdx], theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
     }
 }

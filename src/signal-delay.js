@@ -15,7 +15,7 @@ const NR_MAX_ITER = 6;
 
 /** Solve light-cone equation; returns shared {x,y,vx,vy} or null. */
 export function getDelayedState(source, observer, simTime, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
-    if (!source.histX || source.histCount < 2) return null;
+    if (source.histCount < 2) return null;
 
     const ox = observer.pos.x, oy = observer.pos.y;
     const N = HISTORY_SIZE;
@@ -29,14 +29,19 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     const timeSpan = simTime - tOldest;
     if (timeSpan < 1e-12) return null;
 
+    // Cache history array references to avoid repeated property lookups
+    const histX = source.histX, histY = source.histY;
+    const histVx = source.histVx, histVy = source.histVy;
+    const histTime = source.histTime;
+
     let cdx, cdy;
     if (periodic) {
-        minImage(ox, oy, source.histX[newest], source.histY[newest],
+        minImage(ox, oy, histX[newest], histY[newest],
                  topology, domW, domH, halfDomW, halfDomH, _miOut);
         cdx = _miOut.x; cdy = _miOut.y;
     } else {
-        cdx = source.histX[newest] - ox;
-        cdy = source.histY[newest] - oy;
+        cdx = histX[newest] - ox;
+        cdy = histY[newest] - oy;
     }
     const distSq = cdx * cdx + cdy * cdy;
 
@@ -56,8 +61,8 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     let segK = Math.floor((t - tOldest) / (tNewest - tOldest) * (count - 1));
     if (segK > count - 2) segK = count - 2;
     if (segK < 0) segK = 0;
-    while (segK < count - 2 && source.histTime[(start + segK + 1) % N] <= t) segK++;
-    while (segK > 0 && source.histTime[(start + segK) % N] > t) segK--;
+    while (segK < count - 2 && histTime[(start + segK + 1) % N] <= t) segK++;
+    while (segK > 0 && histTime[(start + segK) % N] > t) segK--;
 
     let prevSegK = -1;
     for (let iter = 0; iter < NR_MAX_ITER; iter++) {
@@ -66,23 +71,23 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
         const loIdx = (start + segK) % N;
         const hiIdx = (loIdx + 1) % N;
-        const tLo = source.histTime[loIdx];
-        const segDt = source.histTime[hiIdx] - tLo;
+        const tLo = histTime[loIdx];
+        const segDt = histTime[hiIdx] - tLo;
         if (segDt < 1e-12) {
             if (segK < count - 2) { segK++; prevSegK = -1; continue; }
             break buffer;
         }
 
-        const xLo = source.histX[loIdx], yLo = source.histY[loIdx];
+        const xLo = histX[loIdx], yLo = histY[loIdx];
         let vxEff, vyEff;
         if (periodic) {
-            minImage(xLo, yLo, source.histX[hiIdx], source.histY[hiIdx],
+            minImage(xLo, yLo, histX[hiIdx], histY[hiIdx],
                      topology, domW, domH, halfDomW, halfDomH, _miOut);
             vxEff = _miOut.x / segDt;
             vyEff = _miOut.y / segDt;
         } else {
-            vxEff = (source.histX[hiIdx] - xLo) / segDt;
-            vyEff = (source.histY[hiIdx] - yLo) / segDt;
+            vxEff = (histX[hiIdx] - xLo) / segDt;
+            vyEff = (histY[hiIdx] - yLo) / segDt;
         }
 
         const s = t - tLo;
@@ -109,8 +114,8 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         if (t < tOldest) t = tOldest;
         if (t > tNewest) t = tNewest;
 
-        while (segK < count - 2 && source.histTime[(start + segK + 1) % N] <= t) segK++;
-        while (segK > 0 && source.histTime[(start + segK) % N] > t) segK--;
+        while (segK < count - 2 && histTime[(start + segK + 1) % N] <= t) segK++;
+        while (segK > 0 && histTime[(start + segK) % N] > t) segK--;
     }
 
     // ─── Phase 2: Exact quadratic on converged segment (and +/- 1 neighbor) ───
@@ -123,30 +128,27 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
             const loIdx = (start + k) % N;
             const hiIdx = (loIdx + 1) % N;
-            const tLo = source.histTime[loIdx];
-            const segDt = source.histTime[hiIdx] - tLo;
+            const tLo = histTime[loIdx];
+            const segDt = histTime[hiIdx] - tLo;
             if (segDt < 1e-12) continue;
 
-            let dx, dy;
+            const xLo = histX[loIdx], yLo = histY[loIdx];
+            const xHi = histX[hiIdx], yHi = histY[hiIdx];
+
+            let dx, dy, vx, vy;
             if (periodic) {
-                minImage(ox, oy, source.histX[loIdx], source.histY[loIdx],
+                minImage(ox, oy, xLo, yLo,
                          topology, domW, domH, halfDomW, halfDomH, _miOut);
                 dx = _miOut.x; dy = _miOut.y;
-            } else {
-                dx = source.histX[loIdx] - ox;
-                dy = source.histY[loIdx] - oy;
-            }
-
-            let vx, vy;
-            if (periodic) {
-                minImage(source.histX[loIdx], source.histY[loIdx],
-                         source.histX[hiIdx], source.histY[hiIdx],
+                minImage(xLo, yLo, xHi, yHi,
                          topology, domW, domH, halfDomW, halfDomH, _miOut);
                 vx = _miOut.x / segDt;
                 vy = _miOut.y / segDt;
             } else {
-                vx = (source.histX[hiIdx] - source.histX[loIdx]) / segDt;
-                vy = (source.histY[hiIdx] - source.histY[loIdx]) / segDt;
+                dx = xLo - ox;
+                dy = yLo - oy;
+                vx = (xHi - xLo) / segDt;
+                vy = (yHi - yLo) / segDt;
             }
 
             const rSq = dx * dx + dy * dy;
@@ -184,10 +186,10 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             else if (s > segDt) s = segDt;
 
             const frac = s / segDt;
-            _delayedOut.x  = source.histX[loIdx]  + frac * (source.histX[hiIdx]  - source.histX[loIdx]);
-            _delayedOut.y  = source.histY[loIdx]  + frac * (source.histY[hiIdx]  - source.histY[loIdx]);
-            _delayedOut.vx = source.histVx[loIdx] + frac * (source.histVx[hiIdx] - source.histVx[loIdx]);
-            _delayedOut.vy = source.histVy[loIdx] + frac * (source.histVy[hiIdx] - source.histVy[loIdx]);
+            _delayedOut.x  = xLo + frac * (xHi - xLo);
+            _delayedOut.y  = yLo + frac * (yHi - yLo);
+            _delayedOut.vx = histVx[loIdx] + frac * (histVx[hiIdx] - histVx[loIdx]);
+            _delayedOut.vy = histVy[loIdx] + frac * (histVy[hiIdx] - histVy[loIdx]);
             return _delayedOut;
         }
     }
@@ -198,15 +200,15 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     {
         let dx, dy;
         if (periodic) {
-            minImage(ox, oy, source.histX[start], source.histY[start],
+            minImage(ox, oy, histX[start], histY[start],
                      topology, domW, domH, halfDomW, halfDomH, _miOut);
             dx = _miOut.x; dy = _miOut.y;
         } else {
-            dx = source.histX[start] - ox;
-            dy = source.histY[start] - oy;
+            dx = histX[start] - ox;
+            dy = histY[start] - oy;
         }
 
-        const vx = source.histVx[start], vy = source.histVy[start];
+        const vx = histVx[start], vy = histVy[start];
         const rSq = dx * dx + dy * dy;
         const vSq = vx * vx + vy * vy;
         const dDotV = dx * vx + dy * vy;
@@ -239,8 +241,8 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
         if (s > 0) s = 0;
 
-        _delayedOut.x  = source.histX[start] + vx * s;
-        _delayedOut.y  = source.histY[start] + vy * s;
+        _delayedOut.x  = histX[start] + vx * s;
+        _delayedOut.y  = histY[start] + vy * s;
         _delayedOut.vx = vx;
         _delayedOut.vy = vy;
         return _delayedOut;
