@@ -60,16 +60,15 @@ export const ROCHE_TRANSFER_RATE = 0.01;  // mass transfer rate coefficient
 export const DEFAULT_HUBBLE = 0.001;  // Hubble parameter
 
 // Higgs field: V(φ) = -(m_H²/4)φ² + (m_H²/8)φ⁴ (VEV=1, λ=m_H²/2)
-export const HIGGS_GRID = 48;
-export const DEFAULT_HIGGS_MASS = 0.05;       // Higgs boson mass (mediator range ~ 1/m_H)
-export const HIGGS_SOURCE_STRENGTH = 0.01;    // particle->field source coupling (weak: delta_phi/v ~ 3% for m=10)
+export const HIGGS_GRID = 64;
+export const DEFAULT_HIGGS_MASS = 0.5;        // Higgs boson mass (mediator range ~ 1/m_H)
 export const HIGGS_PHI_MAX = 16;              // field value clamp (prevent runaway)
 
 // Numerical thresholds
 export const EPSILON = 1e-9;          // general "effectively zero" guard
 export const EPSILON_SQ = EPSILON * EPSILON; // squared epsilon (for magnitude² checks)
 export const NR_TOLERANCE = EPSILON / 1000; // Newton-Raphson convergence (signal delay)
-export const NR_MAX_ITER = 6;             // Newton-Raphson iteration cap (signal delay)
+export const NR_MAX_ITER = 8;             // Newton-Raphson iteration cap (signal delay)
 
 // Simulation control
 export const MAX_FRAME_DT = 0.1;          // frame delta cap (100ms = 10fps floor)
@@ -82,7 +81,8 @@ export const BH_NAKED_FLOOR = 0.5;        // naked singularity horizon floor (M 
 // Disintegration / Hawking
 export const SPAWN_OFFSET_MULTIPLIER = 1.5; // spawn offset = max(radius * this, FLOOR)
 export const SPAWN_OFFSET_FLOOR = 4;       // minimum spawn offset (absolute distance)
-export const SPAWN_COUNT = 4;          // fragments per disintegration / photons per Hawking burst
+export const SPAWN_COUNT = 4;          // fragments per disintegration
+export const SPAWN_MIN_ENERGY = 0.5;  // minimum energy per emitted photon (Hawking / annihilation)
 
 // Pair production: photon -> matter + antimatter near massive body
 export const PAIR_PROD_MIN_ENERGY = 2;    // minimum photon energy for pair production (2mc²)
@@ -101,7 +101,7 @@ export const ORBIT_SEARCH_RADIUS = 10;     // orbit mode: min distance to consid
 export const DISPLAY_SCALE = 100;          // energy/momentum × this for readout
 export const STATS_THROTTLE_MASK = 3;      // update stats every (mask+1)th frame
 export const PHASE_BUFFER_LEN = 512;       // phase plot ring buffer samples
-export const HEATMAP_GRID = 48;            // heatmap resolution (independent of Higgs grid)
+export const HEATMAP_GRID = 64;            // heatmap resolution (independent of Higgs grid)
 export const HEATMAP_INTERVAL = 8;         // frames between heatmap recomputes
 export const HEATMAP_SENSITIVITY = 2;      // tanh scaling for potential → alpha
 export const HEATMAP_MAX_ALPHA = 100;      // max alpha before cap

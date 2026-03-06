@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, BH_NAKED_FLOOR, SPAWN_OFFSET_FLOOR } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, BH_NAKED_FLOOR, SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -682,8 +682,8 @@ export default class Physics {
 
                             const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
                             this.sim.photons.push(new Photon(
-                                p.pos.x + cosA * (p.radius + 1),
-                                p.pos.y + sinA * (p.radius + 1),
+                                p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                                p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
                                 cosA, sinA,
                                 p._radAccum, p.id
                             ));
@@ -731,8 +731,8 @@ export default class Physics {
                         const emitAngle = Math.random() * TWO_PI;
                         const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
                         this.sim.photons.push(new Photon(
-                            p.pos.x + cosA * (p.radius + 1),
-                            p.pos.y + sinA * (p.radius + 1),
+                            p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                            p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
                             cosA, sinA,
                             p._hawkAccum, p.id
                         ));
@@ -805,20 +805,7 @@ export default class Physics {
                 // Annihilation: emit photon burst from matter-antimatter collisions
                 if (annihilations.length > 0 && this.sim) {
                     for (const ann of annihilations) {
-                        const nPh = Math.min(SPAWN_COUNT, MAX_PHOTONS - this.sim.photons.length);
-                        const ePerPh = ann.energy / nPh;
-                        for (let j = 0; j < nPh; j++) {
-                            const angle = TWO_PI * j / nPh;
-                            const cosA = Math.cos(angle), sinA = Math.sin(angle);
-                            this.sim.photons.push(new Photon(
-                                ann.x + cosA * SPAWN_OFFSET_FLOOR,
-                                ann.y + sinA * SPAWN_OFFSET_FLOOR,
-                                cosA, sinA, ePerPh, -1
-                            ));
-                            this.sim.totalRadiatedPx += ePerPh * cosA;
-                            this.sim.totalRadiatedPy += ePerPh * sinA;
-                        }
-                        this.sim.totalRadiated += ann.energy;
+                        this.sim.emitPhotonBurst(ann.x, ann.y, ann.energy, 0, -1);
                     }
                 }
             }
@@ -1003,8 +990,8 @@ export default class Physics {
                             const angle = _quadSample(d3Ixx, d3Ixy);
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
                             const gph = new Photon(
-                                p.pos.x + cosA * (p.radius + 1),
-                                p.pos.y + sinA * (p.radius + 1),
+                                p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                                p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
                                 cosA, sinA, p._quadAccum, p.id);
                             gph.type = 'grav';
                             photons.push(gph);
@@ -1017,8 +1004,8 @@ export default class Physics {
                             const angle = _quadSample(d3Qxx, d3Qxy);
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
                             photons.push(new Photon(
-                                p.pos.x + cosA * (p.radius + 1),
-                                p.pos.y + sinA * (p.radius + 1),
+                                p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
+                                p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
                                 cosA, sinA, p._emQuadAccum, p.id));
                             this.sim.totalRadiatedPx += p._emQuadAccum * cosA;
                             this.sim.totalRadiatedPy += p._emQuadAccum * sinA;

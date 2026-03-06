@@ -8,7 +8,7 @@ import PhasePlot from './src/phase-plot.js';
 import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, SPAWN_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE } from './src/config.js';
 import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
@@ -209,6 +209,24 @@ class Simulation {
         if (!options.skipBaseline) this.stats.resetBaseline();
     }
 
+    emitPhotonBurst(x, y, energy, radius, emitterId) {
+        const n = Math.min(Math.max(1, Math.floor(energy / SPAWN_MIN_ENERGY)), MAX_PHOTONS - this.photons.length);
+        if (n <= 0) return;
+        const offset = Math.max(radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR);
+        const ePerPh = energy / n;
+        for (let j = 0; j < n; j++) {
+            const angle = Math.random() * TWO_PI;
+            const cosA = Math.cos(angle), sinA = Math.sin(angle);
+            this.photons.push(new Photon(
+                x + cosA * offset, y + sinA * offset,
+                cosA, sinA, ePerPh, emitterId
+            ));
+            this.totalRadiatedPx += ePerPh * cosA;
+            this.totalRadiatedPy += ePerPh * sinA;
+        }
+        this.totalRadiated += energy;
+    }
+
     loop(timestamp) {
         const rawDt = Math.min((timestamp - this.lastTime) / 1000, MAX_FRAME_DT);
         this.lastTime = timestamp;
@@ -281,7 +299,7 @@ class Simulation {
                     // Build set for O(1) lookup, spawn fragments, then compact
                     const fragSet = new Set(toFragment);
                     for (const p of toFragment) {
-                        const nf = SPAWN_COUNT;
+                        const nf = 2;
                         const fragMass = p.mass / nf;
                         const fragBaseMass = p.baseMass / nf;
                         const fragCharge = p.charge / nf;
@@ -317,22 +335,7 @@ class Simulation {
                             continue;
                         }
                         // Final burst: emit remaining mass-energy as photons
-                        const burstE = Math.max(0, p.mass);
-                        if (burstE > 0) {
-                            const nBurst = Math.min(SPAWN_COUNT, MAX_PHOTONS - this.photons.length);
-                            for (let j = 0; j < nBurst; j++) {
-                                const angle = Math.random() * TWO_PI;
-                                const cosA = Math.cos(angle), sinA = Math.sin(angle);
-                                this.photons.push(new Photon(
-                                    p.pos.x + cosA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
-                                    p.pos.y + sinA * Math.max(p.radius * SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR),
-                                    cosA, sinA, burstE / nBurst, p.id
-                                ));
-                                this.totalRadiatedPx += (burstE / nBurst) * cosA;
-                                this.totalRadiatedPy += (burstE / nBurst) * sinA;
-                            }
-                            this.totalRadiated += burstE;
-                        }
+                        if (p.mass > 0) this.emitPhotonBurst(p.pos.x, p.pos.y, p.mass, p.radius, p.id);
                         if (this.selectedParticle === p) this.selectedParticle = null;
                     }
                     this.particles.length = writeIdx;
