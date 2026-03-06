@@ -15,6 +15,23 @@ import { TORUS, KLEIN, RP2, minImage, wrapPosition } from './topology.js';
 // Reused by disintegration to avoid per-call allocation
 const _disintMiOut = { x: 0, y: 0 };
 
+/**
+ * Rejection-sample a quadrupole emission angle.
+ * Power ∝ (Axx·cos2φ + Axy·sin2φ)² where Axx, Axy are the relevant
+ * d³ tensor components. Peak amplitude = sqrt(Axx²+Axy²).
+ */
+function _quadSample(Axx, Axy) {
+    const peak2 = Axx * Axx + Axy * Axy;
+    if (peak2 < 1e-30) return Math.random() * TWO_PI;
+    for (let tries = 0; tries < 30; tries++) {
+        const phi = Math.random() * TWO_PI;
+        const c2 = Math.cos(2 * phi), s2 = Math.sin(2 * phi);
+        const h = Axx * c2 + Axy * s2;
+        if (Math.random() * peak2 <= h * h) return phi;
+    }
+    return Math.random() * TWO_PI;
+}
+
 export default class Physics {
     constructor() {
         this.boundary = new Rect(0, 0, 0, 0);
@@ -47,7 +64,8 @@ export default class Physics {
 
         this.sim = null;
         this.simTime = 0;
-        this._quadAccum = 0;
+        this._quadAccum = 0;    // GW quadrupole accumulator
+        this._emQuadAccum = 0;  // EM quadrupole accumulator
 
         this.domainW = 0;
         this.domainH = 0;
@@ -716,12 +734,10 @@ export default class Physics {
 
             if (jerkReady) {
                 // P_GW = (1/5)|d³I_ij/dt³|²
-                let quadPower = 0.2 * (d3Ixx * d3Ixx + 2 * d3Ixy * d3Ixy + d3Iyy * d3Iyy);
-
+                const gwPower = 0.2 * (d3Ixx * d3Ixx + 2 * d3Ixy * d3Ixy + d3Iyy * d3Iyy);
                 // P_EM = (1/180)|d³Q_ij/dt³|²
-                if (emQuad) {
-                    quadPower += (1 / 180) * (d3Qxx * d3Qxx + 2 * d3Qxy * d3Qxy + d3Qyy * d3Qyy);
-                }
+                const emPower = emQuad ? (1 / 180) * (d3Qxx * d3Qxx + 2 * d3Qxy * d3Qxy + d3Qyy * d3Qyy) : 0;
+                const quadPower = gwPower + emPower;
 
                 if (quadPower > 0) {
                     // Clamp to 1% of system KE to prevent instability
@@ -734,8 +750,14 @@ export default class Physics {
                     let dE = quadPower * dt;
                     if (totalKE > 1e-20) dE = Math.min(dE, 0.01 * totalKE);
 
+                    // Split dE proportionally between GW and EM channels
+                    const gwFrac = gwPower / quadPower;
+                    const gwDE = dE * gwFrac;
+                    const emDE = dE - gwDE;
+
                     this.sim.totalRadiated += dE;
-                    this._quadAccum += dE;
+                    this._quadAccum += gwDE;
+                    this._emQuadAccum += emDE;
 
                     // Tangential drag: uniform fractional deceleration removes dE from system
                     // dKE ≈ 2·f·KE for small f, so f = dE/(2·KE) gives smooth inspiral
@@ -752,23 +774,38 @@ export default class Physics {
                         }
                     }
 
-                    // Emit graviton when accumulated energy exceeds threshold
-                    if (this._quadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
-                        const angle = Math.random() * TWO_PI;
-                        const cosA = Math.cos(angle), sinA = Math.sin(angle);
-                        let comX = 0, comY = 0, totalM = 0;
+                    // COM for emission origin
+                    let comX = 0, comY = 0, totalM = 0;
+                    if (this._quadAccum >= MIN_MASS || this._emQuadAccum >= MIN_MASS) {
                         for (let i = 0; i < n; i++) {
                             comX += particles[i].mass * particles[i].pos.x;
                             comY += particles[i].mass * particles[i].pos.y;
                             totalM += particles[i].mass;
                         }
                         comX /= totalM; comY /= totalM;
+                    }
+
+                    // Emit graviton with quadrupole angular pattern
+                    // h_TT ∝ d³Ixx·cos(2φ) + d³Ixy·sin(2φ), power ∝ h_TT²
+                    if (this._quadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
+                        const angle = _quadSample(d3Ixx, d3Ixy);
+                        const cosA = Math.cos(angle), sinA = Math.sin(angle);
                         const gph = new Photon(comX + cosA * 3, comY + sinA * 3, cosA, sinA, this._quadAccum, -1);
                         gph.type = 'grav';
                         this.sim.photons.push(gph);
                         this.sim.totalRadiatedPx += this._quadAccum * cosA;
                         this.sim.totalRadiatedPy += this._quadAccum * sinA;
                         this._quadAccum = 0;
+                    }
+
+                    // Emit EM quadrupole photon with its own angular pattern
+                    if (this._emQuadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
+                        const angle = _quadSample(d3Qxx, d3Qxy);
+                        const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                        this.sim.photons.push(new Photon(comX + cosA * 3, comY + sinA * 3, cosA, sinA, this._emQuadAccum, -1));
+                        this.sim.totalRadiatedPx += this._emQuadAccum * cosA;
+                        this.sim.totalRadiatedPy += this._emQuadAccum * sinA;
+                        this._emQuadAccum = 0;
                     }
                 }
             }
