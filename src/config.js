@@ -42,11 +42,11 @@ export const FRAGMENT_COUNT = 4;
 
 // Yukawa potential: V(r) = -g²·exp(-μr)/r
 export const YUKAWA_G2 = 1.0;            // coupling strength (fixed)
-export const DEFAULT_YUKAWA_MU = 0.2;   // mediator mass (inverse range)
+export const DEFAULT_YUKAWA_MU = 0.05;  // mediator mass (inverse range)
 
 // Axion dark matter: oscillating EM coupling α_eff = α·(1 + g·cos(m_a·t))
 export const AXION_G = 0.1;              // coupling amplitude (fixed)
-export const DEFAULT_AXION_MASS = 0.25; // oscillation frequency (m_a)
+export const DEFAULT_AXION_MASS = 0.05; // oscillation frequency (m_a)
 
 // Photon gravitational lensing
 export const PHOTON_SOFTENING_SQ = 4;  // smaller than particle softening for tighter lensing
