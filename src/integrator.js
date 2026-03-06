@@ -64,8 +64,6 @@ export default class Physics {
 
         this.sim = null;
         this.simTime = 0;
-        this._quadAccum = 0;    // GW quadrupole accumulator
-        this._emQuadAccum = 0;  // EM quadrupole accumulator
 
         this.domainW = 0;
         this.domainH = 0;
@@ -756,65 +754,58 @@ export default class Physics {
                     const emDE = dE - gwDE;
 
                     this.sim.totalRadiated += dE;
-                    this._quadAccum += gwDE;
-                    this._emQuadAccum += emDE;
 
-                    // Tangential drag: uniform fractional deceleration removes dE from system
-                    // dKE ≈ 2·f·KE for small f, so f = dE/(2·KE) gives smooth inspiral
+                    // Tangential drag + per-particle accumulation (both ∝ KE)
                     if (dE > 1e-10 && totalKE > 1e-20) {
                         const f = 0.5 * dE / totalKE;
                         const scale = 1 - f;
                         const fOverDt = f / dt;
+                        const invKE = 1 / totalKE;
                         for (let i = 0; i < n; i++) {
                             const p = particles[i];
                             p._radDisplayX -= p.mass * p.w.x * fOverDt;
                             p._radDisplayY -= p.mass * p.w.y * fOverDt;
                             p.w.x *= scale;
                             p.w.y *= scale;
+                            // Distribute energy to each particle proportional to KE
+                            const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
+                            const ke = wSq > 1e-20 ? p.mass * wSq / (Math.sqrt(1 + wSq) + 1) : 0;
+                            const frac = ke * invKE;
+                            p._quadAccum += gwDE * frac;
+                            p._emQuadAccum += emDE * frac;
                         }
                     }
 
-                    // Mass-weighted COM for emission origin
-                    // Use offsets from heaviest particle to avoid mid-domain spawn
-                    // when particles are widely separated
-                    let comX = 0, comY = 0, totalM = 0;
-                    if (this._quadAccum >= MIN_MASS || this._emQuadAccum >= MIN_MASS) {
-                        let refIdx = 0, refM = particles[0].mass;
-                        for (let i = 1; i < n; i++) {
-                            if (particles[i].mass > refM) { refM = particles[i].mass; refIdx = i; }
+                    // Per-particle emission with quadrupole angular pattern
+                    const photons = this.sim.photons;
+                    for (let i = 0; i < n && photons.length < MAX_PHOTONS; i++) {
+                        const p = particles[i];
+                        // GW graviton
+                        if (p._quadAccum >= MIN_MASS) {
+                            const angle = _quadSample(d3Ixx, d3Ixy);
+                            const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                            const gph = new Photon(
+                                p.pos.x + cosA * (p.radius + 1),
+                                p.pos.y + sinA * (p.radius + 1),
+                                cosA, sinA, p._quadAccum, p.id);
+                            gph.type = 'grav';
+                            photons.push(gph);
+                            this.sim.totalRadiatedPx += p._quadAccum * cosA;
+                            this.sim.totalRadiatedPy += p._quadAccum * sinA;
+                            p._quadAccum = 0;
                         }
-                        const refX = particles[refIdx].pos.x, refY = particles[refIdx].pos.y;
-                        for (let i = 0; i < n; i++) {
-                            const mi = particles[i].mass;
-                            comX += mi * (particles[i].pos.x - refX);
-                            comY += mi * (particles[i].pos.y - refY);
-                            totalM += mi;
+                        // EM quadrupole photon
+                        if (p._emQuadAccum >= MIN_MASS && photons.length < MAX_PHOTONS) {
+                            const angle = _quadSample(d3Qxx, d3Qxy);
+                            const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                            photons.push(new Photon(
+                                p.pos.x + cosA * (p.radius + 1),
+                                p.pos.y + sinA * (p.radius + 1),
+                                cosA, sinA, p._emQuadAccum, p.id));
+                            this.sim.totalRadiatedPx += p._emQuadAccum * cosA;
+                            this.sim.totalRadiatedPy += p._emQuadAccum * sinA;
+                            p._emQuadAccum = 0;
                         }
-                        comX = refX + comX / totalM;
-                        comY = refY + comY / totalM;
-                    }
-
-                    // Emit graviton with quadrupole angular pattern
-                    // h_TT ∝ d³Ixx·cos(2φ) + d³Ixy·sin(2φ), power ∝ h_TT²
-                    if (this._quadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
-                        const angle = _quadSample(d3Ixx, d3Ixy);
-                        const cosA = Math.cos(angle), sinA = Math.sin(angle);
-                        const gph = new Photon(comX + cosA * 3, comY + sinA * 3, cosA, sinA, this._quadAccum, -1);
-                        gph.type = 'grav';
-                        this.sim.photons.push(gph);
-                        this.sim.totalRadiatedPx += this._quadAccum * cosA;
-                        this.sim.totalRadiatedPy += this._quadAccum * sinA;
-                        this._quadAccum = 0;
-                    }
-
-                    // Emit EM quadrupole photon with its own angular pattern
-                    if (this._emQuadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
-                        const angle = _quadSample(d3Qxx, d3Qxy);
-                        const cosA = Math.cos(angle), sinA = Math.sin(angle);
-                        this.sim.photons.push(new Photon(comX + cosA * 3, comY + sinA * 3, cosA, sinA, this._emQuadAccum, -1));
-                        this.sim.totalRadiatedPx += this._emQuadAccum * cosA;
-                        this.sim.totalRadiatedPy += this._emQuadAccum * sinA;
-                        this._emQuadAccum = 0;
                     }
                 }
             }
