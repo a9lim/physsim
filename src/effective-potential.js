@@ -2,7 +2,7 @@
 // V_eff(r) = V(r) + L²/(2μr²) for selected particle vs most massive body.
 // Draws curve + current-position marker on a sidebar canvas.
 
-import { TWO_PI, SOFTENING_SQ, BH_SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, YUKAWA_G2, AXION_G } from './config.js';
+import { TWO_PI, SOFTENING_SQ, BH_SOFTENING_SQ, YUKAWA_G2, AXION_G } from './config.js';
 
 const N_SAMPLES = 200;
 const MARGIN = 28;
@@ -54,13 +54,11 @@ export default class EffectivePotentialPlot {
         const axMod = physics.axionEnabled
             ? 1 + AXION_G * Math.cos(physics.axionMass * physics.simTime) : 1;
 
-        // Magnetic/GM moments (from body properties)
-        const selRSq = sel.radiusSq;
-        const refRSq = ref.radiusSq;
-        const selMu = MAG_MOMENT_K * sel.charge * sel.angVel * selRSq;
-        const refMu = MAG_MOMENT_K * ref.charge * ref.angVel * refRSq;
-        const selL = INERTIA_K * sel.mass * sel.angVel * selRSq;
-        const refL = INERTIA_K * ref.mass * ref.angVel * refRSq;
+        // Magnetic/GM moments (cached per-substep in computeAllForces)
+        const selMu = sel.magMoment;
+        const refMu = ref.magMoment;
+        const selL = sel.angMomentum;
+        const refL = ref.angMomentum;
 
         // Sample range: 0.5 to 4× current separation (clamped)
         const rMin = Math.max(Math.sqrt(softSq) * 0.5, r * 0.1);

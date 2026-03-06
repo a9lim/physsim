@@ -141,7 +141,7 @@ export const PRESETS = {
         toggles: {
             gravity: true, coulomb: false, magnetic: false, gravitomag: true,
             relativity: true, onepn: false, blackhole: true,
-            radiation: false, tidallocking: false, spinorbit: false, disintegration: false,
+            radiation: true, tidallocking: false, spinorbit: false, disintegration: false,
             barneshut: false, yukawa: false, axion: false, expansion: false, higgs: false,
         },
         settings: { collision: 'merge', boundary: 'despawn', speed: 128 },

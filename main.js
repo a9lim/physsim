@@ -8,7 +8,7 @@ import PhasePlot from './src/phase-plot.js';
 import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE } from './src/config.js';
 import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
@@ -240,10 +240,12 @@ class Simulation {
                 this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
 
                 // Update photons, swap-and-pop dead ones (O(n) vs splice O(n²))
+                const _pool = this.physics.barnesHutEnabled ? this.physics.pool : null;
+                const _root = this.physics._lastRoot;
                 let pLen = this.photons.length;
                 for (let i = pLen - 1; i >= 0; i--) {
                     const ph = this.photons[i];
-                    ph.update(PHYSICS_DT, this.particles);
+                    ph.update(PHYSICS_DT, this.particles, _pool, _root);
                     if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
                         this.photons[i] = this.photons[--pLen];
                     }
@@ -299,7 +301,7 @@ class Simulation {
                     // Build set for O(1) lookup, spawn fragments, then compact
                     const fragSet = new Set(toFragment);
                     for (const p of toFragment) {
-                        const nf = 2;
+                        const nf = SPAWN_COUNT;
                         const fragMass = p.mass / nf;
                         const fragBaseMass = p.baseMass / nf;
                         const fragCharge = p.charge / nf;

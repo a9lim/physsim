@@ -38,6 +38,8 @@ export default class Particle {
         this.antimatter = false;
         this.angw = 0;      // angular celerity (unbounded)
         this.angVel = 0;    // angular velocity (derived)
+        this.magMoment = 0;   // cached: MAG_MOMENT_K * q * ω * r²
+        this.angMomentum = 0; // cached: INERTIA_K * m * ω * r²
 
         // Accumulated B fields (Boris rotation) and gradients (spin-orbit)
         this.Bz = 0;
