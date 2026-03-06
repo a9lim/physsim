@@ -27,7 +27,7 @@ src/
   renderer.js               ~493 lines Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons/gravitons, delay ghosts, Higgs overlay
   forces.js                 ~461 lines pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa force
   presets.js                ~584 lines PRESETS object (15 scenarios in 4 groups), loadPreset(), declarative SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER, external field defaults
-  reference.js              ~308 lines REFERENCE object: extended physics reference content for each concept (KaTeX math)
+  reference.js              ~631 lines REFERENCE object: extended physics reference content for each concept (KaTeX math, Lagrangians, forces, potentials)
   higgs-field.js            ~442 lines HiggsField: 64x64 Mexican hat scalar field, symplectic Euler, PQS (cubic B-spline) deposition/interpolation, mass modulation, gradient force, phase transitions
   quadtree.js               ~279 lines QuadTreePool: SoA flat typed arrays, pool-based, zero GC
   input.js                  ~262 lines InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip, antimatter flag passthrough
