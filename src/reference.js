@@ -217,6 +217,22 @@ export const REFERENCE = {
 <h3>Real Projective Plane ($\\mathbb{RP}^2$)</h3><p>Both axes wrap with perpendicular flip. The only closed 2D surface where every loop is orientation-reversing.</p>
 `,
     },
+    external: {
+        title: 'External Fields',
+        body: `
+<p>Uniform background fields applied to all particles, independent of the particle-particle force toggles.</p>
+<h3>Gravitational Field</h3>
+<p>$$\\mathbf{F} = m\\mathbf{g}$$</p>
+<p>A uniform acceleration field. All particles feel the same acceleration regardless of mass (equivalence principle). Direction in degrees: 0° = right, 90° = down, 180° = left, 270° = up.</p>
+<h3>Electric Field</h3>
+<p>$$\\mathbf{F} = q\\mathbf{E}$$</p>
+<p>Accelerates charged particles proportional to their charge. Opposite charges are deflected in opposite directions. Combine with a magnetic field for $\\mathbf{E} \\times \\mathbf{B}$ drift.</p>
+<h3>Magnetic Field</h3>
+<p>Uniform out-of-plane field $B_z$. Produces cyclotron motion:</p>
+<p>$$\\omega_c = \\frac{qB}{m}, \\quad r_L = \\frac{mv_\\perp}{qB}$$</p>
+<p>The Larmor radius $r_L$ depends on mass, charge, and perpendicular velocity. Handled exactly by the Boris integrator, which preserves $|\\mathbf{v}|$ through rotation.</p>
+`,
+    },
     interaction: {
         title: 'Spawn Modes',
         body: `

@@ -128,7 +128,8 @@ body {
     color: var(--accent);
 }
 
-#phase-plot-container canvas {
+#phase-plot-container canvas,
+#eff-pot-container canvas {
     display: block;
     width: 100%;
     border-radius: var(--radius-sm);

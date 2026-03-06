@@ -25,6 +25,7 @@ export default class Particle {
         this.forceSpinCurv = new Vec2(0, 0);
         this.forceRadiation = new Vec2(0, 0);
         this.forceYukawa = new Vec2(0, 0);
+        this.forceExternal = new Vec2(0, 0);
         this.torqueSpinOrbit = 0;
         this.torqueFrameDrag = 0;
         this.torqueTidal = 0;
@@ -32,6 +33,7 @@ export default class Particle {
 
         this.mass = mass;
         this.charge = charge;
+        this.antimatter = false;
         this.angw = 0;      // angular celerity (unbounded)
         this.angVel = 0;    // angular velocity (derived)
 

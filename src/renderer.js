@@ -16,6 +16,7 @@ const _forceCompColors = {
     torqueFD:    _PAL.extended.rose,
     torqueTidal: _PAL.extended.red,
     yukawa:      _PAL.extended.green,
+    external:    _PAL.extended.brown,
 };
 
 // Spin ring colors by sign
@@ -255,6 +256,19 @@ export default class Renderer {
                     ctx.globalCompositeOperation = blendMode;
                 }
             }
+
+            // Antimatter indicator: dashed ring
+            if (p.antimatter) {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.beginPath();
+                ctx.arc(p.pos.x, p.pos.y, p.radius + 0.4, 0, TWO_PI);
+                ctx.strokeStyle = isLight ? '#509878' : '#60C890';
+                ctx.lineWidth = 0.25;
+                ctx.setLineDash([0.5, 0.3]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.globalCompositeOperation = blendMode;
+            }
         }
     }
 
@@ -302,8 +316,8 @@ export default class Renderer {
         for (const p of particles) {
             // Sum all 8 component vectors (includes Boris display forces)
             const s = scale / p.mass;
-            let fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.forceSpinCurv.x + p.forceRadiation.x + p.forceYukawa.x) * s;
-            let fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.forceSpinCurv.y + p.forceRadiation.y + p.forceYukawa.y) * s;
+            let fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.forceSpinCurv.x + p.forceRadiation.x + p.forceYukawa.x + p.forceExternal.x) * s;
+            let fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.forceSpinCurv.y + p.forceRadiation.y + p.forceYukawa.y + p.forceExternal.y) * s;
             const mag = Math.sqrt(fx * fx + fy * fy);
             if (mag < 0.1 * invZoom) continue;
             this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
@@ -337,6 +351,8 @@ export default class Renderer {
             if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.radiation);
             fx = p.forceYukawa.x * s; fy = p.forceYukawa.y * s;
             if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.yukawa);
+            fx = p.forceExternal.x * s; fy = p.forceExternal.y * s;
+            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.external);
         }
     }
 

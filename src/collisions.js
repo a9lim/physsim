@@ -12,10 +12,12 @@ function setVelocityFromVel(p, vn, vt, nx, ny, tx, ty) {
     setVelocity(p, nx * vn + tx * vt, ny * vn + ty * vt);
 }
 
-/** Detect overlaps via quadtree query and resolve as merge or bounce. */
+/** Detect overlaps via quadtree query and resolve as merge or bounce.
+ *  Returns array of annihilation events [{x, y, energy, px, py}] for photon emission. */
 export function handleCollisions(particles, pool, root, mode, bounceFriction, relativityEnabled, periodic, domW, domH, topology = TORUS) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
+    const annihilations = [];
 
     for (let ci = 0; ci < particles.length; ci++) {
         const p1 = particles[ci];
@@ -40,7 +42,22 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
             const minDist = p1.radius + real2.radius;
 
             if (dist < minDist) {
-                if (mode === 'merge') {
+                // Annihilation: matter + antimatter -> energy
+                if (p1.antimatter !== real2.antimatter && mode === 'merge') {
+                    const annihilated = Math.min(p1.mass, real2.mass);
+                    const cx = (p1.pos.x + real2.pos.x) * 0.5;
+                    const cy = (p1.pos.y + real2.pos.y) * 0.5;
+                    // Total momentum of annihilating mass
+                    const frac1 = annihilated / p1.mass;
+                    const frac2 = annihilated / real2.mass;
+                    const apx = p1.w.x * annihilated * frac1 + real2.w.x * annihilated * frac2;
+                    const apy = p1.w.y * annihilated * frac1 + real2.w.y * annihilated * frac2;
+                    annihilations.push({ x: cx, y: cy, energy: 2 * annihilated, px: apx, py: apy });
+                    p1.mass -= annihilated;
+                    real2.mass -= annihilated;
+                    p1.updateColor();
+                    real2.updateColor();
+                } else if (mode === 'merge') {
                     resolveMerge(p1, real2, relativityEnabled, periodic, dx, dy);
                     if (periodic) {
                         wrapPosition(p1, topology, domW, domH);
@@ -61,6 +78,8 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
         }
         particles.length = write;
     }
+
+    return annihilations;
 }
 
 /** Merge p2 into p1, conserving mass, charge, linear and angular momentum. */

@@ -222,11 +222,12 @@ export default class InputHandler {
         const mass = parseFloat(this.massInput.value);
         const charge = parseFloat(this.chargeInput.value);
         const spin = parseFloat(this.spinInput.value);
+        const antimatter = this.sim.antimatterMode;
 
         if (mode === 'shoot') {
             const vx = (this.dragStart.x - endPos.x) * SHOOT_VELOCITY_SCALE;
             const vy = (this.dragStart.y - endPos.y) * SHOOT_VELOCITY_SCALE;
-            this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin });
+            this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin, antimatter });
         } else if (mode === 'orbit') {
             let bestBody = null;
             let maxGForce = 0;
@@ -250,12 +251,12 @@ export default class InputHandler {
                 const vMag = Math.min(Math.sqrt(bestBody.mass / r), MAX_SPEED_RATIO);
                 const vx = -dir.y * vMag;
                 const vy = dir.x * vMag;
-                this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin });
+                this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin, antimatter });
             } else {
-                this.sim.addParticle(this.dragStart.x, this.dragStart.y, 0, 0, { mass, charge, spin });
+                this.sim.addParticle(this.dragStart.x, this.dragStart.y, 0, 0, { mass, charge, spin, antimatter });
             }
         } else {
-            this.sim.addParticle(this.dragStart.x, this.dragStart.y, 0, 0, { mass, charge, spin });
+            this.sim.addParticle(this.dragStart.x, this.dragStart.y, 0, 0, { mass, charge, spin, antimatter });
         }
     }
 }
