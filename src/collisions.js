@@ -43,10 +43,8 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
                     const cx = (p1.pos.x + real2.pos.x) * 0.5;
                     const cy = (p1.pos.y + real2.pos.y) * 0.5;
                     // Total momentum of annihilating mass
-                    const frac1 = annihilated / p1.mass;
-                    const frac2 = annihilated / real2.mass;
-                    const apx = p1.w.x * annihilated * frac1 + real2.w.x * annihilated * frac2;
-                    const apy = p1.w.y * annihilated * frac1 + real2.w.y * annihilated * frac2;
+                    const apx = (p1.w.x + real2.w.x) * annihilated;
+                    const apy = (p1.w.y + real2.w.y) * annihilated;
                     annihilations.push({ x: cx, y: cy, energy: 2 * annihilated, px: apx, py: apy });
                     const origM1 = p1.mass, origM2 = real2.mass;
                     p1.mass -= annihilated;

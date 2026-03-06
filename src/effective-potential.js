@@ -6,7 +6,6 @@ import { TWO_PI, SOFTENING_SQ, BH_SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, YUKAWA_
 
 const N_SAMPLES = 200;
 const MARGIN = 28;
-const LABEL_PAD = 14;
 
 export default class EffectivePotentialPlot {
     constructor() {
@@ -190,7 +189,7 @@ export default class EffectivePotentialPlot {
             if (!started) { c.moveTo(x, y); started = true; }
             else c.lineTo(x, y);
         }
-        c.strokeStyle = isLight ? '#5C92A8CC' : '#5C92A8CC';
+        c.strokeStyle = '#5C92A8CC';
         c.stroke();
 
         // Current position marker
