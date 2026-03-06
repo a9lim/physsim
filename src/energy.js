@@ -19,28 +19,29 @@ export function computeEnergies(particles, physics, sim) {
     // ─── Pass 1: KE, momentum, COM ───
     for (let i = 0; i < n; i++) {
         const p = particles[i];
+        const pm = p.mass;
         const rSq = p.radiusSq;
         if (relOn) {
             // Use w²/(γ+1) instead of (γ−1) to avoid catastrophic cancellation when |w|≪1
-            const wSq = p.w.magSq();
+            const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
             const gamma = Math.sqrt(1 + wSq);
-            linearKE += wSq / (gamma + 1) * p.mass;
+            linearKE += wSq / (gamma + 1) * pm;
             const srSq = p.angw * p.angw * rSq;
             const gammaRot = Math.sqrt(1 + srSq);
-            spinKE += INERTIA_K * p.mass * srSq / (gammaRot + 1);
+            spinKE += INERTIA_K * pm * srSq / (gammaRot + 1);
         } else {
             const speedSq = p.vel.x * p.vel.x + p.vel.y * p.vel.y;
-            linearKE += 0.5 * p.mass * speedSq;
-            spinKE += 0.5 * INERTIA_K * p.mass * rSq * p.angVel * p.angVel;
+            linearKE += 0.5 * pm * speedSq;
+            spinKE += 0.5 * INERTIA_K * pm * rSq * p.angVel * p.angVel;
         }
 
         // w = v when rel off, so m·w works for both regimes
-        px += p.mass * p.w.x;
-        py += p.mass * p.w.y;
+        px += pm * p.w.x;
+        py += pm * p.w.y;
 
-        totalMass += p.mass;
-        comX += p.mass * p.pos.x;
-        comY += p.mass * p.pos.y;
+        totalMass += pm;
+        comX += pm * p.pos.x;
+        comY += pm * p.pos.y;
     }
 
     // ─── Pass 2: Angular momentum about COM ───

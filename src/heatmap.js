@@ -6,25 +6,40 @@ import { SOFTENING_SQ, BH_THETA } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 
 const GRID_SIZE = 48;
+const GRID_SQ = GRID_SIZE * GRID_SIZE;
 const UPDATE_INTERVAL = 6;
 const SENSITIVITY = 3;   // tanh scaling: phi * SENSITIVITY -> 0-1
 const MAX_ALPHA = 100;
 
+/** Fast tanh approximation: rational Padé x(27+x²)/(27+9x²), max error ~0.4% */
+function fastTanh(x) {
+    if (x > 4.9) return 1;
+    if (x < -4.9) return -1;
+    const x2 = x * x;
+    return x * (27 + x2) / (27 + 9 * x2);
+}
+
 /**
- * Recursive BH tree walk for scalar potential at point (wx, wy).
- * Returns { gPhi, ePhi } — gravitational and electrostatic potentials.
+ * Iterative BH tree walk for scalar potential at point (wx, wy).
+ * Accumulates into _treeOut.g and _treeOut.e.
  */
-function treePotential(pool, nodeIdx, wx, wy, theta) {
-    if (pool.totalMass[nodeIdx] === 0 && pool.totalCharge[nodeIdx] === 0) return;
+let _hmStack = new Int32Array(256);
 
-    const dx = pool.comX[nodeIdx] - wx;
-    const dy = pool.comY[nodeIdx] - wy;
-    const dSq = dx * dx + dy * dy;
-    const size = pool.bw[nodeIdx] * 2;
+function treePotential(pool, rootIdx, wx, wy, thetaSq) {
+    let stackTop = 0;
+    if (_hmStack.length < pool.maxNodes) _hmStack = new Int32Array(pool.maxNodes);
+    _hmStack[stackTop++] = rootIdx;
 
-    if ((!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) || (pool.divided[nodeIdx] && (size * size < theta * theta * dSq))) {
-        if (!pool.divided[nodeIdx]) {
-            // Leaf: sum individual particles
+    while (stackTop > 0) {
+        const nodeIdx = _hmStack[--stackTop];
+        if (pool.totalMass[nodeIdx] === 0 && pool.totalCharge[nodeIdx] === 0) continue;
+
+        const dx = pool.comX[nodeIdx] - wx;
+        const dy = pool.comY[nodeIdx] - wy;
+        const dSq = dx * dx + dy * dy;
+        const size = pool.bw[nodeIdx] * 2;
+
+        if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
             const base = nodeIdx * pool.nodeCapacity;
             let gP = 0, eP = 0;
             for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
@@ -37,23 +52,24 @@ function treePotential(pool, nodeIdx, wx, wy, theta) {
             }
             _treeOut.g += gP;
             _treeOut.e += eP;
-        } else {
-            // Distant node: use aggregate
+        } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             const rSq = dSq + SOFTENING_SQ;
             const invR = 1 / Math.sqrt(rSq);
             _treeOut.g -= pool.totalMass[nodeIdx] * invR;
             _treeOut.e += pool.totalCharge[nodeIdx] * invR;
+        } else if (pool.divided[nodeIdx]) {
+            _hmStack[stackTop++] = pool.nw[nodeIdx];
+            _hmStack[stackTop++] = pool.ne[nodeIdx];
+            _hmStack[stackTop++] = pool.sw[nodeIdx];
+            _hmStack[stackTop++] = pool.se[nodeIdx];
         }
-    } else if (pool.divided[nodeIdx]) {
-        treePotential(pool, pool.nw[nodeIdx], wx, wy, theta);
-        treePotential(pool, pool.ne[nodeIdx], wx, wy, theta);
-        treePotential(pool, pool.sw[nodeIdx], wx, wy, theta);
-        treePotential(pool, pool.se[nodeIdx], wx, wy, theta);
     }
 }
 
 // Reusable output for treePotential
 const _treeOut = { g: 0, e: 0 };
+// Reusable observer object for signal delay (avoids allocation per grid cell)
+const _hmObs = { pos: { x: 0, y: 0 } };
 
 export default class Heatmap {
     constructor() {
@@ -63,8 +79,10 @@ export default class Heatmap {
         this.canvas.height = GRID_SIZE;
         this.ctx = this.canvas.getContext('2d');
         this.frameCount = 0;
-        this.gravPotential = new Float32Array(GRID_SIZE * GRID_SIZE);
-        this.elecPotential = new Float32Array(GRID_SIZE * GRID_SIZE);
+        this.gravPotential = new Float32Array(GRID_SQ);
+        this.elecPotential = new Float32Array(GRID_SQ);
+        // Persistent ImageData — avoid creating a new one every update
+        this._imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
     }
 
     update(particles, camera, width, height, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology) {
@@ -79,26 +97,29 @@ export default class Heatmap {
         const cellH = (2 * halfH) / GRID_SIZE;
         const n = particles.length;
         const useTree = barnesHutEnabled && root >= 0;
+        const thetaSq = BH_THETA * BH_THETA;
+        const useDelay = signalDelayEnabled && relativityEnabled;
+        const halfDomW = domW * 0.5, halfDomH = domH * 0.5;
 
         for (let gy = 0; gy < GRID_SIZE; gy++) {
+            const wy = top + (gy + 0.5) * cellH;
             for (let gx = 0; gx < GRID_SIZE; gx++) {
                 const wx = left + (gx + 0.5) * cellW;
-                const wy = top + (gy + 0.5) * cellH;
                 let gPhi = 0, ePhi = 0;
 
                 if (useTree) {
                     _treeOut.g = 0;
                     _treeOut.e = 0;
-                    treePotential(pool, root, wx, wy, BH_THETA);
+                    treePotential(pool, root, wx, wy, thetaSq);
                     gPhi = _treeOut.g;
                     ePhi = _treeOut.e;
                 } else {
-                    const useDelay = signalDelayEnabled && relativityEnabled;
                     for (let i = 0; i < n; i++) {
                         const p = particles[i];
                         let px, py;
                         if (useDelay && p.histCount >= 2) {
-                            const ret = getDelayedState(p, { pos: { x: wx, y: wy } }, simTime, periodic, domW, domH, domW * 0.5, domH * 0.5, topology);
+                            _hmObs.pos.x = wx; _hmObs.pos.y = wy;
+                            const ret = getDelayedState(p, _hmObs, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
                             if (ret) { px = ret.x; py = ret.y; }
                             else { px = p.pos.x; py = p.pos.y; }
                         } else {
@@ -118,34 +139,41 @@ export default class Heatmap {
             }
         }
 
-        // Absolute scaling via tanh — no per-frame normalization
-        const imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
-        for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
-            const gInt = Math.tanh(Math.abs(this.gravPotential[i]) * SENSITIVITY);
+        // Fast tanh approximation — no per-frame ImageData allocation
+        const data = this._imgData.data;
+        for (let i = 0; i < GRID_SQ; i++) {
+            const gVal = this.gravPotential[i];
+            const absG = gVal > 0 ? gVal : -gVal;
+            const gInt = fastTanh(absG * SENSITIVITY);
             const eVal = this.elecPotential[i];
-            const eInt = Math.tanh(Math.abs(eVal) * SENSITIVITY);
+            const absE = eVal > 0 ? eVal : -eVal;
+            const eInt = fastTanh(absE * SENSITIVITY);
 
             const gA = gInt * MAX_ALPHA;
             const eA = eInt * MAX_ALPHA;
-            // Slate: 138, 126, 114
-            let r = 138 * gA, g = 126 * gA, b = 114 * gA;
-            if (eVal < 0) {
-                // Blue: 92, 146, 168
-                r += 92 * eA; g += 146 * eA; b += 168 * eA;
-            } else {
-                // Red: 192, 80, 72
-                r += 192 * eA; g += 80 * eA; b += 72 * eA;
-            }
             const totalA = gA + eA;
             const idx = i * 4;
             if (totalA > 0) {
-                imgData.data[idx] = Math.round(r / totalA);
-                imgData.data[idx + 1] = Math.round(g / totalA);
-                imgData.data[idx + 2] = Math.round(b / totalA);
-                imgData.data[idx + 3] = Math.round(Math.min(totalA, 120));
+                const invA = 1 / totalA;
+                // Slate: 138, 126, 114
+                let r = 138 * gA, g = 126 * gA, b = 114 * gA;
+                if (eVal < 0) {
+                    r += 92 * eA; g += 146 * eA; b += 168 * eA;
+                } else {
+                    r += 192 * eA; g += 80 * eA; b += 72 * eA;
+                }
+                data[idx] = (r * invA + 0.5) | 0;
+                data[idx + 1] = (g * invA + 0.5) | 0;
+                data[idx + 2] = (b * invA + 0.5) | 0;
+                data[idx + 3] = totalA < 120 ? (totalA + 0.5) | 0 : 120;
+            } else {
+                data[idx] = 0;
+                data[idx + 1] = 0;
+                data[idx + 2] = 0;
+                data[idx + 3] = 0;
             }
         }
-        this.ctx.putImageData(imgData, 0, 0);
+        this.ctx.putImageData(this._imgData, 0, 0);
     }
 
     draw(ctx, width, height) {

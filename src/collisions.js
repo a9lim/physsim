@@ -92,7 +92,7 @@ export function resolveMerge(p1, p2, relativityEnabled, periodic, miDx, miDy) {
     p1.angw = (Lorb + Lspin) / newI;
     p1.angVel = relativityEnabled ? angwToAngVel(p1.angw, p1.radius) : p1.angw;
 
-    const invG = relativityEnabled ? 1 / Math.sqrt(1 + p1.w.magSq()) : 1;
+    const invG = relativityEnabled ? 1 / Math.sqrt(1 + p1.w.x * p1.w.x + p1.w.y * p1.w.y) : 1;
     p1.vel.x = p1.w.x * invG;
     p1.vel.y = p1.w.y * invG;
 
@@ -169,8 +169,8 @@ export function resolveBounce(p1, p2, minDist, dist, bounceFriction, relativityE
 
         p1.w.set(nx * w1nFinal + tx * w1tFinal, ny * w1nFinal + ty * w1tFinal);
         p2.w.set(nx * w2nFinal + tx * w2tFinal, ny * w2nFinal + ty * w2tFinal);
-        const invG1 = 1 / Math.sqrt(1 + p1.w.magSq());
-        const invG2 = 1 / Math.sqrt(1 + p2.w.magSq());
+        const invG1 = 1 / Math.sqrt(1 + p1.w.x * p1.w.x + p1.w.y * p1.w.y);
+        const invG2 = 1 / Math.sqrt(1 + p2.w.x * p2.w.x + p2.w.y * p2.w.y);
         p1.vel.set(p1.w.x * invG1, p1.w.y * invG1);
         p2.vel.set(p2.w.x * invG2, p2.w.y * invG2);
     } else {
