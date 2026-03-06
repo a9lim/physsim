@@ -56,6 +56,10 @@ export default class Particle {
         this._otherDt0 = 0; // dt between sample 0 and 1
         this._otherDt1 = 0; // dt between sample 1 and current
         this._otherCount = 0;
+        // Per-frame residual force history for quadrupole jerk (backward diff)
+        this._qResFx0 = 0; this._qResFy0 = 0;
+        this._qResFx1 = 0; this._qResFy1 = 0;
+        this._qResCount = 0;
 
         // Signal delay history (lazy-allocated)
         this.histX = null;

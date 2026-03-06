@@ -49,7 +49,6 @@ export default class Physics {
 
         this.sim = null;
         this.simTime = 0;
-        this._quadHistory = []; // {Ixx, Ixy, Iyy, Qxx, Qxy, Qyy, t}
         this._quadAccum = 0;
 
         this.domainW = 0;
@@ -663,103 +662,112 @@ export default class Physics {
             }
         }
 
-        // Quadrupole radiation (mass + EM quadrupole formula)
+        // Quadrupole radiation (analytical d³I/dt³ with hybrid jerk)
+        // d³I_xx = Σ 2·(3·vx·Fx + x·Jx), d³I_yy analogous
+        // d³I_xy = Σ (Jx·y + 3·Fx·vy + 3·vx·Fy + x·Jy)
+        // where Jx = dFx/dt = analytical jerk (grav+Coulomb+Yukawa) + backward-diff residual
         if (this.quadRadiationEnabled && n >= 2 && this.sim) {
-            let Ixx = 0, Ixy = 0, Iyy = 0;
-            let Qxx = 0, Qxy = 0, Qyy = 0;
+            const emQuad = this.radiationEnabled && this.coulombEnabled;
+            let d3Ixx = 0, d3Ixy = 0, d3Iyy = 0;
+            let d3Qxx = 0, d3Qxy = 0, d3Qyy = 0;
+            let jerkReady = true;
+
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
-                Ixx += p.mass * p.pos.x * p.pos.x;
-                Ixy += p.mass * p.pos.x * p.pos.y;
-                Iyy += p.mass * p.pos.y * p.pos.y;
-                Qxx += p.charge * p.pos.x * p.pos.x;
-                Qxy += p.charge * p.pos.x * p.pos.y;
-                Qyy += p.charge * p.pos.y * p.pos.y;
+                const x = p.pos.x, y = p.pos.y;
+                const vx = p.vel.x, vy = p.vel.y;
+                const Fx = p.force.x, Fy = p.force.y;
+
+                // Analytical jerk for grav + Coulomb + Yukawa (from pairForce)
+                let Jx = p.jerk.x, Jy = p.jerk.y;
+
+                // Backward difference for residual forces (magnetic, GM, 1PN, spin-curv)
+                const resFx = Fx - p.forceGravity.x - p.forceCoulomb.x - p.forceYukawa.x;
+                const resFy = Fy - p.forceGravity.y - p.forceCoulomb.y - p.forceYukawa.y;
+                if (p._qResCount >= 2 && dt > 1e-15) {
+                    // O(dt²) 3-point backward derivative (uniform dt = PHYSICS_DT)
+                    const invDt = 1 / dt;
+                    const c0 = 0.5 * invDt;
+                    const c1 = -2 * invDt;
+                    const c2 = 1.5 * invDt;
+                    Jx += c0 * p._qResFx0 + c1 * p._qResFx1 + c2 * resFx;
+                    Jy += c0 * p._qResFy0 + c1 * p._qResFy1 + c2 * resFy;
+                } else if (p._qResCount >= 1 && dt > 1e-15) {
+                    // O(dt) 2-point backward fallback
+                    Jx += (resFx - p._qResFx1) / dt;
+                    Jy += (resFy - p._qResFy1) / dt;
+                } else {
+                    jerkReady = false;
+                }
+                // Shift history
+                p._qResFx0 = p._qResFx1; p._qResFy0 = p._qResFy1;
+                p._qResFx1 = resFx; p._qResFy1 = resFy;
+                if (p._qResCount < 2) p._qResCount++;
+
+                // Mass quadrupole d³I_ij/dt³
+                d3Ixx += 6 * vx * Fx + 2 * x * Jx;
+                d3Ixy += Jx * y + 3 * Fx * vy + 3 * vx * Fy + x * Jy;
+                d3Iyy += 6 * vy * Fy + 2 * y * Jy;
+
+                // EM quadrupole d³Q_ij/dt³ (same structure, weighted by q/m)
+                if (emQuad) {
+                    const qm = p.charge * p.invMass;
+                    d3Qxx += qm * (6 * vx * Fx + 2 * x * Jx);
+                    d3Qxy += qm * (Jx * y + 3 * Fx * vy + 3 * vx * Fy + x * Jy);
+                    d3Qyy += qm * (6 * vy * Fy + 2 * y * Jy);
+                }
             }
-            this._quadHistory.push({ Ixx, Ixy, Iyy, Qxx, Qxy, Qyy, t: this.simTime });
-            if (this._quadHistory.length > 5) this._quadHistory.shift();
 
-            if (this._quadHistory.length >= 4) {
-                const h = this._quadHistory;
-                const n3 = h.length - 1;
-                const dt1 = h[n3].t - h[n3 - 1].t;
-                const dt2 = h[n3 - 1].t - h[n3 - 2].t;
-                const dt3 = h[n3 - 2].t - h[n3 - 3].t;
-                if (dt1 > 1e-15 && dt2 > 1e-15 && dt3 > 1e-15) {
-                    const halfDtSum = (dt1 + dt2) * 0.5;
-                    // Mass quadrupole 3rd derivatives
-                    const d2Ixx_a = (h[n3].Ixx - 2 * h[n3 - 1].Ixx + h[n3 - 2].Ixx) / (dt1 * dt2);
-                    const d2Ixx_b = (h[n3 - 1].Ixx - 2 * h[n3 - 2].Ixx + h[n3 - 3].Ixx) / (dt2 * dt3);
-                    const d3Ixx = (d2Ixx_a - d2Ixx_b) / halfDtSum;
-                    const d2Ixy_a = (h[n3].Ixy - 2 * h[n3 - 1].Ixy + h[n3 - 2].Ixy) / (dt1 * dt2);
-                    const d2Ixy_b = (h[n3 - 1].Ixy - 2 * h[n3 - 2].Ixy + h[n3 - 3].Ixy) / (dt2 * dt3);
-                    const d3Ixy = (d2Ixy_a - d2Ixy_b) / halfDtSum;
-                    const d2Iyy_a = (h[n3].Iyy - 2 * h[n3 - 1].Iyy + h[n3 - 2].Iyy) / (dt1 * dt2);
-                    const d2Iyy_b = (h[n3 - 1].Iyy - 2 * h[n3 - 2].Iyy + h[n3 - 3].Iyy) / (dt2 * dt3);
-                    const d3Iyy = (d2Iyy_a - d2Iyy_b) / halfDtSum;
+            if (jerkReady) {
+                // P_GW = (1/5)|d³I_ij/dt³|²
+                let quadPower = 0.2 * (d3Ixx * d3Ixx + 2 * d3Ixy * d3Ixy + d3Iyy * d3Iyy);
 
-                    // Quadrupole power: P = (1/5)·(d³I_ij/dt³)²
-                    let quadPower = 0.2 * (d3Ixx * d3Ixx + 2 * d3Ixy * d3Ixy + d3Iyy * d3Iyy);
+                // P_EM = (1/180)|d³Q_ij/dt³|²
+                if (emQuad) {
+                    quadPower += (1 / 180) * (d3Qxx * d3Qxx + 2 * d3Qxy * d3Qxy + d3Qyy * d3Qyy);
+                }
 
-                    // EM quadrupole: P_em = (1/180)·(d³Q_ij/dt³)²
-                    if (this.radiationEnabled && this.coulombEnabled) {
-                        const d2Qxx_a = (h[n3].Qxx - 2 * h[n3 - 1].Qxx + h[n3 - 2].Qxx) / (dt1 * dt2);
-                        const d2Qxx_b = (h[n3 - 1].Qxx - 2 * h[n3 - 2].Qxx + h[n3 - 3].Qxx) / (dt2 * dt3);
-                        const d3Qxx = (d2Qxx_a - d2Qxx_b) / halfDtSum;
-                        const d2Qxy_a = (h[n3].Qxy - 2 * h[n3 - 1].Qxy + h[n3 - 2].Qxy) / (dt1 * dt2);
-                        const d2Qxy_b = (h[n3 - 1].Qxy - 2 * h[n3 - 2].Qxy + h[n3 - 3].Qxy) / (dt2 * dt3);
-                        const d3Qxy = (d2Qxy_a - d2Qxy_b) / halfDtSum;
-                        const d2Qyy_a = (h[n3].Qyy - 2 * h[n3 - 1].Qyy + h[n3 - 2].Qyy) / (dt1 * dt2);
-                        const d2Qyy_b = (h[n3 - 1].Qyy - 2 * h[n3 - 2].Qyy + h[n3 - 3].Qyy) / (dt2 * dt3);
-                        const d3Qyy = (d2Qyy_a - d2Qyy_b) / halfDtSum;
-                        const emQuadPower = (1 / 180) * (d3Qxx * d3Qxx + 2 * d3Qxy * d3Qxy + d3Qyy * d3Qyy);
-                        quadPower += emQuadPower;
+                if (quadPower > 0) {
+                    // Clamp to 1% of system KE to prevent instability
+                    let totalKE = 0;
+                    for (let i = 0; i < n; i++) {
+                        const p = particles[i];
+                        const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
+                        totalKE += wSq > 1e-20 ? p.mass * wSq / (Math.sqrt(1 + wSq) + 1) : 0;
+                    }
+                    let dE = quadPower * dt;
+                    if (totalKE > 1e-20) dE = Math.min(dE, 0.01 * totalKE);
+
+                    this.sim.totalRadiated += dE;
+                    this._quadAccum += dE;
+
+                    // Tangential drag: uniform fractional deceleration removes dE from system
+                    // dKE ≈ 2·f·KE for small f, so f = dE/(2·KE) gives smooth inspiral
+                    if (dE > 1e-10 && totalKE > 1e-20) {
+                        const scale = 1 - 0.5 * dE / totalKE;
+                        for (let i = 0; i < n; i++) {
+                            particles[i].w.x *= scale;
+                            particles[i].w.y *= scale;
+                        }
                     }
 
-                    if (quadPower > 0) {
-                        const dE = quadPower * dt;
-                        this.sim.totalRadiated += dE;
-                        this._quadAccum += dE;
-
-                        // Apply orbital decay: radial kick toward COM
-                        if (dE > 1e-10) {
-                            let comX = 0, comY = 0, totalM = 0;
-                            for (let i = 0; i < n; i++) {
-                                comX += particles[i].mass * particles[i].pos.x;
-                                comY += particles[i].mass * particles[i].pos.y;
-                                totalM += particles[i].mass;
-                            }
-                            comX /= totalM; comY /= totalM;
-                            for (let i = 0; i < n; i++) {
-                                const p = particles[i];
-                                const dx = comX - p.pos.x, dy = comY - p.pos.y;
-                                const r = Math.sqrt(dx * dx + dy * dy);
-                                if (r > 1e-10) {
-                                    const kick = dE * p.mass / (totalM * r);
-                                    p.w.x += kick * dx / r;
-                                    p.w.y += kick * dy / r;
-                                }
-                            }
+                    // Emit graviton when accumulated energy exceeds threshold
+                    if (this._quadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
+                        const angle = Math.random() * 6.283185307;
+                        const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                        let comX = 0, comY = 0, totalM = 0;
+                        for (let i = 0; i < n; i++) {
+                            comX += particles[i].mass * particles[i].pos.x;
+                            comY += particles[i].mass * particles[i].pos.y;
+                            totalM += particles[i].mass;
                         }
-
-                        // Emit graviton when accumulated energy exceeds threshold
-                        if (this._quadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
-                            const angle = Math.random() * 6.283185307;
-                            const cosA = Math.cos(angle), sinA = Math.sin(angle);
-                            let gComX = 0, gComY = 0, gTotalM = 0;
-                            for (let i = 0; i < n; i++) {
-                                gComX += particles[i].mass * particles[i].pos.x;
-                                gComY += particles[i].mass * particles[i].pos.y;
-                                gTotalM += particles[i].mass;
-                            }
-                            gComX /= gTotalM; gComY /= gTotalM;
-                            const gph = new Photon(gComX + cosA * 3, gComY + sinA * 3, cosA, sinA, this._quadAccum, -1);
-                            gph.type = 'grav';
-                            this.sim.photons.push(gph);
-                            this.sim.totalRadiatedPx += this._quadAccum * cosA;
-                            this.sim.totalRadiatedPy += this._quadAccum * sinA;
-                            this._quadAccum = 0;
-                        }
+                        comX /= totalM; comY /= totalM;
+                        const gph = new Photon(comX + cosA * 3, comY + sinA * 3, cosA, sinA, this._quadAccum, -1);
+                        gph.type = 'grav';
+                        this.sim.photons.push(gph);
+                        this.sim.totalRadiatedPx += this._quadAccum * cosA;
+                        this.sim.totalRadiatedPy += this._quadAccum * sinA;
+                        this._quadAccum = 0;
                     }
                 }
             }
