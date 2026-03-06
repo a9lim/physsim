@@ -18,17 +18,17 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 
 ```
 main.js                     ~364 lines Simulation class, fixed-timestep loop, save/load wiring, pair production, Higgs field init, window.sim
-index.html                  ~514 lines UI structure, 4-tab sidebar, reference overlay, zoom controls, external field sliders, antimatter button, Higgs sliders
+index.html                  ~506 lines UI structure, 4-tab sidebar, reference overlay, zoom controls, external field sliders, antimatter button, Higgs mass slider
 styles.css                  ~235 lines Project-specific CSS overrides (control rows, form controls, overlay, theme icons now in shared-base.css)
 colors.js                    18 lines  Project color tokens (particle hues, spin ring colors)
 src/
   integrator.js            ~1216 lines Physics class: adaptive Boris substep loop, radiation, tidal, GW quadrupole, expansion, Roche overflow, external fields, Hertz bounce, Higgs field
-  ui.js                     ~536 lines setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts, external field sliders, antimatter toggle, Higgs sliders
+  ui.js                     ~518 lines setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts, external field sliders, antimatter toggle, Higgs mass slider
   renderer.js               ~494 lines Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons/gravitons, delay ghosts, Higgs overlay
   forces.js                 ~461 lines pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa force
   presets.js                ~586 lines PRESETS object (15 scenarios in 4 groups), loadPreset(), declarative SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER, external field defaults
   reference.js              ~309 lines REFERENCE object: extended physics reference content for each concept (KaTeX math)
-  higgs-field.js            ~470 lines HiggsField: 48x48 Mexican hat scalar field, symplectic Euler, CIC deposition, source term, self-force subtraction, mass modulation, gradient force, phase transitions
+  higgs-field.js            ~429 lines HiggsField: 48x48 Mexican hat scalar field, symplectic Euler, CIC deposition, source term, self-force subtraction, mass modulation, gradient force, phase transitions
   quadtree.js               ~280 lines QuadTreePool: SoA flat typed arrays, pool-based, zero GC
   input.js                  ~262 lines InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip, antimatter flag passthrough
   signal-delay.js            250 lines getDelayedState() (3-phase light-cone solver)
@@ -43,7 +43,7 @@ src/
   particle.js               ~124 lines Particle entity: pos, vel, w, angw, baseMass, antimatter flag, per-type force vectors (incl. forceHiggs), history buffers
   topology.js                112 lines TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
   vec2.js                     65 lines Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist
-  config.js                  ~112 lines Named constants (softening, BH, numerical thresholds, simulation control, input, display, rendering scales, pair production, Higgs field)
+  config.js                  ~111 lines Named constants (softening, BH, numerical thresholds, simulation control, input, display, rendering scales, pair production, Higgs field)
   photon.js                   40 lines Photon entity: pos, vel, energy, lifetime, emitterId, type ('em'/'grav'), gravitational lensing
   relativity.js                34 lines angwToAngVel(), angVelToAngw(), setVelocity()
 ```
@@ -78,7 +78,7 @@ collisions.js    <- config (INERTIA_K, COLLISION_SAFE_DIST, OVERLAP_FACTOR, EPSI
 signal-delay.js  <- config (HISTORY_SIZE, NR_TOLERANCE, EPSILON), TORUS + minImage (topology)
 save-load.js     <- Particle, angwToAngVel (relativity)
 effective-potential.js <- config (SOFTENING_SQ, BH_SOFTENING_SQ, INERTIA_K, MAG_MOMENT_K, YUKAWA_G2, AXION_G)
-higgs-field.js   <- config (HIGGS_GRID, DEFAULT_HIGGS_VEV/COUPLING/THERMAL, HIGGS_DAMPING, HIGGS_SOURCE_STRENGTH, HIGGS_PHI_MAX, EPSILON), topology (TORUS, KLEIN, RP2)
+higgs-field.js   <- config (HIGGS_GRID, DEFAULT_HIGGS_MASS, HIGGS_SOURCE_STRENGTH, HIGGS_PHI_MAX, EPSILON), topology (TORUS, KLEIN, RP2)
 reference.js     (no imports - pure data)
 ```
 
@@ -179,27 +179,27 @@ Requires Coulomb. Modulates EM coupling: `α_eff = α·(1 + g·cos(m_a·t))`. Ap
 
 ### Higgs Scalar Field
 
-Independent toggle (`physics.higgsEnabled`). Dynamical real scalar field on a 48×48 grid with Mexican hat potential `V(φ) = -½μ²φ² + ¼λφ⁴`, VEV `v = μ/√λ`.
+Independent toggle (`physics.higgsEnabled`). Dynamical real scalar field on a 48×48 grid with Mexican hat potential `V(φ) = -½μ²φ² + ¼λφ⁴`. VEV=1 baked in; the free parameter is the Higgs boson mass `m_H` (slider 0.01–0.25, default 0.05). With VEV=1: `λ = μ² = m_H²/2`. Smaller m_H → longer interaction range (~1/m_H), shallower potential well.
 
-**Mass generation**: `m_eff = baseMass · |φ(x)/v|`. Particles store intrinsic `baseMass` (Yukawa coupling to field); effective `mass` varies with local field value. At VEV, `m_eff = baseMass`. In symmetric phase (φ→0), particles become effectively massless (floored at 0.001).
+**Mass generation**: `m_eff = baseMass · |φ(x)|`. Particles store intrinsic `baseMass`; effective `mass` varies with local field value. At VEV (φ=1), `m_eff = baseMass`. In symmetric phase (φ→0), particles become effectively massless (floored at EPSILON).
 
-**Gradient force**: `F = -(baseMass/v) · coupling · ∇φ`. Bilinear gradient interpolation. Accumulates into `forceHiggs`. Applied as E-like force after external fields.
+**Gradient force**: `F = -baseMass · ∇φ`. Bilinear gradient interpolation. Accumulates into `forceHiggs`. Applied as E-like force after external fields.
 
-**Field equation**: Klein-Gordon with Mexican hat: `∂²φ/∂t² = ∇²φ + μ²_eff·φ - λφ³ + HIGGS_SOURCE_STRENGTH·source/cellArea - damping·∂φ/∂t`. Symplectic Euler (kick-drift). CIC (Cloud-In-Cell) bilinear deposition of `baseMass/v` for particle source terms. Source coupling is intentionally weak (0.01) so δφ/v ≈ 3% for baseMass=10, keeping the linearized self-force estimate accurate.
+**Field equation**: `∂²φ/∂t² = ∇²φ + μ²_eff·φ - μ²φ³ + HIGGS_SOURCE_STRENGTH·source/cellArea - 2m_H·∂φ/∂t` where `μ² = m_H²/2`. Symplectic Euler (kick-drift). CIC (Cloud-In-Cell) bilinear deposition of `baseMass` for particle source terms. Source coupling is intentionally weak (0.01) so δφ ≈ 3% for baseMass=10, keeping the linearized self-force estimate accurate.
 
-**Self-force subtraction**: Particles see the gradient of their own field perturbation on the discrete CIC grid. Analytical subtraction removes this artifact using the steady-state Green's function estimate: `selfScale = HIGGS_SOURCE_STRENGTH / (v · cellArea · m_H²)`. Self-sample correction: `selfBase · Σ(w_i²)` subtracted from bilinear phi sample. Self-gradient correction: `selfBase · (2f-1) · Σ(w_⊥²) / cellSize` subtracted from bilinear gradient. Combined with critical damping (no field ringing), single particles remain stable.
+**Self-force subtraction**: Particles see the gradient of their own field perturbation on the discrete CIC grid. Analytical subtraction removes this artifact using the steady-state Green's function estimate: `selfScale = HIGGS_SOURCE_STRENGTH / (cellArea · m_H²)`. Self-sample correction: `selfBase · Σ(w_i²)` subtracted from bilinear phi sample. Self-gradient correction: `selfBase · (2f-1) · Σ(w_⊥²) / cellSize` subtracted from bilinear gradient. Combined with critical damping (no field ringing), single particles remain stable.
 
-**Phase transitions**: Thermal correction `μ²_eff = μ² - thermalK · T²_local` where `T²_local` is CIC-deposited KE density. When local KE is high enough, `μ²_eff` turns negative → field relaxes to φ=0 (symmetric phase), particles lose mass.
+**Phase transitions**: Thermal correction `μ²_eff = μ² - KE_local` (thermalK=1 baked in) where `KE_local` is CIC-deposited KE density. When local KE exceeds μ², field relaxes to φ=0 (symmetric phase), particles lose mass.
 
-**Boundary conditions**: Integer-coded for inner-loop speed (BC_DESPAWN=0/BC_BOUNCE=1/BC_LOOP=2). Despawn→Dirichlet (φ=VEV at edges). Bounce→Neumann (∂φ/∂n=0, clamped). Loop→periodic with full topology awareness (Torus/Klein/RP²).
+**Boundary conditions**: Integer-coded for inner-loop speed (BC_DESPAWN=0/BC_BOUNCE=1/BC_LOOP=2). Despawn→Dirichlet (φ=1 at edges). Bounce→Neumann (∂φ/∂n=0, clamped). Loop→periodic with full topology awareness (Torus/Klein/RP²).
 
-**Field energy**: `E = ∫(½φ̇² + ½|∇φ|² + V(φ))dA`, shifted so V(VEV)=0. Tracked in stats as `higgsFieldEnergy`, included in total energy.
+**Field energy**: `E = ∫(½φ̇² + ½|∇φ|² + V(φ))dA`, shifted so V(1)=0. `vacOffset = μ²/4`. Tracked in stats as `higgsFieldEnergy`, included in total energy.
 
-**Damping**: Adaptive critical damping: `damp = dampingRatio · 2 · m_H` where `m_H = √(2λv²)`. `HIGGS_DAMPING = 1.0` (ratio of critical damping). Prevents field ringing that amplifies self-force artifacts.
+**Damping**: Critical damping `damp = 2·m_H`. Prevents field ringing that amplifies self-force artifacts. Scales with m_H so the field always settles without oscillation.
 
-**Parameters**: `vev` (default 1.0, slider 0.1–5.0), `coupling` (default 0.5, slider 0–2.0), `thermalK` (default 0.5, slider 0–2.0). Config constants: `damping = 1.0` (critical damping ratio), `HIGGS_SOURCE_STRENGTH = 0.01`. Lambda is baked to 1 (removed as constant).
+**Parameters**: One slider: `mass` (m_H, default 0.05, range 0.01–0.25). Config constants: `HIGGS_SOURCE_STRENGTH = 0.01`, `HIGGS_PHI_MAX = 16`. All other parameters baked to 1 (VEV, coupling, thermalK, damping ratio, lambda).
 
-**Rendering**: Offscreen 48×48 canvas, bilinear-upscaled to world space. Magenta = depleted (φ < VEV), cyan = enhanced (φ > VEV). Alpha ∝ |deviation|. Force vector color: magenta (`--ext-magenta`).
+**Rendering**: Offscreen 48×48 canvas, bilinear-upscaled to world space. Magenta = depleted (φ < 1), cyan = enhanced (φ > 1). Alpha ∝ |deviation|×2. Force vector color: magenta (`--ext-magenta`).
 
 **baseMass synchronization**: All mass-modifying operations (merge, annihilation, Roche overflow, disintegration, Hawking evaporation) proportionally scale `baseMass`. On Higgs toggle-off, `mass` is restored to `baseMass` for all particles.
 
@@ -438,6 +438,6 @@ Particle color: neutral=slate `#8A7E72`. Charged: RGB lerp toward red (positive)
 - Higgs `modulateMasses()` updates radius/radiusSq/invMass inline (not via `updateColor()`) to avoid per-substep string allocation; must handle BH mode Kerr-Newman radius
 - Higgs `_nb()` uses integer boundary mode constants (BC_DESPAWN=0/BC_BOUNCE=1/BC_LOOP=2) converted once per `update()` call
 - `baseMass` must be saved/loaded and proportionally scaled wherever `mass` is modified (merge, annihilation, Roche, disintegration, Hawking)
-- Higgs field `energy()` shifts potential by +μ⁴/(4λ) so V(VEV)=0 -- without this, a constant negative offset dominates energy tracking
-- Higgs thermal correction uses `thermalK * thermal[i]` (linear in KE density ∝ T²), not squared -- squaring would give T⁴ dependence
+- Higgs field `energy()` shifts potential by +μ²/4 so V(1)=0 -- without this, a constant negative offset dominates energy tracking
+- Higgs thermal correction subtracts KE_local directly from μ² (thermalK=1 baked in, linear in KE density ∝ T²)
 - Higgs field reset on preset load and clear; mass restoration to `baseMass` on toggle-off
