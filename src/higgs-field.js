@@ -300,7 +300,9 @@ export default class HiggsField {
     }
 
     /** Apply gradient force: F = -baseMass * grad(phi) (VEV=1, coupling=1).
-     *  Self-force gradient subtraction removes the particle's own CIC perturbation.
+     *  Gradient smoothing: central differences at each CIC corner node, then
+     *  bilinear interpolation. Uses a 12-point stencil for C⁰ continuity
+     *  across cell boundaries (vs raw bilinear which has gradient jumps).
      */
     applyForces(particles, domainW, domainH) {
         const cellW = domainW / GRID;
@@ -308,9 +310,8 @@ export default class HiggsField {
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const cellArea = cellW * cellH;
-        const mHsq = Math.max(this.mass * this.mass, EPSILON);
-        const selfScale = HIGGS_SOURCE_STRENGTH / (cellArea * mHsq);
+        const inv2CellW = 0.5 * invCellW;
+        const inv2CellH = 0.5 * invCellH;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -320,25 +321,23 @@ export default class HiggsField {
             const ix = this._cic.ix, iy = this._cic.iy;
             const fx = this._cic.fx, fy = this._cic.fy;
 
-            // Sample 4 corner phi values
-            const v00 = this._phiAt(ix, iy);
-            const v10 = this._phiAt(ix + 1, iy);
-            const v01 = this._phiAt(ix, iy + 1);
-            const v11 = this._phiAt(ix + 1, iy + 1);
+            // Central-difference gradient at each of the 4 CIC corner nodes
+            // gx(cx,cy) = (phi(cx+1,cy) - phi(cx-1,cy)) / (2*cellW)
+            const gx00 = (this._phiAt(ix + 1, iy) - this._phiAt(ix - 1, iy)) * inv2CellW;
+            const gx10 = (this._phiAt(ix + 2, iy) - this._phiAt(ix, iy)) * inv2CellW;
+            const gx01 = (this._phiAt(ix + 1, iy + 1) - this._phiAt(ix - 1, iy + 1)) * inv2CellW;
+            const gx11 = (this._phiAt(ix + 2, iy + 1) - this._phiAt(ix, iy + 1)) * inv2CellW;
 
-            // Bilinear gradient
-            let gradX = ((v10 - v00) * (1 - fy) + (v11 - v01) * fy) * invCellW;
-            let gradY = ((v01 - v00) * (1 - fx) + (v11 - v10) * fx) * invCellH;
+            const gy00 = (this._phiAt(ix, iy + 1) - this._phiAt(ix, iy - 1)) * inv2CellH;
+            const gy10 = (this._phiAt(ix + 1, iy + 1) - this._phiAt(ix + 1, iy - 1)) * inv2CellH;
+            const gy01 = (this._phiAt(ix, iy + 2) - this._phiAt(ix, iy)) * inv2CellH;
+            const gy11 = (this._phiAt(ix + 1, iy + 2) - this._phiAt(ix + 1, iy)) * inv2CellH;
 
-            // Self-force gradient subtraction:
-            // d/dx[sum w_i(x)^2] for CIC weights w_i(fx,fy) where fx = x/cellW - 0.5 - ix
-            // selfGradX = selfBase * d(sum w_i^2)/dx = selfBase * (2*fx - 1) * ((1-fy)^2 + fy^2) / cellW
-            // selfGradY = selfBase * (2*fy - 1) * ((1-fx)^2 + fx^2) / cellH
-            const selfBase = p.baseMass * selfScale;
-            const fy2sum = (1 - fy) * (1 - fy) + fy * fy;
-            const fx2sum = (1 - fx) * (1 - fx) + fx * fx;
-            gradX -= selfBase * (2 * fx - 1) * fy2sum * invCellW;
-            gradY -= selfBase * (2 * fy - 1) * fx2sum * invCellH;
+            // Bilinear interpolation of node gradients
+            const gradX = gx00 * (1 - fx) * (1 - fy) + gx10 * fx * (1 - fy)
+                        + gx01 * (1 - fx) * fy + gx11 * fx * fy;
+            const gradY = gy00 * (1 - fx) * (1 - fy) + gy10 * fx * (1 - fy)
+                        + gy01 * (1 - fx) * fy + gy11 * fx * fy;
 
             const forceX = -p.baseMass * gradX;
             const forceY = -p.baseMass * gradY;
