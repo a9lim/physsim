@@ -208,7 +208,6 @@ export default class Physics {
 
         let n = particles.length;
         const relOn = this.relativityEnabled;
-        this.signalDelayEnabled = relOn;
         this._syncToggles();
         const toggles = this._toggles;
 
@@ -226,7 +225,7 @@ export default class Physics {
             const initRoot = this.barnesHutEnabled
                 ? this._buildTree(particles)
                 : -1;
-            computeAllForces(particles, toggles, this.pool, initRoot, this.barnesHutEnabled, this.signalDelayEnabled, this.relativityEnabled, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
+            computeAllForces(particles, toggles, this.pool, initRoot, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
             this._forcesInit = true;
         }
 
@@ -661,11 +660,11 @@ export default class Physics {
 
             // Step 7: Recompute forces and B fields for next substep
             resetForces(particles);
-            computeAllForces(particles, toggles, this.pool, root, this.barnesHutEnabled, this.signalDelayEnabled, this.relativityEnabled, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
+            computeAllForces(particles, toggles, this.pool, root, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
         }
 
         // Record signal delay history (strided: ~60 snapshots/sec at 100× speed)
-        if (this.signalDelayEnabled && n > 0 && ++this._histStride >= HISTORY_STRIDE) {
+        if (relOn && n > 0 && ++this._histStride >= HISTORY_STRIDE) {
             this._histStride = 0;
             for (let i = 0; i < n; i++) {
                 const p = particles[i];

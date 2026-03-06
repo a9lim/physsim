@@ -46,12 +46,12 @@ export function resetForces(particles) {
 let _srcMagMoment = new Float64Array(256);
 let _srcAngMomentum = new Float64Array(256);
 
-export function computeAllForces(particles, toggles, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology = TORUS) {
+export function computeAllForces(particles, toggles, pool, root, barnesHutEnabled, relativityEnabled, simTime, periodic, domW, domH, topology = TORUS) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
     const n = particles.length;
 
-    const useSignalDelay = signalDelayEnabled && relativityEnabled;
+    const useSignalDelay = relativityEnabled;
 
     if (barnesHutEnabled) {
         if (root < 0) return;

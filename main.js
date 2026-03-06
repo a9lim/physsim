@@ -291,7 +291,7 @@ class Simulation {
 
         this.heatmap.update(this.particles, this.camera, this.width, this.height,
             this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
-            this.physics.signalDelayEnabled, this.physics.relativityEnabled,
+            this.physics.relativityEnabled,
             this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
             this.topology, this.physics.blackHoleEnabled ? 1 : SOFTENING_SQ,
             this.physics.yukawaEnabled, this.physics.yukawaMu);

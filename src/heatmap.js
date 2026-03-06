@@ -99,7 +99,7 @@ export default class Heatmap {
         this._imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
     }
 
-    update(particles, camera, width, height, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology, softeningSq = SOFTENING_SQ, yukawaEnabled = false, yukawaMu = 0.2) {
+    update(particles, camera, width, height, pool, root, barnesHutEnabled, relativityEnabled, simTime, periodic, domW, domH, topology, softeningSq = SOFTENING_SQ, yukawaEnabled = false, yukawaMu = 0.2) {
         if (!this.enabled) return;
         if (++this.frameCount % UPDATE_INTERVAL !== 0) return;
 
@@ -112,7 +112,7 @@ export default class Heatmap {
         const n = particles.length;
         const useTree = barnesHutEnabled && root >= 0;
         const thetaSq = BH_THETA * BH_THETA;
-        const useDelay = signalDelayEnabled && relativityEnabled;
+        const useDelay = relativityEnabled;
         const halfDomW = domW * 0.5, halfDomH = domH * 0.5;
         const doYukawa = yukawaEnabled && (this.mode === 'all' || this.mode === 'yukawa');
 
