@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, ROCHE_MIN_PACKET, DEFAULT_HUBBLE } from './config.js';
+import { PI, TWO_PI, SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, FRAGMENT_COUNT, SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, ROCHE_MIN_PACKET, DEFAULT_HUBBLE } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -460,7 +460,7 @@ export default class Physics {
                     if (dE > 0) {
                         const ax = p.force.x * p.invMass, ay = p.force.y * p.invMass;
                         const accelAngle = Math.atan2(ay, ax);
-                        const radAngle = accelAngle + Math.PI;
+                        const radAngle = accelAngle + PI;
                         this.sim.totalRadiatedPx += dE * Math.cos(radAngle);
                         this.sim.totalRadiatedPy += dE * Math.sin(radAngle);
 
@@ -468,7 +468,7 @@ export default class Physics {
                         if (p._radAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
                             // sin²θ dipole pattern: peak emission ⊥ to acceleration
                             let theta, tries = 0;
-                            do { theta = Math.random() * 6.283185307; }
+                            do { theta = Math.random() * TWO_PI; }
                             while (Math.random() > Math.sin(theta) * Math.sin(theta) && ++tries < 20);
                             let emitAngle = accelAngle + theta;
 
@@ -510,9 +510,9 @@ export default class Physics {
                     if (disc > 1e-10) {
                         const rPlus = M + Math.sqrt(disc);
                         const kappa = Math.sqrt(disc) / (rPlus * rPlus + a * a);
-                        const T = kappa / (2 * Math.PI);
-                        const A = 4 * Math.PI * (rPlus * rPlus + a * a);
-                        const sigma = Math.PI * Math.PI / 60;
+                        const T = kappa / TWO_PI;
+                        const A = 4 * PI * (rPlus * rPlus + a * a);
+                        const sigma = PI * PI / 60;
                         power = sigma * T * T * T * T * A;
                     } else {
                         power = 0; // extremal: no radiation
@@ -529,7 +529,7 @@ export default class Physics {
 
                     p._hawkAccum += dE;
                     if (p._hawkAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
-                        const emitAngle = Math.random() * 6.283185307;
+                        const emitAngle = Math.random() * TWO_PI;
                         const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
                         this.sim.photons.push(new Photon(
                             p.pos.x + cosA * (p.radius + 1),
@@ -754,7 +754,7 @@ export default class Physics {
 
                     // Emit graviton when accumulated energy exceeds threshold
                     if (this._quadAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
-                        const angle = Math.random() * 6.283185307;
+                        const angle = Math.random() * TWO_PI;
                         const cosA = Math.cos(angle), sinA = Math.sin(angle);
                         let comX = 0, comY = 0, totalM = 0;
                         for (let i = 0; i < n; i++) {

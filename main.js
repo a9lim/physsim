@@ -6,7 +6,7 @@ import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, FRAGMENT_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ } from './src/config.js';
 import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
@@ -234,7 +234,7 @@ class Simulation {
                         const fragMass = p.mass / nf;
                         const fragCharge = p.charge / nf;
                         for (let fi = 0; fi < nf; fi++) {
-                            const angle = (2 * Math.PI * fi) / nf;
+                            const angle = (TWO_PI * fi) / nf;
                             const offset = p.radius * 1.5;
                             const fx = p.pos.x + Math.cos(angle) * offset;
                             const fy = p.pos.y + Math.sin(angle) * offset;
@@ -269,7 +269,7 @@ class Simulation {
                         if (burstE > 0) {
                             const nBurst = Math.min(5, MAX_PHOTONS - this.photons.length);
                             for (let j = 0; j < nBurst; j++) {
-                                const angle = Math.random() * 2 * Math.PI;
+                                const angle = Math.random() * TWO_PI;
                                 const cosA = Math.cos(angle), sinA = Math.sin(angle);
                                 this.photons.push(new Photon(
                                     p.pos.x + cosA * 3, p.pos.y + sinA * 3,
@@ -293,9 +293,9 @@ class Simulation {
             this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
             this.physics.signalDelayEnabled, this.physics.relativityEnabled,
             this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
-            this.topology, this.physics.blackHoleEnabled ? 1 : SOFTENING_SQ);
+            this.topology, this.physics.blackHoleEnabled ? 1 : SOFTENING_SQ,
+            this.physics.yukawaEnabled, this.physics.yukawaMu);
         this.phasePlot.update(this.particles, this.selectedParticle);
-        this.renderer.signalDelay = this.physics.signalDelayEnabled;
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);
         this.phasePlot.draw(this.renderer.isLight);
         if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);

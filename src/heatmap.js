@@ -2,7 +2,7 @@
 // 48x48 offscreen canvas, diverging colormap, updates every 6 frames.
 // When Barnes-Hut is enabled, uses tree walk for O(GRID² log N) instead of O(GRID² N).
 
-import { SOFTENING_SQ, BH_THETA } from './config.js';
+import { SOFTENING_SQ, BH_THETA, YUKAWA_G2 } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 
 const GRID_SIZE = 48;
@@ -25,7 +25,7 @@ function fastTanh(x) {
  */
 let _hmStack = new Int32Array(256);
 
-function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq) {
+function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doYukawa, yukawaMu) {
     let stackTop = 0;
     if (_hmStack.length < pool.maxNodes) _hmStack = new Int32Array(pool.maxNodes);
     _hmStack[stackTop++] = rootIdx;
@@ -41,7 +41,7 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq) {
 
         if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
             const base = nodeIdx * pool.nodeCapacity;
-            let gP = 0, eP = 0;
+            let gP = 0, eP = 0, yP = 0;
             for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
                 const p = pool.points[base + i];
                 const pdx = wx - p.pos.x, pdy = wy - p.pos.y;
@@ -49,14 +49,23 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq) {
                 const invR = 1 / Math.sqrt(rSq);
                 gP -= p.mass * invR;
                 eP += p.charge * invR;
+                if (doYukawa) {
+                    const r = 1 / invR;
+                    yP -= YUKAWA_G2 * p.mass * Math.exp(-yukawaMu * r) * invR;
+                }
             }
             _treeOut.g += gP;
             _treeOut.e += eP;
+            _treeOut.y += yP;
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             const rSq = dSq + softeningSq;
             const invR = 1 / Math.sqrt(rSq);
             _treeOut.g -= pool.totalMass[nodeIdx] * invR;
             _treeOut.e += pool.totalCharge[nodeIdx] * invR;
+            if (doYukawa) {
+                const r = 1 / invR;
+                _treeOut.y -= YUKAWA_G2 * pool.totalMass[nodeIdx] * Math.exp(-yukawaMu * r) * invR;
+            }
         } else if (pool.divided[nodeIdx]) {
             _hmStack[stackTop++] = pool.nw[nodeIdx];
             _hmStack[stackTop++] = pool.ne[nodeIdx];
@@ -67,13 +76,17 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq) {
 }
 
 // Reusable output for treePotential
-const _treeOut = { g: 0, e: 0 };
+const _treeOut = { g: 0, e: 0, y: 0 };
 // Reusable observer object for signal delay (avoids allocation per grid cell)
 const _hmObs = { pos: { x: 0, y: 0 } };
+
+// Heatmap display modes
+export const HEATMAP_MODES = ['all', 'gravity', 'electric', 'yukawa'];
 
 export default class Heatmap {
     constructor() {
         this.enabled = false;
+        this.mode = 'all'; // 'all' | 'gravity' | 'electric' | 'yukawa'
         this.canvas = document.createElement('canvas');
         this.canvas.width = GRID_SIZE;
         this.canvas.height = GRID_SIZE;
@@ -81,11 +94,12 @@ export default class Heatmap {
         this.frameCount = 0;
         this.gravPotential = new Float32Array(GRID_SQ);
         this.elecPotential = new Float32Array(GRID_SQ);
+        this.yukawaPotential = new Float32Array(GRID_SQ);
         // Persistent ImageData — avoid creating a new one every update
         this._imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
     }
 
-    update(particles, camera, width, height, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology, softeningSq = SOFTENING_SQ) {
+    update(particles, camera, width, height, pool, root, barnesHutEnabled, signalDelayEnabled, relativityEnabled, simTime, periodic, domW, domH, topology, softeningSq = SOFTENING_SQ, yukawaEnabled = false, yukawaMu = 0.2) {
         if (!this.enabled) return;
         if (++this.frameCount % UPDATE_INTERVAL !== 0) return;
 
@@ -100,19 +114,22 @@ export default class Heatmap {
         const thetaSq = BH_THETA * BH_THETA;
         const useDelay = signalDelayEnabled && relativityEnabled;
         const halfDomW = domW * 0.5, halfDomH = domH * 0.5;
+        const doYukawa = yukawaEnabled && (this.mode === 'all' || this.mode === 'yukawa');
 
         for (let gy = 0; gy < GRID_SIZE; gy++) {
             const wy = top + (gy + 0.5) * cellH;
             for (let gx = 0; gx < GRID_SIZE; gx++) {
                 const wx = left + (gx + 0.5) * cellW;
-                let gPhi = 0, ePhi = 0;
+                let gPhi = 0, ePhi = 0, yPhi = 0;
 
                 if (useTree) {
                     _treeOut.g = 0;
                     _treeOut.e = 0;
-                    treePotential(pool, root, wx, wy, thetaSq, softeningSq);
+                    _treeOut.y = 0;
+                    treePotential(pool, root, wx, wy, thetaSq, softeningSq, doYukawa, yukawaMu);
                     gPhi = _treeOut.g;
                     ePhi = _treeOut.e;
+                    yPhi = _treeOut.y;
                 } else {
                     for (let i = 0; i < n; i++) {
                         const p = particles[i];
@@ -130,38 +147,57 @@ export default class Heatmap {
                         const invR = 1 / Math.sqrt(rSq);
                         gPhi -= p.mass * invR;
                         ePhi += p.charge * invR;
+                        if (doYukawa) {
+                            const r = 1 / invR;
+                            yPhi -= YUKAWA_G2 * p.mass * Math.exp(-yukawaMu * r) * invR;
+                        }
                     }
                 }
 
                 const idx = gy * GRID_SIZE + gx;
                 this.gravPotential[idx] = gPhi;
                 this.elecPotential[idx] = ePhi;
+                this.yukawaPotential[idx] = yPhi;
             }
         }
 
         // Fast tanh approximation — no per-frame ImageData allocation
         const data = this._imgData.data;
-        for (let i = 0; i < GRID_SQ; i++) {
-            const gVal = this.gravPotential[i];
-            const absG = gVal > 0 ? gVal : -gVal;
-            const gInt = fastTanh(absG * SENSITIVITY);
-            const eVal = this.elecPotential[i];
-            const absE = eVal > 0 ? eVal : -eVal;
-            const eInt = fastTanh(absE * SENSITIVITY);
+        const mode = this.mode;
+        const showG = mode === 'all' || mode === 'gravity';
+        const showE = mode === 'all' || mode === 'electric';
+        const showY = (mode === 'all' || mode === 'yukawa') && doYukawa;
 
-            const gA = gInt * MAX_ALPHA;
-            const eA = eInt * MAX_ALPHA;
-            const totalA = gA + eA;
+        for (let i = 0; i < GRID_SQ; i++) {
+            let gA = 0, eA = 0, yA = 0;
+            if (showG) {
+                const v = this.gravPotential[i];
+                gA = fastTanh((v > 0 ? v : -v) * SENSITIVITY) * MAX_ALPHA;
+            }
+            if (showE) {
+                const v = this.elecPotential[i];
+                eA = fastTanh((v > 0 ? v : -v) * SENSITIVITY) * MAX_ALPHA;
+            }
+            if (showY) {
+                const v = this.yukawaPotential[i];
+                yA = fastTanh((v > 0 ? v : -v) * SENSITIVITY) * MAX_ALPHA;
+            }
+
+            const totalA = gA + eA + yA;
             const idx = i * 4;
             if (totalA > 0) {
                 const invA = 1 / totalA;
-                // Slate: 138, 126, 114
+                // Slate: 138, 126, 114 — gravity
                 let r = 138 * gA, g = 126 * gA, b = 114 * gA;
-                if (eVal < 0) {
+                // Blue-teal (negative charge) / Red-warm (positive charge) — electric
+                if (this.elecPotential[i] < 0) {
                     r += 92 * eA; g += 146 * eA; b += 168 * eA;
                 } else {
                     r += 192 * eA; g += 80 * eA; b += 72 * eA;
                 }
+                // Green: 80, 152, 120 — yukawa
+                r += 80 * yA; g += 152 * yA; b += 120 * yA;
+
                 data[idx] = (r * invA + 0.5) | 0;
                 data[idx + 1] = (g * invA + 0.5) | 0;
                 data[idx + 2] = (b * invA + 0.5) | 0;

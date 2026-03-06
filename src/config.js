@@ -1,5 +1,9 @@
 // ─── Named Constants ───
 // All physics uses natural units: c = 1, G = 1.
+export const PI = Math.PI;
+export const TWO_PI = 2 * Math.PI;
+export const HALF_PI = Math.PI / 2;
+
 export const BH_THETA = 0.5;
 export const QUADTREE_CAPACITY = 4;
 

@@ -235,8 +235,18 @@ export function setupUI(sim) {
     document.getElementById('forceComponentsToggle').addEventListener('change', (e) => {
         sim.renderer.showForceComponents = e.target.checked;
     });
-    document.getElementById('potentialToggle')?.addEventListener('change', (e) => {
+    const potentialToggle = document.getElementById('potentialToggle');
+    const potentialModeBar = document.getElementById('potential-mode-toggles');
+    potentialToggle?.addEventListener('change', (e) => {
         sim.heatmap.enabled = e.target.checked;
+        potentialModeBar.hidden = !e.target.checked;
+    });
+    potentialModeBar?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-potential]');
+        if (!btn) return;
+        potentialModeBar.querySelector('.active')?.classList.remove('active');
+        btn.classList.add('active');
+        sim.heatmap.mode = btn.dataset.potential;
     });
 
     // ─── Slider value displays ───

@@ -1,6 +1,6 @@
 // ─── Preset Definitions ───
 // Each preset configures toggles, engine settings, visuals, and spawns particles.
-import { WORLD_SCALE, SOFTENING_SQ } from './config.js';
+import { PI, TWO_PI, WORLD_SCALE, SOFTENING_SQ } from './config.js';
 
 // Plummer-softened circular orbit velocity: F = coupling*r/(r²+ε²)^{3/2}, set F/m = v²/r
 const _vCirc = (coupling, r, m) => {
@@ -34,7 +34,7 @@ export const PRESETS = {
             const radii = [8, 13, 18, 23, 28];
             for (let i = 0; i < radii.length; i++) {
                 const r = radii[i];
-                const angle = Math.random() * Math.PI * 2;
+                const angle = Math.random() * TWO_PI;
                 const v = _vGrav(5, r);
                 const cos = Math.cos(angle), sin = Math.sin(angle);
                 sim.addParticle(cx + cos * r, cy + sin * r, -sin * v, cos * v,
@@ -152,7 +152,7 @@ export const PRESETS = {
             // Small BHs that will visibly evaporate (P ∝ 1/M²)
             const masses = [0.3, 0.4, 0.5, 0.65, 0.8];
             for (let i = 0; i < masses.length; i++) {
-                const angle = (2 * Math.PI * i) / masses.length;
+                const angle = (TWO_PI * i) / masses.length;
                 const r = 12 + Math.random() * 8;
                 sim.addParticle(
                     cx + Math.cos(angle) * r, cy + Math.sin(angle) * r,
@@ -185,7 +185,7 @@ export const PRESETS = {
             const shells = [{ r: 12, effectiveQ: 3 }, { r: 18, effectiveQ: 2 }];
             for (let i = 0; i < shells.length; i++) {
                 const { r, effectiveQ } = shells[i];
-                const angle = Math.PI * i;
+                const angle = PI * i;
                 const v = _vCirc(effectiveQ * Math.abs(eQ), r, eM);
                 const cos = Math.cos(angle), sin = Math.sin(angle);
                 sim.addParticle(cx + cos * r, cy + sin * r, -sin * v, cos * v,
@@ -260,7 +260,7 @@ export const PRESETS = {
             // Nucleons in a ring — gravity + Yukawa pull them into a bound cluster
             const N = 7;
             for (let i = 0; i < N; i++) {
-                const angle = (2 * Math.PI * i) / N;
+                const angle = (TWO_PI * i) / N;
                 const r = 10 + Math.random() * 4;
                 const cos = Math.cos(angle), sin = Math.sin(angle);
                 // Small tangential velocity → rotating collapse
@@ -296,7 +296,7 @@ export const PRESETS = {
                 sim.addParticle(nx, cy, 0, 0, { mass: 4, charge: nucQ, spin: 0 });
                 const r = 10;
                 const v = _vCirc(nucQ, r, 0.8);
-                const angle = s > 0 ? 0 : Math.PI;
+                const angle = s > 0 ? 0 : PI;
                 const cos = Math.cos(angle), sin = Math.sin(angle);
                 sim.addParticle(
                     nx + cos * r, cy + sin * r,
@@ -326,7 +326,7 @@ export const PRESETS = {
             sim.addParticle(cx, cy, 0, 0, { mass: coreM, charge: 0, spin: 0.8 });
             for (let i = 0; i < 100; i++) {
                 const r = 10 + Math.random() * 22;
-                const angle = Math.random() * Math.PI * 2;
+                const angle = Math.random() * TWO_PI;
                 const v = _vGrav(coreM, r);
                 const cos = Math.cos(angle), sin = Math.sin(angle);
                 const m = 0.03 + Math.random() * 0.1;
@@ -352,7 +352,7 @@ export const PRESETS = {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
             // Uniform cloud at rest — inner particles stay bound, outer ones recede
             for (let i = 0; i < 25; i++) {
-                const angle = Math.random() * Math.PI * 2;
+                const angle = Math.random() * TWO_PI;
                 const r = 2 + Math.random() * 25;
                 sim.addParticle(
                     cx + Math.cos(angle) * r, cy + Math.sin(angle) * r,
@@ -415,6 +415,7 @@ const MODE_GROUPS = {
     boundary: { id: 'boundary-toggles', attr: 'boundary' },
     topology: { id: 'topology-toggles', attr: 'topology' },
     interaction: { id: 'interaction-toggles', attr: 'mode' },
+    potentialMode: { id: 'potential-mode-toggles', attr: 'potential' },
 };
 
 const SLIDER_MAP = {

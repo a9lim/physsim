@@ -1,5 +1,6 @@
 // ─── Phase Space Plot ───
 // r vs v_r relative to the most massive body; 500-sample ring buffer.
+import { TWO_PI } from './config.js';
 
 const BUFFER_LEN = 500;
 const MARGIN = 24;
@@ -110,7 +111,7 @@ export default class PhasePlot {
         const cy = (ps - MARGIN) - ((this.vrBuf[lastIdx] - vrMin) / vrRange) * (ps - MARGIN - 4);
         c.fillStyle = '#FE3B01';
         c.beginPath();
-        c.arc(cx, cy, 3, 0, Math.PI * 2);
+        c.arc(cx, cy, 3, 0, TWO_PI);
         c.fill();
     }
 }

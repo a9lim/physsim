@@ -1,7 +1,4 @@
-import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, HISTORY_SIZE } from './config.js';
-
-const TWO_PI = Math.PI * 2;
-const HALF_PI = Math.PI / 2;
+import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, PI, TWO_PI, HALF_PI } from './config.js';
 const _PAL = window._PALETTE;
 const _r = window._r;
 
@@ -41,7 +38,6 @@ export default class Renderer {
         this.isLight = false;
         this.trailHistory = new Map();
         this.heatmap = null;
-        this.signalDelay = false;
     }
 
     resize(width, height) {
@@ -75,7 +71,6 @@ export default class Renderer {
             this.trailHistory.clear();
         }
 
-        if (this.signalDelay) this.drawDelayGhosts(ctx, particles, isLight);
         this.drawParticles(ctx, particles, isLight);
         if (photons && photons.length) this.drawPhotons(ctx, photons, isLight);
 
@@ -263,22 +258,6 @@ export default class Renderer {
         }
     }
 
-    drawDelayGhosts(ctx, particles, isLight) {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.shadowBlur = 0;
-        ctx.lineWidth = 0.15;
-        const ghostAlpha = isLight ? 0.3 : 0.4;
-        for (let i = 0, len = particles.length; i < len; i++) {
-            const p = particles[i];
-            if (!p.histX || p.histCount < 2) continue;
-            const oldest = (p.histHead - p.histCount + HISTORY_SIZE) % HISTORY_SIZE;
-            ctx.beginPath();
-            ctx.arc(p.histX[oldest], p.histY[oldest], p.radius, 0, TWO_PI);
-            ctx.strokeStyle = _r(p.color, ghostAlpha);
-            ctx.stroke();
-        }
-    }
-
     drawArrow(ctx, x1, y1, x2, y2, invZoom, color) {
         const dx = x2 - x1, dy = y2 - y1;
         const len = Math.sqrt(dx * dx + dy * dy);
@@ -374,7 +353,7 @@ export default class Renderer {
 
     _drawTorqueArc(ctx, particles, invZoom, color, offset, getValue) {
         const scale = 256 / INERTIA_K;
-        const maxSweep = Math.PI * 2;
+        const maxSweep = TWO_PI;
         const threshold = 1e-8;
 
         ctx.globalCompositeOperation = 'source-over';
@@ -419,7 +398,7 @@ export default class Renderer {
         ctx.shadowBlur = 0;
         const dir = Math.sign(p.angVel);
         // Arc length proportional to surface speed; caps at full circle
-        const arcLen = Math.min(Math.abs(p.angVel) * p.radius * Math.PI * 2, Math.PI * 2);
+        const arcLen = Math.min(Math.abs(p.angVel) * p.radius * TWO_PI, TWO_PI);
         const ringRadius = p.radius + 0.5;
         const colors = p.angVel > 0 ? _spinColors.pos : _spinColors.neg;
         const style = isLight ? colors.light : colors.dark;
