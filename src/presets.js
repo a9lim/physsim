@@ -77,7 +77,7 @@ export const PRESETS = {
             radiation: true, tidallocking: true, spinorbit: false, disintegration: false,
             barneshut: false, yukawa: false, axion: false, quadradiation: true, expansion: false,
         },
-        settings: { collision: 'merge', boundary: 'despawn', speed: 200 },
+        settings: { collision: 'merge', boundary: 'despawn', speed: 128 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
@@ -145,7 +145,7 @@ export const PRESETS = {
             radiation: false, tidallocking: false, spinorbit: false, disintegration: false,
             barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
-        settings: { collision: 'merge', boundary: 'despawn', speed: 150 },
+        settings: { collision: 'merge', boundary: 'despawn', speed: 128 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
@@ -253,7 +253,7 @@ export const PRESETS = {
             radiation: false, tidallocking: false, spinorbit: false, disintegration: false,
             barneshut: false, yukawa: true, axion: false, quadradiation: false, expansion: false,
         },
-        settings: { collision: 'bounce', boundary: 'bounce', speed: 200, yukawaRange: 15 },
+        settings: { collision: 'bounce', boundary: 'bounce', speed: 128, yukawaRange: 15 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
@@ -284,7 +284,7 @@ export const PRESETS = {
             radiation: false, tidallocking: false, spinorbit: true, disintegration: false,
             barneshut: false, yukawa: false, axion: true, quadradiation: false, expansion: false,
         },
-        settings: { collision: 'pass', boundary: 'despawn', speed: 200, axionMass: 0.15 },
+        settings: { collision: 'pass', boundary: 'despawn', speed: 128, axionMass: 0.15 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
@@ -318,7 +318,7 @@ export const PRESETS = {
             radiation: false, tidallocking: false, spinorbit: false, disintegration: false,
             barneshut: true, yukawa: false, axion: false, quadradiation: false, expansion: false,
         },
-        settings: { collision: 'merge', boundary: 'despawn', speed: 150 },
+        settings: { collision: 'merge', boundary: 'despawn', speed: 128 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
@@ -346,7 +346,7 @@ export const PRESETS = {
             radiation: false, tidallocking: false, spinorbit: false, disintegration: false,
             barneshut: false, yukawa: false, axion: false, quadradiation: false, expansion: true,
         },
-        settings: { collision: 'pass', boundary: 'despawn', speed: 200, hubble: 0.008 },
+        settings: { collision: 'pass', boundary: 'despawn', speed: 128, hubble: 0.008 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
