@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool, { Rect } from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, BH_NAKED_FLOOR } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, AXION_G, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, BH_NAKED_FLOOR, SPAWN_OFFSET_FLOOR } from './config.js';
 import Photon from './photon.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -58,6 +58,16 @@ export default class Physics {
         this.axionMass = DEFAULT_AXION_MASS;
         this.expansionEnabled = false;
         this.hubbleParam = 0.001;
+
+        // External background fields (uniform, independent of force toggles)
+        this.extGravity = 0;          // field strength |g|
+        this.extGravityAngle = PI * 0.5;  // direction in radians (default: down)
+        this.extElectric = 0;         // field strength |E|
+        this.extElectricAngle = 0;    // direction in radians (default: right)
+        this.extBz = 0;              // uniform magnetic field (z-component)
+
+        // Repulsive collision stiffness
+        this.repelStiffness = 500;
 
         this.sim = null;
         this.simTime = 0;
@@ -195,6 +205,102 @@ export default class Physics {
         return this.pool.build(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h, particles);
     }
 
+    /** Apply uniform external fields (g, E, B) to all particles. */
+    _applyExternalFields(particles) {
+        const g = this.extGravity;
+        const E = this.extElectric;
+        const Bext = this.extBz;
+        if (g === 0 && E === 0 && Bext === 0) return;
+        const gx = g * Math.cos(this.extGravityAngle);
+        const gy = g * Math.sin(this.extGravityAngle);
+        const ex = E * Math.cos(this.extElectricAngle);
+        const ey = E * Math.sin(this.extElectricAngle);
+        for (let i = 0, n = particles.length; i < n; i++) {
+            const p = particles[i];
+            if (g !== 0) {
+                const fx = p.mass * gx, fy = p.mass * gy;
+                p.force.x += fx;
+                p.force.y += fy;
+                p.forceExternal.x += fx;
+                p.forceExternal.y += fy;
+            }
+            if (E !== 0) {
+                const fx = p.charge * ex, fy = p.charge * ey;
+                p.force.x += fx;
+                p.force.y += fy;
+                p.forceExternal.x += fx;
+                p.forceExternal.y += fy;
+            }
+            if (Bext !== 0) {
+                p.Bz += Bext;
+            }
+        }
+    }
+
+    /** Apply short-range repulsive contact force (Hertz model) when collisionMode is 'repel'. */
+    _applyRepulsion(particles, pool, root) {
+        const K = this.repelStiffness;
+        const friction = this.bounceFriction;
+        const n = particles.length;
+        const useTree = root >= 0;
+        for (let i = 0; i < n; i++) {
+            const p1 = particles[i];
+            if (useTree) {
+                const searchR = p1.radius * 2;
+                const candidates = pool.queryReuse(root, p1.pos.x, p1.pos.y, searchR, searchR);
+                for (let ci = 0; ci < candidates.length; ci++) {
+                    const p2raw = candidates[ci];
+                    const p2 = p2raw.isGhost ? p2raw.original : p2raw;
+                    if (p1 === p2 || p1.id >= p2.id) continue;
+                    this._repelPair(p1, p2raw.pos.x, p2raw.pos.y, p2, K, friction);
+                }
+            } else {
+                for (let j = i + 1; j < n; j++) {
+                    const p2 = particles[j];
+                    this._repelPair(p1, p2.pos.x, p2.pos.y, p2, K, friction);
+                }
+            }
+        }
+    }
+
+    /** Apply Hertz contact + friction between one pair. */
+    _repelPair(p1, p2x, p2y, p2, K, friction) {
+        const dx = p2x - p1.pos.x;
+        const dy = p2y - p1.pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const minDist = p1.radius + p2.radius;
+        const delta = minDist - dist;
+        if (delta <= 0) return;
+        // Hertz contact: F = K * delta^1.5
+        const Fn = K * delta * Math.sqrt(delta);
+        const safeDist = dist > EPSILON ? dist : EPSILON;
+        const nx = dx / safeDist, ny = dy / safeDist;
+        // Normal repulsion (Newton's 3rd law)
+        p1.force.x -= nx * Fn;
+        p1.force.y -= ny * Fn;
+        p1.forceExternal.x -= nx * Fn;
+        p1.forceExternal.y -= ny * Fn;
+        p2.force.x += nx * Fn;
+        p2.force.y += ny * Fn;
+        p2.forceExternal.x += nx * Fn;
+        p2.forceExternal.y += ny * Fn;
+        // Tangential friction for torque transfer (accumulates into tidal torque slot)
+        if (friction > 0) {
+            const tx = -ny, ty = nx;
+            const v1t = p1.vel.x * tx + p1.vel.y * ty + p1.angVel * p1.radius;
+            const v2t = p2.vel.x * tx + p2.vel.y * ty - p2.angVel * p2.radius;
+            const vRel = v1t - v2t;
+            const Ft = -friction * Fn * Math.max(-1, Math.min(1, vRel * 10));
+            p1.force.x += tx * Ft;
+            p1.force.y += ty * Ft;
+            p2.force.x -= tx * Ft;
+            p2.force.y -= ty * Ft;
+            // Torque: r × F_t (accumulated for the torque step)
+            p1._tidalTorque += p1.radius * Ft;
+            p2._tidalTorque -= p2.radius * Ft;
+        }
+    }
+
     update(particles, dt, collisionMode, boundaryMode, topology, width, height, offX = 0, offY = 0) {
         this.boundary.x = offX + width / 2;
         this.boundary.y = offY + height / 2;
@@ -226,11 +332,14 @@ export default class Physics {
                 ? this._buildTree(particles)
                 : -1;
             computeAllForces(particles, toggles, this.pool, initRoot, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
+            this._applyExternalFields(particles);
+            if (collisionMode === 'repel') this._applyRepulsion(particles, this.pool, initRoot);
             this._forcesInit = true;
         }
 
         const hasMagnetic = this.magneticEnabled;
         const hasGM = this.gravitomagEnabled;
+        const hasExtBz = this.extBz !== 0;
 
         // Bz/Bgz for cyclotron frequency estimation persist from the previous
         // frame's last substep (or from the bootstrap above). No preliminary
@@ -258,7 +367,7 @@ export default class Physics {
                 const fx = p.force.x, fy = p.force.y;
                 const aSq = (fx * fx + fy * fy) * p.invMass * p.invMass;
                 if (aSq > maxAccelSq) maxAccelSq = aSq;
-                if (hasMagnetic) {
+                if (hasMagnetic || hasExtBz) {
                     const absBz = p.Bz > 0 ? p.Bz : -p.Bz;
                     if (absBz > 0) {
                         const absQ = p.charge > 0 ? p.charge : -p.charge;
@@ -289,7 +398,7 @@ export default class Physics {
 
             const has1PN = toggles.onePNEnabled;
             const halfDt = dtSub * 0.5;
-            const needBoris = hasMagnetic || hasGM;
+            const needBoris = hasMagnetic || hasGM || hasExtBz;
 
             // Fused loop: save 1PN old, half-kick 1, Boris rotation, half-kick 2
             for (let i = 0; i < n; i++) {
@@ -311,7 +420,7 @@ export default class Physics {
                 // Boris rotation
                 if (needBoris) {
                     let t = 0;
-                    if (hasMagnetic) t += (p.charge * 0.5 * invM) * p.Bz;
+                    if (hasMagnetic || hasExtBz) t += (p.charge * 0.5 * invM) * p.Bz;
                     if (hasGM) t += 2 * p.Bgz;
                     if (t !== 0) {
                         const gamma = relOn ? Math.sqrt(1 + p.w.x * p.w.x + p.w.y * p.w.y) : 1;
@@ -365,8 +474,8 @@ export default class Physics {
                 }
             }
 
-            // Frame-dragging torque + tidal locking (fused)
-            if ((hasGM && relOn) || this.tidalLockingEnabled) {
+            // Frame-dragging torque + tidal locking + repel contact torque (fused)
+            if ((hasGM && relOn) || this.tidalLockingEnabled || collisionMode === 'repel') {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     let torque = 0;
@@ -616,10 +725,29 @@ export default class Physics {
             const root = this._buildTree(particles);
             lastRoot = root;
 
-            // Step 6: Collisions
-            if (collisionMode !== 'pass') {
-                handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled, this.periodic, this.domainW, this.domainH, this._topologyConst);
+            // Step 6: Collisions (repel mode uses force-based repulsion instead)
+            if (collisionMode !== 'pass' && collisionMode !== 'repel') {
+                const annihilations = handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled, this.periodic, this.domainW, this.domainH, this._topologyConst);
                 n = particles.length;
+                // Annihilation: emit photon burst from matter-antimatter collisions
+                if (annihilations.length > 0 && this.sim) {
+                    for (const ann of annihilations) {
+                        const nPh = Math.min(SPAWN_COUNT, MAX_PHOTONS - this.sim.photons.length);
+                        const ePerPh = ann.energy / nPh;
+                        for (let j = 0; j < nPh; j++) {
+                            const angle = TWO_PI * j / nPh;
+                            const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                            this.sim.photons.push(new Photon(
+                                ann.x + cosA * SPAWN_OFFSET_FLOOR,
+                                ann.y + sinA * SPAWN_OFFSET_FLOOR,
+                                cosA, sinA, ePerPh, -1
+                            ));
+                            this.sim.totalRadiatedPx += ePerPh * cosA;
+                            this.sim.totalRadiatedPy += ePerPh * sinA;
+                        }
+                        this.sim.totalRadiated += ann.energy;
+                    }
+                }
             }
 
             // Photon absorption: p = E/c = E (natural units)
@@ -663,6 +791,8 @@ export default class Physics {
             // Step 7: Recompute forces and B fields for next substep
             resetForces(particles);
             computeAllForces(particles, toggles, this.pool, root, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst);
+            this._applyExternalFields(particles);
+            if (collisionMode === 'repel') this._applyRepulsion(particles, this.pool, root);
         }
 
         // Record signal delay history (strided: ~60 snapshots/sec at 100× speed)
@@ -835,7 +965,7 @@ export default class Physics {
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 const vx = p.vel.x, vy = p.vel.y;
-                if (hasMagnetic) {
+                if (hasMagnetic || hasExtBz) {
                     p.forceMagnetic.x += p.charge * vy * p.Bz;
                     p.forceMagnetic.y -= p.charge * vx * p.Bz;
                 }

@@ -65,7 +65,7 @@ export function saveState(sim) {
         particles: sim.particles.map(p => ({
             x: p.pos.x, y: p.pos.y,
             wx: p.w.x, wy: p.w.y,
-            mass: p.mass, charge: p.charge, angw: p.angw,
+            mass: p.mass, charge: p.charge, angw: p.angw, antimatter: p.antimatter,
         })),
         toggles: {},
         settings: {
@@ -130,6 +130,7 @@ export function loadState(state, sim) {
         p.mass = pd.mass;
         p.charge = pd.charge;
         p.angw = pd.angw;
+        p.antimatter = pd.antimatter || false;
         p.w.x = pd.wx;
         p.w.y = pd.wy;
         p.updateColor();

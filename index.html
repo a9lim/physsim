@@ -118,6 +118,12 @@
                     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
             </button>
+            <button id="antimatterBtn" class="tool-btn" title="Toggle Antimatter Spawn (A)" aria-label="Toggle antimatter spawn mode">
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="7" fill="none" stroke-dasharray="3 2"/>
+                    <text x="12" y="16.5" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor" stroke="none">ā</text>
+                </svg>
+            </button>
             <div class="tool-sep"></div>
             <button id="themeToggleBtn" class="tool-btn" title="Toggle Theme" aria-label="Toggle theme">
                 <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24">
@@ -286,6 +292,7 @@
                                 <button class="mode-btn active" data-collision="pass">Pass</button>
                                 <button class="mode-btn" data-collision="bounce">Bounce</button>
                                 <button class="mode-btn" data-collision="merge">Merge</button>
+                                <button class="mode-btn" data-collision="repel">Repel</button>
                             </div>
                         </div>
                         <div class="control-group" id="friction-group" style="display:none">
@@ -317,6 +324,29 @@
                         <div class="control-group" id="hubble-group" style="display:none">
                             <label>Hubble H <span class="slider-value" id="hubbleValue">0.001</span></label>
                             <input type="range" id="hubbleInput" min="0.0001" max="0.01" step="0.0001" value="0.001">
+                        </div>
+                    </div>
+                    <div class="panel-section">
+                        <h2 class="group-label">External Fields <button class="info-trigger" data-info="external" aria-label="External fields info">?</button></h2>
+                        <div class="control-group">
+                            <label>Gravity |g| <span class="slider-value" id="extGravityValue">0.00</span></label>
+                            <input type="range" id="extGravityInput" min="0" max="1" step="0.01" value="0">
+                        </div>
+                        <div class="control-group" id="extGravityAngleGroup" style="display:none">
+                            <label>g direction <span class="slider-value" id="extGravityAngleValue">90°</span></label>
+                            <input type="range" id="extGravityAngleInput" min="0" max="360" step="1" value="90">
+                        </div>
+                        <div class="control-group">
+                            <label>Electric |E| <span class="slider-value" id="extElectricValue">0.00</span></label>
+                            <input type="range" id="extElectricInput" min="0" max="1" step="0.01" value="0">
+                        </div>
+                        <div class="control-group" id="extElectricAngleGroup" style="display:none">
+                            <label>E direction <span class="slider-value" id="extElectricAngleValue">0°</span></label>
+                            <input type="range" id="extElectricAngleInput" min="0" max="360" step="1" value="0">
+                        </div>
+                        <div class="control-group">
+                            <label>Magnetic B<sub>z</sub> <span class="slider-value" id="extBzValue">0.00</span></label>
+                            <input type="range" id="extBzInput" min="-1" max="1" step="0.01" value="0">
                         </div>
                     </div>
                     <div class="panel-section">
@@ -395,12 +425,17 @@
                                 <div class="stat-row stat-sub" id="fb-spincurv" hidden><span class="stat-label">F<sub>SC</sub> = μ∇B</span><span class="stat-value" id="fb-spincurv-val">0</span></div>
                                 <div class="stat-row stat-sub" id="fb-radiation" hidden><span class="stat-label">F<sub>rad</sub> (LL)</span><span class="stat-value" id="fb-radiation-val">0</span></div>
                                 <div class="stat-row stat-sub" id="fb-yukawa" hidden><span class="stat-label">F<sub>Y</sub> = g²e<sup>-μr</sup>/r²</span><span class="stat-value" id="fb-yukawa-val">0</span></div>
+                                <div class="stat-row stat-sub" id="fb-external" hidden><span class="stat-label">F<sub>ext</sub> (field)</span><span class="stat-value" id="fb-external-val">0</span></div>
                             </div>
                         </div>
                     </div>
                     <div class="panel-section" id="phase-plot-section" hidden>
                         <h2 class="group-label">Phase Space</h2>
                         <div id="phase-plot-container"></div>
+                    </div>
+                    <div class="panel-section" id="eff-pot-section" hidden>
+                        <h2 class="group-label">Effective Potential</h2>
+                        <div id="eff-pot-container"></div>
                     </div>
                 </div>
             </div>
@@ -453,7 +488,7 @@
     </div>
 
     <script src="/shared-tabs.js"></script>
-    <script type="module" src="main.js?v=3"></script>
+    <script type="module" src="main.js?v=6"></script>
 </body>
 
 </html>

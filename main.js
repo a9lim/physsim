@@ -4,9 +4,10 @@ import InputHandler from './src/input.js';
 import Particle from './src/particle.js';
 import Heatmap from './src/heatmap.js';
 import PhasePlot from './src/phase-plot.js';
+import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, SPAWN_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, SPAWN_COUNT, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_OFFSET_MULTIPLIER, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB } from './src/config.js';
 import Photon from './src/photon.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
@@ -32,6 +33,7 @@ class Simulation {
         this.renderer.heatmap = this.heatmap;
 
         this.phasePlot = new PhasePlot();
+        this.effPotPlot = new EffectivePotentialPlot();
 
         const sim = this;
         this.camera = createCamera({
@@ -83,6 +85,7 @@ class Simulation {
         this.topology = 'torus';
         this.speedScale = DEFAULT_SPEED_SCALE;
         this.selectedParticle = null;
+        this.antimatterMode = false;
         this.photons = [];
         this.totalRadiated = 0;
         this.totalRadiatedPx = 0;
@@ -94,6 +97,7 @@ class Simulation {
             details: document.getElementById('particle-details'),
             hint: document.getElementById('particle-hint'),
             phaseSection: document.getElementById('phase-plot-section'),
+            effPotSection: document.getElementById('eff-pot-section'),
             mass: document.getElementById('sel-mass'),
             charge: document.getElementById('sel-charge'),
             spin: document.getElementById('sel-spin'),
@@ -116,10 +120,13 @@ class Simulation {
             fbRadiationVal: document.getElementById('fb-radiation-val'),
             fbYukawa: document.getElementById('fb-yukawa'),
             fbYukawaVal: document.getElementById('fb-yukawa-val'),
+            fbExternal: document.getElementById('fb-external'),
+            fbExternalVal: document.getElementById('fb-external-val'),
         };
 
         // Mount sidebar canvases
         document.getElementById('phase-plot-container').appendChild(this.phasePlot.canvas);
+        document.getElementById('eff-pot-container').appendChild(this.effPotPlot.canvas);
 
         this.stats = new StatsDisplay(this.dom, this.selDom);
 
@@ -179,6 +186,7 @@ class Simulation {
 
         p.mass = options.mass ?? 10;
         p.charge = options.charge ?? 0;
+        p.antimatter = options.antimatter ?? false;
 
         p.updateColor();
 
@@ -213,6 +221,38 @@ class Simulation {
                     if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
                         this.photons[i] = this.photons[--pLen];
                     }
+                }
+                this.photons.length = pLen;
+
+                // Pair production: energetic photon near massive body -> matter + antimatter
+                for (let i = pLen - 1; i >= 0; i--) {
+                    const ph = this.photons[i];
+                    if (ph.energy < PAIR_PROD_MIN_ENERGY) continue;
+                    // Check proximity to any massive body
+                    let nearBody = false;
+                    for (let j = 0; j < this.particles.length; j++) {
+                        const p = this.particles[j];
+                        const dx = ph.pos.x - p.pos.x, dy = ph.pos.y - p.pos.y;
+                        if (dx * dx + dy * dy < PAIR_PROD_RADIUS * PAIR_PROD_RADIUS * p.mass) {
+                            nearBody = true;
+                            break;
+                        }
+                    }
+                    if (!nearBody || Math.random() > PAIR_PROD_PROB) continue;
+                    // Produce pair: split photon energy into mass + kinetic
+                    const pairMass = ph.energy * 0.5;
+                    const offset = SPAWN_OFFSET_FLOOR;
+                    // Perpendicular to photon direction
+                    const px = -ph.vel.y, py = ph.vel.x;
+                    this.addParticle(ph.pos.x + px * offset, ph.pos.y + py * offset,
+                        ph.vel.x * 0.1, ph.vel.y * 0.1,
+                        { mass: pairMass, charge: 0, antimatter: false, skipBaseline: true });
+                    this.addParticle(ph.pos.x - px * offset, ph.pos.y - py * offset,
+                        ph.vel.x * 0.1, ph.vel.y * 0.1,
+                        { mass: pairMass, charge: 0, antimatter: true, skipBaseline: true });
+                    // Kill the photon
+                    ph.alive = false;
+                    this.photons[i] = this.photons[--pLen];
                 }
                 this.photons.length = pLen;
 
@@ -297,8 +337,10 @@ class Simulation {
             this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
             this.physics.yukawaEnabled, this.physics.yukawaMu);
         this.phasePlot.update(this.particles, this.selectedParticle);
+        this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons);
         this.phasePlot.draw(this.renderer.isLight);
+        this.effPotPlot.draw(this.renderer.isLight);
         if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);
         const sel = this.stats.updateSelected(this.selectedParticle, this.particles, this.physics);
         if (!sel && this.selectedParticle) this.selectedParticle = null;

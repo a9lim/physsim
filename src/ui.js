@@ -82,13 +82,22 @@ export function setupUI(sim) {
     };
     pauseBtn.addEventListener('click', togglePause);
 
+    // ─── Antimatter toggle ───
+    const antimatterBtn = document.getElementById('antimatterBtn');
+    const toggleAntimatter = () => {
+        sim.antimatterMode = !sim.antimatterMode;
+        antimatterBtn.classList.toggle('active', sim.antimatterMode);
+        antimatterBtn.title = sim.antimatterMode ? 'Antimatter Mode ON (A)' : 'Toggle Antimatter Spawn (A)';
+    };
+    antimatterBtn.addEventListener('click', toggleAntimatter);
+
     // ─── Mode toggles ───
     const collisionToggles = document.getElementById('collision-toggles');
     const boundaryToggles = document.getElementById('boundary-toggles');
     const frictionGroup = document.getElementById('friction-group');
 
     const updateFrictionVisibility = () => {
-        frictionGroup.style.display = (sim.collisionMode === 'bounce' || sim.boundaryMode === 'bounce') ? '' : 'none';
+        frictionGroup.style.display = (sim.collisionMode === 'bounce' || sim.collisionMode === 'repel' || sim.boundaryMode === 'bounce') ? '' : 'none';
     };
 
     const bindToggleGroup = (id, attr, setter) => {
@@ -289,6 +298,49 @@ export function setupUI(sim) {
         hubbleLabel.textContent = parseFloat(hubbleSlider.value).toFixed(4);
     });
 
+    // ─── External field sliders ───
+    const extGravitySlider = document.getElementById('extGravityInput');
+    const extGravityLabel = document.getElementById('extGravityValue');
+    const extGravityAngleGroup = document.getElementById('extGravityAngleGroup');
+    const extGravityAngleSlider = document.getElementById('extGravityAngleInput');
+    const extGravityAngleLabel = document.getElementById('extGravityAngleValue');
+    extGravitySlider.addEventListener('input', () => {
+        const v = parseFloat(extGravitySlider.value);
+        sim.physics.extGravity = v;
+        extGravityLabel.textContent = v.toFixed(2);
+        extGravityAngleGroup.style.display = v > 0 ? '' : 'none';
+    });
+    extGravityAngleSlider.addEventListener('input', () => {
+        const deg = parseFloat(extGravityAngleSlider.value);
+        sim.physics.extGravityAngle = deg * Math.PI / 180;
+        extGravityAngleLabel.textContent = deg + '°';
+    });
+
+    const extElectricSlider = document.getElementById('extElectricInput');
+    const extElectricLabel = document.getElementById('extElectricValue');
+    const extElectricAngleGroup = document.getElementById('extElectricAngleGroup');
+    const extElectricAngleSlider = document.getElementById('extElectricAngleInput');
+    const extElectricAngleLabel = document.getElementById('extElectricAngleValue');
+    extElectricSlider.addEventListener('input', () => {
+        const v = parseFloat(extElectricSlider.value);
+        sim.physics.extElectric = v;
+        extElectricLabel.textContent = v.toFixed(2);
+        extElectricAngleGroup.style.display = v > 0 ? '' : 'none';
+    });
+    extElectricAngleSlider.addEventListener('input', () => {
+        const deg = parseFloat(extElectricAngleSlider.value);
+        sim.physics.extElectricAngle = deg * Math.PI / 180;
+        extElectricAngleLabel.textContent = deg + '°';
+    });
+
+    const extBzSlider = document.getElementById('extBzInput');
+    const extBzLabel = document.getElementById('extBzValue');
+    extBzSlider.addEventListener('input', () => {
+        const v = parseFloat(extBzSlider.value);
+        sim.physics.extBz = v;
+        extBzLabel.textContent = v.toFixed(2);
+    });
+
     sim.dom.speedInput.addEventListener('input', () => {
         const val = parseFloat(sim.dom.speedInput.value);
         sim.speedScale = val;
@@ -348,6 +400,7 @@ export function setupUI(sim) {
             el.checked = !el.checked;
             sim.renderer.showForceComponents = el.checked;
         }},
+        { key: 'A', label: 'Toggle antimatter spawn', group: 'Simulation', action: toggleAntimatter },
         { key: 'T', label: 'Toggle theme', group: 'View', action: toggleTheme },
         { key: 'S', label: 'Toggle sidebar', group: 'View', action: togglePanel },
         { key: 'Escape', label: 'Close panel', group: 'View', action: closePanel },
@@ -381,6 +434,7 @@ export function setupUI(sim) {
         yukawa: { title: 'Yukawa Potential', body: 'A screened potential $V(r) = -g^2 e^{-\\mu r}/r$ that falls off exponentially beyond range $1/\\mu$. Models short-range nuclear forces (pion exchange) and any interaction mediated by a massive particle. At short range it behaves like gravity; at long range it vanishes. The coupling $g^2$ sets the strength and $\\mu$ (the mediator mass) sets the range.' },
         axion: { title: 'Axion Coupling', body: 'Models dark matter axions oscillating as a background field $a(t) = a_0 \\cos(m_a t)$, which modulates the electromagnetic coupling: $\\alpha_{\\text{eff}} = \\alpha(1 + g\\cos(m_a t))$. This makes Coulomb and magnetic forces oscillate periodically. The effect is the exact phenomenon that axion detection experiments (CASPEr, ABRACADABRA) search for. Energy is not conserved \u2014 the axion field is an external reservoir. Requires Coulomb.' },
         expansion: { title: 'Cosmological Expansion', body: 'Adds Hubble flow $v_H = H \\cdot r$ from the domain center, causing distant particles to separate. Bound systems (where binding energy exceeds Hubble kinetic energy) resist expansion and stay together, while unbound particles drift apart \u2014 the mechanism that creates large-scale cosmic structure. Includes Hubble drag ($v_{\\text{pec}} \\propto 1/a$) to redshift peculiar velocities, matching the physics of real cosmological N-body simulations.' },
+        external: { title: 'External Fields', body: 'Uniform background fields that act on all particles, independent of force toggles.<br><b>Gravity |g|</b> \u2014 uniform gravitational field $\\mathbf{F} = m\\mathbf{g}$. Direction in degrees (90\u00B0 = down).<br><b>Electric |E|</b> \u2014 uniform electric field $\\mathbf{F} = q\\mathbf{E}$. Accelerates charges, deflects beams.<br><b>Magnetic B<sub>z</sub></b> \u2014 uniform out-of-plane magnetic field. Produces cyclotron motion ($\\omega_c = qB/m$) via the Boris integrator. Negative values reverse the field direction.' },
     };
 
     if (typeof createInfoTip === 'function') {

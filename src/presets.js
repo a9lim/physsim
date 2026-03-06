@@ -421,6 +421,11 @@ const SLIDER_MAP = {
     yukawaMu: 'yukawaMuInput',
     axionMass: 'axionMassInput',
     hubble: 'hubbleInput',
+    extGravity: 'extGravityInput',
+    extGravityAngle: 'extGravityAngleInput',
+    extElectric: 'extElectricInput',
+    extElectricAngle: 'extElectricAngleInput',
+    extBz: 'extBzInput',
 };
 
 export function loadPreset(name, sim) {
@@ -486,10 +491,27 @@ export function loadPreset(name, sim) {
         }
     }
 
-    // 5. Spawn particles
+    // 5. Reset external fields (presets can override via settings)
+    const extDefaults = { extGravity: 0, extGravityAngle: 90, extElectric: 0, extElectricAngle: 0, extBz: 0 };
+    for (const [key, elId] of Object.entries(SLIDER_MAP)) {
+        if (key in extDefaults && !(preset.settings && key in preset.settings)) {
+            const el = document.getElementById(elId);
+            if (el && parseFloat(el.value) !== extDefaults[key]) {
+                el.value = extDefaults[key];
+                el.dispatchEvent(new Event('input'));
+            }
+        }
+    }
+
+    // 5b. Reset antimatter mode
+    sim.antimatterMode = false;
+    const amBtn = document.getElementById('antimatterBtn');
+    if (amBtn) amBtn.classList.remove('active');
+
+    // 6. Spawn particles
     preset.spawn(sim);
 
-    // 6. Reset baseline and notify
+    // 7. Reset baseline and notify
     sim.stats.resetBaseline();
     showToast(preset.name);
 }
