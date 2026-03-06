@@ -774,15 +774,24 @@ export default class Physics {
                         }
                     }
 
-                    // COM for emission origin
+                    // Mass-weighted COM for emission origin
+                    // Use offsets from heaviest particle to avoid mid-domain spawn
+                    // when particles are widely separated
                     let comX = 0, comY = 0, totalM = 0;
                     if (this._quadAccum >= MIN_MASS || this._emQuadAccum >= MIN_MASS) {
-                        for (let i = 0; i < n; i++) {
-                            comX += particles[i].mass * particles[i].pos.x;
-                            comY += particles[i].mass * particles[i].pos.y;
-                            totalM += particles[i].mass;
+                        let refIdx = 0, refM = particles[0].mass;
+                        for (let i = 1; i < n; i++) {
+                            if (particles[i].mass > refM) { refM = particles[i].mass; refIdx = i; }
                         }
-                        comX /= totalM; comY /= totalM;
+                        const refX = particles[refIdx].pos.x, refY = particles[refIdx].pos.y;
+                        for (let i = 0; i < n; i++) {
+                            const mi = particles[i].mass;
+                            comX += mi * (particles[i].pos.x - refX);
+                            comY += mi * (particles[i].pos.y - refY);
+                            totalM += mi;
+                        }
+                        comX = refX + comX / totalM;
+                        comY = refY + comY / totalM;
                     }
 
                     // Emit graviton with quadrupole angular pattern
