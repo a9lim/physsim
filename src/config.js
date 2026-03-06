@@ -81,9 +81,8 @@ export const SPAWN_COUNT = 4;          // fragments per disintegration / photons
 export const PAIR_PROD_MIN_ENERGY = 2;    // minimum photon energy for pair production (2mc²)
 export const PAIR_PROD_RADIUS = 8;        // proximity to massive body required
 export const PAIR_PROD_PROB = 0.005;      // probability per substep per eligible photon
-
-// Collisions
-export const DEFAULT_REPEL_STIFFNESS = 500; // Hertz contact stiffness for bounce mode
+export const PAIR_PROD_MAX_PARTICLES = 128; // suppress pair production above this particle count
+export const PAIR_PROD_MIN_AGE = 32;      // photon must survive this many ticks before it can pair-produce
 
 // Input
 export const PINCH_DEBOUNCE = 300;         // ms guard after pinch-to-zoom

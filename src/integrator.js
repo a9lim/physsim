@@ -66,9 +66,6 @@ export default class Physics {
         this.extElectricAngle = 0;    // direction in radians (default: right)
         this.extBz = 0;              // uniform magnetic field (z-component)
 
-        // Repulsive collision stiffness
-        this.repelStiffness = 500;
-
         this.sim = null;
         this.simTime = 0;
 
@@ -239,7 +236,6 @@ export default class Physics {
 
     /** Apply Hertz wall repulsion for boundary mode 'bounce'. */
     _applyBoundaryForces(particles, width, height, offX, offY) {
-        const K = this.repelStiffness;
         const friction = this.bounceFriction;
         const left = offX, top = offY;
         const right = offX + width, bottom = offY + height;
@@ -249,7 +245,7 @@ export default class Physics {
             // Left wall
             let delta = r - (p.pos.x - left);
             if (delta > 0) {
-                const Fn = K * delta * Math.sqrt(delta);
+                const Fn = delta * Math.sqrt(delta);
                 p.force.x += Fn;
                 p.forceExternal.x += Fn;
                 if (friction > 0) {
@@ -262,7 +258,7 @@ export default class Physics {
             // Right wall
             delta = r - (right - p.pos.x);
             if (delta > 0) {
-                const Fn = K * delta * Math.sqrt(delta);
+                const Fn = delta * Math.sqrt(delta);
                 p.force.x -= Fn;
                 p.forceExternal.x -= Fn;
                 if (friction > 0) {
@@ -275,7 +271,7 @@ export default class Physics {
             // Top wall
             delta = r - (p.pos.y - top);
             if (delta > 0) {
-                const Fn = K * delta * Math.sqrt(delta);
+                const Fn = delta * Math.sqrt(delta);
                 p.force.y += Fn;
                 p.forceExternal.y += Fn;
                 if (friction > 0) {
@@ -288,7 +284,7 @@ export default class Physics {
             // Bottom wall
             delta = r - (bottom - p.pos.y);
             if (delta > 0) {
-                const Fn = K * delta * Math.sqrt(delta);
+                const Fn = delta * Math.sqrt(delta);
                 p.force.y -= Fn;
                 p.forceExternal.y -= Fn;
                 if (friction > 0) {
@@ -303,7 +299,6 @@ export default class Physics {
 
     /** Apply short-range repulsive contact force (Hertz model) when collisionMode is 'bounce'. */
     _applyRepulsion(particles, pool, root) {
-        const K = this.repelStiffness;
         const friction = this.bounceFriction;
         const n = particles.length;
         const useTree = root >= 0;
@@ -316,27 +311,27 @@ export default class Physics {
                     const p2raw = candidates[ci];
                     const p2 = p2raw.isGhost ? p2raw.original : p2raw;
                     if (p1 === p2 || p1.id >= p2.id) continue;
-                    this._repelPair(p1, p2raw.pos.x, p2raw.pos.y, p2, K, friction);
+                    this._repelPair(p1, p2raw.pos.x, p2raw.pos.y, p2, friction);
                 }
             } else {
                 for (let j = i + 1; j < n; j++) {
                     const p2 = particles[j];
-                    this._repelPair(p1, p2.pos.x, p2.pos.y, p2, K, friction);
+                    this._repelPair(p1, p2.pos.x, p2.pos.y, p2, friction);
                 }
             }
         }
     }
 
     /** Apply Hertz contact + friction between one pair. */
-    _repelPair(p1, p2x, p2y, p2, K, friction) {
+    _repelPair(p1, p2x, p2y, p2, friction) {
         const dx = p2x - p1.pos.x;
         const dy = p2y - p1.pos.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const minDist = p1.radius + p2.radius;
         const delta = minDist - dist;
         if (delta <= 0) return;
-        // Hertz contact: F = K * delta^1.5
-        const Fn = K * delta * Math.sqrt(delta);
+        // Hertz contact: F = delta^1.5
+        const Fn = delta * Math.sqrt(delta);
         const safeDist = dist > EPSILON ? dist : EPSILON;
         const nx = dx / safeDist, ny = dy / safeDist;
         // Normal repulsion (Newton's 3rd law)
