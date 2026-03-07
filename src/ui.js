@@ -163,7 +163,7 @@ export function setupUI(sim) {
         ['axion-toggle', () => !tEl['coulomb-toggle'].checked],
         ['blackhole-toggle', () => !tEl['relativity-toggle'].checked || !tEl['gravity-toggle'].checked],
         // Children of toggles that may have been disabled above
-        ['onepn-toggle', () => !tEl['relativity-toggle'].checked || (!tEl['magnetic-toggle'].checked && !tEl['gravitomag-toggle'].checked)],
+        ['onepn-toggle', () => !tEl['relativity-toggle'].checked || (!tEl['magnetic-toggle'].checked && !tEl['gravitomag-toggle'].checked && !tEl['yukawa-toggle'].checked)],
         ['spinorbit-toggle', () => !tEl['magnetic-toggle'].checked && !tEl['gravitomag-toggle'].checked],
     ];
 
@@ -455,7 +455,7 @@ export function setupUI(sim) {
         boundary: { title: 'Boundaries', body: '<b>Despawn</b> \u2014 removed at edges. <b>Loop</b> \u2014 periodic wrapping (opens topology selector). <b>Bounce</b> \u2014 elastic wall repulsion with friction.' },
         topology: { title: 'Topology', body: '<b>Torus</b> \u2014 normal wrapping. <b>Klein bottle</b> \u2014 y-wrap mirrors x (non-orientable). <b>RP\u00B2</b> \u2014 both axes flip (non-orientable).' },
         blackhole: { title: 'Black Hole', body: 'Kerr\u2013Newman horizons ($r_+ = M+\\sqrt{M^2-a^2-Q^2}$), ergospheres, and Hawking radiation. Extremal BHs stop radiating. Requires Relativity + Gravity.' },
-        onepn: { title: '1PN Corrections', body: '$O(v^2/c^2)$ post-Newtonian terms: EIH perihelion precession, Darwin EM corrections, Bazanski cross-terms. Requires Relativity.' },
+        onepn: { title: '1PN Corrections', body: '$O(v^2/c^2)$ post-Newtonian terms: EIH perihelion precession, Darwin EM corrections, Bazanski cross-terms, scalar Breit (Yukawa). Requires Relativity.' },
         yukawa: { title: 'Yukawa', body: 'Screened $e^{-\\mu r}/r$ potential \u2014 gravity-like at short range, vanishes exponentially beyond $1/\\mu$. Models massive-mediator forces.' },
         axion: { title: 'Axion Field', body: 'Axion-like scalar field with $V(a)=\\frac{1}{2}m_a^2 a^2$. Scalar $aF^2$ coupling makes $\\alpha_{\\text{eff}}=\\alpha(1+ga)$ position-dependent. Source $\\propto gq^2$, gradient force $F=-gq^2\\nabla a$. Requires Coulomb.' },
         expansion: { title: 'Expansion', body: 'Hubble flow ($v_H = Hr$) from domain center. Bound systems resist expansion; unbound particles drift apart.' },

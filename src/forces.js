@@ -295,6 +295,26 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const jRadial = -(3 * invRSq + 2 * mu * invR + mu * mu) * rDotVr * jBase * invRSq * invR;
         p.jerk.x += vrx * jBase * term1 + rx * jRadial;
         p.jerk.y += vry * jBase * term1 + ry * jRadial;
+
+        // Scalar Breit O(v²/c²) correction from massive scalar boson exchange.
+        // δH = g²m₁m₂e^{-μr}/(2r) · [v₁·v₂ + (n̂·v₁)(n̂·v₂)(1+μr)]
+        // F₁ = β{-[α·v₁₂ + (α²+α+1)·nv₁·nv₂]n̂ + α(nv₂·v₁ + nv₁·v₂)}
+        if (toggles.onePNEnabled) {
+            const pvx = p.vel.x, pvy = p.vel.y;
+            const nx = rx * invR, ny = ry * invR;
+            const nDotV1 = nx * pvx + ny * pvy;
+            const nDotV2 = nx * svx + ny * svy;
+            const v1DotV2 = pvx * svx + pvy * svy;
+            const alpha = 1 + mu * r;
+            const beta = 0.5 * YUKAWA_G2 * p.mass * sMass * expMuR * invRSq;
+            const radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1) * nDotV1 * nDotV2);
+            const fx = beta * (radial * nx + alpha * (nDotV2 * pvx + nDotV1 * svx));
+            const fy = beta * (radial * ny + alpha * (nDotV2 * pvy + nDotV1 * svy));
+            out.x += fx;
+            out.y += fy;
+            p.force1PN.x += fx;
+            p.force1PN.y += fy;
+        }
     }
 
     if (toggles.gravityEnabled) {
@@ -317,7 +337,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
  * Recompute 1PN forces pairwise O(N²) for velocity-Verlet correction.
  * Called after drift to get F_1PN(new) for the correction kick.
  */
-export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false) {
+export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false, yukawaEnabled = false, yukawaMu = 0.05) {
     const n = particles.length;
     for (let i = 0; i < n; i++) {
         particles[i].force1PN.x = particles[i].force1PN.y = 0;
@@ -378,6 +398,21 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
                 const fDir = crossCoeff * invRSq * invRSq;
                 p.force1PN.x += rx * fDir;
                 p.force1PN.y += ry * fDir;
+            }
+
+            // Yukawa scalar Breit correction
+            if (yukawaEnabled) {
+                const r = 1 / invR;
+                const mu = yukawaMu;
+                const expMuR = Math.exp(-mu * r);
+                const nDotV1 = nx * pvx + ny * pvy;
+                const nDotV2 = nx * svx + ny * svy;
+                const v1DotV2 = pvx * svx + pvy * svy;
+                const alpha = 1 + mu * r;
+                const beta = 0.5 * YUKAWA_G2 * pMass * o.mass * expMuR * invRSq;
+                const radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1) * nDotV1 * nDotV2);
+                p.force1PN.x += beta * (radial * nx + alpha * (nDotV2 * pvx + nDotV1 * svx));
+                p.force1PN.y += beta * (radial * ny + alpha * (nDotV2 * pvy + nDotV1 * svy));
             }
         }
     }

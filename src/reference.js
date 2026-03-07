@@ -295,6 +295,12 @@ export const REFERENCE = {
 </ul>
 <p>The pion, with mass $\\sim 140$ MeV/$c^2$, gives a range of $\\sim 1.4$ fm, matching the observed range of nuclear binding. Yukawa predicted the pion's existence this way — it was discovered experimentally in 1947, earning him the Nobel Prize.</p>
 
+<h3>Scalar Breit Correction</h3>
+<p>When 1PN corrections are enabled, the Yukawa force receives $O(v^2/c^2)$ relativistic corrections from the Breit equation for massive scalar boson exchange. The correction Hamiltonian is:</p>
+<p>$$\\delta H = \\frac{g^2 m_1 m_2\\,e^{-\\mu r}}{2r}\\left[\\mathbf{v}_1\\!\\cdot\\!\\mathbf{v}_2 + (\\hat{r}\\!\\cdot\\!\\mathbf{v}_1)(\\hat{r}\\!\\cdot\\!\\mathbf{v}_2)(1+\\mu r)\\right]$$</p>
+<p>This is positive (repulsive), weakening the attraction for fast-moving particles. Unlike EM or gravity, scalar (spin-0) exchange produces no magnetic-type force — all corrections are radial and velocity-dependent. The $(1+\\mu r)$ factor on the radial-velocity term comes from the massive propagator.</p>
+<p>The resulting force has both radial and tangential components, accumulated into the 1PN display vector. A velocity-Verlet correction ensures accuracy for these velocity-dependent terms.</p>
+
 <h3>Beyond Nuclear Physics</h3>
 <p>The Yukawa form appears throughout physics: Debye screening in plasmas, screened Coulomb potentials in metals, and hypothetical fifth forces in modified gravity theories. Any massive scalar or vector boson exchange produces this characteristic exponential envelope.</p>
 `,

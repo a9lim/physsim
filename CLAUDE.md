@@ -159,7 +159,7 @@ Always active when Gravity is on (no separate toggle). `coupling = m_other + q1*
 
 ### Yukawa Potential
 
-Independent toggle. `F = -g^2 * m1*m2 * exp(-mu*r)/r^2 * (1+mu*r)`. Parameters: `yukawaG2` (default 1.0), `yukawaMu` (default 0.05, slider 0.01-0.25). Includes analytical jerk for radiation. Emits pions as massive force carriers (see Pion section).
+Independent toggle. `F = -g^2 * m1*m2 * exp(-mu*r)/r^2 * (1+mu*r)`. Parameters: `yukawaG2` (default 1.0), `yukawaMu` (default 0.05, slider 0.01-0.25). Includes analytical jerk for radiation. Emits pions as massive force carriers (see Pion section). **Scalar Breit correction** (requires 1PN): O(v^2/c^2) velocity-dependent correction from massive scalar boson exchange Hamiltonian `δH = g²m₁m₂e^{-μr}/(2r) * [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Force into `force1PN`. Velocity-Verlet corrected via `compute1PNPairwise()`.
 
 ### External Background Fields
 
@@ -257,11 +257,12 @@ Merge collisions deposit Gaussian wave packets into active scalar fields via `Sc
 
 ### 1PN Corrections (EIH + Darwin EM + Bazanski)
 
-Requires Relativity. Three O(v^2/c^2) sectors, all into `force1PN`:
+Requires Relativity. Four O(v^2/c^2) sectors, all into `force1PN`:
 
 - **EIH** (GM + 1PN): Remainder from EIH after subtracting GM Lorentz. Produces perihelion precession.
 - **Darwin EM** (Magnetic + 1PN): Remainder from Darwin Lagrangian after subtracting Lorentz force.
 - **Bazanski** (GM + Magnetic + 1PN): Mixed 1/r^3 force. Vanishes for identical particles.
+- **Scalar Breit** (Yukawa + 1PN): Full Breit correction for massive scalar exchange. No subtracted piece (scalar exchange has no magnetic analog).
 
 NOT Newton's 3rd law. Velocity-Verlet: stores `_f1pnOld` before drift, recomputes after via `compute1PNPairwise()` (always pairwise, even when BH on).
 
@@ -340,7 +341,7 @@ When boundary = "loop": Torus (both axes normal), Klein (y-wrap mirrors x, negat
 ```
 Forces:                        Physics:
   Gravity                        Relativity          [signal delay auto-activates]
-    -> Gravitomagnetic             -> 1PN             [requires Magnetic or GM]
+    -> Gravitomagnetic             -> 1PN             [requires Magnetic, GM, or Yukawa]
     (+ tidal locking, always)      -> Black Hole      [+Gravity, locks collision to Merge]
   Coulomb                        Spin-Orbit           [requires Magnetic or GM]
     -> Magnetic                  Radiation             [requires Gravity or Coulomb]
@@ -352,7 +353,7 @@ Barnes-Hut                       [independent]
 Expansion                        [independent, in Engine tab]
 ```
 
-1PN internally: EIH requires `gravitomagEnabled`, Darwin EM requires `magneticEnabled`. Bazanski requires both.
+1PN internally: EIH requires `gravitomagEnabled`, Darwin EM requires `magneticEnabled`. Bazanski requires both. Scalar Breit requires `yukawaEnabled`.
 
 Declarative `DEPS` array in `ui.js`, evaluated in topological order by `updateAllDeps()`. `setDepState()` applies `.ctrl-disabled` and auto-unchecks disabled toggles.
 
