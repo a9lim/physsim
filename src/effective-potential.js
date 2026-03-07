@@ -52,6 +52,7 @@ export default class EffectivePotentialPlot {
         const yuk = physics.yukawaEnabled;
         const softSq = physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
         const axMod = sel.axMod;
+        const yukMod = sel.yukMod;
 
         // Magnetic/GM moments (cached per-substep in computeAllForces)
         const selMu = sel.magMoment;
@@ -68,19 +69,19 @@ export default class EffectivePotentialPlot {
             const ri = rMin + t * (rMax - rMin);
             this._rBuf[i] = ri;
             this._vBuf[i] = this._vEff(ri, sel, ref, mu, Lz, grav, coul, mag, gm, yuk,
-                softSq, axMod, selMu, refMu, selL, refL, physics);
+                softSq, axMod, yukMod, selMu, refMu, selL, refL, physics);
         }
 
         // Current position on curve
         this.currentR = r;
         this.currentV = this._vEff(r, sel, ref, mu, Lz, grav, coul, mag, gm, yuk,
-            softSq, axMod, selMu, refMu, selL, refL, physics);
+            softSq, axMod, yukMod, selMu, refMu, selL, refL, physics);
         this._valid = true;
         this._rMin = rMin;
         this._rMax = rMax;
     }
 
-    _vEff(r, sel, ref, mu, Lz, grav, coul, mag, gm, yuk, softSq, axMod, selMu, refMu, selL, refL, physics) {
+    _vEff(r, sel, ref, mu, Lz, grav, coul, mag, gm, yuk, softSq, axMod, yukMod, selMu, refMu, selL, refL, physics) {
         const rEff = Math.sqrt(r * r + softSq);
         const invR = 1 / rEff;
         const invR3 = invR * invR * invR;
@@ -102,8 +103,8 @@ export default class EffectivePotentialPlot {
         // GM dipole: -L₁L₂/r³
         if (gm) v -= selL * refL * invR3;
 
-        // Yukawa: -g²m₁m₂·exp(-μr)/r
-        if (yuk) v -= YUKAWA_COUPLING * sel.mass * ref.mass * Math.exp(-physics.yukawaMu * r) * invR;
+        // Yukawa: -g²m₁m₂·exp(-μr)/r (with PQ modulation)
+        if (yuk) v -= YUKAWA_COUPLING * yukMod * sel.mass * ref.mass * Math.exp(-physics.yukawaMu * r) * invR;
 
         return v;
     }

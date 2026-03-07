@@ -26,11 +26,11 @@ src/
   ui.js                  529 lines  setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
   renderer.js            528 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
   forces.js              474 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
-  presets.js             665 lines  PRESETS (18 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
+  presets.js             694 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   reference.js           690 lines  REFERENCE object: physics reference content (KaTeX math)
   scalar-field.js        392 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
   higgs-field.js         206 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
-  axion-field.js         184 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, EM modulation
+  axion-field.js         217 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, PQ pseudoscalar coupling, EM + Yukawa modulation
   quadtree.js            274 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard
   input.js               270 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
   signal-delay.js        255 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
@@ -41,7 +41,7 @@ src/
   energy.js              160 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin, field energies
   stats-display.js       131 lines  StatsDisplay: energy/momentum/drift DOM updates (x100 display scale)
   config.js              131 lines  Named constants, spawnOffset(), kerrNewmanRadius() helpers, pion/field excitation constants
-  particle.js            127 lines  Particle: pos, vel, w, angw, baseMass, antimatter, cached magMoment/angMomentum, 11 force Vec2s, axMod, _yukawaRadAccum, history, creationTime/deathTime/_deathMass/_deathAngVel
+  particle.js            128 lines  Particle: pos, vel, w, angw, baseMass, antimatter, cached magMoment/angMomentum, 11 force Vec2s, axMod, _yukawaRadAccum, history, creationTime/deathTime/_deathMass/_deathAngVel
   phase-plot.js          117 lines  PhasePlot: r vs v_r sidebar canvas (512-sample ring buffer)
   collisions.js          138 lines  handleCollisions(), resolveMerge(), antimatter annihilation, baseMass conservation, relativistic merge KE tracking, returns removed particles
   topology.js            112 lines  TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
@@ -208,11 +208,18 @@ Independent toggle. Mexican hat potential `V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda
 
 ### Axion Field
 
-Requires Coulomb. Quadratic potential `V(a) = 1/2 m_a^2 a^2`. No symmetry breaking (vacuum at a=0). Uses **scalar** `aF^2` coupling (not pseudoscalar `aFF~` which vanishes in 2D).
+Independent toggle; requires Coulomb or Yukawa. Quadratic potential `V(a) = 1/2 m_a^2 a^2`. No symmetry breaking (vacuum at a=0). Two independent coupling channels, gated by their respective force toggles:
 
-- **Source**: Charged particles deposit `g * q^2` (g = AXION_COUPLING = 0.05). Neutral particles don't interact.
-- **EM modulation**: `alpha_eff(x) = alpha * (1 + g*a(x))`. Per-particle `p.axMod` interpolated from local field. Clamped >= 0 to prevent EM force sign reversal. Used in `pairForce()` and `pairPE()`.
+**Scalar EM coupling (aF², active when Coulomb on)**: Same for matter and antimatter. The QCD pseudoscalar `aFF~` vanishes in 2D.
+- **Source**: `g * q^2` (g = AXION_COUPLING = 0.05).
+- **EM modulation**: `alpha_eff(x) = alpha * (1 + g*a(x))`. Per-particle `p.axMod` interpolated from local field. Clamped >= 0. Set to 1 when Coulomb off. Used in `pairForce()` and `pairPE()`.
 - **Gradient force**: `F = +g * q^2 * grad(a)`. Into `forceAxion`.
+
+**Pseudoscalar PQ coupling (aGG~ analog, active when Yukawa on)**: Peccei-Quinn mechanism. Flips sign under CP (matter vs antimatter).
+- **Source**: `±g * m` (positive for matter, negative for antimatter).
+- **Yukawa modulation**: `g^2_eff = g^2 * yukMod`. Per-particle `p.yukMod`: `1 + g*a` for matter, `1 - g*a` for antimatter. Clamped >= 0. Set to 1 when Yukawa off. Used in `pairForce()`, `pairPE()`, `compute1PNPairwise()` (Scalar Breit), `_vEff()`.
+- **Gradient force**: `F = ±g * m * grad(a)`. Into `forceAxion`.
+- At vacuum (a=0): `yukMod = 1` for both → CP conserved (PQ solution).
 - **Field equation**: `d^2 a/dt^2 = laplacian(a) - m_a^2 * a - g*m_a * d(a)/dt + source/cellArea`. Damping: zeta = g/2, Q = 1/g, so g*Q = 1 (resonant buildup matches coupling strength).
 - **Boundary**: Same as Higgs via `ScalarField._nb()`, but Dirichlet uses a=0 (not a=1).
 - **Energy**: delegates to `_fieldEnergy()` with quadratic potential `V(a) = 1/2 m_a^2 a^2`. No offset needed.
@@ -359,9 +366,10 @@ Forces:                        Physics:
     (+ tidal locking, always)      -> Black Hole      [+Gravity, locks collision to Merge]
   Coulomb                        Spin-Orbit           [requires Magnetic or GM]
     -> Magnetic                  Radiation             [requires Gravity, Coulomb, or Yukawa]
-    -> Axion                       Larmor + EM quad   [when Coulomb on]
-  Yukawa               [independent]  GW quad         [when Gravity on]
-                                       Pion emission  [when Yukawa on]
+  Yukawa               [independent]   Larmor + EM quad   [when Coulomb on]
+  Axion                [requires Coulomb or Yukawa]    GW quad [when Gravity on]
+    aF² channel (when Coulomb on)  Pion emission      [when Yukawa on]
+    PQ channel  (when Yukawa on)
   Higgs                [independent]
 Disintegration                   [requires Gravity, locks collision to Merge]
 Barnes-Hut                       [independent]
@@ -380,7 +388,7 @@ Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit
 
 Topbar: Home | Brand "No-Hair" | Pause/Step/Reset/Save/Load | Antimatter | Theme | Panel toggle.
 
-18 presets in 4 `<optgroup>` categories: Gravity (6), Electromagnetism (3), Exotic (7), Cosmological (2). First 9 via keyboard `1`-`9`. Sim speed range 1-128, default 64.
+19 presets in 4 `<optgroup>` categories: Gravity (6), Electromagnetism (3), Exotic (8), Cosmological (2). First 9 via keyboard `1`-`9`. Sim speed range 1-128, default 64.
 
 ## Renderer
 
@@ -428,9 +436,11 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 - `baseMass` must be saved/loaded and proportionally scaled wherever `mass` is modified
 - `_fieldEnergy()` in ScalarField base handles KE+gradient+potential grid integration; subclasses pass potential lambda
 - Higgs `energy()` shifts potential by +mu^2/4 so V(1)=0
-- Higgs/Axion field reset on preset load and clear; Higgs mass -> baseMass on toggle-off; Axion axMod -> 1 on toggle-off
+- Higgs/Axion field reset on preset load and clear; Higgs mass -> baseMass on toggle-off; Axion axMod/yukMod -> 1 on toggle-off
 - Axion `p.axMod` is per-particle (interpolated from local field), not global -- used in `pairForce()`/`pairPE()`
 - Axion `p.axMod` clamped >= 0 -- without this, EM force sign reversal causes runaway acceleration
+- Axion `p.yukMod` is per-particle PQ modulation for Yukawa -- `1 + g*a` for matter, `1 - g*a` for antimatter, clamped >= 0
+- PQ source/force use `±g*m` (sign flip for antimatter); EM source/force use `g*q²` (same for both) -- combined into single `coupling` in `applyForces()`
 - `magMoment`/`angMomentum` cache reflects previous `computeAllForces()` state -- consistent with B-field gradients used in same substep
 - Ghost particles must carry `magMoment`/`angMomentum` fields (set in `_addGhost()`)
 - Both Photon and Pion use shared `treeDeflectBoson()` from `boson-utils.js` for BH tree lensing; fall back to O(N) when pool is null or root < 0

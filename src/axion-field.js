@@ -4,14 +4,19 @@
 // m_a is the free parameter (slider 0.01-0.25, default 0.05)
 // Extends ScalarField for shared PQS infrastructure.
 //
-// Uses the scalar coupling L_int = -(1+g·a)F²/4, which makes α position-dependent:
-//   α_eff(x) = α·(1 + a(x))
-// The QCD axion's pseudoscalar aFF̃ ∝ E·B coupling vanishes in 2D (E in-plane, B⊥).
-// The scalar aF² coupling is the simplest ALP interaction that works in 2D and
-// correctly modifies all EM forces via a local coupling constant.
+// Two couplings:
 //
-// Source: g·q² (regularized EM self-energy from aF² vertex, g = AXION_COUPLING).
-// Gradient force: F = -g·q²·∇a. EM modulation: α_eff = α·(1 + g·a).
+// 1. Scalar EM coupling (aF²): L_int = -(1+g·a)F²/4
+//    Makes α position-dependent: α_eff(x) = α·(1 + g·a(x))
+//    Source: g·q². Gradient force: F = +g·q²·∇a. Same for matter and antimatter.
+//    The QCD axion's pseudoscalar aFF̃ ∝ E·B vanishes in 2D (E in-plane, B⊥).
+//
+// 2. Pseudoscalar PQ coupling (aGG̃ analog, when Yukawa enabled):
+//    Peccei-Quinn mechanism — flips sign under CP (matter vs antimatter).
+//    Source: ±g·m (positive for matter, negative for antimatter).
+//    Gradient force: F = ±g·m·∇a. Yukawa modulation: g²_eff = g²·yukMod.
+//    yukMod = 1 + g·a for matter, 1 - g·a for antimatter.
+//    At vacuum (a=0): yukMod = 1 for both → CP conserved (PQ solution).
 
 import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, EPSILON } from './config.js';
 import ScalarField, { bcFromString } from './scalar-field.js';
@@ -33,7 +38,7 @@ export default class AxionField extends ScalarField {
     }
 
     /** Evolve field one timestep using symplectic Euler (kick-drift). */
-    update(dt, particles, boundaryMode, topoConst, domainW, domainH) {
+    update(dt, particles, boundaryMode, topoConst, domainW, domainH, coulombEnabled = false, yukawaEnabled = false) {
         if (dt <= 0) return;
         const field = this.field;
         const fieldDot = this.fieldDot;
@@ -50,10 +55,10 @@ export default class AxionField extends ScalarField {
 
         const bcMode = bcFromString(boundaryMode);
 
-        // PQS source deposition: charged particles source the field
+        // PQS source deposition: charged particles (EM) + massive particles (PQ)
         const src = this._source;
         src.fill(0);
-        this._depositSources(particles, invCellW, invCellH, bcMode, topoConst);
+        this._depositSources(particles, invCellW, invCellH, bcMode, topoConst, coulombEnabled, yukawaEnabled);
         const cellArea = cellW * cellH;
         const invCellArea = cellArea > EPSILON ? 1 / cellArea : 0;
 
@@ -95,25 +100,39 @@ export default class AxionField extends ScalarField {
         this._computeGridGradients(bcMode, topoConst, 0);
     }
 
-    /** PQS deposition of g·q² as scalar source (g = AXION_COUPLING). */
-    _depositSources(particles, invCellW, invCellH, bcMode, topoConst) {
+    /** PQS source deposition.
+     *  EM (scalar aF², when Coulomb on): g·q² — same sign for matter and antimatter.
+     *  PQ (pseudoscalar aGG̃, when Yukawa on): ±g·m — flips sign for antimatter (CP violation).
+     */
+    _depositSources(particles, invCellW, invCellH, bcMode, topoConst, coulombEnabled = false, yukawaEnabled = false) {
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            const qSq = p.charge * p.charge;
-            if (qSq < EPSILON) continue;
-            this._depositPQS(this._source, p.pos.x, p.pos.y, AXION_COUPLING * qSq, invCellW, invCellH, bcMode, topoConst);
+            let s = 0;
+            if (coulombEnabled) {
+                const qSq = p.charge * p.charge;
+                if (qSq > EPSILON) s += AXION_COUPLING * qSq;
+            }
+            if (yukawaEnabled && p.mass > EPSILON) {
+                s += AXION_COUPLING * p.mass * (p.antimatter ? -1 : 1);
+            }
+            if (s === 0) continue;
+            this._depositPQS(this._source, p.pos.x, p.pos.y, s, invCellW, invCellH, bcMode, topoConst);
         }
     }
 
     /** Interpolate local axion field value at each particle position.
-     *  Sets p.axMod = 1 + g·a(x) where g = AXION_COUPLING.
+     *  Sets p.axMod = 1 + g·a(x) when Coulomb on (scalar EM coupling).
+     *  Sets p.yukMod = 1 ± g·a(x) when Yukawa on (pseudoscalar PQ coupling).
      */
-    interpolateAxMod(particles, domainW, domainH) {
+    interpolateAxMod(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) {
-            for (let i = 0; i < particles.length; i++) particles[i].axMod = 1;
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].axMod = 1;
+                particles[i].yukMod = 1;
+            }
             return;
         }
         const invCellW = 1 / cellW;
@@ -122,16 +141,29 @@ export default class AxionField extends ScalarField {
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             const aLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH);
-            // axMod = 1 + g·a, clamped >= 0 (can screen EM to zero but never reverse)
             const ga = AXION_COUPLING * aLocal;
-            p.axMod = ga > -1 ? 1 + ga : 0;
+            // axMod: scalar EM coupling (only meaningful when Coulomb on)
+            if (coulombEnabled) {
+                p.axMod = ga > -1 ? 1 + ga : 0;
+            } else {
+                p.axMod = 1;
+            }
+            // yukMod: pseudoscalar PQ coupling, flips sign for antimatter
+            if (yukawaEnabled) {
+                const pq = (p.antimatter ? -1 : 1) * ga;
+                p.yukMod = pq > -1 ? 1 + pq : 0;
+            } else {
+                p.yukMod = 1;
+            }
         }
     }
 
-    /** Apply gradient force: F = +g·q² * grad(a) where g = AXION_COUPLING.
+    /** Apply gradient forces from axion field.
+     *  EM (scalar aF², when Coulomb on): F = +g·q²·∇a — same for matter and antimatter.
+     *  PQ (pseudoscalar aGG̃, when Yukawa on): F = ±g·m·∇a — flips for antimatter.
      *  PQS-interpolated grid gradients give C² continuous forces.
      */
-    applyForces(particles, domainW, domainH) {
+    applyForces(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
@@ -141,14 +173,21 @@ export default class AxionField extends ScalarField {
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            const qSq = p.charge * p.charge;
-            if (qSq < EPSILON) continue;
+            let coupling = 0;
+            if (coulombEnabled) {
+                const qSq = p.charge * p.charge;
+                if (qSq > EPSILON) coupling += qSq;
+            }
+            if (yukawaEnabled && p.mass > EPSILON) {
+                coupling += p.mass * (p.antimatter ? -1 : 1);
+            }
+            if (coupling === 0) continue;
 
             const grad = this.gradient(p.pos.x, p.pos.y, invCellW, invCellH);
             if (!grad) continue;
 
-            const forceX = AXION_COUPLING * qSq * grad.x;
-            const forceY = AXION_COUPLING * qSq * grad.y;
+            const forceX = AXION_COUPLING * coupling * grad.x;
+            const forceY = AXION_COUPLING * coupling * grad.y;
 
             p.force.x += forceX;
             p.force.y += forceY;
