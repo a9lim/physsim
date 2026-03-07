@@ -334,10 +334,17 @@ export const REFERENCE = {
 <p>$$\\alpha_{\\text{eff}}(\\mathbf{x}) = \\alpha\\left(1 + a(\\mathbf{x})\\right)$$</p>
 <p>All electromagnetic forces — Coulomb, magnetic dipole, Biot-Savart — use the <em>local</em> coupling evaluated at each particle's position. Spatial variation in the field creates regions of stronger and weaker EM interaction.</p>
 
-<h3>Source and Gradient Force</h3>
+<h3>Source and Gradient Force (EM)</h3>
 <p>From the $aF^2$ vertex, the axion field equation acquires a source proportional to the local EM field energy. For point charges, the dominant contribution is the Coulomb self-energy ($\\propto q^2$), which is what particles deposit via PQS (cubic B-spline) interpolation. The gradient force arises from the position-dependence of this self-energy in the axion background:</p>
-<p>$$\\text{source} = g\\,q^2, \\qquad \\mathbf{F}_a = +g\\,q^2\\,\\nabla a$$</p>
-<p>Neutral particles neither source nor feel the axion field. The coupling $g = 0.05$ compensates for the field's high quality factor ($Q = 1/g = 20$); in nature, $g \\sim \\alpha/f_a$ is fantastically small.</p>
+<p>$$\\text{source}_{\\text{EM}} = g\\,q^2, \\qquad \\mathbf{F}_{\\text{EM}} = +g\\,q^2\\,\\nabla a$$</p>
+<p>The coupling $g = 0.05$ compensates for the field's high quality factor ($Q = 1/g = 20$); in nature, $g \\sim \\alpha/f_a$ is fantastically small.</p>
+
+<h3>Peccei\u2013Quinn Mechanism (Yukawa Coupling)</h3>
+<p>When the Yukawa potential is also enabled, the axion field additionally couples to the strong sector via the Peccei\u2013Quinn mechanism. Unlike the scalar EM coupling (same for matter and antimatter), this is a <em>pseudoscalar</em> coupling that flips sign under CP conjugation &mdash; the key signature that distinguishes matter from antimatter:</p>
+<p>$$\\text{source}_{\\text{PQ}} = \\pm g\\,m, \\qquad \\mathbf{F}_{\\text{PQ}} = \\pm g\\,m\\,\\nabla a$$</p>
+<p>where $+$ is for matter and $-$ for antimatter. The Yukawa coupling is locally modulated:</p>
+<p>$$g^2_{\\text{eff}} = g^2\\left(1 + ga\\right) \\text{ (matter)}, \\qquad g^2\\left(1 - ga\\right) \\text{ (antimatter)}$$</p>
+<p>At the vacuum $a = 0$, both are identical &mdash; CP is conserved. This is the Peccei\u2013Quinn solution to the strong CP problem: the axion field dynamically relaxes to zero, eliminating the CP-violating parameter $\\theta$. When the field is displaced from vacuum (by particle sources, field excitations, or initial conditions), matter and antimatter experience different nuclear binding strengths.</p>
 
 <h3>Detection Experiments</h3>
 <p>Several major experiments search for axion-photon conversion:</p>
@@ -348,7 +355,7 @@ export const REFERENCE = {
 </ul>
 
 <h3>Field Visualization</h3>
-<p>The field overlay shows $a > 0$ in blue and $a < 0$ in red, with opacity proportional to field amplitude. Watch how charged particles source field excitations that propagate outward, oscillating at frequency $m_a$, and modulate the local EM coupling strength.</p>
+<p>The field overlay shows $a > 0$ in blue and $a < 0$ in red, with opacity proportional to field amplitude. Watch how particles source field excitations that propagate outward, oscillating at frequency $m_a$. With Coulomb on, the field modulates local EM coupling. With Yukawa on, the Peccei\u2013Quinn coupling creates CP-violating asymmetry between matter and antimatter.</p>
 `,
     },
 

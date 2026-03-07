@@ -411,9 +411,38 @@ export const PRESETS = {
         },
     },
 
+    pecceiQuinn: {
+        name: 'Peccei\u2013Quinn',
+        desc: 'CP violation \u2014 axion field makes Yukawa bind matter and antimatter differently',
+        toggles: {
+            gravity: true, coulomb: false, magnetic: false, gravitomag: false,
+            relativity: false, onepn: false, blackhole: false,
+            radiation: false, spinorbit: false, disintegration: false,
+            barneshut: false, yukawa: true, axion: true, expansion: false, higgs: false,
+        },
+        settings: { collision: 'bounce', boundary: 'bounce', speed: 64, axionMass: 0.05 },
+        visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
+        spawn(sim) {
+            const cx = sim.domainW / 2, cy = sim.domainH / 2;
+            const sep = 24, n = 4, r = 10;
+            // Matter cluster (left)
+            for (let i = 0; i < n; i++) {
+                const angle = (TWO_PI * i) / n;
+                sim.addParticle(cx - sep + Math.cos(angle) * r, cy + Math.sin(angle) * r, 0, 0,
+                    { mass: 4, charge: 0, spin: 0.5 });
+            }
+            // Antimatter cluster (right) — mirror image
+            for (let i = 0; i < n; i++) {
+                const angle = (TWO_PI * i) / n;
+                sim.addParticle(cx + sep + Math.cos(angle) * r, cy + Math.sin(angle) * r, 0, 0,
+                    { mass: 4, charge: 0, spin: 0.5, antimatter: true });
+            }
+        },
+    },
+
     phasetransition: {
         name: 'Phase Transition',
-        desc: 'High-energy particles restore the Higgs symmetry — watch mass vanish',
+        desc: 'High-energy particles restore the Higgs symmetry \u2014 watch mass vanish',
         toggles: {
             gravity: true, coulomb: false, magnetic: false, gravitomag: false,
             relativity: false, onepn: false, blackhole: false,
@@ -509,7 +538,7 @@ export const PRESETS = {
 export const PRESET_ORDER = [
     'kepler', 'precession', 'inspiral', 'tidallock', 'roche', 'hawking',
     'atom', 'bremsstrahlung', 'magnetic',
-    'nucleus', 'axion', 'pionexchange', 'higgs', 'higgsboson', 'axionburst', 'phasetransition',
+    'nucleus', 'axion', 'pionexchange', 'higgs', 'higgsboson', 'axionburst', 'pecceiQuinn', 'phasetransition',
     'galaxy', 'expansion',
 ];
 

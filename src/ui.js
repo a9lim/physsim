@@ -161,7 +161,7 @@ export function setupUI(sim) {
         ['magnetic-toggle', () => !tEl['coulomb-toggle'].checked],
         ['radiation-toggle', () => !tEl['gravity-toggle'].checked && !tEl['coulomb-toggle'].checked && !tEl['yukawa-toggle'].checked],
         ['disintegration-toggle', () => !tEl['gravity-toggle'].checked],
-        ['axion-toggle', () => !tEl['coulomb-toggle'].checked],
+        ['axion-toggle', () => !tEl['coulomb-toggle'].checked && !tEl['yukawa-toggle'].checked],
         ['blackhole-toggle', () => !tEl['relativity-toggle'].checked || !tEl['gravity-toggle'].checked],
         // Children of toggles that may have been disabled above
         ['onepn-toggle', () => !tEl['relativity-toggle'].checked || (!tEl['magnetic-toggle'].checked && !tEl['gravitomag-toggle'].checked && !tEl['yukawa-toggle'].checked)],
@@ -229,9 +229,9 @@ export function setupUI(sim) {
             if (id === 'higgs-toggle' && !tEl[id].checked) {
                 for (const p of sim.particles) { p.mass = p.baseMass; p.updateColor(); }
             }
-            // Axion: reset axMod to 1 and clear field when toggled off
+            // Axion: reset axMod/yukMod to 1 and clear field when toggled off
             if (id === 'axion-toggle' && !tEl[id].checked) {
-                for (const p of sim.particles) p.axMod = 1;
+                for (const p of sim.particles) { p.axMod = 1; p.yukMod = 1; }
                 if (sim.axionField) sim.axionField.reset();
             }
             // BH toggle changes radius calculation (Kerr-Newman vs cbrt)
@@ -460,7 +460,7 @@ export function setupUI(sim) {
         blackhole: { title: 'Black Hole', body: 'Kerr\u2013Newman horizons ($r_+ = M+\\sqrt{M^2-a^2-Q^2}$), ergospheres, and Hawking radiation. Extremal BHs stop radiating. Requires Relativity + Gravity.' },
         onepn: { title: '1PN Corrections', body: '$O(v^2/c^2)$ post-Newtonian terms: EIH perihelion precession, Darwin EM corrections, Bazanski cross-terms, scalar Breit (Yukawa). Requires Relativity.' },
         yukawa: { title: 'Yukawa', body: 'Screened $e^{-\\mu r}/r$ potential \u2014 gravity-like at short range, vanishes exponentially beyond $1/\\mu$. Models massive-mediator forces.' },
-        axion: { title: 'Axion Field', body: 'Axion-like scalar field with $V(a)=\\frac{1}{2}m_a^2 a^2$. Scalar $aF^2$ coupling makes $\\alpha_{\\text{eff}}=\\alpha(1+ga)$ position-dependent. Source $\\propto gq^2$, gradient force $F=-gq^2\\nabla a$. Requires Coulomb.' },
+        axion: { title: 'Axion Field', body: 'Axion-like scalar field with $V(a)=\\frac{1}{2}m_a^2 a^2$. Scalar $aF^2$ coupling makes $\\alpha_{\\text{eff}}=\\alpha(1+ga)$ position-dependent (requires Coulomb). When Yukawa is also on, the Peccei\u2013Quinn mechanism adds a pseudoscalar coupling that flips for antimatter: matter sources $+gm$, antimatter sources $-gm$, and Yukawa is modulated as $g^2_{\\text{eff}} = g^2(1 \\pm ga)$. At vacuum ($a=0$), CP is conserved.' },
         expansion: { title: 'Expansion', body: 'Hubble flow ($v_H = Hr$) from domain center. Bound systems resist expansion; unbound particles drift apart.' },
         higgs: { title: 'Higgs Field', body: 'Scalar field with Mexican hat potential. Particles acquire mass from local field value ($m = m_0|\\phi|$). High temperature restores symmetry \u2014 particles become massless.' },
         external: { title: 'External Fields', body: '<b>Gravity</b> \u2014 uniform $\\mathbf{F}=m\\mathbf{g}$. <b>Electric</b> \u2014 uniform $\\mathbf{F}=q\\mathbf{E}$. <b>Magnetic $B_z$</b> \u2014 cyclotron motion via Boris rotation.' },
