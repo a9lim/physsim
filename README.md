@@ -91,7 +91,7 @@ Zero-dependency vanilla JavaScript with Canvas 2D rendering. All physics and ren
 ```
 main.js                     ~393 lines  Simulation class, fixed-timestep loop, Higgs field init, pion update loop, window.sim
 index.html                  ~511 lines  UI structure, tab system, reference overlay, field sliders
-styles.css                  ~235 lines  Project-specific CSS overrides
+styles.css                  ~245 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                     18 lines  Project color tokens (extends shared-tokens.js)
 src/
   integrator.js            ~1306 lines  Physics: adaptive Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW, expansion, external fields, Hertz bounce
@@ -102,7 +102,7 @@ src/
   scalar-field.js           ~270 lines  ScalarField base class: PQS grid, topology-aware deposition, field excitations
   higgs-field.js            ~235 lines  HiggsField extends ScalarField: Mexican hat potential, mass modulation, phase transitions
   axion-field.js            ~214 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, EM modulation
-  reference.js              ~638 lines  Extended physics reference (KaTeX math)
+  reference.js              ~697 lines  Extended physics reference (KaTeX math, pion/field excitation entries)
   quadtree.js               ~279 lines  SoA pool-based Barnes-Hut tree (zero GC)
   input.js                  ~262 lines  Mouse/touch, Place/Shoot/Orbit spawn modes
   signal-delay.js            249 lines  Light-cone solver on circular history buffers
