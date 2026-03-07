@@ -17,30 +17,30 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 ## File Map
 
 ```
-main.js                  414 lines  Simulation class, emitPhotonBurst(), fixed-timestep loop, save/load, pair production, pion loop, deadParticles cleanup, window.sim
+main.js                  417 lines  Simulation class, emitPhotonBurst(), fixed-timestep loop, save/load, pair production, pion loop, deadParticles cleanup, window.sim
 index.html               511 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders, antimatter button
 styles.css               245 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                 18 lines  Project color tokens (particle hues, spin ring colors)
 src/
-  integrator.js         1349 lines  Physics class: Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields, _retireParticle
+  integrator.js         1381 lines  Physics class: Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields, _retireParticle
   ui.js                  529 lines  setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
-  renderer.js            530 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
-  forces.js              496 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
+  renderer.js            528 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
+  forces.js              474 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
   presets.js             665 lines  PRESETS (18 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   reference.js           690 lines  REFERENCE object: physics reference content (KaTeX math)
-  scalar-field.js        345 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
-  higgs-field.js         203 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
-  axion-field.js         181 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, EM modulation
-  quadtree.js            280 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard
+  scalar-field.js        392 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
+  higgs-field.js         206 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
+  axion-field.js         184 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, EM modulation
+  quadtree.js            274 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard
   input.js               270 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
   signal-delay.js        255 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
   heatmap.js             248 lines  Heatmap: 64x64 potential field overlay, mode selector, signal-delayed positions, dead particle contributions, force-toggle-aware
   effective-potential.js 203 lines  EffectivePotentialPlot: V_eff(r) sidebar canvas, auto-scaling
   save-load.js           205 lines  saveState(), loadState(), downloadState(), uploadState(), quickSave/Load(), baseMass persistence
-  potential.js           152 lines  computePE(), treePE(), pairPE() (7 PE terms)
-  energy.js              150 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin, field energies
+  potential.js           163 lines  computePE(), treePE(), pairPE() (7 PE terms)
+  energy.js              160 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin, field energies
   stats-display.js       131 lines  StatsDisplay: energy/momentum/drift DOM updates (x100 display scale)
-  config.js              136 lines  Named constants, spawnOffset(), kerrNewmanRadius() helpers, pion/field excitation constants
+  config.js              131 lines  Named constants, spawnOffset(), kerrNewmanRadius() helpers, pion/field excitation constants
   particle.js            127 lines  Particle: pos, vel, w, angw, baseMass, antimatter, cached magMoment/angMomentum, 11 force Vec2s, axMod, _yukawaRadAccum, history, creationTime/deathTime/_deathMass/_deathAngVel
   phase-plot.js          117 lines  PhasePlot: r vs v_r sidebar canvas (512-sample ring buffer)
   collisions.js          138 lines  handleCollisions(), resolveMerge(), antimatter annihilation, baseMass conservation, relativistic merge KE tracking, returns removed particles
@@ -48,7 +48,7 @@ src/
   vec2.js                 61 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist, static sub
   boson-utils.js          58 lines  treeDeflectBoson(): shared BH tree walk for gravitational lensing of photons and pions
   photon.js               45 lines  Photon: pos, vel, energy, lifetime, type ('em'/'grav'), gravitational lensing via boson-utils
-  pion.js                 79 lines  Pion: massive Yukawa force carrier, proper velocity, (1+v^2) GR deflection, decay -> photons
+  pion.js                 84 lines  Pion: massive Yukawa force carrier, proper velocity, (1+v^2) GR deflection, decay -> photons
   relativity.js           22 lines  angwToAngVel(), setVelocity()
 ```
 
@@ -249,7 +249,7 @@ Quadtree overlap query after photon absorption. Transfers momentum and charge (p
 
 Merge collisions deposit Gaussian wave packets into active scalar fields via `ScalarField.depositExcitation()`. The existing Klein-Gordon wave equation propagates them naturally.
 
-- **Trigger**: KE lost in inelastic merge (`keBefore - keAfter`), tracked by `handleCollisions()` returning `{ annihilations, merges }`.
+- **Trigger**: KE lost in inelastic merge (`keBefore - keAfter`), tracked by `handleCollisions()` returning `{ annihilations, merges, removed }`.
 - **Amplitude**: `MERGE_EXCITATION_SCALE * sqrt(keLost)` (MERGE_EXCITATION_SCALE = 0.5).
 - **Shape**: Gaussian bump deposited into `fieldDot` array with `sigma = FIELD_EXCITATION_SIGMA` (2 grid cells), 3-sigma cutoff.
 - **Higgs excitations**: Merge energy excites oscillations around VEV=1 ("Higgs boson" analog).
@@ -271,13 +271,14 @@ NOT Newton's 3rd law. Velocity-Verlet: stores `_f1pnOld` before drift, recompute
 
 ### Radiation
 
-Requires Gravity or Coulomb. Single toggle controls three mechanisms:
+Requires Gravity, Coulomb, or Yukawa. Single toggle controls four mechanisms:
 
-- **Larmor dipole** (requires Coulomb): Landau-Lifshitz force. Jerk is hybrid: analytical for gravity+Coulomb, numerical backward difference for residual. Power-dissipation terms only active with relativity on. Clamped: `|F_rad| <= 0.5 * |F_ext|`.
+- **Larmor dipole** (requires Coulomb): Landau-Lifshitz force. Jerk is hybrid: analytical for gravity+Coulomb+Yukawa, numerical backward difference for residual. Power-dissipation terms only active with relativity on. Clamped: `|F_rad| <= 0.5 * |F_ext|`.
 - **EM quadrupole** (requires Coulomb): `P = (1/180)|d^3 Q_ij/dt^3|^2`. Emits photons (type: 'em').
 - **GW quadrupole** (requires Gravity): `P = (1/5)|d^3 I_ij/dt^3|^2`. Emits gravitons (type: 'grav', rendered red).
+- **Pion emission / scalar Larmor** (requires Yukawa): `P = g^2 * F_yuk^2 / 3`. Emits pions (see Pion section).
 
-Both quadrupole types use TT-projected angular emission via rejection sampling. Photon absorption via quadtree query (self-absorption guard: age < 3).
+Photon quadrupole types use TT-projected angular emission via rejection sampling. Photon absorption via quadtree query (self-absorption guard: age < 3).
 
 ### Black Hole Mode
 
@@ -328,6 +329,10 @@ All GEM interactions are **attractive** (gravity has one sign of "charge"):
 - Frame-drag torque: positive coefficient drives spins toward co-rotation
 
 Do NOT flip these signs.
+
+### Angular Velocity Convention (Y-Down Canvas)
+
+Canvas uses y-down coordinates. The 2D cross product `rx*vy - ry*vx` gives positive for clockwise rotation on screen. All angular quantities follow this convention: **positive angVel/angw = clockwise on screen**. Torque arcs and spin rings in the renderer use negated direction to convert from this convention to the canvas `arc()` anticlockwise parameter.
 
 ## Energy, PE & Collisions
 
