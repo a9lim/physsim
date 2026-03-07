@@ -3,7 +3,7 @@
 // Unlike Photon (massless, |v|=c), pions travel at v<c with proper velocity w.
 
 import Vec2 from './vec2.js';
-import { BOSON_SOFTENING_SQ } from './config.js';
+import { BOSON_SOFTENING_SQ, spawnOffset } from './config.js';
 import { treeDeflectBoson } from './boson-utils.js';
 
 export default class Pion {
@@ -70,7 +70,8 @@ export default class Pion {
                 : Math.atan2(this.vel.y, this.vel.x);
             const cosA = Math.cos(angle), sinA = Math.sin(angle);
             const ph = new Photon(
-                this.pos.x + cosA * 2, this.pos.y + sinA * 2,
+                this.pos.x + cosA * spawnOffset(Math.cbrt(this.mass)),
+                this.pos.y + sinA * spawnOffset(Math.cbrt(this.mass)),
                 cosA, sinA, ePerPh, -1
             );
             sim.photons.push(ph);
