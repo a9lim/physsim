@@ -19,7 +19,7 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 ```
 main.js                  393 lines  Simulation class, emitPhotonBurst(), fixed-timestep loop, save/load, pair production, pion loop, window.sim
 index.html               511 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders, antimatter button
-styles.css               235 lines  Project-specific CSS overrides
+styles.css               245 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                 18 lines  Project color tokens (particle hues, spin ring colors)
 src/
   integrator.js         1306 lines  Physics class: Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields
@@ -27,7 +27,7 @@ src/
   renderer.js            534 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
   forces.js              450 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa
   presets.js             665 lines  PRESETS (18 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
-  reference.js           638 lines  REFERENCE object: physics reference content (KaTeX math)
+  reference.js           697 lines  REFERENCE object: physics reference content (KaTeX math)
   scalar-field.js        270 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field excitations
   higgs-field.js         235 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
   axion-field.js         214 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, EM modulation
