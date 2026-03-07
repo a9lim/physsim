@@ -224,9 +224,13 @@ export function setupUI(sim) {
                 for (const p of sim.particles) { p.axMod = 1; p.yukMod = 1; }
                 if (sim.axionField) sim.axionField.reset();
             }
-            // BH toggle changes radius calculation (Kerr-Newman vs cbrt)
+            // BH toggle: Kerr-Newman radii; no hair — strip antimatter
             if (id === 'blackhole-toggle') {
-                for (const p of sim.particles) p.updateColor();
+                if (tEl[id].checked) {
+                    for (const p of sim.particles) { p.antimatter = false; p.updateColor(); }
+                } else {
+                    for (const p of sim.particles) p.updateColor();
+                }
             }
             updateAllDeps();
         });
@@ -445,7 +449,7 @@ export function setupUI(sim) {
         collision: { title: 'Collisions', body: '<b>Pass</b> \u2014 no contact. <b>Bounce</b> \u2014 Hertz elastic repulsion with friction. <b>Merge</b> \u2014 inelastic coalescence conserving mass, charge, and momentum.' },
         boundary: { title: 'Boundaries', body: '<b>Despawn</b> \u2014 removed at edges. <b>Loop</b> \u2014 periodic wrapping (opens topology selector). <b>Bounce</b> \u2014 elastic wall repulsion with friction.' },
         topology: { title: 'Topology', body: '<b>Torus</b> \u2014 normal wrapping. <b>Klein bottle</b> \u2014 y-wrap mirrors x (non-orientable). <b>RP\u00B2</b> \u2014 both axes flip (non-orientable).' },
-        blackhole: { title: 'Black Hole', body: 'Kerr\u2013Newman horizons ($r_+ = M+\\sqrt{M^2-a^2-Q^2}$), ergospheres, and Hawking radiation. Extremal BHs stop radiating. Requires Relativity + Gravity.' },
+        blackhole: { title: 'Black Hole', body: 'Kerr\u2013Newman horizons ($r_+ = M+\\sqrt{M^2-a^2-Q^2}$), ergospheres, and Hawking radiation. Extremal BHs stop radiating. No hair: antimatter distinction is erased. Requires Relativity + Gravity.' },
         onepn: { title: '1PN Corrections', body: '$O(v^2/c^2)$ post-Newtonian terms: EIH perihelion precession, Darwin EM corrections, Bazanski cross-terms, scalar Breit (Yukawa). Requires Relativity.' },
         yukawa: { title: 'Yukawa', body: 'Screened $e^{-\\mu r}/r$ potential \u2014 gravity-like at short range, vanishes exponentially beyond $1/\\mu$. Models massive-mediator forces.' },
         axion: { title: 'Axion Field', body: 'Quadratic potential ($V=\\frac{1}{2}m_a^2 a^2$) with scalar $aF^2$ EM coupling and pseudoscalar Peccei\u2013Quinn Yukawa coupling. Requires Coulomb or Yukawa.' },

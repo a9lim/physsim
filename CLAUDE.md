@@ -296,6 +296,7 @@ Photon quadrupole types use TT-projected angular emission via rejection sampling
 ### Black Hole Mode
 
 Toggle under Relativity (requires Gravity). Locks collision to Merge.
+- **No hair**: Antimatter distinction is erased. Toggling BH on converts all existing antimatter to matter. `addParticle()` blocks antimatter creation. Right-click spawns matter (not antimatter). Pair production disabled. Pion charged decay products forced to matter. Input handler uses simple left-click=select, right-click=delete.
 - **Kerr-Newman horizon**: `r+ = M + sqrt(M^2 - a^2 - Q^2)` where `a = INERTIA_K*r^2*|omega|`, naked singularity floor at `M*BH_NAKED_FLOOR`
 - **Ergosphere**: dashed ring at `r_ergo = M + sqrt(M^2 - a^2)` (visual only)
 - **Reduced softening**: BH_SOFTENING_SQ = 16
@@ -333,7 +334,7 @@ Toggle. `pos += H*(pos - center)*dt` (Hubble flow), `w *= (1 - H*dt)` (redshift)
 
 ### Antimatter & Pair Production
 
-`p.antimatter` boolean. Right-click spawns antimatter (with negated charge and spin). Left-click on antimatter deletes it; right-click on matter deletes it. Symmetric: same-type click selects, opposite-type click deletes. Matter+antimatter merge annihilates lesser mass, emits photons via `emitPhotonBurst()`. Pair production: photons with energy >= 0.5 near massive body (dist < 8) can produce matter+antimatter pair (prob 0.005/substep, min age 64 substeps, max 32 particles).
+`p.antimatter` boolean. Right-click spawns antimatter (with negated charge and spin). Left-click on antimatter deletes it; right-click on matter deletes it. Symmetric: same-type click selects, opposite-type click deletes. Matter+antimatter merge annihilates lesser mass, emits photons via `emitPhotonBurst()`. Pair production: photons with energy >= 0.5 near massive body (dist < 8) can produce matter+antimatter pair (prob 0.005/substep, min age 64 substeps, max 32 particles). **Black Hole mode disables all antimatter** (see Black Hole Mode section).
 
 ## Sign Conventions (IMPORTANT)
 
