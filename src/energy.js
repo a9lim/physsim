@@ -2,6 +2,7 @@
 // Three-pass accumulator: KE + momentum, angular momentum about COM, Darwin field corrections.
 
 import { INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ } from './config.js';
+import { getDelayedState } from './signal-delay.js';
 import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -76,43 +77,57 @@ export function computeEnergies(particles, physics, sim) {
     const topology = physics._topologyConst;
     const softeningSq = physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
 
+    const useDelay = relOn;
+    const simTime = physics.simTime || 0;
+
     if (magneticOn || gmOn) {
         for (let i = 0; i < n; i++) {
             const pi = particles[i];
             for (let j = i + 1; j < n; j++) {
                 const pj = particles[j];
+
+                let sx, sy, svx, svy;
+                if (useDelay) {
+                    if (pj.histCount < 2) continue;
+                    const ret = getDelayedState(pj, pi, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                    if (!ret) continue;
+                    sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
+                } else {
+                    sx = pj.pos.x; sy = pj.pos.y; svx = pj.vel.x; svy = pj.vel.y;
+                }
+
                 let dx, dy;
                 if (periodic) {
-                    minImage(pi.pos.x, pi.pos.y, pj.pos.x, pj.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                    minImage(pi.pos.x, pi.pos.y, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
                     dx = _miOut.x; dy = _miOut.y;
                 } else {
-                    dx = pj.pos.x - pi.pos.x; dy = pj.pos.y - pi.pos.y;
+                    dx = sx - pi.pos.x; dy = sy - pi.pos.y;
                 }
                 const rSq = dx * dx + dy * dy + softeningSq;
                 const invR = 1 / Math.sqrt(rSq);
                 const rx = dx * invR, ry = dy * invR;
-                const viDotVj = pi.vel.x * pj.vel.x + pi.vel.y * pj.vel.y;
+                const viDotVj = pi.vel.x * svx + pi.vel.y * svy;
                 const viDotR = pi.vel.x * rx + pi.vel.y * ry;
-                const vjDotR = pj.vel.x * rx + pj.vel.y * ry;
+                const vjDotR = svx * rx + svy * ry;
                 const velTerm = viDotVj + viDotR * vjDotR;
 
-                const svx = pi.vel.x + pj.vel.x, svy = pi.vel.y + pj.vel.y;
-                const svDotR = svx * rx + svy * ry;
+                const sumVx = pi.vel.x + svx, sumVy = pi.vel.y + svy;
+                const svDotR = sumVx * rx + sumVy * ry;
 
                 if (magneticOn) {
                     const qqInvR = pi.charge * pj.charge * invR * Math.sqrt(pi.axMod * pj.axMod);
                     if (emFieldEnergyOn) fieldEnergy -= 0.5 * qqInvR * velTerm;
                     const coeff = qqInvR * 0.5;
-                    fieldPx += coeff * (svx + rx * svDotR);
-                    fieldPy += coeff * (svy + ry * svDotR);
+                    fieldPx += coeff * (sumVx + rx * svDotR);
+                    fieldPy += coeff * (sumVy + ry * svDotR);
                 }
 
                 if (gmOn) {
                     const mmInvR = pi.mass * pj.mass * invR;
                     if (gmFieldEnergyOn) fieldEnergy += 0.5 * mmInvR * velTerm;
                     const coeff = mmInvR * 0.5;
-                    fieldPx -= coeff * (svx + rx * svDotR);
-                    fieldPy -= coeff * (svy + ry * svDotR);
+                    fieldPx -= coeff * (sumVx + rx * svDotR);
+                    fieldPy -= coeff * (sumVy + ry * svDotR);
                 }
 
                 // Bazanski cross-term field energy (suppressed when 1PN is on)

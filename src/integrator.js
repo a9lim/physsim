@@ -931,7 +931,7 @@ export default class Physics {
                         p.vel.y = p.w.y * invG;
                     }
                 }
-                compute1PNPairwise(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled, this.yukawaEnabled, this.yukawaMu);
+                compute1PNPairwise(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled, this.yukawaEnabled, this.yukawaMu, this.simTime);
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const halfDtOverM = halfDt * p.invMass;
@@ -1278,7 +1278,7 @@ export default class Physics {
 
         // PE once per frame, reusing last substep's tree
         this._lastRoot = lastRoot;
-        this.potentialEnergy = computePE(particles, toggles, this.pool, lastRoot, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst);
+        this.potentialEnergy = computePE(particles, toggles, this.pool, lastRoot, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst, relOn, this.simTime);
 
         // Reconstruct all display forces in a single fused loop
         {
@@ -1360,7 +1360,7 @@ export default class Physics {
     computePE(particles, root) {
         this._syncToggles();
         const toggles = this._toggles;
-        this.potentialEnergy = computePE(particles, toggles, this.pool, root >= 0 ? root : -1, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst);
+        this.potentialEnergy = computePE(particles, toggles, this.pool, root >= 0 ? root : -1, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst, this.relativityEnabled, this.simTime);
     }
 
     checkDisintegration(particles, lastRoot) {

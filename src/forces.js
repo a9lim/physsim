@@ -356,8 +356,9 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 /**
  * Recompute 1PN forces pairwise O(N²) for velocity-Verlet correction.
  * Called after drift to get F_1PN(new) for the correction kick.
+ * When signal delay is active, uses retarded source positions/velocities.
  */
-export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false, yukawaEnabled = false, yukawaMu = 0.05) {
+export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false, yukawaEnabled = false, yukawaMu = 0.05, simTime = 0) {
     const n = particles.length;
     for (let i = 0; i < n; i++) {
         particles[i].force1PN.x = particles[i].force1PN.y = 0;
@@ -370,18 +371,24 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
         for (let j = 0; j < n; j++) {
             if (i === j) continue;
             const o = particles[j];
+
+            // 1PN requires relativity, so signal delay is always active
+            if (o.histCount < 2) continue;
+            const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+            if (!ret) continue;
+            const sx = ret.x, sy = ret.y, svx = ret.vx, svy = ret.vy;
+
             let rx, ry;
             if (periodic) {
-                minImage(px, py, o.pos.x, o.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                minImage(px, py, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
                 rx = _miOut.x; ry = _miOut.y;
             } else {
-                rx = o.pos.x - px; ry = o.pos.y - py;
+                rx = sx - px; ry = sy - py;
             }
             const rSq = rx * rx + ry * ry + SOFTENING_SQ_VAL;
             const invRSq = 1 / rSq;
             const invR = Math.sqrt(invRSq);
             const r = 1 / invR;
-            const svx = o.vel.x, svy = o.vel.y;
             const nx = rx * invR, ny = ry * invR;
 
             // EIH gravity 1PN symmetric remainder

@@ -1,13 +1,15 @@
 // ─── Potential Energy Computation ───
 // Mirrors force calculation structure (BH tree or pairwise) for consistent PE.
+// When signal delay is active, uses retarded source positions at leaf/pairwise level.
 
-import { YUKAWA_COUPLING, TORUS } from './config.js';
+import { INERTIA_K, MAG_MOMENT_K, YUKAWA_COUPLING, TORUS } from './config.js';
+import { getDelayedState } from './signal-delay.js';
 import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 
 /** Total PE via BH tree traversal (halved to avoid double-counting) or exact pairwise. */
-export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTheta, periodic, domW, domH, topology = TORUS) {
+export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTheta, periodic, domW, domH, topology = TORUS, useSignalDelay = false, simTime = 0) {
     let pe = 0;
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
@@ -15,7 +17,7 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
 
     if (barnesHutEnabled && root >= 0) {
         for (let i = 0; i < n; i++) {
-            pe += treePE(particles[i], pool, root, bhTheta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
+            pe += treePE(particles[i], pool, root, bhTheta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
         }
         pe *= 0.5; // tree counts each pair from both sides
     } else {
@@ -23,9 +25,28 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
             const p = particles[i];
             for (let j = i + 1; j < n; j++) {
                 const o = particles[j];
-                pe += pairPE(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
-                    o.mass, o.charge, o.angVel,
-                    o.magMoment, o.angMomentum, toggles,
+
+                let sx, sy, svx, svy, sAngVel, sMagMoment, sAngMomentum;
+                if (useSignalDelay) {
+                    if (o.histCount < 2) continue;
+                    const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                    if (!ret) continue;
+                    sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
+                    const retAngwSq = ret.angw * ret.angw;
+                    const retRadiusSq = Math.cbrt(o.mass) ** 2;
+                    sAngVel = ret.angw / Math.sqrt(1 + retAngwSq * retRadiusSq);
+                    sMagMoment = MAG_MOMENT_K * o.charge * sAngVel * retRadiusSq;
+                    sAngMomentum = INERTIA_K * o.mass * sAngVel * retRadiusSq;
+                } else {
+                    sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
+                    sAngVel = o.angVel;
+                    sMagMoment = o.magMoment;
+                    sAngMomentum = o.angMomentum;
+                }
+
+                pe += pairPE(p, sx, sy, svx, svy,
+                    o.mass, o.charge, sAngVel,
+                    sMagMoment, sAngMomentum, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology,
                     o.axMod, o.yukMod);
             }
@@ -38,8 +59,11 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
 // Pre-allocated stack for iterative tree walk
 let _peStack = new Int32Array(256);
 
-/** Iterative BH tree walk for PE; same theta criterion as force calculation. */
-export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
+/**
+ * Iterative BH tree walk for PE; same theta criterion as force calculation.
+ * Signal delay applied at leaf level; distant aggregates use current positions.
+ */
+export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, useSignalDelay = false, simTime = 0) {
     const thetaSq = theta * theta;
     const px = particle.pos.x, py = particle.pos.y;
     let pe = 0;
@@ -63,21 +87,38 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
         const size = pool.bw[nodeIdx] * 2;
 
         if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
-            // Leaf: sum individual particles
+            // Leaf: sum individual particles (signal-delayed when enabled)
             const base = nodeIdx * pool.nodeCapacity;
             for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
                 const other = pool.points[base + i];
                 if (other === particle) continue;
                 if (other.isGhost && other.original === particle) continue;
                 const real = other.isGhost ? other.original : other;
-                pe += pairPE(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y,
-                    other.mass, other.charge, other.angVel,
-                    other.magMoment, other.angMomentum, toggles,
+
+                let sx, sy, svx, svy, sAngVel, sMagMom, sAngMom;
+                if (useSignalDelay && !other.isGhost) {
+                    if (real.histCount < 2) continue;
+                    const ret = getDelayedState(real, particle, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                    if (!ret) continue;
+                    sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
+                    const retAngwSq = ret.angw * ret.angw;
+                    const retRadiusSq = Math.cbrt(other.mass) ** 2;
+                    sAngVel = ret.angw / Math.sqrt(1 + retAngwSq * retRadiusSq);
+                    sMagMom = MAG_MOMENT_K * other.charge * sAngVel * retRadiusSq;
+                    sAngMom = INERTIA_K * other.mass * sAngVel * retRadiusSq;
+                } else {
+                    sx = other.pos.x; sy = other.pos.y; svx = other.vel.x; svy = other.vel.y;
+                    sAngVel = other.angVel; sMagMom = other.magMoment; sAngMom = other.angMomentum;
+                }
+
+                pe += pairPE(particle, sx, sy, svx, svy,
+                    other.mass, other.charge, sAngVel,
+                    sMagMom, sAngMom, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology,
                     real.axMod, real.yukMod);
             }
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
-            // Distant node: use aggregate
+            // Distant node: use current-time aggregate
             const nodeMass = pool.totalMass[nodeIdx];
             const avgVx = nodeMass > 0 ? pool.totalMomentumX[nodeIdx] / nodeMass : 0;
             const avgVy = nodeMass > 0 ? pool.totalMomentumY[nodeIdx] / nodeMass : 0;
