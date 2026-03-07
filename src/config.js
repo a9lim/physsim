@@ -18,7 +18,7 @@ export const MAX_SPEED_RATIO = 0.99;
 export const PHYSICS_DT = 1 / 128;
 export const MAX_SUBSTEPS = 32;
 export const DEFAULT_SPEED_SCALE = 64;
-export const MAX_FRAME_DT = 0.1;            // frame delta cap (100ms = 10fps floor)
+export const MAX_FRAME_DT = 0.1;             // frame delta cap (100ms = 10fps floor)
 export const ACCUMULATOR_CAP = 4;            // max accumulator as multiple of PHYSICS_DT * MAX_SUBSTEPS
 
 // ── Softening ──
@@ -27,10 +27,12 @@ export const SOFTENING_SQ = SOFTENING * SOFTENING;
 export const BH_SOFTENING = 4;               // reduced softening for black hole mode
 export const BH_SOFTENING_SQ = BH_SOFTENING * BH_SOFTENING;
 export const BOSON_SOFTENING_SQ = 4;         // photon/pion gravitational lensing
+export const BOSON_ABSORB_FRACTION = 1;      // absorption cross-section = fraction of target radius
+export const BOSON_MIN_AGE = 4;              // minimum age (substeps) before any absorption
 
 // ── Particle Properties ──
-export const INERTIA_K = 0.4;               // I = (2/5)mr²
-export const MAG_MOMENT_K = 0.2;            // μ = (1/5)q·ω·r²
+export const INERTIA_K = 0.4;                // I = (2/5)mr²
+export const MAG_MOMENT_K = 0.2;             // μ = (1/5)q·ω·r²
 export const TIDAL_STRENGTH = 2.0;
 
 // ── Barnes-Hut ──
@@ -38,18 +40,18 @@ export const BH_THETA = 0.5;
 export const QUADTREE_CAPACITY = 4;
 
 // ── Radiation & Bosons ──
-export const LL_FORCE_CLAMP = 0.5;          // max |F_rad| as fraction of |F_ext|
+export const LL_FORCE_CLAMP = 0.5;           // max |F_rad| as fraction of |F_ext|
 export const PHOTON_LIFETIME = 256;
 export const MAX_PHOTONS = 1024;
-export const PION_LIFETIME = 128;
+export const PION_LIFETIME = 32;
 export const MAX_PIONS = 256;
 export const MAX_REJECTION_SAMPLES = 32;     // quadrupole rejection sampling cap
 export const QUADRUPOLE_POWER_CLAMP = 0.01;  // max quadrupole dE as fraction of system KE
 export const ABERRATION_THRESHOLD = 1.01;    // min gamma for relativistic aberration
 
 // ── Yukawa ──
-export const YUKAWA_G2 = 4.0;               // coupling strength (fixed)
-export const DEFAULT_YUKAWA_MU = 0.05;      // mediator mass (inverse range)
+export const YUKAWA_G2 = 32;                // coupling strength (fixed)
+export const DEFAULT_YUKAWA_MU = 0.05;       // mediator mass (inverse range)
 
 // ── Scalar Fields (Higgs & Axion) ──
 export const SCALAR_GRID = 64;
@@ -58,19 +60,19 @@ export const FIELD_EXCITATION_SIGMA = 2;     // Gaussian width in grid cells (me
 export const MERGE_EXCITATION_SCALE = 0.5;   // amplitude = scale * sqrt(keLost)
 
 export const DEFAULT_HIGGS_MASS = 0.05;      // m_H (oscillation frequency)
-export const HIGGS_COUPLING = 0.05;          // g (source = g·baseMass, force = g·baseMass·∇φ)
+export const HIGGS_COUPLING = 1;             // g (source = g·baseMass, force = g·baseMass·∇φ)
 
 export const DEFAULT_AXION_MASS = 0.05;      // m_a (oscillation frequency)
 export const AXION_COUPLING = 0.05;          // g in L = -(1+g·a)F²/4
 
 // ── Black Hole ──
-export const BH_NAKED_FLOOR = 0.5;          // naked singularity horizon floor (M × this)
+export const BH_NAKED_FLOOR = 0.5;           // naked singularity horizon floor (M × this)
 
 // ── Disintegration & Roche ──
 export const SPAWN_COUNT = 4;
-export const SPAWN_OFFSET_MULTIPLIER = 1.25;
+export const SPAWN_OFFSET_MULTIPLIER = 1.5;
 export const SPAWN_OFFSET_FLOOR = 1;
-export const SPAWN_MIN_ENERGY = 0.5;         // min energy per emitted photon (Hawking / annihilation)
+export const SPAWN_MIN_ENERGY = 0.01;         // min energy per emitted photon (Hawking / annihilation)
 export const ROCHE_THRESHOLD = 0.9;
 export const ROCHE_TRANSFER_RATE = 0.01;
 

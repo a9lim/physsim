@@ -513,10 +513,10 @@ export default class Renderer {
             const pn = pions[i];
             const alpha = 1 - pn.lifetime / PION_LIFETIME;
             if (alpha <= 0) continue;
-            const size = 0.3 + pn.energy * 15;
-            const r = size < 4 ? size : 4;
+            const size = 0.2 + pn.energy * 20;
+            const r = size < 5 ? size : 5;
             if (!isLight) {
-                ctx.shadowBlur = size * 2 < 12 ? size * 2 : 12;
+                ctx.shadowBlur = size * 3 < 15 ? size * 3 : 15;
                 ctx.shadowColor = glowColor;
             }
             ctx.globalAlpha = alpha * alphaScale;

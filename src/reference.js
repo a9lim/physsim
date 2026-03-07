@@ -337,7 +337,7 @@ export const REFERENCE = {
 <h3>Source and Gradient Force</h3>
 <p>From the $aF^2$ vertex, the axion field equation acquires a source proportional to the local EM field energy. For point charges, the dominant contribution is the Coulomb self-energy ($\\propto q^2$), which is what particles deposit via PQS (cubic B-spline) interpolation. The gradient force arises from the position-dependence of this self-energy in the axion background:</p>
 <p>$$\\text{source} = g\\,q^2, \\qquad \\mathbf{F}_a = +g\\,q^2\\,\\nabla a$$</p>
-<p>Neutral particles neither source nor feel the axion field. The coupling $g = 0.2$ compensates for the field's high quality factor ($Q \\approx 20$); in nature, $g \\sim \\alpha/f_a$ is fantastically small.</p>
+<p>Neutral particles neither source nor feel the axion field. The coupling $g = 0.05$ compensates for the field's high quality factor ($Q = 1/g = 20$); in nature, $g \\sim \\alpha/f_a$ is fantastically small.</p>
 
 <h3>Detection Experiments</h3>
 <p>Several major experiments search for axion-photon conversion:</p>

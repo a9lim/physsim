@@ -162,7 +162,7 @@ Always active when Gravity is on (no separate toggle). `coupling = m_other + q1*
 
 ### Yukawa Potential
 
-Independent toggle. `F = -g^2 * m1*m2 * exp(-mu*r)/r^2 * (1+mu*r)`. Parameters: `yukawaG2` (default 1.0), `yukawaMu` (default 0.05, slider 0.01-0.25). Includes analytical jerk for radiation. Emits pions as massive force carriers (see Pion section). **Scalar Breit correction** (requires 1PN): O(v^2/c^2) velocity-dependent correction from massive scalar boson exchange Hamiltonian `δH = g²m₁m₂e^{-μr}/(2r) * [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Force into `force1PN`. Velocity-Verlet corrected via `compute1PNPairwise()`.
+Independent toggle. `F = -g^2 * m1*m2 * exp(-mu*r)/r^2 * (1+mu*r)`. Parameters: `yukawaG2` (default 32), `yukawaMu` (default 0.05, slider 0.01-0.25). Includes analytical jerk for radiation. Emits pions as massive force carriers (see Pion section). **Scalar Breit correction** (requires 1PN): O(v^2/c^2) velocity-dependent correction from massive scalar boson exchange Hamiltonian `δH = g²m₁m₂e^{-μr}/(2r) * [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Force into `force1PN`. Velocity-Verlet corrected via `compute1PNPairwise()`.
 
 ### External Background Fields
 
@@ -197,7 +197,7 @@ Field arrays are `field`/`fieldDot` (not `phi`/`phiDot` or `a`/`aDot`). Grid siz
 Independent toggle. Mexican hat potential `V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4`. VEV=1; free parameter is m_H (slider 0.01-0.25, default 0.05). With VEV=1: `lambda = mu^2 = m_H^2/2`.
 
 - **Mass generation**: `m_eff = baseMass * |phi(x)|`. At VEV, m_eff = baseMass. Symmetric phase (phi->0): effectively massless (floored at EPSILON).
-- **Gradient force**: `F = +g * baseMass * grad(phi)` where g = HIGGS_COUPLING = 0.05. Into `forceHiggs`.
+- **Gradient force**: `F = +g * baseMass * grad(phi)` where g = HIGGS_COUPLING = 1. Into `forceHiggs`.
 - **Field equation**: `d^2 phi/dt^2 = laplacian(phi) + mu^2_eff * phi - mu^2 * phi^3 + source/cellArea - 2*m_H * d(phi)/dt`. Symplectic Euler. Source: `g * baseMass` via PQS.
 - **Phase transitions**: `mu^2_eff = mu^2 - KE_local` (thermalK=1). When local KE > mu^2, field relaxes to phi=0.
 - **Boundary**: Despawn -> Dirichlet (phi=1). Bounce -> Neumann. Loop -> periodic (topology-aware).
@@ -243,7 +243,7 @@ Quadtree overlap query after photon absorption. Transfers momentum and charge (p
 
 ### Constants
 
-`PION_LIFETIME = 128`, `MAX_PIONS = 256`, `BOSON_SOFTENING_SQ = 4` (shared by photon and pion lensing).
+`PION_LIFETIME = 32`, `MAX_PIONS = 256`, `BOSON_SOFTENING_SQ = 4` (shared by photon and pion lensing), `BOSON_ABSORB_FRACTION = 1` (absorption cross-section), `BOSON_MIN_AGE = 4` (minimum substeps before absorption).
 
 ## Field Excitations
 
@@ -385,7 +385,7 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 - **Force vectors**: component colors: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green, external=brown, higgs=lime, axion=indigo
 - **Field overlays**: 64x64 offscreen canvas, bilinear-upscaled. Higgs: magenta/cyan. Axion: indigo/yellow.
 - **Photons**: yellow (EM) / red (gravitons), alpha fades over PHOTON_LIFETIME=256
-- **Pions**: green circles (`_PALETTE.extended.green`), glow in dark mode, alpha fades over PION_LIFETIME=128
+- **Pions**: green circles (`_PALETTE.extended.green`), glow in dark mode, alpha fades over PION_LIFETIME=32
 - **Effective potential plot**: V_eff(r) sidebar canvas. 200-sample curve. Includes gravity, Coulomb, mag dipole, GM dipole, Yukawa.
 
 ## Key Patterns

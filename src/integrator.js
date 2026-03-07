@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, PION_LIFETIME, MAX_PIONS, YUKAWA_G2 } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, PION_LIFETIME, MAX_PIONS, YUKAWA_G2, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE } from './config.js';
 import Photon from './photon.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
@@ -941,10 +941,12 @@ export default class Physics {
                     for (let ci = 0; ci < candidates.length; ci++) {
                         const target = candidates[ci];
                         if (target.isGhost) continue;
-                        if (target.id === ph.emitterId && ph.age < 3) continue; // self-absorption guard
+                        if (ph.age < BOSON_MIN_AGE) continue;
+                        if (target.id === ph.emitterId && ph.age < BOSON_MIN_AGE * 2) continue;
                         const dx = ph.pos.x - target.pos.x;
                         const dy = ph.pos.y - target.pos.y;
-                        if (dx * dx + dy * dy < target.radius * target.radius) {
+                        const absR = target.radius * BOSON_ABSORB_FRACTION;
+                        if (dx * dx + dy * dy < absR * absR) {
                             const impulse = ph.energy;
                             target.w.x += impulse * ph.vel.x / target.mass;
                             target.w.y += impulse * ph.vel.y / target.mass;
@@ -970,10 +972,12 @@ export default class Physics {
                     for (let ci = 0; ci < candidates.length; ci++) {
                         const target = candidates[ci];
                         if (target.isGhost) continue;
-                        if (target.id === pn.emitterId && pn.age < 3) continue;
+                        if (pn.age < BOSON_MIN_AGE) continue;
+                        if (target.id === pn.emitterId && pn.age < BOSON_MIN_AGE * 2) continue;
                         const dx = pn.pos.x - target.pos.x;
                         const dy = pn.pos.y - target.pos.y;
-                        if (dx * dx + dy * dy < target.radius * target.radius) {
+                        const absR = target.radius * BOSON_ABSORB_FRACTION;
+                        if (dx * dx + dy * dy < absR * absR) {
                             target.w.x += pn.energy * pn.vel.x / target.mass;
                             target.w.y += pn.energy * pn.vel.y / target.mass;
                             target.charge += pn.charge;
