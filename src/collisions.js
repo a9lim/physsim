@@ -7,6 +7,12 @@ import { TORUS, minImage, wrapPosition } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 
+/** Relativistic KE: wSq / (gamma + 1) * m. Avoids catastrophic cancellation at low v. */
+function _particleKE(p) {
+    const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
+    return wSq / (Math.sqrt(1 + wSq) + 1) * p.mass;
+}
+
 /** Detect overlaps via quadtree query and resolve as merge.
  *  Returns array of annihilation events [{x, y, energy, px, py}] for photon emission. */
 export function handleCollisions(particles, pool, root, mode, bounceFriction, relativityEnabled, periodic, domW, domH, topology = TORUS) {
@@ -49,8 +55,8 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
                     annihilations.push({ x: cx, y: cy, energy: 2 * annihilated, px: apx, py: apy });
                     const origM1 = p1.mass, origM2 = real2.mass;
                     // Save pre-annihilation mass for signal delay retirement
-                    if (!p1._deathMass) p1._deathMass = origM1;
-                    if (!real2._deathMass) real2._deathMass = origM2;
+                    p1._deathMass = origM1;
+                    real2._deathMass = origM2;
                     p1.mass -= annihilated;
                     real2.mass -= annihilated;
                     if (origM1 > 0) p1.baseMass *= p1.mass / origM1;
@@ -58,15 +64,14 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
                     p1.updateColor();
                     real2.updateColor();
                 } else if (mode === 'merge') {
-                    // Compute KE before merge for field excitation energy
-                    const keBefore = 0.5 * p1.mass * (p1.vel.x * p1.vel.x + p1.vel.y * p1.vel.y)
-                                   + 0.5 * real2.mass * (real2.vel.x * real2.vel.x + real2.vel.y * real2.vel.y);
+                    // Compute KE before merge for field excitation energy (relativistic)
+                    const keBefore = _particleKE(p1) + _particleKE(real2);
                     const mx = (p1.pos.x * p1.mass + real2.pos.x * real2.mass) / (p1.mass + real2.mass);
                     const my = (p1.pos.y * p1.mass + real2.pos.y * real2.mass) / (p1.mass + real2.mass);
                     // Save pre-merge mass for signal delay retirement
                     real2._deathMass = real2.mass;
                     resolveMerge(p1, real2, relativityEnabled, periodic, dx, dy);
-                    const keAfter = 0.5 * p1.mass * (p1.vel.x * p1.vel.x + p1.vel.y * p1.vel.y);
+                    const keAfter = _particleKE(p1);
                     const keLost = Math.max(0, keBefore - keAfter);
                     if (keLost > 0) merges.push({ x: mx, y: my, energy: keLost });
                     if (periodic) {

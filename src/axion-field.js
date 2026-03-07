@@ -154,43 +154,10 @@ export default class AxionField extends ScalarField {
         }
     }
 
-    /** Total field energy: KE + gradient + potential, integrated over grid. */
+    /** Total field energy: KE + gradient + quadratic potential, integrated over grid. */
     energy(domainW, domainH) {
-        const GRID = this._grid;
-        const cellW = domainW / GRID;
-        const cellH = domainH / GRID;
-        if (cellW < EPSILON || cellH < EPSILON) return 0;
-        const cellArea = cellW * cellH;
-        const invCellW = 1 / cellW;
-        const invCellH = 1 / cellH;
-        const field = this.field;
-        const fieldDot = this.fieldDot;
         const mASq = this.mass * this.mass;
-        let total = 0;
-
-        for (let iy = 0; iy < GRID; iy++) {
-            for (let ix = 0; ix < GRID; ix++) {
-                const idx = iy * GRID + ix;
-                const aVal = field[idx];
-
-                // KE: 1/2 (da/dt)^2
-                const ke = 0.5 * fieldDot[idx] * fieldDot[idx];
-
-                // Gradient energy: 1/2 |grad a|^2
-                const aR = ix + 1 < GRID ? field[idx + 1] : aVal;
-                const aB = iy + 1 < GRID ? field[idx + GRID] : aVal;
-                const dxA = (aR - aVal) * invCellW;
-                const dyA = (aB - aVal) * invCellH;
-                const gradE = 0.5 * (dxA * dxA + dyA * dyA);
-
-                // V(a) = 1/2 m_a² a² (no offset needed — V(0)=0)
-                const pot = 0.5 * mASq * aVal * aVal;
-
-                total += (ke + gradE + pot) * cellArea;
-            }
-        }
-
-        return total === total ? total : 0; // NaN guard
+        return this._fieldEnergy(domainW, domainH, a => 0.5 * mASq * a * a);
     }
 
     /** Render field to offscreen canvas. Indigo = positive, yellow = negative. */

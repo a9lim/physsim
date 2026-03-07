@@ -487,17 +487,16 @@ export default class Renderer {
                 if (alpha <= 0) continue;
                 const size = 0.2 + ph.energy * 20;
                 const r = size < 5 ? size : 5;
+                if (!isLight) {
+                    ctx.shadowBlur = size * 3 < 15 ? size * 3 : 15;
+                    ctx.shadowColor = glowColor;
+                }
                 ctx.globalAlpha = alpha * alphaScale;
                 ctx.beginPath();
                 ctx.arc(ph.pos.x, ph.pos.y, r, 0, TWO_PI);
                 ctx.fill();
-                if (!isLight) {
-                    ctx.shadowBlur = size * 3 < 15 ? size * 3 : 15;
-                    ctx.shadowColor = glowColor;
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
-                }
             }
+            if (!isLight) ctx.shadowBlur = 0;
         }
         ctx.globalAlpha = 1;
     }
@@ -508,6 +507,7 @@ export default class Renderer {
         const alphaScale = isLight ? 0.7 : 0.9;
         const color = _PAL.extended.green;
         const glowColor = _r(color, 0.5);
+        ctx.fillStyle = color;
 
         for (let i = 0, len = pions.length; i < len; i++) {
             const pn = pions[i];
@@ -515,20 +515,16 @@ export default class Renderer {
             if (alpha <= 0) continue;
             const size = 0.3 + pn.energy * 15;
             const r = size < 4 ? size : 4;
-            ctx.globalAlpha = alpha * alphaScale;
-            ctx.fillStyle = color;
-
-            ctx.beginPath();
-            ctx.arc(pn.pos.x, pn.pos.y, r, 0, TWO_PI);
-            ctx.fill();
-
             if (!isLight) {
                 ctx.shadowBlur = size * 2 < 12 ? size * 2 : 12;
                 ctx.shadowColor = glowColor;
-                ctx.fill();
-                ctx.shadowBlur = 0;
             }
+            ctx.globalAlpha = alpha * alphaScale;
+            ctx.beginPath();
+            ctx.arc(pn.pos.x, pn.pos.y, r, 0, TWO_PI);
+            ctx.fill();
         }
+        if (!isLight) ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
     }
 }

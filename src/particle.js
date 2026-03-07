@@ -15,6 +15,7 @@ export default class Particle {
         this.creationTime = -Infinity; // set by addParticle / loadState
         this.deathTime = Infinity;    // set by _retireParticle
         this._deathMass = 0;          // pre-removal mass (for merged particles whose mass is zeroed)
+        this._deathAngVel = 0;        // pre-removal angular velocity (for signal delay forces)
         this.pos = new Vec2(x, y);
         this.vel = new Vec2(0, 0);
         this.w = new Vec2(0, 0);    // proper velocity (gamma*v)

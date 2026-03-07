@@ -75,7 +75,7 @@ export default class StatsDisplay {
         const p = particle;
         const dom = this.selDom;
 
-        if (!p || p.mass <= 0 || !particles.includes(p)) {
+        if (!p || p.mass <= 0) {
             dom.details.hidden = true;
             dom.hint.hidden = false;
             dom.phaseSection.hidden = true;

@@ -23,7 +23,7 @@ const _disintMiOut = { x: 0, y: 0 };
  */
 function _quadSample(Axx, Axy) {
     const peak2 = Axx * Axx + Axy * Axy;
-    if (peak2 < EPSILON_SQ * EPSILON_SQ) return Math.random() * TWO_PI;
+    if (peak2 < EPSILON_SQ) return Math.random() * TWO_PI;
     for (let tries = 0; tries < MAX_REJECTION_SAMPLES; tries++) {
         const phi = Math.random() * TWO_PI;
         const c2 = Math.cos(2 * phi), s2 = Math.sin(2 * phi);
@@ -68,6 +68,10 @@ export default class Physics {
         this.extElectricAngle = 0;    // direction in radians (default: right)
         this.extBz = 0;              // uniform magnetic field (z-component)
 
+        // Cached direction vectors (updated once per frame in _cacheExternalFields)
+        this._extGx = 0; this._extGy = 0;
+        this._extEx = 0; this._extEy = 0;
+
         this.sim = null;
         this.simTime = 0;
 
@@ -87,7 +91,7 @@ export default class Physics {
             gravitomagEnabled: true,
             onePNEnabled: true,
             yukawaEnabled: false,
-            yukawaMu: 0.2,
+            yukawaMu: DEFAULT_YUKAWA_MU,
             axionEnabled: false,
             softeningSq: SOFTENING_SQ,
         };
@@ -116,6 +120,7 @@ export default class Physics {
     _retireParticle(p) {
         if (!this.relativityEnabled || !this.sim) return;
         if (p.mass > 0) p._deathMass = p.mass;
+        p._deathAngVel = p.angVel;
         p.deathTime = this.simTime;
         // Record final history snapshot so buffer extends to death time
         p._initHistory();
@@ -220,16 +225,26 @@ export default class Physics {
         return this.pool.build(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h, particles);
     }
 
+    /** Cache external field direction vectors (call once per frame, not per substep). */
+    _cacheExternalFields() {
+        const g = this.extGravity;
+        const E = this.extElectric;
+        this._extGx = g * Math.cos(this.extGravityAngle);
+        this._extGy = g * Math.sin(this.extGravityAngle);
+        this._extEx = E * Math.cos(this.extElectricAngle);
+        this._extEy = E * Math.sin(this.extElectricAngle);
+    }
+
     /** Apply uniform external fields (g, E, B) to all particles. */
     _applyExternalFields(particles) {
         const g = this.extGravity;
         const E = this.extElectric;
         const Bext = this.extBz;
         if (g === 0 && E === 0 && Bext === 0) return;
-        const gx = g * Math.cos(this.extGravityAngle);
-        const gy = g * Math.sin(this.extGravityAngle);
-        const ex = E * Math.cos(this.extElectricAngle);
-        const ey = E * Math.sin(this.extElectricAngle);
+        const gx = this._extGx;
+        const gy = this._extGy;
+        const ex = this._extEx;
+        const ey = this._extEy;
         for (let i = 0, n = particles.length; i < n; i++) {
             const p = particles[i];
             if (g !== 0) {
@@ -401,6 +416,7 @@ export default class Physics {
         let n = particles.length;
         const relOn = this.relativityEnabled;
         this._syncToggles();
+        this._cacheExternalFields();
         const toggles = this._toggles;
 
         // ─── Boris Integrator with Adaptive Substepping ───
@@ -666,7 +682,8 @@ export default class Physics {
                         fRadY *= scale;
                     }
 
-                    const keBefore = relOn ? (gamma - 1) * p.mass : 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y);
+                    const wSqBefore = p.w.x * p.w.x + p.w.y * p.w.y;
+                    const keBefore = wSqBefore / (gamma + 1) * p.mass;
 
                     p.w.x += fRadX * dtSub * p.invMass;
                     p.w.y += fRadY * dtSub * p.invMass;
@@ -678,8 +695,8 @@ export default class Physics {
                     }
 
                     const wMagSqAfter = p.w.x * p.w.x + p.w.y * p.w.y;
-                    const gammaAfter = relOn ? Math.sqrt(1 + wMagSqAfter) : 1;
-                    const keAfter = relOn ? (gammaAfter - 1) * p.mass : 0.5 * p.mass * wMagSqAfter / (gammaAfter * gammaAfter);
+                    const gammaAfter = Math.sqrt(1 + wMagSqAfter);
+                    const keAfter = wMagSqAfter / (gammaAfter + 1) * p.mass;
                     const dE = Math.max(0, keBefore - keAfter);
                     this.sim.totalRadiated += dE;
 
@@ -747,8 +764,9 @@ export default class Physics {
                     if (dE <= 0) continue;
                     p.mass -= dE;
                     p.invMass = 1 / p.mass;
-                    // Update Kerr-Newman radius
-                    p.radius = kerrNewmanRadius(p.mass, p.radiusSq, p.angVel, p.charge);
+                    // Update Kerr-Newman radius (use body r² = cbrt(mass)², not horizon radiusSq)
+                    const bodyRSq = Math.cbrt(p.mass) ** 2;
+                    p.radius = kerrNewmanRadius(p.mass, bodyRSq, p.angVel, p.charge);
                     p.radiusSq = p.radius * p.radius;
                     this.sim.totalRadiated += dE;
 
@@ -846,11 +864,14 @@ export default class Physics {
 
             // 1PN velocity-Verlet correction: w += (F_new − F_old)·dt/(2m)
             if (has1PN) {
-                for (let i = 0; i < n; i++) {
-                    const p = particles[i];
-                    const invG = relOn ? 1 / Math.sqrt(1 + p.w.x * p.w.x + p.w.y * p.w.y) : 1;
-                    p.vel.x = p.w.x * invG;
-                    p.vel.y = p.w.y * invG;
+                // Resync vel from w only if expansion modified w after drift
+                if (relOn && this.expansionEnabled) {
+                    for (let i = 0; i < n; i++) {
+                        const p = particles[i];
+                        const invG = 1 / Math.sqrt(1 + p.w.x * p.w.x + p.w.y * p.w.y);
+                        p.vel.x = p.w.x * invG;
+                        p.vel.y = p.w.y * invG;
+                    }
                 }
                 compute1PNPairwise(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled, this.yukawaEnabled, this.yukawaMu);
                 for (let i = 0; i < n; i++) {
@@ -909,7 +930,6 @@ export default class Physics {
                 for (let pi = photons.length - 1; pi >= 0; pi--) {
                     const ph = photons[pi];
                     if (!ph.alive) continue;
-                    ph.age++;
                     // Query quadtree for nearby particles (reuses pooled array)
                     const candidates = this.pool.queryReuse(root,
                         ph.pos.x, ph.pos.y, softening, softening);

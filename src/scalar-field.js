@@ -130,8 +130,36 @@ export default class ScalarField {
         wy[3] = dy3 / 6;
     }
 
+    /** Wrap grid coordinates with boundary awareness. */
+    _wrapIdx(nx, ny, bcMode, topoConst) {
+        const GRID = this._grid;
+        if (bcMode === BC_LOOP) {
+            if (topoConst === TORUS) {
+                if (nx < 0) nx += GRID; else if (nx >= GRID) nx -= GRID;
+                if (ny < 0) ny += GRID; else if (ny >= GRID) ny -= GRID;
+            } else if (topoConst === KLEIN) {
+                if (nx < 0) nx += GRID; else if (nx >= GRID) nx -= GRID;
+                if (ny < 0) { ny += GRID; nx = GRID - 1 - nx; }
+                else if (ny >= GRID) { ny -= GRID; nx = GRID - 1 - nx; }
+            } else {
+                if (nx < 0) { nx += GRID; ny = GRID - 1 - ny; }
+                else if (nx >= GRID) { nx -= GRID; ny = GRID - 1 - ny; }
+                if (ny < 0) { ny += GRID; nx = GRID - 1 - nx; }
+                else if (ny >= GRID) { ny -= GRID; nx = GRID - 1 - nx; }
+            }
+            return ny * GRID + nx;
+        }
+        if (bcMode === BC_BOUNCE) {
+            if (nx < 0) nx = 0; else if (nx >= GRID) nx = GRID - 1;
+            if (ny < 0) ny = 0; else if (ny >= GRID) ny = GRID - 1;
+            return ny * GRID + nx;
+        }
+        if (nx < 0 || nx >= GRID || ny < 0 || ny >= GRID) return -1;
+        return ny * GRID + nx;
+    }
+
     /** Deposit value at (x,y) into grid using PQS 4×4 stencil.
-     *  Boundary-aware: wraps stencil nodes via _nb() for periodic topologies.
+     *  Boundary-aware: wraps stencil nodes for periodic topologies.
      */
     _depositPQS(out, x, y, value, invCellW, invCellH, bcMode, topoConst) {
         this._pqsCoords(x, y, invCellW, invCellH);
@@ -141,7 +169,7 @@ export default class ScalarField {
         for (let jy = 0; jy < 4; jy++) {
             const wyj = wy[jy];
             for (let jx = 0; jx < 4; jx++) {
-                const idx = this._nb(ix + jx - 1, iy + jy - 1, 0, 0, bcMode, topoConst);
+                const idx = this._wrapIdx(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
                 if (idx < 0) continue; // Dirichlet boundary
                 out[idx] += value * wx[jx] * wyj;
             }
@@ -153,8 +181,23 @@ export default class ScalarField {
         const field = this.field;
         const lap = this._laplacian;
         const GRID = this._grid;
+        const last = GRID - 1;
+
+        // Interior cells: direct indexing (no _nb dispatch needed)
+        for (let iy = 1; iy < last; iy++) {
+            const row = iy * GRID;
+            for (let ix = 1; ix < last; ix++) {
+                const idx = row + ix;
+                const fC = field[idx];
+                lap[idx] = (field[idx - 1] + field[idx + 1] - 2 * fC) * invCellWSq
+                         + (field[idx - GRID] + field[idx + GRID] - 2 * fC) * invCellHSq;
+            }
+        }
+
+        // Border cells: use _nb for boundary-aware wrapping
         for (let iy = 0; iy < GRID; iy++) {
             for (let ix = 0; ix < GRID; ix++) {
+                if (ix > 0 && ix < last && iy > 0 && iy < last) continue;
                 const idx = iy * GRID + ix;
                 const fC = field[idx];
                 const iL = this._nb(ix, iy, -1, 0, bcMode, topoConst);
@@ -255,6 +298,38 @@ export default class ScalarField {
                 this.fieldDot[iy * GRID + ix] += amplitude * Math.exp(-rSq / (2 * sigmaSq));
             }
         }
+    }
+
+    /** Shared field energy: KE + gradient + potential, integrated over grid.
+     *  @param {number} domainW - world width
+     *  @param {number} domainH - world height
+     *  @param {function} potentialFn - V(fieldValue) for a single cell */
+    _fieldEnergy(domainW, domainH, potentialFn) {
+        const GRID = this._grid;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return 0;
+        const cellArea = cellW * cellH;
+        const invCellWSq = 1 / (cellW * cellW);
+        const invCellHSq = 1 / (cellH * cellH);
+        const field = this.field;
+        const fieldDot = this.fieldDot;
+        let total = 0;
+
+        for (let iy = 0; iy < GRID; iy++) {
+            for (let ix = 0; ix < GRID; ix++) {
+                const idx = iy * GRID + ix;
+                const f = field[idx];
+                const ke = 0.5 * fieldDot[idx] * fieldDot[idx];
+                const fR = ix + 1 < GRID ? field[idx + 1] : f;
+                const fB = iy + 1 < GRID ? field[idx + GRID] : f;
+                const dfx = fR - f, dfy = fB - f;
+                const gradE = 0.5 * (dfx * dfx * invCellWSq + dfy * dfy * invCellHSq);
+                total += (ke + gradE + potentialFn(f)) * cellArea;
+            }
+        }
+
+        return total === total ? total : 0;
     }
 
     /** Draw field overlay in world space. */

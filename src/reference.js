@@ -35,6 +35,17 @@ export const REFERENCE = {
 
 <h3>Two-Body Reduction</h3>
 <p>Any two gravitating bodies can be reduced to an equivalent one-body problem using the reduced mass $\\mu = m_1 m_2/(m_1+m_2)$. The relative separation traces a Kepler ellipse. In pairwise mode with gravity only, this simulation conserves energy and angular momentum to machine precision.</p>
+
+<h3>Tidal Locking</h3>
+<p>Tidal locking synchronizes a body's rotation with its orbital period, so it always shows the same face to its companion. The Moon is tidally locked to Earth.</p>
+<p>$$\\tau = -\\text{TIDAL\\_STRENGTH}\\cdot\\frac{C^2\\,R^3}{r^6}\\,(\\omega_{\\text{spin}}-\\omega_{\\text{orbit}})$$</p>
+<p>where the coupling $C = m_{\\text{other}} + q_1 q_2/m$ combines gravitational and electrostatic tidal fields. The $r^{-6}$ dependence makes tidal torque extremely sensitive to distance — halving the separation increases it 64-fold.</p>
+<p>A non-synchronous body develops a displaced tidal bulge whose gravitational pull creates a torque transferring angular momentum between spin and orbit:</p>
+<ul>
+<li>If $\\omega_{\\text{spin}} > \\omega_{\\text{orbit}}$: the body spins down, pushing the companion outward</li>
+<li>If $\\omega_{\\text{spin}} < \\omega_{\\text{orbit}}$: the body spins up, pulling the companion inward</li>
+</ul>
+<p>Equilibrium is $\\omega_{\\text{spin}} = \\omega_{\\text{orbit}}$: tidal lock. The $C^2$ factor includes gravity-gravity, gravity-EM, EM-gravity, and EM-EM cross-terms. Always active when gravity is on (no separate toggle).</p>
 `,
     },
 
@@ -405,30 +416,6 @@ export const REFERENCE = {
 
 <h3>Limitations</h3>
 <p>This implementation uses a constant $H$ (de Sitter expansion). The real universe has $H(t)$ that evolves with matter, radiation, and dark energy content. The simulation locks boundary mode to "despawn" when expansion is active, since periodic boundaries would conflict with the outward flow.</p>
-`,
-    },
-
-    tidallocking: {
-        title: 'Tidal Locking',
-        body: `
-<p>Tidal locking is the process by which a body's rotation synchronizes with its orbital period, so it always shows the same face to its companion. The Moon is tidally locked to Earth — it rotates exactly once per orbit, which is why we always see the same side.</p>
-
-<h3>Tidal Torque</h3>
-<p>$$\\tau = -\\text{TIDAL\\_STRENGTH}\\cdot\\frac{C^2\\,R^3}{r^6}\\,(\\omega_{\\text{spin}}-\\omega_{\\text{orbit}})$$</p>
-<p>where the coupling $C$ combines gravitational and electrostatic tidal fields:</p>
-<p>$$C = m_{\\text{other}} + \\frac{q_1 q_2}{m}$$</p>
-<p>The $r^{-6}$ dependence makes tidal torque extremely sensitive to distance — halving the separation increases it 64-fold.</p>
-
-<h3>Mechanism</h3>
-<p>A non-synchronous body develops a tidal bulge that is slightly displaced from the line connecting the two bodies (due to finite viscous response time). The gravitational pull on this displaced bulge creates a torque that transfers angular momentum between the body's spin and the orbit:</p>
-<ul>
-<li>If $\\omega_{\\text{spin}} > \\omega_{\\text{orbit}}$: the body spins down, transferring angular momentum to the orbit (pushing the companion outward)</li>
-<li>If $\\omega_{\\text{spin}} < \\omega_{\\text{orbit}}$: the body spins up, extracting angular momentum from the orbit (pulling the companion inward)</li>
-</ul>
-<p>Equilibrium is $\\omega_{\\text{spin}} = \\omega_{\\text{orbit}}$: tidal lock.</p>
-
-<h3>Mixed Coupling</h3>
-<p>The $C^2$ factor includes four cross-terms: gravity-gravity, gravity-EM, EM-gravity, and EM-EM tidal coupling. For purely gravitational systems, $C = m_{\\text{other}}$. For charged systems, the electrostatic tidal field can enhance or counteract the gravitational tide depending on the sign of $q_1 q_2/m$.</p>
 `,
     },
 

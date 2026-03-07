@@ -32,7 +32,7 @@ function fastTanh(x) {
  */
 let _hmStack = new Int32Array(256);
 
-function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doYukawa, yukawaMu) {
+function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doGravity, doCoulomb, doYukawa, yukawaMu) {
     let stackTop = 0;
     if (_hmStack.length < pool.maxNodes) _hmStack = new Int32Array(pool.maxNodes);
     _hmStack[stackTop++] = rootIdx;
@@ -54,8 +54,8 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doYukawa, yu
                 const pdx = wx - p.pos.x, pdy = wy - p.pos.y;
                 const rSq = pdx * pdx + pdy * pdy + softeningSq;
                 const invR = 1 / Math.sqrt(rSq);
-                gP -= p.mass * invR;
-                eP += p.charge * invR;
+                if (doGravity) gP -= p.mass * invR;
+                if (doCoulomb) eP += p.charge * invR;
                 if (doYukawa) {
                     const r = 1 / invR;
                     yP -= YUKAWA_G2 * p.mass * Math.exp(-yukawaMu * r) * invR;
@@ -67,8 +67,8 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doYukawa, yu
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             const rSq = dSq + softeningSq;
             const invR = 1 / Math.sqrt(rSq);
-            _treeOut.g -= pool.totalMass[nodeIdx] * invR;
-            _treeOut.e += pool.totalCharge[nodeIdx] * invR;
+            if (doGravity) _treeOut.g -= pool.totalMass[nodeIdx] * invR;
+            if (doCoulomb) _treeOut.e += pool.totalCharge[nodeIdx] * invR;
             if (doYukawa) {
                 const r = 1 / invR;
                 _treeOut.y -= YUKAWA_G2 * pool.totalMass[nodeIdx] * Math.exp(-yukawaMu * r) * invR;
@@ -106,7 +106,7 @@ export default class Heatmap {
         this._imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
     }
 
-    update(particles, camera, width, height, pool, root, barnesHutEnabled, relativityEnabled, simTime, periodic, domW, domH, topology, softeningSq = SOFTENING_SQ, yukawaEnabled = false, yukawaMu = 0.2, deadParticles = null) {
+    update(particles, camera, width, height, pool, root, barnesHutEnabled, relativityEnabled, simTime, periodic, domW, domH, topology, softeningSq = SOFTENING_SQ, yukawaEnabled = false, yukawaMu = 0.2, deadParticles = null, gravityEnabled = true, coulombEnabled = true) {
         if (!this.enabled) return;
         if (++this.frameCount % UPDATE_INTERVAL !== 0) return;
 
@@ -121,6 +121,8 @@ export default class Heatmap {
         const thetaSq = BH_THETA * BH_THETA;
         const useDelay = relativityEnabled;
         const halfDomW = domW * 0.5, halfDomH = domH * 0.5;
+        const doGravity = gravityEnabled && (this.mode === 'all' || this.mode === 'gravity');
+        const doCoulomb = coulombEnabled && (this.mode === 'all' || this.mode === 'electric');
         const doYukawa = yukawaEnabled && (this.mode === 'all' || this.mode === 'yukawa');
         const deadN = deadParticles ? deadParticles.length : 0;
 
@@ -134,7 +136,7 @@ export default class Heatmap {
                     _treeOut.g = 0;
                     _treeOut.e = 0;
                     _treeOut.y = 0;
-                    treePotential(pool, root, wx, wy, thetaSq, softeningSq, doYukawa, yukawaMu);
+                    treePotential(pool, root, wx, wy, thetaSq, softeningSq, doGravity, doCoulomb, doYukawa, yukawaMu);
                     gPhi = _treeOut.g;
                     ePhi = _treeOut.e;
                     yPhi = _treeOut.y;
@@ -154,8 +156,8 @@ export default class Heatmap {
                         const dx = wx - px, dy = wy - py;
                         const rSq = dx * dx + dy * dy + softeningSq;
                         const invR = 1 / Math.sqrt(rSq);
-                        gPhi -= p.mass * invR;
-                        ePhi += p.charge * invR;
+                        if (doGravity) gPhi -= p.mass * invR;
+                        if (doCoulomb) ePhi += p.charge * invR;
                         if (doYukawa) {
                             const r = 1 / invR;
                             yPhi -= YUKAWA_G2 * p.mass * Math.exp(-yukawaMu * r) * invR;
@@ -174,8 +176,8 @@ export default class Heatmap {
                         const dx = wx - ret.x, dy = wy - ret.y;
                         const rSq = dx * dx + dy * dy + softeningSq;
                         const invR = 1 / Math.sqrt(rSq);
-                        gPhi -= dp._deathMass * invR;
-                        ePhi += dp.charge * invR;
+                        if (doGravity) gPhi -= dp._deathMass * invR;
+                        if (doCoulomb) ePhi += dp.charge * invR;
                         if (doYukawa) {
                             const r = 1 / invR;
                             yPhi -= YUKAWA_G2 * dp._deathMass * Math.exp(-yukawaMu * r) * invR;

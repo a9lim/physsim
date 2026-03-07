@@ -242,7 +242,7 @@ export default class InputHandler {
 
             for (const p of this.sim.particles) {
                 const d = p.pos.dist(this.dragStart);
-                if (d > ORBIT_SEARCH_RADIUS) {
+                if (d > p.radius && d < ORBIT_SEARCH_RADIUS) {
                     const force = p.mass / (d * d);
                     if (force > maxGForce) {
                         maxGForce = force;
