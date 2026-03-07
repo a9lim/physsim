@@ -139,7 +139,6 @@ export function computeEnergies(particles, physics, sim) {
     }
 
     // Scalar field momentum: T^{0i} = -φ̇ ∂_i φ
-    const domW = physics.domainW, domH = physics.domainH;
     if (physics.higgsEnabled && sim && sim.higgsField) {
         const m = sim.higgsField.momentum(domW, domH);
         fieldPx += m.x; fieldPy += m.y;
