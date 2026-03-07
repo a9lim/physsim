@@ -443,7 +443,7 @@ export function setupUI(sim) {
     const infoData = {
         energy: { title: 'Energy', body: 'Sum of kinetic, potential, field, and radiated energy. "Drift" tracks cumulative numerical error as a percentage of initial energy.' },
         conserved: { title: 'Conserved Quantities', body: 'Total momentum and angular momentum, including particle, field, and radiated contributions. Exactly conserved with gravity + Coulomb only in pairwise mode.' },
-        spin: { title: 'Spin', body: 'Angular velocity of each particle as a solid sphere ($I = \\frac{2}{5}mr^2$). Determines magnetic moment and angular momentum. Positive = counterclockwise.' },
+        spin: { title: 'Spin', body: 'Angular velocity of each particle as a solid sphere ($I = \\frac{2}{5}mr^2$). Determines magnetic moment and angular momentum. Positive = clockwise.' },
         gravity: { title: 'Gravity', body: 'Attractive $1/r^2$ force between all masses ($F = m_1 m_2/r^2$, $G=1$). The foundation for orbits, binaries, and tidal effects.' },
         coulomb: { title: 'Coulomb', body: 'Electrostatic $1/r^2$ force ($F = q_1 q_2/r^2$). Like charges repel, opposites attract. Combine with gravity for atom-like bound states.' },
         magnetic: { title: 'Magnetic', body: 'Lorentz force on moving charges ($q\\mathbf{v}\\times\\mathbf{B}$) plus dipole interactions from spinning charges ($3\\mu_1\\mu_2/r^4$). Requires Coulomb.' },

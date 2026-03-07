@@ -404,7 +404,7 @@ export default class Renderer {
 
             const ringRadius = p.radius + offset;
             const sweep = Math.min(scale * Math.abs(val), maxSweep);
-            const dir = val > 0 ? 1 : -1;
+            const dir = val > 0 ? -1 : 1;
             const startAngle = -HALF_PI;
             const endAngle = startAngle - dir * sweep;
 
@@ -432,7 +432,7 @@ export default class Renderer {
 
     drawSpinRing(ctx, p, isLight, blendMode) {
         ctx.shadowBlur = 0;
-        const dir = Math.sign(p.angVel);
+        const dir = -Math.sign(p.angVel);
         // Arc length proportional to surface speed; caps at full circle
         const arcLen = Math.min(Math.abs(p.angVel) * p.radius * TWO_PI, TWO_PI);
         const ringRadius = p.radius + 0.5;

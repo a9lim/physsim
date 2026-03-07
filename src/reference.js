@@ -571,7 +571,7 @@ export const REFERENCE = {
         body: `
 <p>Each particle rotates as a uniform-density solid sphere with moment of inertia:</p>
 <p>$$I = \\frac{2}{5}mr^2$$</p>
-<p>The spin slider sets the angular celerity $W$ (range $-0.99$ to $+0.99$). Positive values mean counterclockwise rotation.</p>
+<p>The spin slider sets the angular celerity $W$ (range $-0.99$ to $+0.99$). Positive values mean clockwise rotation.</p>
 
 <h3>Relativistic Spin</h3>
 <p>Angular celerity maps to angular velocity:</p>
