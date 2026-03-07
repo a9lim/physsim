@@ -160,10 +160,13 @@ export default class InputHandler {
 
         const pos = this._getPosNew(e.clientX, e.clientY);
         const hit = this.findParticleAt(pos);
+        const bhOn = this.sim.physics.blackHoleEnabled;
 
         // Right-click on particle: select antimatter, delete matter
+        // BH mode: right-click always deletes (no antimatter distinction)
         if (isRight && hit) {
-            if (hit.antimatter) this.sim.selectedParticle = hit;
+            if (bhOn) this._deleteParticle(hit);
+            else if (hit.antimatter) this.sim.selectedParticle = hit;
             else this._deleteParticle(hit);
             return;
         }
@@ -201,16 +204,24 @@ export default class InputHandler {
         const endPos = this._getPosNew(e.clientX, e.clientY);
 
         // Short click on a particle: select same type, delete opposite type
+        // BH mode: left-click selects, right-click deletes (no antimatter)
         if (this.dragStart.dist(endPos) < DRAG_THRESHOLD) {
             const hit = this.findParticleAt(endPos);
             if (hit) {
-                if (hit.antimatter === this._rightButton) this.sim.selectedParticle = hit;
-                else this._deleteParticle(hit);
+                const bhOn = this.sim.physics.blackHoleEnabled;
+                if (bhOn) {
+                    if (this._rightButton) this._deleteParticle(hit);
+                    else this.sim.selectedParticle = hit;
+                } else {
+                    if (hit.antimatter === this._rightButton) this.sim.selectedParticle = hit;
+                    else this._deleteParticle(hit);
+                }
                 return;
             }
         }
 
-        this.spawnParticle(endPos, this._rightButton);
+        // BH mode: never spawn antimatter
+        this.spawnParticle(endPos, this._rightButton && !this.sim.physics.blackHoleEnabled);
     }
 
     findParticleAt(worldPos) {

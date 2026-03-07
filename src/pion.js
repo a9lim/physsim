@@ -179,7 +179,7 @@ export default class Pion {
                 this.pos.x - phCos * offset,
                 this.pos.y - phSin * offset,
                 elVx, elVy,
-                { mass: mE, charge: this.charge, antimatter: this.charge > 0, spin: 0, skipBaseline: true }
+                { mass: mE, charge: this.charge, antimatter: this.charge > 0 && !sim.physics.blackHoleEnabled, spin: 0, skipBaseline: true }
             );
         }
         this.alive = false;

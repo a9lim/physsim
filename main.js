@@ -204,7 +204,7 @@ class Simulation {
         p.mass = options.mass ?? 10;
         p.baseMass = options.baseMass ?? p.mass;
         p.charge = options.charge ?? 0;
-        p.antimatter = options.antimatter ?? false;
+        p.antimatter = this.physics.blackHoleEnabled ? false : (options.antimatter ?? false);
 
         p.creationTime = this.physics.simTime;
         p.updateColor();
@@ -267,7 +267,8 @@ class Simulation {
                 this.photons.length = pLen;
 
                 // Pair production: energetic photon near massive body -> matter + antimatter
-                const canPairProduce = this.particles.length < PAIR_PROD_MAX_PARTICLES;
+                // BH mode: no antimatter (no hair)
+                const canPairProduce = this.particles.length < PAIR_PROD_MAX_PARTICLES && !this.physics.blackHoleEnabled;
                 for (let i = canPairProduce ? pLen - 1 : -1; i >= 0; i--) {
                     const ph = this.photons[i];
                     if (ph.energy < PAIR_PROD_MIN_ENERGY || ph.lifetime < PAIR_PROD_MIN_AGE) continue;
