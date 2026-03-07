@@ -27,7 +27,7 @@ src/
   renderer.js            532 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
   forces.js              514 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
   presets.js             688 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
-  reference.js           688 lines  REFERENCE object: physics reference content (KaTeX math)
+  reference.js           690 lines  REFERENCE object: physics reference content (KaTeX math)
   scalar-field.js        391 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
   higgs-field.js         259 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
   axion-field.js         261 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, PQ pseudoscalar coupling, EM + Yukawa modulation
@@ -40,7 +40,7 @@ src/
   potential.js           170 lines  computePE(), treePE(), pairPE() (7 PE terms)
   energy.js              177 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin, field energies
   stats-display.js       131 lines  StatsDisplay: energy/momentum/drift DOM updates (x100 display scale)
-  config.js              131 lines  Named constants, spawnOffset(), kerrNewmanRadius() helpers, pion/field excitation constants
+  config.js              134 lines  Named constants, spawnOffset(), kerrNewmanRadius() helpers, pion/field excitation constants
   particle.js            132 lines  Particle: pos, vel, w, angw, baseMass, antimatter, cached magMoment/angMomentum, 11 force Vec2s, axMod, _yukawaRadAccum, history, creationTime/deathTime/_deathMass/_deathAngVel
   phase-plot.js          117 lines  PhasePlot: r vs v_r sidebar canvas (512-sample ring buffer)
   collisions.js          141 lines  handleCollisions(), resolveMerge(), antimatter annihilation, baseMass conservation, relativistic merge KE tracking, returns removed particles
@@ -48,7 +48,7 @@ src/
   vec2.js                 61 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist, static sub
   boson-utils.js          58 lines  treeDeflectBoson(): shared BH tree walk for gravitational lensing of photons and pions
   massless-boson.js       45 lines  MasslessBoson: pos, vel, energy, lifetime, type ('em'/'grav'), gravitational lensing via boson-utils
-  pion.js                123 lines  Pion: massive Yukawa force carrier, proper velocity, (1+v^2) GR deflection, Lorentz-boosted decay -> massless bosons
+  pion.js                187 lines  Pion: massive Yukawa force carrier, proper velocity, (1+v^2) GR deflection, charged decay -> electron/positron + photon, neutral decay -> 2 photons
   relativity.js           22 lines  angwToAngVel(), setVelocity()
 ```
 
