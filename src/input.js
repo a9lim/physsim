@@ -26,6 +26,7 @@ export default class InputHandler {
         this._lastPinchDist = 0;
         this._lastPinchCenterX = 0;
         this._lastPinchCenterY = 0;
+        this._rightButton = false;
 
         this.setupListeners();
     }
@@ -147,25 +148,39 @@ export default class InputHandler {
         }
     }
 
+    _deleteParticlesAt(pos) {
+        const kept = [];
+        for (const p of this.sim.particles) {
+            if (p.pos.dist(pos) > p.radius) {
+                kept.push(p);
+            } else {
+                this.sim.physics._retireParticle(p);
+            }
+        }
+        this.sim.particles = kept;
+        if (this.sim.selectedParticle && !kept.includes(this.sim.selectedParticle)) {
+            this.sim.selectedParticle = null;
+        }
+    }
+
     onMouseDown(e) {
         if (e.button === 2) {
             const pos = this._getPosNew(e.clientX, e.clientY);
-            const kept = [];
-            for (const p of this.sim.particles) {
-                if (p.pos.dist(pos) > p.radius) {
-                    kept.push(p);
-                } else {
-                    this.sim.physics._retireParticle(p);
-                }
+            const hit = this.findParticleAt(pos);
+            if (hit) {
+                this._deleteParticlesAt(pos);
+                return;
             }
-            this.sim.particles = kept;
-            if (this.sim.selectedParticle && !kept.includes(this.sim.selectedParticle)) {
-                this.sim.selectedParticle = null;
-            }
+            // Empty space: start antimatter drag
+            this.isDragging = true;
+            this._rightButton = true;
+            this.dragStart = pos;
+            this.currentPos = pos.clone();
             return;
         }
 
         this.isDragging = true;
+        this._rightButton = false;
         this.dragStart = this._getPosNew(e.clientX, e.clientY);
         this.currentPos = this.dragStart.clone();
     }
@@ -193,21 +208,35 @@ export default class InputHandler {
     onMouseUp(e) {
         if (!this.isDragging) return;
         this.isDragging = false;
-        if (e.button !== 0) return;
 
         const endPos = this._getPosNew(e.clientX, e.clientY);
+
+        // Right-click drag: spawn antimatter
+        if (e.button === 2 && this._rightButton) {
+            this.spawnParticle(endPos, true);
+            return;
+        }
+
+        if (e.button !== 0) return;
+
         const dragDist = this.dragStart.dist(endPos);
 
-        // Short click on a particle selects it instead of spawning
+        // Short click on a particle: select (matter) or delete (antimatter)
         if (dragDist < DRAG_THRESHOLD) {
             const hit = this.findParticleAt(endPos);
             if (hit) {
-                this.sim.selectedParticle = hit;
+                if (hit.antimatter) {
+                    this.sim.physics._retireParticle(hit);
+                    this.sim.particles = this.sim.particles.filter(p => p !== hit);
+                    if (this.sim.selectedParticle === hit) this.sim.selectedParticle = null;
+                } else {
+                    this.sim.selectedParticle = hit;
+                }
                 return;
             }
         }
 
-        this.spawnParticle(endPos);
+        this.spawnParticle(endPos, false);
     }
 
     findParticleAt(worldPos) {
@@ -223,11 +252,10 @@ export default class InputHandler {
         return best;
     }
 
-    spawnParticle(endPos) {
+    spawnParticle(endPos, antimatter = false) {
         const mass = parseFloat(this.massInput.value);
-        const charge = parseFloat(this.chargeInput.value);
-        const spin = parseFloat(this.spinInput.value);
-        const antimatter = this.sim.antimatterMode;
+        const charge = parseFloat(this.chargeInput.value) * (antimatter ? -1 : 1);
+        const spin = parseFloat(this.spinInput.value) * (antimatter ? -1 : 1);
 
         const vx = (this.dragStart.x - endPos.x) * SHOOT_VELOCITY_SCALE;
         const vy = (this.dragStart.y - endPos.y) * SHOOT_VELOCITY_SCALE;

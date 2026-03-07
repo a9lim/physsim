@@ -679,11 +679,6 @@ export function loadPreset(name, sim) {
         }
     }
 
-    // 5b. Reset antimatter mode
-    sim.antimatterMode = false;
-    const amBtn = document.getElementById('antimatterBtn');
-    if (amBtn) amBtn.classList.remove('active');
-
     // 6. Spawn particles
     preset.spawn(sim);
 

@@ -96,7 +96,6 @@ class Simulation {
         this.topology = 'torus';
         this.speedScale = DEFAULT_SPEED_SCALE;
         this.selectedParticle = null;
-        this.antimatterMode = false;
         this.photons = [];
         this.pions = [];
         this._PhotonClass = Photon;  // expose for Pion.decay()

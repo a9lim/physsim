@@ -86,15 +86,6 @@ export function setupUI(sim) {
     };
     pauseBtn.addEventListener('click', togglePause);
 
-    // ─── Antimatter toggle ───
-    const antimatterBtn = document.getElementById('antimatterBtn');
-    const toggleAntimatter = () => {
-        sim.antimatterMode = !sim.antimatterMode;
-        antimatterBtn.classList.toggle('active', sim.antimatterMode);
-        antimatterBtn.title = sim.antimatterMode ? 'Antimatter Mode ON (A)' : 'Toggle Antimatter Spawn (A)';
-    };
-    antimatterBtn.addEventListener('click', toggleAntimatter);
-
     // ─── Mode toggles ───
     const collisionToggles = document.getElementById('collision-toggles');
     const boundaryToggles = document.getElementById('boundary-toggles');
@@ -428,7 +419,6 @@ export function setupUI(sim) {
             el.checked = !el.checked;
             sim.renderer.showForceComponents = el.checked;
         }},
-        { key: 'A', label: 'Toggle antimatter spawn', group: 'Simulation', action: toggleAntimatter },
         { key: 'T', label: 'Toggle theme', group: 'View', action: toggleTheme },
         { key: 'S', label: 'Toggle sidebar', group: 'View', action: togglePanel },
         { key: 'Escape', label: 'Close panel', group: 'View', action: closePanel },

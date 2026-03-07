@@ -113,9 +113,11 @@ export default class Renderer {
             ctx.beginPath();
             ctx.moveTo(start.x, start.y);
             ctx.lineTo(end.x, end.y);
-            ctx.strokeStyle = isLight ? _r(_PAL.light.text, 0.4) : _r(_PAL.dark.text, 0.5);
+            ctx.strokeStyle = this.input._rightButton
+                ? (isLight ? 'rgba(136,136,136,0.6)' : 'rgba(204,204,204,0.7)')
+                : (isLight ? _r(_PAL.light.text, 0.4) : _r(_PAL.dark.text, 0.5));
             ctx.lineWidth = 1 / (camera ? camera.zoom : 1);
-            ctx.setLineDash([5, 5]);
+            ctx.setLineDash(this.input._rightButton ? [3, 3] : [5, 5]);
             ctx.stroke();
             ctx.setLineDash([]);
         }
