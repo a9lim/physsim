@@ -9,7 +9,7 @@ import PhasePlot from './src/phase-plot.js';
 import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS } from './src/config.js';
 import MasslessBoson from './src/massless-boson.js';
 import Pion from './src/pion.js';
 
@@ -91,9 +91,9 @@ class Simulation {
             angMomDrift: document.getElementById('angMomDrift'),
         };
 
-        this.collisionMode = 'pass';
-        this.boundaryMode = 'despawn';
-        this.topology = 'torus';
+        this.collisionMode = COL_PASS;
+        this.boundaryMode = BOUND_DESPAWN;
+        this.topology = TORUS;
         this.speedScale = DEFAULT_SPEED_SCALE;
         this.selectedParticle = null;
         this.photons = [];
@@ -396,7 +396,7 @@ class Simulation {
             this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
             this.physics.relativityEnabled,
             this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
-            this.physics._topologyConst, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
+            this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
             this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
             this.physics.gravityEnabled, this.physics.coulombEnabled);
         this.phasePlot.update(this.particles, this.selectedParticle, this.physics);

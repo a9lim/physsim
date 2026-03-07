@@ -5,7 +5,7 @@
 // Extends ScalarField for shared PQS infrastructure.
 
 import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, EPSILON, kerrNewmanRadius } from './config.js';
-import ScalarField, { bcFromString } from './scalar-field.js';
+import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
 const _ph = window._parseHex; // hex -> [r,g,b] in 0–1
@@ -41,7 +41,7 @@ export default class HiggsField extends ScalarField {
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
 
-        const bcMode = bcFromString(boundaryMode);
+        const bcMode = boundaryMode;
 
         // PQS source deposition
         const src = this._source;
@@ -144,7 +144,7 @@ export default class HiggsField extends ScalarField {
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const bcMode = bcFromString(boundaryMode);
+        const bcMode = boundaryMode;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -188,7 +188,7 @@ export default class HiggsField extends ScalarField {
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const bcMode = bcFromString(boundaryMode);
+        const bcMode = boundaryMode;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];

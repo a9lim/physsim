@@ -3,17 +3,7 @@
 // PQS (cubic B-spline, order 3) particle-grid coupling: 4×4 stencil,
 // C² interpolation, C² continuous gradients (PQS-interpolated grid gradients).
 
-import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE } from './config.js';
-import { TORUS, KLEIN, RP2 } from './topology.js';
-
-// Boundary mode constants for inner-loop speed (avoid string comparison)
-const BC_DESPAWN = 0;
-const BC_BOUNCE = 1;
-const BC_LOOP = 2;
-
-export function bcFromString(mode) {
-    return mode === 'loop' ? BC_LOOP : mode === 'bounce' ? BC_BOUNCE : BC_DESPAWN;
-}
+import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE, BOUND_BOUNCE, BOUND_LOOP, TORUS, KLEIN, RP2 } from './config.js';
 
 export default class ScalarField {
     constructor(gridSize, clampMax) {
@@ -63,7 +53,7 @@ export default class ScalarField {
     _nb(nx, ny, bcMode, topoConst) {
         const GRID = this._grid;
 
-        if (bcMode === BC_LOOP) {
+        if (bcMode === BOUND_LOOP) {
             if (topoConst === TORUS) {
                 if (nx < 0) nx += GRID; else if (nx >= GRID) nx -= GRID;
                 if (ny < 0) ny += GRID; else if (ny >= GRID) ny -= GRID;
@@ -80,7 +70,7 @@ export default class ScalarField {
             return ny * GRID + nx;
         }
 
-        if (bcMode === BC_BOUNCE) {
+        if (bcMode === BOUND_BOUNCE) {
             // Neumann: clamp (zero-gradient)
             if (nx < 0) nx = 0; else if (nx >= GRID) nx = GRID - 1;
             if (ny < 0) ny = 0; else if (ny >= GRID) ny = GRID - 1;

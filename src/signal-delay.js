@@ -3,8 +3,8 @@
 // via NR convergence to segment, exact quadratic on that segment, and
 // constant-velocity extrapolation past the buffer.
 
-import { HISTORY_SIZE, NR_TOLERANCE, NR_MAX_ITER, EPSILON } from './config.js';
-import { TORUS, minImage } from './topology.js';
+import { HISTORY_SIZE, NR_TOLERANCE, NR_MAX_ITER, EPSILON, TORUS } from './config.js';
+import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 

@@ -19,7 +19,7 @@
 //    At vacuum (a=0): yukMod = 1 for both → CP conserved (PQ solution).
 
 import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, EPSILON } from './config.js';
-import ScalarField, { bcFromString } from './scalar-field.js';
+import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
 const _ph = window._parseHex; // hex -> [r,g,b] in 0–1
@@ -54,7 +54,7 @@ export default class AxionField extends ScalarField {
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
 
-        const bcMode = bcFromString(boundaryMode);
+        const bcMode = boundaryMode;
 
         // PQS source deposition: charged particles (EM) + massive particles (PQ)
         const src = this._source;
@@ -134,7 +134,7 @@ export default class AxionField extends ScalarField {
      *  Sets p.axMod = 1 + g·a(x) when Coulomb on (scalar EM coupling).
      *  Sets p.yukMod = 1 ± g·a(x) when Yukawa on (pseudoscalar PQ coupling).
      */
-    interpolateAxMod(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, boundaryMode = 'despawn', topoConst = 0) {
+    interpolateAxMod(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, boundaryMode = 0, topoConst = 0) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
@@ -147,7 +147,7 @@ export default class AxionField extends ScalarField {
         }
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const bcMode = bcFromString(boundaryMode);
+        const bcMode = boundaryMode;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -174,14 +174,14 @@ export default class AxionField extends ScalarField {
      *  PQ (pseudoscalar aGG̃, when Yukawa on): F = ±g·m·∇a — flips for antimatter.
      *  PQS-interpolated grid gradients give C² continuous forces.
      */
-    applyForces(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, boundaryMode = 'despawn', topoConst = 0) {
+    applyForces(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, boundaryMode = 0, topoConst = 0) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
-        const bcMode = bcFromString(boundaryMode);
+        const bcMode = boundaryMode;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];

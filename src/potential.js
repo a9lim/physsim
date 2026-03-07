@@ -1,8 +1,8 @@
 // ─── Potential Energy Computation ───
 // Mirrors force calculation structure (BH tree or pairwise) for consistent PE.
 
-import { YUKAWA_COUPLING } from './config.js';
-import { TORUS, minImage } from './topology.js';
+import { YUKAWA_COUPLING, TORUS } from './config.js';
+import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 

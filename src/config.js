@@ -6,6 +6,25 @@ export const PI = Math.PI;
 export const TWO_PI = 2 * Math.PI;
 export const HALF_PI = Math.PI / 2;
 
+// ── Mode Enums ──
+export const COL_PASS = 0;
+export const COL_MERGE = 1;
+export const COL_BOUNCE = 2;
+export const COL_NAMES = ['pass', 'merge', 'bounce'];
+export function colFromString(s) { return s === 'merge' ? COL_MERGE : s === 'bounce' ? COL_BOUNCE : COL_PASS; }
+
+export const BOUND_DESPAWN = 0;
+export const BOUND_BOUNCE = 1;
+export const BOUND_LOOP = 2;
+export const BOUND_NAMES = ['despawn', 'bounce', 'loop'];
+export function boundFromString(s) { return s === 'loop' ? BOUND_LOOP : s === 'bounce' ? BOUND_BOUNCE : BOUND_DESPAWN; }
+
+export const TORUS = 0;
+export const KLEIN = 1;
+export const RP2   = 2;
+export const TOPO_NAMES = ['torus', 'klein', 'rp2'];
+export function topoFromString(s) { return s === 'klein' ? KLEIN : s === 'rp2' ? RP2 : TORUS; }
+
 // ── Numerical Thresholds ──
 export const EPSILON = 1e-9;
 export const EPSILON_SQ = EPSILON * EPSILON;

@@ -2,8 +2,8 @@
 // V_eff(r) = V(r) + L²/(2μr²) for selected particle vs most massive body.
 // Draws curve + current-position marker on a sidebar canvas.
 
-import { TWO_PI, SOFTENING_SQ, BH_SOFTENING_SQ, YUKAWA_COUPLING } from './config.js';
-import { TORUS, minImage } from './topology.js';
+import { TWO_PI, SOFTENING_SQ, BH_SOFTENING_SQ, YUKAWA_COUPLING, TORUS } from './config.js';
+import { minImage } from './topology.js';
 
 const N_SAMPLES = 200;
 const _miOut = { x: 0, y: 0 };
