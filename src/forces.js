@@ -297,7 +297,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p.jerk.y += vry * jBase * term1 + ry * jRadial;
     }
 
-    if (toggles.tidalLockingEnabled) {
+    if (toggles.gravityEnabled) {
         // Tidal locking torque: drives spin toward synchronous rotation.
         // Coupling = (m_other + q₁q₂/m)² accounts for all cross-terms:
         // gravity-raises/gravity-torques, gravity/Coulomb, Coulomb/gravity, Coulomb/Coulomb.

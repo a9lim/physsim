@@ -48,7 +48,6 @@ export default class Physics {
         this.radiationEnabled = true;
         this.blackHoleEnabled = false;
         this.disintegrationEnabled = false;
-        this.tidalLockingEnabled = true;
         this.spinOrbitEnabled = true;
         this.onePNEnabled = true;
 
@@ -87,7 +86,6 @@ export default class Physics {
             magneticEnabled: true,
             gravitomagEnabled: true,
             onePNEnabled: true,
-            tidalLockingEnabled: true,
             yukawaEnabled: false,
             yukawaMu: 0.2,
             axionEnabled: false,
@@ -107,7 +105,6 @@ export default class Physics {
         this._toggles.magneticEnabled = this.magneticEnabled;
         this._toggles.gravitomagEnabled = this.gravitomagEnabled;
         this._toggles.onePNEnabled = this.onePNEnabled;
-        this._toggles.tidalLockingEnabled = this.tidalLockingEnabled;
         this._toggles.yukawaEnabled = this.yukawaEnabled;
         this._toggles.yukawaMu = this.yukawaMu;
         this._toggles.axionEnabled = this.axionEnabled;
@@ -413,6 +410,7 @@ export default class Physics {
             this._forcesInit = true;
         }
 
+        const hasGrav = this.gravityEnabled;
         const hasMagnetic = this.magneticEnabled;
         const hasGM = this.gravitomagEnabled;
         const hasExtBz = this.extBz !== 0;
@@ -550,12 +548,12 @@ export default class Physics {
             }
 
             // Frame-dragging torque + tidal locking + bounce contact torque (fused)
-            if ((hasGM && relOn) || this.tidalLockingEnabled || collisionMode === 'bounce') {
+            if ((hasGM && relOn) || hasGrav || collisionMode === 'bounce') {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     let torque = 0;
                     if (hasGM && relOn) torque += p._frameDragTorque;
-                    if (this.tidalLockingEnabled) torque += p._tidalTorque;
+                    if (hasGrav) torque += p._tidalTorque;
                     if (torque === 0) continue;
                     const I = INERTIA_K * p.mass * p.radiusSq;
                     p.angw += torque * dtSub / I;
@@ -1128,7 +1126,7 @@ export default class Physics {
         {
             const soEnabled = this.spinOrbitEnabled;
             const fdEnabled = hasGM && relOn;
-            const tidEnabled = this.tidalLockingEnabled;
+            const tidEnabled = hasGrav;
             const radEnabled = this.radiationEnabled;
             for (let i = 0; i < n; i++) {
                 const p = particles[i];

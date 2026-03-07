@@ -155,7 +155,7 @@ Plummer softening: SOFTENING = 8 (SOFTENING_SQ = 64); BH mode: BH_SOFTENING = 4 
 
 ### Tidal Locking
 
-Requires Gravity. `coupling = m_other + q1*q2/m1`. `tau = -TIDAL_STRENGTH * coupling^2 * r_body^3 / r^6 * (omega_spin - omega_orbit)`.
+Always active when Gravity is on (no separate toggle). `coupling = m_other + q1*q2/m1`. `tau = -TIDAL_STRENGTH * coupling^2 * r_body^3 / r^6 * (omega_spin - omega_orbit)`.
 
 ### Yukawa Potential
 
@@ -341,7 +341,7 @@ When boundary = "loop": Torus (both axes normal), Klein (y-wrap mirrors x, negat
 Forces:                        Physics:
   Gravity                        Relativity          [signal delay auto-activates]
     -> Gravitomagnetic             -> 1PN             [requires Magnetic or GM]
-    -> Tidal Locking               -> Black Hole      [+Gravity, locks collision to Merge]
+    (+ tidal locking, always)      -> Black Hole      [+Gravity, locks collision to Merge]
   Coulomb                        Spin-Orbit           [requires Magnetic or GM]
     -> Magnetic                  Radiation             [requires Gravity or Coulomb]
     -> Axion                       Larmor + EM quad   [when Coulomb on]
@@ -356,7 +356,7 @@ Expansion                        [independent, in Engine tab]
 
 Declarative `DEPS` array in `ui.js`, evaluated in topological order by `updateAllDeps()`. `setDepState()` applies `.ctrl-disabled` and auto-unchecks disabled toggles.
 
-Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit, radiation, tidal locking. Defaults off: Yukawa, Axion, Higgs, Disintegration, Expansion, Barnes-Hut, Black Hole.
+Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit, radiation. Defaults off: Yukawa, Axion, Higgs, Disintegration, Expansion, Barnes-Hut, Black Hole. Tidal locking has no toggle — always active when gravity is on.
 
 ## UI
 

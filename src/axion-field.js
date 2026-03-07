@@ -19,7 +19,7 @@ import ScalarField, { bcFromString } from './scalar-field.js';
 // Parse overlay colors from shared palette at module load (0-255 ints)
 const _ph = window._parseHex; // hex -> [r,g,b] in 0–1
 const _posRGB = _ph(window._PALETTE.extended.indigo).map(v => (v * 255 + 0.5) | 0);
-const _negRGB = _ph(window._PALETTE.extended.red).map(v => (v * 255 + 0.5) | 0);
+const _negRGB = _ph(window._PALETTE.extended.yellow).map(v => (v * 255 + 0.5) | 0);
 
 export default class AxionField extends ScalarField {
     constructor() {
@@ -193,7 +193,7 @@ export default class AxionField extends ScalarField {
         return total === total ? total : 0; // NaN guard
     }
 
-    /** Render field to offscreen canvas. Blue = positive, red = negative. */
+    /** Render field to offscreen canvas. Indigo = positive, yellow = negative. */
     render(isLight) {
         const field = this.field;
         const data = this._imgData.data;
