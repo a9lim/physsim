@@ -28,11 +28,13 @@ function fastTanh(x) {
 
 /**
  * Iterative BH tree walk for scalar potential at point (wx, wy).
- * Accumulates into _treeOut.g and _treeOut.e.
+ * Accumulates into _treeOut.g, _treeOut.e, _treeOut.y.
+ * Signal delay is applied at leaf level (individual particles);
+ * distant nodes use current-time aggregates.
  */
 let _hmStack = new Int32Array(256);
 
-function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doGravity, doCoulomb, doYukawa, yukawaMu) {
+function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doGravity, doCoulomb, doYukawa, yukawaMu, useDelay, simTime, periodic, domW, domH, halfDomW, halfDomH, topology) {
     let stackTop = 0;
     if (_hmStack.length < pool.maxNodes) _hmStack = new Int32Array(pool.maxNodes);
     _hmStack[stackTop++] = rootIdx;
@@ -47,11 +49,27 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doGravity, d
         const size = pool.bw[nodeIdx] * 2;
 
         if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
+            // Leaf node: use signal-delayed positions when enabled
             const base = nodeIdx * pool.nodeCapacity;
             let gP = 0, eP = 0, yP = 0;
             for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
                 const p = pool.points[base + i];
-                const pdx = wx - p.pos.x, pdy = wy - p.pos.y;
+                if (p.isGhost) continue; // ghosts are periodic images; skip to avoid double-counting
+                let pdx, pdy;
+                if (useDelay) {
+                    if (p.histCount < 2) continue;
+                    _hmObs.pos.x = wx; _hmObs.pos.y = wy;
+                    const ret = getDelayedState(p, _hmObs, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                    if (!ret) continue;
+                    if (periodic) {
+                        minImage(wx, wy, ret.x, ret.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                        pdx = _miOut.x; pdy = _miOut.y;
+                    } else {
+                        pdx = ret.x - wx; pdy = ret.y - wy;
+                    }
+                } else {
+                    pdx = p.pos.x - wx; pdy = p.pos.y - wy;
+                }
                 const rSq = pdx * pdx + pdy * pdy + softeningSq;
                 const invR = 1 / Math.sqrt(rSq);
                 if (doGravity) gP -= p.mass * invR;
@@ -65,6 +83,7 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doGravity, d
             _treeOut.e += eP;
             _treeOut.y += yP;
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
+            // Distant node: use current-time aggregate
             const rSq = dSq + softeningSq;
             const invR = 1 / Math.sqrt(rSq);
             if (doGravity) _treeOut.g -= pool.totalMass[nodeIdx] * invR;
@@ -138,7 +157,7 @@ export default class Heatmap {
                     _treeOut.g = 0;
                     _treeOut.e = 0;
                     _treeOut.y = 0;
-                    treePotential(pool, root, wx, wy, thetaSq, softeningSq, doGravity, doCoulomb, doYukawa, yukawaMu);
+                    treePotential(pool, root, wx, wy, thetaSq, softeningSq, doGravity, doCoulomb, doYukawa, yukawaMu, useDelay, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
                     gPhi = _treeOut.g;
                     ePhi = _treeOut.e;
                     yPhi = _treeOut.y;
