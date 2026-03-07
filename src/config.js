@@ -113,7 +113,6 @@ export const DISPLAY_SCALE = 100;
 export const STATS_THROTTLE_MASK = 3;
 export const PHASE_BUFFER_LEN = 512;
 export const HEATMAP_GRID = 64;
-export const HEATMAP_INTERVAL = 4;
 export const HEATMAP_SENSITIVITY = 2;
 export const HEATMAP_MAX_ALPHA = 100;
 export const VELOCITY_VECTOR_SCALE = 32;

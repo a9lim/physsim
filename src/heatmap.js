@@ -1,8 +1,8 @@
 // ─── Potential Field Heatmap ───
-// 64x64 offscreen canvas, diverging colormap, updates every HEATMAP_INTERVAL frames.
+// 64x64 offscreen canvas, diverging colormap, 3×3 box blur for smooth display.
 // When Barnes-Hut is enabled, uses tree walk for O(GRID² log N) instead of O(GRID² N).
 
-import { SOFTENING_SQ, BH_THETA, YUKAWA_COUPLING, HEATMAP_GRID, HEATMAP_INTERVAL, HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA } from './config.js';
+import { SOFTENING_SQ, BH_THETA, YUKAWA_COUPLING, HEATMAP_GRID, HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { minImage } from './topology.js';
 
@@ -15,7 +15,6 @@ const _yukawaRGB = _ph(window._PALETTE.extended.green).map(v => (v * 255 + 0.5) 
 
 const GRID_SIZE = HEATMAP_GRID;
 const GRID_SQ = GRID_SIZE * GRID_SIZE;
-const UPDATE_INTERVAL = HEATMAP_INTERVAL;
 const SENSITIVITY = HEATMAP_SENSITIVITY;
 const MAX_ALPHA = HEATMAP_MAX_ALPHA;
 
@@ -101,17 +100,17 @@ export default class Heatmap {
         this.canvas.width = GRID_SIZE;
         this.canvas.height = GRID_SIZE;
         this.ctx = this.canvas.getContext('2d');
-        this.frameCount = 0;
         this.gravPotential = new Float32Array(GRID_SQ);
         this.elecPotential = new Float32Array(GRID_SQ);
         this.yukawaPotential = new Float32Array(GRID_SQ);
         // Persistent ImageData — avoid creating a new one every update
         this._imgData = this.ctx.createImageData(GRID_SIZE, GRID_SIZE);
+        // Pre-allocated temp array for separable box blur
+        this._blurTemp = new Float32Array(GRID_SQ);
     }
 
     update(particles, camera, width, height, pool, root, barnesHutEnabled, relativityEnabled, simTime, periodic, domW, domH, topology, softeningSq = SOFTENING_SQ, yukawaEnabled = false, yukawaMu = 0.2, deadParticles = null, gravityEnabled = true, coulombEnabled = true) {
         if (!this.enabled) return;
-        if (++this.frameCount % UPDATE_INTERVAL !== 0) return;
 
         const zoom = camera.zoom;
         const cx = camera.x, cy = camera.y;
@@ -202,7 +201,11 @@ export default class Heatmap {
             }
         }
 
-        // Fast tanh approximation — no per-frame ImageData allocation
+        // 3×3 separable box blur for smooth display
+        if (doGravity) this._blur(this.gravPotential);
+        if (doCoulomb) this._blur(this.elecPotential);
+        if (doYukawa) this._blur(this.yukawaPotential);
+
         const data = this._imgData.data;
         const mode = this.mode;
         const showG = mode === 'all' || mode === 'gravity';
@@ -245,6 +248,29 @@ export default class Heatmap {
             }
         }
         this.ctx.putImageData(this._imgData, 0, 0);
+    }
+
+    /** Separable 3×3 box blur (clamp-to-edge). */
+    _blur(arr) {
+        const t = this._blurTemp;
+        const G = GRID_SIZE;
+        // Horizontal pass → temp
+        for (let y = 0; y < G; y++) {
+            const row = y * G;
+            for (let x = 0; x < G; x++) {
+                const l = x > 0 ? arr[row + x - 1] : arr[row];
+                const r = x < G - 1 ? arr[row + x + 1] : arr[row + G - 1];
+                t[row + x] = (l + arr[row + x] + r) * (1 / 3);
+            }
+        }
+        // Vertical pass → arr
+        for (let x = 0; x < G; x++) {
+            for (let y = 0; y < G; y++) {
+                const above = y > 0 ? t[(y - 1) * G + x] : t[x];
+                const below = y < G - 1 ? t[(y + 1) * G + x] : t[(G - 1) * G + x];
+                arr[y * G + x] = (above + t[y * G + x] + below) * (1 / 3);
+            }
+        }
     }
 
     draw(ctx, width, height) {
