@@ -557,22 +557,6 @@ export const REFERENCE = {
 `,
     },
 
-    interaction: {
-        title: 'Spawn Modes',
-        body: `
-<h3>Place</h3>
-<p>Click to spawn a particle at rest at the cursor position. The simplest mode for building static configurations.</p>
-
-<h3>Shoot</h3>
-<p>Click and drag to set the initial velocity vector. Direction points from click to release; speed scales with drag distance. Use this to launch projectiles, create eccentric orbits, or collide particles at controlled speeds.</p>
-
-<h3>Orbit</h3>
-<p>Spawns a particle in a circular orbit around the nearest massive body. The velocity is automatically set to:</p>
-<p>$$v = \\sqrt{\\frac{M}{r}}$$</p>
-<p>where $M$ is the mass of the nearest body and $r$ is the distance to it. This gives a perfectly circular Keplerian orbit. With relativistic corrections or other forces, the orbit will precess or decay.</p>
-`,
-    },
-
     spin: {
         title: 'Particle Spin',
         body: `

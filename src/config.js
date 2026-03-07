@@ -102,7 +102,6 @@ export const DESPAWN_MARGIN = 64;
 export const PINCH_DEBOUNCE = 300;
 export const DRAG_THRESHOLD = 4;
 export const SHOOT_VELOCITY_SCALE = 0.02;
-export const ORBIT_SEARCH_RADIUS = 10;
 
 // ── Display ──
 export const MAX_TRAIL_LENGTH = 256;

@@ -125,7 +125,6 @@ export function setupUI(sim) {
         updateFrictionVisibility();
     });
     bindToggleGroup('topology-toggles', 'topology', (v) => { sim.topology = v; });
-    bindToggleGroup('interaction-toggles', 'mode', (v) => { sim.input.mode = v; });
 
     // ─── Physics toggles ───
     const toggleDefs = [
@@ -452,7 +451,6 @@ export function setupUI(sim) {
         radiation: { title: 'Radiation', body: 'Accelerating charges emit photons (Larmor); orbiting masses emit gravitational waves (quadrupole); Yukawa interactions emit pions (scalar Larmor). Causes orbital decay. Requires Gravity, Coulomb, or Yukawa.' },
         disintegration: { title: 'Disintegration', body: 'Particles fragment when tidal, centrifugal, and Coulomb stresses exceed self-gravity. Includes Roche lobe mass transfer. Requires Gravity.' },
         spinorbit: { title: 'Spin\u2013Orbit', body: 'Couples translation and rotation via field gradients: Stern\u2013Gerlach (EM) and Mathisson\u2013Papapetrou (gravity) kicks on spinning particles. Requires Magnetic or GM.' },
-        interaction: { title: 'Spawn Modes', body: '<b>Place</b> \u2014 spawn at rest. <b>Shoot</b> \u2014 drag to set velocity. <b>Orbit</b> \u2014 circular orbit around nearest mass ($v = \\sqrt{M/r}$).' },
         barneshut: { title: 'Barnes\u2013Hut', body: '$O(N\\log N)$ quadtree approximation ($\\theta = 0.5$). When off, exact $O(N^2)$ pairwise gives machine-precision conservation.' },
         collision: { title: 'Collisions', body: '<b>Pass</b> \u2014 no contact. <b>Bounce</b> \u2014 Hertz elastic repulsion with friction. <b>Merge</b> \u2014 inelastic coalescence conserving mass, charge, and momentum.' },
         boundary: { title: 'Boundaries', body: '<b>Despawn</b> \u2014 removed at edges. <b>Loop</b> \u2014 periodic wrapping (opens topology selector). <b>Bounce</b> \u2014 elastic wall repulsion with friction.' },

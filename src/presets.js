@@ -173,7 +173,7 @@ export const PRESETS = {
             radiation: false, spinorbit: true, disintegration: false,
             barneshut: false, yukawa: false, axion: false, expansion: false, higgs: false,
         },
-        settings: { collision: 'pass', boundary: 'despawn', speed: 50, interaction: 'orbit' },
+        settings: { collision: 'pass', boundary: 'despawn', speed: 50 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
@@ -202,7 +202,7 @@ export const PRESETS = {
             radiation: true, spinorbit: false, disintegration: false,
             barneshut: false, yukawa: false, axion: false, expansion: false, higgs: false,
         },
-        settings: { collision: 'pass', boundary: 'despawn', speed: 50, interaction: 'shoot' },
+        settings: { collision: 'pass', boundary: 'despawn', speed: 50 },
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
@@ -583,7 +583,6 @@ const MODE_GROUPS = {
     collision: { id: 'collision-toggles', attr: 'collision' },
     boundary: { id: 'boundary-toggles', attr: 'boundary' },
     topology: { id: 'topology-toggles', attr: 'topology' },
-    interaction: { id: 'interaction-toggles', attr: 'mode' },
     potentialMode: { id: 'potential-mode-toggles', attr: 'potential' },
 };
 

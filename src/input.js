@@ -1,5 +1,5 @@
 import Vec2 from './vec2.js';
-import { MAX_SPEED_RATIO, PINCH_DEBOUNCE, DRAG_THRESHOLD, SHOOT_VELOCITY_SCALE, ORBIT_SEARCH_RADIUS } from './config.js';
+import { PINCH_DEBOUNCE, DRAG_THRESHOLD, SHOOT_VELOCITY_SCALE } from './config.js';
 
 export default class InputHandler {
     constructor(canvas, sim) {
@@ -9,8 +9,6 @@ export default class InputHandler {
         this.isDragging = false;
         this.dragStart = new Vec2(0, 0);
         this.currentPos = new Vec2(0, 0);
-        this.mode = 'place';
-
         this.canvasRect = canvas.getBoundingClientRect();
 
         this.massInput = document.getElementById('massInput');
@@ -226,45 +224,13 @@ export default class InputHandler {
     }
 
     spawnParticle(endPos) {
-        const mode = this.mode;
         const mass = parseFloat(this.massInput.value);
         const charge = parseFloat(this.chargeInput.value);
         const spin = parseFloat(this.spinInput.value);
         const antimatter = this.sim.antimatterMode;
 
-        if (mode === 'shoot') {
-            const vx = (this.dragStart.x - endPos.x) * SHOOT_VELOCITY_SCALE;
-            const vy = (this.dragStart.y - endPos.y) * SHOOT_VELOCITY_SCALE;
-            this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin, antimatter });
-        } else if (mode === 'orbit') {
-            let bestBody = null;
-            let maxGForce = 0;
-
-            for (const p of this.sim.particles) {
-                const d = p.pos.dist(this.dragStart);
-                if (d > p.radius && d < ORBIT_SEARCH_RADIUS) {
-                    const force = p.mass / (d * d);
-                    if (force > maxGForce) {
-                        maxGForce = force;
-                        bestBody = p;
-                    }
-                }
-            }
-
-            if (bestBody) {
-                const rVec = Vec2.sub(bestBody.pos, this.dragStart);
-                const r = rVec.mag();
-                const dir = rVec.normalize();
-
-                const vMag = Math.min(Math.sqrt(bestBody.mass / r), MAX_SPEED_RATIO);
-                const vx = -dir.y * vMag;
-                const vy = dir.x * vMag;
-                this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin, antimatter });
-            } else {
-                this.sim.addParticle(this.dragStart.x, this.dragStart.y, 0, 0, { mass, charge, spin, antimatter });
-            }
-        } else {
-            this.sim.addParticle(this.dragStart.x, this.dragStart.y, 0, 0, { mass, charge, spin, antimatter });
-        }
+        const vx = (this.dragStart.x - endPos.x) * SHOOT_VELOCITY_SCALE;
+        const vy = (this.dragStart.y - endPos.y) * SHOOT_VELOCITY_SCALE;
+        this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin, antimatter });
     }
 }
