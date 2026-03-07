@@ -67,7 +67,7 @@ Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepp
 
 ### Sidebar Tabs
 
-1. **Settings** -- Particle mass / charge / spin sliders, spawn mode, force toggles (gravity, Coulomb, magnetic, gravitomagnetic, Yukawa, axion, Higgs), physics toggles (relativity, 1PN, black hole, spin-orbit, radiation, tidal locking, disintegration). Preset selector with four category groups (Gravity, EM, Exotic, Cosmological) and 18 scenarios.
+1. **Settings** -- Particle mass / charge / spin sliders, spawn mode, force toggles (gravity, Coulomb, magnetic, gravitomagnetic, Yukawa, axion, Higgs), physics toggles (relativity, 1PN, black hole, spin-orbit, radiation, disintegration). Preset selector with four category groups (Gravity, EM, Exotic, Cosmological) and 18 scenarios.
 2. **Engine** -- Barnes-Hut, collision mode, bounce friction (visible only in bounce mode), boundary mode, topology, external fields (g, E, Bz), visual overlays (heatmap, vectors, trails), sim speed (1–128x, default 64x), cosmological expansion.
 3. **Stats** -- Energy breakdown (linear KE, spin KE, PE, field, Higgs field, radiated, drift), conserved quantities (momentum, angular momentum).
 4. **Particle** -- Selected particle details (mass, charge, spin, speed, gamma, per-force breakdown), phase space plot, effective potential plot.

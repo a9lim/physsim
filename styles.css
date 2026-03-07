@@ -100,7 +100,6 @@ body {
 .tog-radiation    { --tog-color: var(--ext-yellow); }
 .tog-spinorbit    { --tog-color: var(--ext-purple); }
 .tog-tidal        { --tog-color: var(--ext-slate); }
-.tog-tidallocking { --tog-color: var(--ext-red); }
 .tog-onepn        { --tog-color: var(--ext-orange); }
 .tog-blackhole    { --tog-color: var(--text); }
 .tog-yukawa       { --tog-color: var(--ext-green); }
@@ -110,12 +109,37 @@ body {
 /* ═══════════════════════════════════════════════
    Themed Slider Thumbs
    ═══════════════════════════════════════════════ */
+/* ─── Particle Property Sliders ─── */
+#massInput::-webkit-slider-thumb   { background: var(--ext-red); }
+#massInput::-moz-range-thumb       { background: var(--ext-red); }
+#chargeInput::-webkit-slider-thumb { background: var(--ext-blue); }
+#chargeInput::-moz-range-thumb     { background: var(--ext-blue); }
+#spinInput::-webkit-slider-thumb   { background: var(--ext-purple); }
+#spinInput::-moz-range-thumb       { background: var(--ext-purple); }
+
+/* ─── Force Sub-Sliders ─── */
 #yukawa-sliders input[type=range]::-webkit-slider-thumb { background: var(--ext-green); }
 #yukawa-sliders input[type=range]::-moz-range-thumb     { background: var(--ext-green); }
 #axion-sliders  input[type=range]::-webkit-slider-thumb  { background: var(--ext-indigo); }
 #axion-sliders  input[type=range]::-moz-range-thumb      { background: var(--ext-indigo); }
 #higgs-sliders  input[type=range]::-webkit-slider-thumb  { background: var(--ext-lime); }
 #higgs-sliders  input[type=range]::-moz-range-thumb      { background: var(--ext-lime); }
+
+/* ─── External Field Sliders ─── */
+#extGravityInput::-webkit-slider-thumb,
+#extGravityAngleInput::-webkit-slider-thumb  { background: var(--ext-red); }
+#extGravityInput::-moz-range-thumb,
+#extGravityAngleInput::-moz-range-thumb      { background: var(--ext-red); }
+#extElectricInput::-webkit-slider-thumb,
+#extElectricAngleInput::-webkit-slider-thumb { background: var(--ext-blue); }
+#extElectricInput::-moz-range-thumb,
+#extElectricAngleInput::-moz-range-thumb     { background: var(--ext-blue); }
+#extBzInput::-webkit-slider-thumb            { background: var(--ext-cyan); }
+#extBzInput::-moz-range-thumb                { background: var(--ext-cyan); }
+
+/* ─── Bounce Friction Slider ─── */
+#frictionInput::-webkit-slider-thumb { background: var(--ext-brown); }
+#frictionInput::-moz-range-thumb     { background: var(--ext-brown); }
 
 /* ═══════════════════════════════════════════════
    Particle Tooltip & Selection

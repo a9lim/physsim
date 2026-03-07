@@ -136,7 +136,6 @@ export function setupUI(sim) {
         { id: 'relativity-toggle', prop: 'relativityEnabled' },
         { id: 'radiation-toggle', prop: 'radiationEnabled' },
         { id: 'disintegration-toggle', prop: 'disintegrationEnabled' },
-        { id: 'tidallocking-toggle', prop: 'tidalLockingEnabled' },
         { id: 'spinorbit-toggle', prop: 'spinOrbitEnabled' },
         { id: 'barneshut-toggle', prop: 'barnesHutEnabled' },
         { id: 'yukawa-toggle', prop: 'yukawaEnabled' },
@@ -160,7 +159,6 @@ export function setupUI(sim) {
         ['gravitomag-toggle', () => !tEl['gravity-toggle'].checked],
         ['magnetic-toggle', () => !tEl['coulomb-toggle'].checked],
         ['radiation-toggle', () => !tEl['gravity-toggle'].checked && !tEl['coulomb-toggle'].checked],
-        ['tidallocking-toggle', () => !tEl['gravity-toggle'].checked],
         ['disintegration-toggle', () => !tEl['gravity-toggle'].checked],
         ['axion-toggle', () => !tEl['coulomb-toggle'].checked],
         ['blackhole-toggle', () => !tEl['relativity-toggle'].checked || !tEl['gravity-toggle'].checked],
@@ -450,7 +448,6 @@ export function setupUI(sim) {
         relativity: { title: 'Relativity', body: 'Enforces $|v| < c$ via proper velocity $\\mathbf{w} = \\gamma\\mathbf{v}$. Enables signal delay \u2014 forces propagate at lightspeed.' },
         radiation: { title: 'Radiation', body: 'Accelerating charges emit photons (Larmor); orbiting masses emit gravitational waves (quadrupole). Causes orbital decay. Requires Gravity or Coulomb.' },
         disintegration: { title: 'Disintegration', body: 'Particles fragment when tidal, centrifugal, and Coulomb stresses exceed self-gravity. Includes Roche lobe mass transfer. Requires Gravity.' },
-        tidallocking: { title: 'Tidal Locking', body: 'Dissipative torque drives spin toward synchronous rotation ($\\omega_{\\text{spin}} \\to \\omega_{\\text{orbit}}$), like the Moon facing Earth. Requires Gravity.' },
         spinorbit: { title: 'Spin\u2013Orbit', body: 'Couples translation and rotation via field gradients: Stern\u2013Gerlach (EM) and Mathisson\u2013Papapetrou (gravity) kicks on spinning particles. Requires Magnetic or GM.' },
         interaction: { title: 'Spawn Modes', body: '<b>Place</b> \u2014 spawn at rest. <b>Shoot</b> \u2014 drag to set velocity. <b>Orbit</b> \u2014 circular orbit around nearest mass ($v = \\sqrt{M/r}$).' },
         barneshut: { title: 'Barnes\u2013Hut', body: '$O(N\\log N)$ quadtree approximation ($\\theta = 0.5$). When off, exact $O(N^2)$ pairwise gives machine-precision conservation.' },
@@ -464,6 +461,8 @@ export function setupUI(sim) {
         expansion: { title: 'Expansion', body: 'Hubble flow ($v_H = Hr$) from domain center. Bound systems resist expansion; unbound particles drift apart.' },
         higgs: { title: 'Higgs Field', body: 'Scalar field with Mexican hat potential. Particles acquire mass from local field value ($m = m_0|\\phi|$). High temperature restores symmetry \u2014 particles become massless.' },
         external: { title: 'External Fields', body: '<b>Gravity</b> \u2014 uniform $\\mathbf{F}=m\\mathbf{g}$. <b>Electric</b> \u2014 uniform $\\mathbf{F}=q\\mathbf{E}$. <b>Magnetic $B_z$</b> \u2014 cyclotron motion via Boris rotation.' },
+        pion: { title: 'Pions', body: 'Massive Yukawa force carriers ($m_\\pi = \\mu$). Emitted via scalar Larmor radiation ($P = g^2 m^2 a^2/3$). Travel at $v < c$, experience gravitational deflection with factor $(1+v^2)$, and decay into photons.' },
+        fieldExcitation: { title: 'Field Excitations', body: 'Merge collisions deposit Gaussian wave packets into active scalar fields. Higgs excitations ripple around VEV (Higgs boson analog); axion excitations ripple around vacuum $a=0$.' },
     };
 
     if (typeof createInfoTip === 'function') {

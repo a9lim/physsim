@@ -10,7 +10,6 @@ const TOGGLE_SYNC = [
     ['magneticEnabled', 'magnetic-toggle'],
     ['onePNEnabled', 'onepn-toggle'],
     ['blackHoleEnabled', 'blackhole-toggle'],
-    ['tidalLockingEnabled', 'tidallocking-toggle'],
     ['spinOrbitEnabled', 'spinorbit-toggle'],
     ['radiationEnabled', 'radiation-toggle'],
     ['disintegrationEnabled', 'disintegration-toggle'],
@@ -82,7 +81,7 @@ export function saveState(sim) {
     for (const key of ['gravityEnabled', 'coulombEnabled', 'magneticEnabled',
         'gravitomagEnabled', 'relativityEnabled', 'barnesHutEnabled',
         'radiationEnabled', 'blackHoleEnabled', 'disintegrationEnabled',
-        'tidalLockingEnabled', 'spinOrbitEnabled',
+        'spinOrbitEnabled',
         'onePNEnabled', 'yukawaEnabled', 'axionEnabled',
         'expansionEnabled', 'higgsEnabled']) {
         state.toggles[key] = ph[key];
