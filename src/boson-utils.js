@@ -8,7 +8,7 @@ let _bStack = new Int32Array(256);
 
 /**
  * Iterative BH tree walk for gravitational deflection of a boson.
- * Accumulates impulse into targetVec (photon.vel or pion.w).
+ * Accumulates impulse into targetVec (boson.vel or pion.w).
  * @param {Vec2} pos        - boson position
  * @param {Vec2} targetVec  - velocity/proper-velocity vector to accumulate into
  * @param {number} grFactor - GR deflection factor (2 for photons, 1+v² for pions)

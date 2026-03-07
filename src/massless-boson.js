@@ -2,7 +2,7 @@ import Vec2 from './vec2.js';
 import { BOSON_SOFTENING_SQ, EPSILON } from './config.js';
 import { treeDeflectBoson } from './boson-utils.js';
 
-export default class Photon {
+export default class MasslessBoson {
     constructor(x, y, vx, vy, energy, emitterId = -1) {
         this.pos = new Vec2(x, y);
         this.vel = new Vec2(vx, vy);

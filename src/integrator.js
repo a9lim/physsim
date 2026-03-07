@@ -4,7 +4,7 @@
 
 import QuadTreePool from './quadtree.js';
 import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING } from './config.js';
-import Photon from './photon.js';
+import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
 
@@ -745,7 +745,7 @@ export default class Physics {
 
                             const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
                             const pOff = spawnOffset(p.radius);
-                            this.sim.photons.push(new Photon(
+                            this.sim.photons.push(new MasslessBoson(
                                 p.pos.x + cosA * pOff,
                                 p.pos.y + sinA * pOff,
                                 cosA, sinA,
@@ -794,7 +794,7 @@ export default class Physics {
                         const emitAngle = Math.random() * TWO_PI;
                         const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
                         const hOff = spawnOffset(p.radius);
-                        this.sim.photons.push(new Photon(
+                        this.sim.photons.push(new MasslessBoson(
                             p.pos.x + cosA * hOff,
                             p.pos.y + sinA * hOff,
                             cosA, sinA,
@@ -995,7 +995,7 @@ export default class Physics {
                         const target = candidates[ci];
                         if (target.isGhost) continue;
                         if (ph.age < BOSON_MIN_AGE) continue;
-                        if (target.id === ph.emitterId && ph.age < BOSON_MIN_AGE * 2) continue;
+                        if (target.id === ph.emitterId) continue;
                         const dx = ph.pos.x - target.pos.x;
                         const dy = ph.pos.y - target.pos.y;
                         const absR = target.radius * BOSON_ABSORB_FRACTION;
@@ -1026,7 +1026,7 @@ export default class Physics {
                         const target = candidates[ci];
                         if (target.isGhost) continue;
                         if (pn.age < BOSON_MIN_AGE) continue;
-                        if (target.id === pn.emitterId && pn.age < BOSON_MIN_AGE * 2) continue;
+                        if (target.id === pn.emitterId) continue;
                         const dx = pn.pos.x - target.pos.x;
                         const dy = pn.pos.y - target.pos.y;
                         const absR = target.radius * BOSON_ABSORB_FRACTION;
@@ -1241,7 +1241,7 @@ export default class Physics {
                             const angle = _quadSample(d3Ixx, d3Ixy);
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
                             const qOff = spawnOffset(p.radius);
-                            const gph = new Photon(
+                            const gph = new MasslessBoson(
                                 p.pos.x + cosA * qOff,
                                 p.pos.y + sinA * qOff,
                                 cosA, sinA, p._quadAccum, p.id);
@@ -1256,7 +1256,7 @@ export default class Physics {
                             const angle = _quadSample(d3Qxx, d3Qxy);
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
                             const eOff = spawnOffset(p.radius);
-                            photons.push(new Photon(
+                            photons.push(new MasslessBoson(
                                 p.pos.x + cosA * eOff,
                                 p.pos.y + sinA * eOff,
                                 cosA, sinA, p._emQuadAccum, p.id));

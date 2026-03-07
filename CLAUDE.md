@@ -47,8 +47,8 @@ src/
   topology.js            112 lines  TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
   vec2.js                 61 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist, static sub
   boson-utils.js          58 lines  treeDeflectBoson(): shared BH tree walk for gravitational lensing of photons and pions
-  photon.js               45 lines  Photon: pos, vel, energy, lifetime, type ('em'/'grav'), gravitational lensing via boson-utils
-  pion.js                123 lines  Pion: massive Yukawa force carrier, proper velocity, (1+v^2) GR deflection, Lorentz-boosted decay -> photons
+  massless-boson.js       45 lines  MasslessBoson: pos, vel, energy, lifetime, type ('em'/'grav'), gravitational lensing via boson-utils
+  pion.js                123 lines  Pion: massive Yukawa force carrier, proper velocity, (1+v^2) GR deflection, Lorentz-boosted decay -> massless bosons
   relativity.js           22 lines  angwToAngVel(), setVelocity()
 ```
 
@@ -56,13 +56,13 @@ src/
 
 ```
 main.js <- Physics (integrator), Renderer, InputHandler, Particle, HiggsField, AxionField,
-           Heatmap, PhasePlot, EffectivePotentialPlot, StatsDisplay, setupUI, config, Photon, Pion, save-load
+           Heatmap, PhasePlot, EffectivePotentialPlot, StatsDisplay, setupUI, config, MasslessBoson, Pion, save-load
 
-integrator.js <- QuadTreePool, config, Photon, Pion, angwToAngVel, forces (resetForces/computeAllForces/compute1PNPairwise),
+integrator.js <- QuadTreePool, config, MasslessBoson, Pion, angwToAngVel, forces (resetForces/computeAllForces/compute1PNPairwise),
                  handleCollisions, computePE, topology (accesses sim.higgsField/axionField via this.sim backref)
 
 boson-utils.js <- config (BH_THETA, BOSON_SOFTENING_SQ)
-photon.js     <- Vec2, config (EPSILON), boson-utils (treeDeflectBoson)
+massless-boson.js <- Vec2, config (EPSILON), boson-utils (treeDeflectBoson)
 pion.js       <- Vec2, config (BOSON_SOFTENING_SQ), boson-utils (treeDeflectBoson)
 
 forces.js     <- config, getDelayedState, topology
@@ -228,7 +228,7 @@ Independent toggle; requires Coulomb or Yukawa. Quadratic potential `V(a) = 1/2 
 
 ## Pions (Massive Force Carriers)
 
-`Pion` class in `pion.js`. Massive Yukawa force carriers, analogous to `Photon` but with `v < c`. Yukawa's 1935 insight: pion mass equals `yukawaMu`.
+`Pion` class in `pion.js`. Massive Yukawa force carriers, analogous to `MasslessBoson` but with `v < c`. Yukawa's 1935 insight: pion mass equals `yukawaMu`.
 
 ### Emission (Scalar Larmor)
 
@@ -242,11 +242,11 @@ Proper velocity `w` (celerity): `vel = w / sqrt(1 + w^2)`, so `|v| < c` always. 
 
 ### Decay
 
-`pi0 -> 2 photons` (back-to-back in rest frame, Lorentz-boosted to lab frame), `pi+/- -> 1 photon` (along flight direction). Uses `sim._PhotonClass` reference to avoid circular import.
+`pi0 -> 2 photons` (back-to-back in rest frame, Lorentz-boosted to lab frame), `pi+/- -> 1 photon` (along flight direction). Uses `sim._MasslessBosonClass` reference to avoid circular import. Decay products inherit the pion's `emitterId`.
 
 ### Absorption
 
-Quadtree overlap query after photon absorption. Transfers momentum and charge (pi+/-) to absorbing particle. Self-absorption guard: `pion.emitterId != particle index` and `pion.age >= 3`.
+Quadtree overlap query after photon absorption. Transfers momentum and charge (pi+/-) to absorbing particle. Self-absorption permanently blocked: `emitterId != particle index`.
 
 ### Constants
 
@@ -285,7 +285,7 @@ Requires Gravity, Coulomb, or Yukawa. Single toggle controls four mechanisms:
 - **GW quadrupole** (requires Gravity): `P = (1/5)|d^3 I^TF_ij/dt^3|^2` (trace-free STF tensor, COM-relative coordinates). Per-particle energy extraction weighted by contribution to d^3I/dt^3. Emits gravitons (type: 'grav', rendered red).
 - **Pion emission / scalar Larmor** (requires Yukawa): `P = g^2 * F_yuk^2 / 3`. Emits pions (see Pion section).
 
-Photon quadrupole types use TT-projected angular emission via rejection sampling. Photon absorption via quadtree query (self-absorption guard: age < 3).
+Photon quadrupole types use TT-projected angular emission via rejection sampling. Photon absorption via quadtree query (self-absorption permanently blocked by emitterId).
 
 ### Black Hole Mode
 
@@ -445,9 +445,11 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 - PQ source/force use `±g*m` (sign flip for antimatter); EM source/force use `g*q²` (same for both) -- combined into single `coupling` in `applyForces()`
 - `magMoment`/`angMomentum` cache reflects previous `computeAllForces()` state -- consistent with B-field gradients used in same substep
 - Ghost particles must carry `magMoment`/`angMomentum` fields (set in `_addGhost()`)
-- Both Photon and Pion use shared `treeDeflectBoson()` from `boson-utils.js` for BH tree lensing; fall back to O(N) when pool is null or root < 0
-- Photon passes grFactor=2 (null geodesic), Pion passes grFactor=1+v² (massive particle)
-- Pion decay uses `sim._PhotonClass` reference (set in main.js) to avoid circular import with photon.js
+- Both MasslessBoson and Pion use shared `treeDeflectBoson()` from `boson-utils.js` for BH tree lensing; fall back to O(N) when pool is null or root < 0
+- MasslessBoson passes grFactor=2 (null geodesic), Pion passes grFactor=1+v² (massive particle)
+- Pion decay uses `sim._MasslessBosonClass` reference (set in main.js) to avoid circular import with massless-boson.js
+- Pion decay products inherit the pion's `emitterId`, so the original emitter can never reabsorb them
+- Self-absorption is permanently blocked for both photons and pions: `emitterId` match always skips absorption
 - `_yukawaRadAccum` on Particle accumulates pion emission energy -- reset to 0 after each emission
 - Field excitation `depositExcitation()` writes to `fieldDot` (not `field`) -- wave equation propagates naturally
 - `sim.pions` array must be cleared on preset load and reset (in main.js, save-load.js, ui.js)

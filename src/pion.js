@@ -1,6 +1,6 @@
 // ─── Pion ───
 // Massive force carrier for the Yukawa potential.
-// Unlike Photon (massless, |v|=c), pions travel at v<c with proper velocity w.
+// Unlike MasslessBoson (|v|=c), pions travel at v<c with proper velocity w.
 
 import Vec2 from './vec2.js';
 import { BOSON_SOFTENING_SQ, spawnOffset } from './config.js';
@@ -56,8 +56,8 @@ export default class Pion {
     /** Emit decay products into sim. pi0 -> 2 photons, pi+/- -> 1 photon. */
     decay(sim) {
         if (!sim || this.energy <= 0) return;
-        const Photon = sim._PhotonClass;
-        if (!Photon) return;
+        const Boson = sim._MasslessBosonClass;
+        if (!Boson) return;
         // Remove pion's contribution before adding photons (avoids double-counting)
         sim.totalRadiated -= this.energy;
         sim.totalRadiatedPx -= this.energy * this.vel.x;
@@ -94,10 +94,10 @@ export default class Pion {
                 const pMag = Math.sqrt(pxR * pxR + pyR * pyR);
                 const eBoosted = pMag; // massless: E = |p|
                 const cosA = pxR / pMag, sinA = pyR / pMag;
-                const ph = new Photon(
+                const ph = new Boson(
                     this.pos.x + cosA * offset,
                     this.pos.y + sinA * offset,
-                    cosA, sinA, eBoosted, -1
+                    cosA, sinA, eBoosted, this.emitterId
                 );
                 sim.photons.push(ph);
                 sim.totalRadiated += eBoosted;
@@ -108,10 +108,10 @@ export default class Pion {
             // pi+/- -> 1 photon along flight direction (simplified channel)
             const angle = Math.atan2(this.vel.y, this.vel.x);
             const cosA = Math.cos(angle), sinA = Math.sin(angle);
-            const ph = new Photon(
+            const ph = new Boson(
                 this.pos.x + cosA * offset,
                 this.pos.y + sinA * offset,
-                cosA, sinA, ePerPh, -1
+                cosA, sinA, ePerPh, this.emitterId
             );
             sim.photons.push(ph);
             sim.totalRadiated += ePerPh;
