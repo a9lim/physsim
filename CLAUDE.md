@@ -17,22 +17,22 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 ## File Map
 
 ```
-main.js                  417 lines  Simulation class, emitPhotonBurst(), fixed-timestep loop, save/load, pair production, pion loop, deadParticles cleanup, window.sim
-index.html               485 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders, antimatter button
+main.js                  414 lines  Simulation class, emitPhotonBurst(), fixed-timestep loop, save/load, pair production, pion loop, deadParticles cleanup, window.sim
+index.html               477 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders
 styles.css               269 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                 18 lines  Project color tokens (particle hues, spin ring colors)
 src/
   integrator.js         1463 lines  Physics class: Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields, _retireParticle
-  ui.js                  527 lines  setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
-  renderer.js            530 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
+  ui.js                  517 lines  setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
+  renderer.js            532 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
   forces.js              514 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
-  presets.js             693 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
+  presets.js             688 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   reference.js           688 lines  REFERENCE object: physics reference content (KaTeX math)
   scalar-field.js        391 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
   higgs-field.js         259 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
   axion-field.js         261 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, PQ pseudoscalar coupling, EM + Yukawa modulation
   quadtree.js            274 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard
-  input.js               236 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
+  input.js               238 lines  InputHandler: mouse/touch, left/right-click symmetry (matter/antimatter), hover tooltip
   signal-delay.js        257 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
   heatmap.js             248 lines  Heatmap: 64x64 potential field overlay, mode selector, signal-delayed positions, dead particle contributions, force-toggle-aware
   effective-potential.js 204 lines  EffectivePotentialPlot: V_eff(r) sidebar canvas, auto-scaling
@@ -327,7 +327,7 @@ Toggle. `pos += H*(pos - center)*dt` (Hubble flow), `w *= (1 - H*dt)` (redshift)
 
 ### Antimatter & Pair Production
 
-`p.antimatter` boolean. Toolbar button (key `A`). Matter+antimatter merge annihilates lesser mass, emits photons via `emitPhotonBurst()`. Pair production: photons with energy >= 1 near massive body (dist < 8) can produce matter+antimatter pair (prob 0.005/substep).
+`p.antimatter` boolean. Right-click spawns antimatter (with negated charge and spin). Left-click on antimatter deletes it; right-click on matter deletes it. Symmetric: same-type click selects, opposite-type click deletes. Matter+antimatter merge annihilates lesser mass, emits photons via `emitPhotonBurst()`. Pair production: photons with energy >= 1 near massive body (dist < 8) can produce matter+antimatter pair (prob 0.005/substep).
 
 ## Sign Conventions (IMPORTANT)
 
@@ -388,7 +388,7 @@ Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit
 
 4-tab sidebar: Settings (mass/charge/spin, spawn mode, force/physics toggles), Engine (BH, collisions, boundary/topology, external fields, visuals, speed), Stats (energy/momentum/drift), Particle (selected details, force breakdown, phase plot, effective potential).
 
-Topbar: Home | Brand "No-Hair" | Pause/Step/Reset/Save/Load | Antimatter | Theme | Panel toggle.
+Topbar: Home | Brand "No-Hair" | Pause/Step/Reset/Save/Load | Theme | Panel toggle.
 
 19 presets in 4 `<optgroup>` categories: Gravity (6), Electromagnetism (3), Exotic (8), Cosmological (2). First 9 via keyboard `1`-`9`. Sim speed range 1-128, default 64.
 
