@@ -243,7 +243,7 @@ Quadtree overlap query after photon absorption. Transfers momentum and charge (p
 
 ### Constants
 
-`PION_LIFETIME = 32`, `MAX_PIONS = 256`, `BOSON_SOFTENING_SQ = 4` (shared by photon and pion lensing), `BOSON_ABSORB_FRACTION = 1` (absorption cross-section), `BOSON_MIN_AGE = 4` (minimum substeps before absorption).
+`PION_HALF_LIFE = 32` (probabilistic decay: `P = 1 - exp(-ln2/t_half * dt)` per substep), `MAX_PIONS = 256`, `BOSON_SOFTENING_SQ = 4` (shared by photon and pion lensing), `BOSON_ABSORB_FRACTION = 1` (absorption cross-section), `BOSON_MIN_AGE = 4` (minimum substeps before absorption).
 
 ## Field Excitations
 
@@ -385,7 +385,7 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 - **Force vectors**: component colors: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green, external=brown, higgs=lime, axion=indigo
 - **Field overlays**: 64x64 offscreen canvas, bilinear-upscaled. Higgs: magenta/cyan. Axion: indigo/yellow.
 - **Photons**: yellow (EM) / red (gravitons), alpha fades over PHOTON_LIFETIME=256
-- **Pions**: green circles (`_PALETTE.extended.green`), glow in dark mode, alpha fades over PION_LIFETIME=32
+- **Pions**: green circles (`_PALETTE.extended.green`), glow in dark mode, constant alpha (no fade — decay is probabilistic via half-life)
 - **Effective potential plot**: V_eff(r) sidebar canvas. 200-sample curve. Includes gravity, Coulomb, mag dipole, GM dipole, Yukawa.
 
 ## Key Patterns
