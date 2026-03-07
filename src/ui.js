@@ -159,7 +159,7 @@ export function setupUI(sim) {
     const DEPS = [
         ['gravitomag-toggle', () => !tEl['gravity-toggle'].checked],
         ['magnetic-toggle', () => !tEl['coulomb-toggle'].checked],
-        ['radiation-toggle', () => !tEl['gravity-toggle'].checked && !tEl['coulomb-toggle'].checked],
+        ['radiation-toggle', () => !tEl['gravity-toggle'].checked && !tEl['coulomb-toggle'].checked && !tEl['yukawa-toggle'].checked],
         ['disintegration-toggle', () => !tEl['gravity-toggle'].checked],
         ['axion-toggle', () => !tEl['coulomb-toggle'].checked],
         ['blackhole-toggle', () => !tEl['relativity-toggle'].checked || !tEl['gravity-toggle'].checked],
@@ -449,7 +449,7 @@ export function setupUI(sim) {
         magnetic: { title: 'Magnetic', body: 'Lorentz force on moving charges ($q\\mathbf{v}\\times\\mathbf{B}$) plus dipole interactions from spinning charges ($3\\mu_1\\mu_2/r^4$). Requires Coulomb.' },
         gravitomag: { title: 'Gravitomagnetic', body: 'GR analog of magnetism for masses. Co-rotating masses attract (opposite to EM dipoles). Includes frame-dragging torque. Requires Gravity.' },
         relativity: { title: 'Relativity', body: 'Enforces $|v| < c$ via proper velocity $\\mathbf{w} = \\gamma\\mathbf{v}$. Enables signal delay \u2014 forces propagate at lightspeed.' },
-        radiation: { title: 'Radiation', body: 'Accelerating charges emit photons (Larmor); orbiting masses emit gravitational waves (quadrupole). Causes orbital decay. Requires Gravity or Coulomb.' },
+        radiation: { title: 'Radiation', body: 'Accelerating charges emit photons (Larmor); orbiting masses emit gravitational waves (quadrupole); Yukawa interactions emit pions (scalar Larmor). Causes orbital decay. Requires Gravity, Coulomb, or Yukawa.' },
         disintegration: { title: 'Disintegration', body: 'Particles fragment when tidal, centrifugal, and Coulomb stresses exceed self-gravity. Includes Roche lobe mass transfer. Requires Gravity.' },
         spinorbit: { title: 'Spin\u2013Orbit', body: 'Couples translation and rotation via field gradients: Stern\u2013Gerlach (EM) and Mathisson\u2013Papapetrou (gravity) kicks on spinning particles. Requires Magnetic or GM.' },
         interaction: { title: 'Spawn Modes', body: '<b>Place</b> \u2014 spawn at rest. <b>Shoot</b> \u2014 drag to set velocity. <b>Orbit</b> \u2014 circular orbit around nearest mass ($v = \\sqrt{M/r}$).' },
