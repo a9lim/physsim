@@ -15,6 +15,7 @@ import { TORUS, KLEIN, RP2, minImage, wrapPosition } from './topology.js';
 
 // Reused by disintegration to avoid per-call allocation
 const _disintMiOut = { x: 0, y: 0 };
+const _repelMiOut = { x: 0, y: 0 };
 
 // Per-particle quadrupole contribution arrays (Fix A7)
 let _d3IContrib = new Float64Array(256);
@@ -379,7 +380,13 @@ export default class Physics {
             } else {
                 for (let j = i + 1; j < n; j++) {
                     const p2 = particles[j];
-                    this._repelPair(p1, p2.pos.x, p2.pos.y, p2, friction);
+                    let p2x = p2.pos.x, p2y = p2.pos.y;
+                    if (this.periodic) {
+                        minImage(p1.pos.x, p1.pos.y, p2x, p2y, this._topologyConst, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, _repelMiOut);
+                        p2x = p1.pos.x + _repelMiOut.x;
+                        p2y = p1.pos.y + _repelMiOut.y;
+                    }
+                    this._repelPair(p1, p2x, p2y, p2, friction);
                 }
             }
         }
