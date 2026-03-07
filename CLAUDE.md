@@ -219,7 +219,7 @@ Requires Coulomb. Axion-like scalar field on a 64×64 grid with quadratic potent
 
 ### Higgs Scalar Field
 
-Independent toggle (`physics.higgsEnabled`). Dynamical real scalar field on a 64×64 grid with Mexican hat potential `V(φ) = -½μ²φ² + ¼λφ⁴`. Extends `ScalarField` base class. VEV=1 baked in; the free parameter is the Higgs boson mass `m_H` (slider 0.25–1, default 0.5). With VEV=1: `λ = μ² = m_H²/2`. Smaller m_H → longer interaction range (~1/m_H), shallower potential well.
+Independent toggle (`physics.higgsEnabled`). Dynamical real scalar field on a 64×64 grid with Mexican hat potential `V(φ) = -½μ²φ² + ¼λφ⁴`. Extends `ScalarField` base class. VEV=1 baked in; the free parameter is the Higgs boson mass `m_H` (slider 0.01–0.25, default 0.05). With VEV=1: `λ = μ² = m_H²/2`. Smaller m_H → longer interaction range (~1/m_H), shallower potential well.
 
 **Particle-grid coupling**: PQS (Piecewise Quadratic Spline, cubic B-spline, order 3) via shared `ScalarField` base class. Each particle deposits to / interpolates from a 4×4 = 16 node stencil. Shape function: `W(t) = (4-6t²+3|t|³)/6` for `|t|<1`, `W(t) = (2-|t|)³/6` for `1≤|t|<2`. Gives C² continuous interpolation and C¹ continuous gradients — no grid-crossing artifacts, no self-force subtraction needed, no smoothing buffers. Pre-allocated weight arrays (`_wx`, `_wy`, `_dwx`, `_dwy`) for zero-alloc hot path.
 
@@ -227,7 +227,7 @@ Independent toggle (`physics.higgsEnabled`). Dynamical real scalar field on a 64
 
 **Gradient force**: `F = -g·baseMass · ∇φ` where `g = HIGGS_COUPLING`. PQS gradient weights (derivative of cubic B-spline) give C¹ continuous forces. Accumulates into `forceHiggs`. Applied as E-like force after external fields. Included in Larmor radiation jerk via numerical backward difference of the residual force.
 
-**Field equation**: `∂²φ/∂t² = ∇²φ + μ²_eff·φ - μ²φ³ + source/cellArea - 2m_H·∂φ/∂t` where `μ² = m_H²/2`. Symplectic Euler (kick-drift). PQS deposition of `g·baseMass` for particle source terms (`g = HIGGS_COUPLING = 0.25`).
+**Field equation**: `∂²φ/∂t² = ∇²φ + μ²_eff·φ - μ²φ³ + source/cellArea - 2m_H·∂φ/∂t` where `μ² = m_H²/2`. Symplectic Euler (kick-drift). PQS deposition of `g·baseMass` for particle source terms (`g = HIGGS_COUPLING = 0.05`).
 
 **Phase transitions**: Thermal correction `μ²_eff = μ² - KE_local` (thermalK=1 baked in) where `KE_local` is PQS-deposited KE density. When local KE exceeds μ², field relaxes to φ=0 (symmetric phase), particles lose mass.
 
@@ -237,7 +237,7 @@ Independent toggle (`physics.higgsEnabled`). Dynamical real scalar field on a 64
 
 **Damping**: Critical damping `damp = 2·m_H`. Prevents field ringing. Scales with m_H so the field always settles without oscillation.
 
-**Parameters**: One slider: `mass` (m_H, default 0.5, range 0.25–1). Config constants: `HIGGS_GRID = 64`, `HIGGS_PHI_MAX = 2`, `HIGGS_COUPLING = 0.25`. VEV=1, thermalK=1, damping ratio=1 baked in.
+**Parameters**: One slider: `mass` (m_H, default 0.05, range 0.01–0.25). Config constants: `HIGGS_GRID = 64`, `HIGGS_PHI_MAX = 2`, `HIGGS_COUPLING = 0.05`. VEV=1, thermalK=1, damping ratio=1 baked in.
 
 **Rendering**: Offscreen 64×64 canvas, bilinear-upscaled to world space. Magenta = depleted (φ < 1), cyan = enhanced (φ > 1). Alpha ∝ |deviation|×(8/g). Colors from `_PALETTE.extended`. Force vector color: magenta (`--ext-magenta`).
 
