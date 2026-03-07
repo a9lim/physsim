@@ -242,7 +242,13 @@ Proper velocity `w` (celerity): `vel = w / sqrt(1 + w^2)`, so `|v| < c` always. 
 
 ### Decay
 
-`pi0 -> 2 photons` (back-to-back in rest frame, Lorentz-boosted to lab frame), `pi+/- -> 1 photon` (along flight direction). Uses `sim._MasslessBosonClass` reference to avoid circular import. Decay products inherit the pion's `emitterId`.
+Neutral and charged pions have different half-lives and decay channels:
+
+- `pi0 -> 2 photons` (half-life 32): back-to-back in rest frame, Lorentz-boosted to lab frame.
+- `pi+ -> positron + photon` (half-life 128): two-body kinematics in rest frame (exact energy/momentum split for `ELECTRON_MASS = 0.01`), Lorentz-boosted. Positron is `antimatter=true`, inherits pion charge.
+- `pi- -> electron + photon` (half-life 128): same kinematics. Electron is `antimatter=false`, inherits pion charge.
+
+Uses `sim._MasslessBosonClass` reference to avoid circular import. Photon decay products inherit the pion's `emitterId`. Electron/positron spawned via `sim.addParticle()` with `skipBaseline: true`.
 
 ### Absorption
 
@@ -250,7 +256,7 @@ Quadtree overlap query after photon absorption. Transfers momentum and charge (p
 
 ### Constants
 
-`PION_HALF_LIFE = 32` (probabilistic decay: `PION_DECAY_PROB` pre-computed per substep), `MAX_PIONS = 256`, `BOSON_SOFTENING_SQ = 4` (shared by photon and pion lensing), `BOSON_ABSORB_FRACTION = 1` (absorption cross-section), `BOSON_MIN_AGE = 4` (minimum substeps before absorption), `ABERRATION_THRESHOLD = 1.01` (min gamma for Lorentz aberration of emission angles), `QUADRUPOLE_POWER_CLAMP = 0.01` (max quadrupole dE as fraction of system KE).
+`PION_HALF_LIFE = 32` (pi0, fast EM decay), `CHARGED_PION_HALF_LIFE = 128` (pi+/-, slower weak decay). Both have pre-computed per-substep `PION_DECAY_PROB` / `CHARGED_PION_DECAY_PROB`. `ELECTRON_MASS = 0.01` (charged pion decay product). `MAX_PIONS = 256`, `BOSON_SOFTENING_SQ = 4` (shared by photon and pion lensing), `BOSON_ABSORB_FRACTION = 1` (absorption cross-section), `BOSON_MIN_AGE = 4` (minimum substeps before absorption), `ABERRATION_THRESHOLD = 1.01` (min gamma for Lorentz aberration of emission angles), `QUADRUPOLE_POWER_CLAMP = 0.01` (max quadrupole dE as fraction of system KE).
 
 ## Field Excitations
 

@@ -632,11 +632,13 @@ export const REFERENCE = {
 <p>Gravitational deflection uses the massive-particle geodesic factor $(1 + v^2)$, which correctly reduces to $2\\times$ (null geodesic) as $v \\to c$ and $1\\times$ (Newtonian) as $v \\to 0$.</p>
 
 <h3>Decay</h3>
-<p>Pions decay after a finite lifetime:</p>
+<p>Pions decay after a finite lifetime. Neutral pions decay ~4× faster than charged pions (half-life 32 vs 128), reflecting the electromagnetic vs weak decay channels:</p>
 <ul>
-<li>$\\pi^0 \\to 2\\gamma$ — two photons emitted back-to-back perpendicular to the flight direction</li>
-<li>$\\pi^\\pm \\to \\gamma$ — one photon along the flight direction (simplified from $\\mu\\nu$)</li>
+<li>$\\pi^0 \\to 2\\gamma$ — two photons emitted back-to-back in the rest frame, Lorentz-boosted to the lab</li>
+<li>$\\pi^+ \\to e^+ + \\gamma$ — positron + photon (simplified from $\\mu^+\\nu_\\mu$)</li>
+<li>$\\pi^- \\to e^- + \\gamma$ — electron + photon (simplified from $\\mu^-\\bar{\\nu}_\\mu$)</li>
 </ul>
+<p>Charged pion decay uses exact two-body kinematics: in the rest frame, the electron/positron and photon share the pion rest energy with back-to-back momenta, then both are Lorentz-boosted to the lab frame.</p>
 
 <h3>Radiation Reaction</h3>
 <p>When a pion is emitted, the emitting particle's kinetic energy is reduced by the pion's total energy (rest mass + kinetic). This prevents double-counting: the Yukawa force is already computed directly between particles, so the pion emission represents the radiation channel only.</p>
