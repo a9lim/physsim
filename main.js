@@ -396,7 +396,7 @@ class Simulation {
             this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
             this.physics.relativityEnabled,
             this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
-            this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
+            this.physics._topologyConst, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
             this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
             this.physics.gravityEnabled, this.physics.coulombEnabled);
         this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
