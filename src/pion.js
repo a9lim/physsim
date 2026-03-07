@@ -58,6 +58,10 @@ export default class Pion {
         if (!sim || this.energy <= 0) return;
         const Photon = sim._PhotonClass;
         if (!Photon) return;
+        // Remove pion's contribution before adding photons (avoids double-counting)
+        sim.totalRadiated -= this.energy;
+        sim.totalRadiatedPx -= this.energy * this.vel.x;
+        sim.totalRadiatedPy -= this.energy * this.vel.y;
         const n = this.charge === 0 ? 2 : 1;
         const ePerPh = this.energy / n;
         for (let i = 0; i < n; i++) {

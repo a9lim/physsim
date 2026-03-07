@@ -819,6 +819,9 @@ export default class Physics {
                                 p.pos.y + Math.sin(angle) * offset,
                                 wx, wy, pionMass, charge, p._yukawaRadAccum, p.id
                             ));
+                            this.sim.totalRadiated += p._yukawaRadAccum;
+                            this.sim.totalRadiatedPx += pionMass * wx;
+                            this.sim.totalRadiatedPy += pionMass * wy;
                             // Radiation reaction: subtract emitted energy from particle KE
                             const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
                             if (wSq > EPSILON_SQ) {
@@ -975,6 +978,9 @@ export default class Physics {
                             target.w.y += pn.energy * pn.vel.y / target.mass;
                             target.charge += pn.charge;
                             if (pn.charge !== 0) target.updateColor();
+                            this.sim.totalRadiated -= pn.energy;
+                            this.sim.totalRadiatedPx -= pn.energy * pn.vel.x;
+                            this.sim.totalRadiatedPy -= pn.energy * pn.vel.y;
                             pn.alive = false;
                             break;
                         }

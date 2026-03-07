@@ -34,8 +34,9 @@ export default class ScalarField {
         this._dwx = new Float64Array(4);
         this._dwy = new Float64Array(4);
 
-        // Pre-allocated gradient output
+        // Pre-allocated gradient and momentum outputs
         this._gradOut = { x: 0, y: 0 };
+        this._momOut = { x: 0, y: 0 };
 
         // Offscreen canvas for rendering
         this.canvas = document.createElement('canvas');
@@ -300,6 +301,49 @@ export default class ScalarField {
         }
 
         return total === total ? total : 0;
+    }
+
+    /** Field momentum: P_i = -∫ φ̇ ∂_i φ dA (stress-energy T^{0i}). */
+    momentum(domainW, domainH) {
+        const out = this._momOut;
+        const GRID = this._grid;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) { out.x = 0; out.y = 0; return out; }
+        const scaleX = cellH * 0.5;   // cellArea / (2·cellW)
+        const scaleY = cellW * 0.5;   // cellArea / (2·cellH)
+        const field = this.field;
+        const fieldDot = this.fieldDot;
+        let px = 0, py = 0;
+        const last = GRID - 1;
+
+        // Interior: centered differences, no bounds checks
+        for (let iy = 1; iy < last; iy++) {
+            const row = iy * GRID;
+            for (let ix = 1; ix < last; ix++) {
+                const idx = row + ix;
+                const fd = fieldDot[idx];
+                px -= fd * (field[idx + 1] - field[idx - 1]);
+                py -= fd * (field[idx + GRID] - field[idx - GRID]);
+            }
+        }
+
+        // Border: centered differences with clamping
+        for (let iy = 0; iy < GRID; iy++) {
+            for (let ix = 0; ix < GRID; ix++) {
+                if (ix > 0 && ix < last && iy > 0 && iy < last) continue;
+                const idx = iy * GRID + ix;
+                const fd = fieldDot[idx];
+                const f = field[idx];
+                px -= fd * ((ix < last ? field[idx + 1] : f) - (ix > 0 ? field[idx - 1] : f));
+                py -= fd * ((iy < last ? field[idx + GRID] : f) - (iy > 0 ? field[idx - GRID] : f));
+            }
+        }
+
+        out.x = px * scaleX;
+        out.y = py * scaleY;
+        if (out.x !== out.x) { out.x = 0; out.y = 0; }
+        return out;
     }
 
     /** Draw field overlay in world space. */

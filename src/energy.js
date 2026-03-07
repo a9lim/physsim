@@ -138,6 +138,17 @@ export function computeEnergies(particles, physics, sim) {
         axionFieldEnergy = sim.axionField.energy(physics.domainW, physics.domainH);
     }
 
+    // Scalar field momentum: T^{0i} = -φ̇ ∂_i φ
+    const domW = physics.domainW, domH = physics.domainH;
+    if (physics.higgsEnabled && sim && sim.higgsField) {
+        const m = sim.higgsField.momentum(domW, domH);
+        fieldPx += m.x; fieldPy += m.y;
+    }
+    if (physics.axionEnabled && sim && sim.axionField) {
+        const m = sim.axionField.momentum(domW, domH);
+        fieldPx += m.x; fieldPy += m.y;
+    }
+
     return {
         linearKE, spinKE,
         pe: physics.potentialEnergy,
