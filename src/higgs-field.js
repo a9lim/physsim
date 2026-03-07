@@ -15,6 +15,7 @@ const _enhancedRGB = _ph(window._PALETTE.extended.lime).map(v => (v * 255 + 0.5)
 export default class HiggsField extends ScalarField {
     constructor() {
         super(SCALAR_GRID, SCALAR_FIELD_MAX);
+        this._vacValue = 1; // Higgs VEV = 1
         this._thermal = new Float64Array(this._gridSq);
         this.mass = DEFAULT_HIGGS_MASS;
         this.reset();
@@ -24,8 +25,8 @@ export default class HiggsField extends ScalarField {
         super.reset(1); // VEV = 1
     }
 
-    /** Evolve field one timestep using symplectic Euler (kick-drift). */
-    update(dt, particles, boundaryMode, topoConst, domainW, domainH) {
+    /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
+    update(dt, particles, boundaryMode, topoConst, domainW, domainH, relativityEnabled) {
         if (dt <= 0) return;
         const field = this.field;
         const fieldDot = this.fieldDot;
@@ -52,46 +53,54 @@ export default class HiggsField extends ScalarField {
         // Deposit thermal energy (drives phase transitions)
         const thermal = this._thermal;
         thermal.fill(0);
-        this._depositThermal(particles, invCellW, invCellH, bcMode, topoConst);
+        this._depositThermal(particles, invCellW, invCellH, bcMode, topoConst, relativityEnabled);
 
         // Compute Laplacian (Dirichlet VEV=1)
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 1);
 
-        // Kick fieldDot, then drift field (symplectic Euler)
+        // Störmer-Verlet: half-kick → drift → recompute Laplacian → second half-kick
         // VEV=1, λ = m_H²/2, μ² = m_H²/2, critical damping = 2*m_H
         const mH = this.mass;
         const muSq = 0.5 * mH * mH;
         const damp = 2 * mH;
         const lap = this._laplacian;
+        const halfDt = dt * 0.5;
 
+        // ── First half-kick ──
         for (let i = 0; i < GRID_SQ; i++) {
             const phiVal = field[i];
-
-            // Thermal correction: μ²_eff = μ² - KE_local
             const muSqEff = muSq - thermal[i];
-
-            // Klein-Gordon: d²φ/dt² = ∇²φ + μ²_eff·φ - λφ³ - damping·φ̇ + source
             const ddphi = lap[i]
                         + muSqEff * phiVal
                         - muSq * phiVal * phiVal * phiVal
                         - damp * fieldDot[i]
                         + src[i] * invCellArea;
+            fieldDot[i] += ddphi * halfDt;
+        }
 
-            fieldDot[i] += ddphi * dt;
-            const newPhi = field[i] + fieldDot[i] * dt;
+        // ── Full drift ──
+        for (let i = 0; i < GRID_SQ; i++) {
+            field[i] = Math.max(-SCALAR_FIELD_MAX, Math.min(SCALAR_FIELD_MAX, field[i] + fieldDot[i] * dt));
+        }
 
-            // Clamp field to prevent numerical blowup
-            if (newPhi !== newPhi) { // NaN guard
+        // ── Recompute Laplacian with updated field ──
+        this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 1);
+
+        // ── Second half-kick (with updated field values) ──
+        for (let i = 0; i < GRID_SQ; i++) {
+            const phiVal = field[i];
+            const muSqEff = muSq - thermal[i];
+            const ddphi = lap[i]
+                        + muSqEff * phiVal
+                        - muSq * phiVal * phiVal * phiVal
+                        - damp * fieldDot[i]
+                        + src[i] * invCellArea;
+            fieldDot[i] += ddphi * halfDt;
+
+            // NaN guard + clamp
+            if (phiVal !== phiVal) {
                 field[i] = 1;
                 fieldDot[i] = 0;
-            } else if (newPhi > SCALAR_FIELD_MAX) {
-                field[i] = SCALAR_FIELD_MAX;
-                fieldDot[i] = 0;
-            } else if (newPhi < -SCALAR_FIELD_MAX) {
-                field[i] = -SCALAR_FIELD_MAX;
-                fieldDot[i] = 0;
-            } else {
-                field[i] = newPhi;
             }
         }
 
@@ -109,10 +118,16 @@ export default class HiggsField extends ScalarField {
     }
 
     /** PQS deposition of local kinetic energy density. */
-    _depositThermal(particles, invCellW, invCellH, bcMode, topoConst) {
+    _depositThermal(particles, invCellW, invCellH, bcMode, topoConst, relativityEnabled) {
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            const ke = 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y);
+            let ke;
+            if (relativityEnabled) {
+                const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
+                ke = wSq / (Math.sqrt(1 + wSq) + 1) * p.mass;
+            } else {
+                ke = 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y);
+            }
             if (ke < EPSILON) continue;
             this._depositPQS(this._thermal, p.pos.x, p.pos.y, ke, invCellW, invCellH, bcMode, topoConst);
         }
@@ -120,22 +135,30 @@ export default class HiggsField extends ScalarField {
 
     /** Set particle effective masses: m = baseMass * |phi| (VEV=1).
      *  PQS interpolation is C² smooth — no self-force subtraction needed.
+     *  Conserves momentum: scales proper velocity w by old_mass/new_mass.
      */
-    modulateMasses(particles, domainW, domainH, blackHoleEnabled) {
+    modulateMasses(particles, domainW, domainH, blackHoleEnabled, boundaryMode, topoConst) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
+        const bcMode = bcFromString(boundaryMode);
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             if (p.baseMass < EPSILON) continue;
 
-            const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH);
+            const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
             const newMass = Math.max(p.baseMass * Math.abs(phiLocal), EPSILON);
             if (newMass !== newMass) continue; // NaN guard
+
+            // Fix 3 (S7): conserve momentum by adjusting proper velocity
+            const massRatio = p.mass / newMass;
+            p.w.x *= massRatio;
+            p.w.y *= massRatio;
+
             p.mass = newMass;
 
             if (blackHoleEnabled) {
@@ -145,6 +168,12 @@ export default class HiggsField extends ScalarField {
             }
             p.radiusSq = p.radius * p.radius;
             p.invMass = 1 / p.mass;
+
+            // Derive velocity from updated proper velocity
+            const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
+            const gamma = Math.sqrt(1 + wSq);
+            p.vel.x = p.w.x / gamma;
+            p.vel.y = p.w.y / gamma;
         }
     }
 
@@ -152,20 +181,21 @@ export default class HiggsField extends ScalarField {
      *  sign(phi) ensures consistency with mass generation m = baseMass·|phi|.
      *  PQS-interpolated grid gradients give C² continuous forces.
      */
-    applyForces(particles, domainW, domainH) {
+    applyForces(particles, domainW, domainH, boundaryMode, topoConst) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
+        const bcMode = bcFromString(boundaryMode);
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             if (p.baseMass < EPSILON) continue;
 
-            const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH);
-            const grad = this.gradient(p.pos.x, p.pos.y, invCellW, invCellH);
+            const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
+            const grad = this.gradient(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
             if (!grad) continue;
 
             const sign = phiLocal >= 0 ? 1 : -1;
@@ -177,6 +207,26 @@ export default class HiggsField extends ScalarField {
             p.forceHiggs.x += forceX;
             p.forceHiggs.y += forceY;
         }
+    }
+
+    /** Particle-field interaction energy: Σ -baseMass·(|phi(x)| - 1).
+     *  At VEV (phi=1), energy = 0. Depleted field (phi<1) costs energy.
+     */
+    particleFieldEnergy(particles, domainW, domainH, bcMode, topoConst) {
+        const GRID = this._grid;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return 0;
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
+        let energy = 0;
+        for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            if (p.baseMass < EPSILON) continue;
+            const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
+            energy -= p.baseMass * (Math.abs(phiLocal) - 1);
+        }
+        return energy;
     }
 
     /** Total field energy: KE + gradient + Mexican hat potential, integrated over grid. */

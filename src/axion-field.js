@@ -29,6 +29,7 @@ const _negRGB = _ph(window._PALETTE.extended.yellow).map(v => (v * 255 + 0.5) | 
 export default class AxionField extends ScalarField {
     constructor() {
         super(SCALAR_GRID, SCALAR_FIELD_MAX);
+        this._vacValue = 0; // Axion vacuum = 0
         this.mass = DEFAULT_AXION_MASS;
         this.reset();
     }
@@ -37,7 +38,7 @@ export default class AxionField extends ScalarField {
         super.reset(0); // vacuum = 0
     }
 
-    /** Evolve field one timestep using symplectic Euler (kick-drift). */
+    /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
     update(dt, particles, boundaryMode, topoConst, domainW, domainH, coulombEnabled = false, yukawaEnabled = false) {
         if (dt <= 0) return;
         const field = this.field;
@@ -65,34 +66,43 @@ export default class AxionField extends ScalarField {
         // Compute Laplacian (Dirichlet a=0)
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 0);
 
-        // Kick fieldDot, then drift field (symplectic Euler)
+        // Störmer-Verlet: half-kick → drift → recompute Laplacian → second half-kick
         // Klein-Gordon: d²a/dt² = ∇²a - m_a²·a - g·m_a·ȧ + source  (ζ = g/2, Q = 1/g)
         const mA = this.mass;
         const mASq = mA * mA;
         const damp = AXION_COUPLING * mA; // Q = 1/g = 20, so g·Q = 1 (resonant buildup ≈ static response)
         const lap = this._laplacian;
+        const halfDt = dt * 0.5;
 
+        // ── First half-kick ──
         for (let i = 0; i < GRID_SQ; i++) {
             const ddA = lap[i]
                       - mASq * field[i]
                       - damp * fieldDot[i]
                       + src[i] * invCellArea;
+            fieldDot[i] += ddA * halfDt;
+        }
 
-            fieldDot[i] += ddA * dt;
-            const newA = field[i] + fieldDot[i] * dt;
+        // ── Full drift ──
+        for (let i = 0; i < GRID_SQ; i++) {
+            field[i] = Math.max(-SCALAR_FIELD_MAX, Math.min(SCALAR_FIELD_MAX, field[i] + fieldDot[i] * dt));
+        }
 
-            // Clamp field to prevent numerical blowup
-            if (newA !== newA) { // NaN guard
+        // ── Recompute Laplacian with updated field ──
+        this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 0);
+
+        // ── Second half-kick (with updated field values) ──
+        for (let i = 0; i < GRID_SQ; i++) {
+            const ddA = lap[i]
+                      - mASq * field[i]
+                      - damp * fieldDot[i]
+                      + src[i] * invCellArea;
+            fieldDot[i] += ddA * halfDt;
+
+            // NaN guard
+            if (field[i] !== field[i]) {
                 field[i] = 0;
                 fieldDot[i] = 0;
-            } else if (newA > SCALAR_FIELD_MAX) {
-                field[i] = SCALAR_FIELD_MAX;
-                fieldDot[i] = 0;
-            } else if (newA < -SCALAR_FIELD_MAX) {
-                field[i] = -SCALAR_FIELD_MAX;
-                fieldDot[i] = 0;
-            } else {
-                field[i] = newA;
             }
         }
 
@@ -124,7 +134,7 @@ export default class AxionField extends ScalarField {
      *  Sets p.axMod = 1 + g·a(x) when Coulomb on (scalar EM coupling).
      *  Sets p.yukMod = 1 ± g·a(x) when Yukawa on (pseudoscalar PQ coupling).
      */
-    interpolateAxMod(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false) {
+    interpolateAxMod(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, boundaryMode = 'despawn', topoConst = 0) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
@@ -137,10 +147,11 @@ export default class AxionField extends ScalarField {
         }
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
+        const bcMode = bcFromString(boundaryMode);
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            const aLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH);
+            const aLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
             const ga = AXION_COUPLING * aLocal;
             // axMod: scalar EM coupling (only meaningful when Coulomb on)
             if (coulombEnabled) {
@@ -163,13 +174,14 @@ export default class AxionField extends ScalarField {
      *  PQ (pseudoscalar aGG̃, when Yukawa on): F = ±g·m·∇a — flips for antimatter.
      *  PQS-interpolated grid gradients give C² continuous forces.
      */
-    applyForces(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false) {
+    applyForces(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, boundaryMode = 'despawn', topoConst = 0) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) return;
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
+        const bcMode = bcFromString(boundaryMode);
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -183,7 +195,7 @@ export default class AxionField extends ScalarField {
             }
             if (coupling === 0) continue;
 
-            const grad = this.gradient(p.pos.x, p.pos.y, invCellW, invCellH);
+            const grad = this.gradient(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
             if (!grad) continue;
 
             const forceX = AXION_COUPLING * coupling * grad.x;
@@ -194,6 +206,32 @@ export default class AxionField extends ScalarField {
             p.forceAxion.x += forceX;
             p.forceAxion.y += forceY;
         }
+    }
+
+    /** Particle-field interaction energy from both coupling channels.
+     *  EM (aF²): -g·q²·a(x) per particle.
+     *  PQ (aGG̃): -g·m·(±1)·a(x) per particle (+ for matter, - for antimatter).
+     */
+    particleFieldEnergy(particles, domainW, domainH, coulombEnabled, yukawaEnabled, bcMode, topoConst) {
+        const GRID = this._grid;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return 0;
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
+        let energy = 0;
+        for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            const aLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
+            if (coulombEnabled) {
+                energy -= AXION_COUPLING * p.charge * p.charge * aLocal;
+            }
+            if (yukawaEnabled && p.mass > EPSILON) {
+                const sign = p.antimatter ? -1 : 1;
+                energy -= AXION_COUPLING * p.mass * sign * aLocal;
+            }
+        }
+        return energy;
     }
 
     /** Total field energy: KE + gradient + quadratic potential, integrated over grid. */

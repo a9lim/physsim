@@ -84,6 +84,7 @@ export default class Particle {
         this.histY = null;
         this.histVx = null;
         this.histVy = null;
+        this.histAngW = null;
         this.histTime = null;
         this.histHead = 0;
         this.histCount = 0;
@@ -123,6 +124,7 @@ export default class Particle {
         this.histY = new Float64Array(HISTORY_SIZE);
         this.histVx = new Float64Array(HISTORY_SIZE);
         this.histVy = new Float64Array(HISTORY_SIZE);
+        this.histAngW = new Float64Array(HISTORY_SIZE);
         this.histTime = new Float64Array(HISTORY_SIZE);
         this.histHead = 0;
         this.histCount = 0;

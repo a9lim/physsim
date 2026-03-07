@@ -26,7 +26,8 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
                 pe += pairPE(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
                     o.mass, o.charge, o.angVel,
                     o.magMoment, o.angMomentum, toggles,
-                    periodic, domW, domH, halfDomW, halfDomH, topology);
+                    periodic, domW, domH, halfDomW, halfDomH, topology,
+                    o.axMod, o.yukMod);
             }
         }
     }
@@ -68,10 +69,12 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
                 const other = pool.points[base + i];
                 if (other === particle) continue;
                 if (other.isGhost && other.original === particle) continue;
+                const real = other.isGhost ? other.original : other;
                 pe += pairPE(particle, other.pos.x, other.pos.y, other.vel.x, other.vel.y,
                     other.mass, other.charge, other.angVel,
                     other.magMoment, other.angMomentum, toggles,
-                    periodic, domW, domH, halfDomW, halfDomH, topology);
+                    periodic, domW, domH, halfDomW, halfDomH, topology,
+                    real.axMod, real.yukMod);
             }
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             // Distant node: use aggregate
@@ -81,7 +84,8 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
             pe += pairPE(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy,
                 nodeMass, pool.totalCharge[nodeIdx], 0,
                 pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], toggles,
-                periodic, domW, domH, halfDomW, halfDomH, topology);
+                periodic, domW, domH, halfDomW, halfDomH, topology,
+                1, 1);
         } else if (pool.divided[nodeIdx]) {
             _peStack[stackTop++] = pool.nw[nodeIdx];
             _peStack[stackTop++] = pool.ne[nodeIdx];
@@ -94,7 +98,7 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
 }
 
 /** Pairwise PE: gravity + Coulomb + magnetic dipole + GM dipole + 1PN correction. */
-export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS) {
+export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, sAxMod = 1, sYukMod = 1) {
     let rx, ry;
     if (periodic) {
         minImage(p.pos.x, p.pos.y, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
@@ -107,12 +111,14 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
     const invR = Math.sqrt(invRSq);
     const pMagMoment = p.magMoment;
     const pAngMomentum = p.angMomentum;
+    const axModPair = Math.sqrt(p.axMod * sAxMod);
+    const yukModPair = Math.sqrt(p.yukMod * sYukMod);
 
     let pe = 0;
     if (toggles.gravityEnabled)  pe -= p.mass * sMass * invR;
-    if (toggles.coulombEnabled)  pe += p.charge * sCharge * invR * p.axMod;
+    if (toggles.coulombEnabled)  pe += p.charge * sCharge * invR * axModPair;
     const invR3 = invR * invRSq;
-    if (toggles.magneticEnabled) pe += (pMagMoment * sMagMoment) * invR3 * p.axMod;
+    if (toggles.magneticEnabled) pe += (pMagMoment * sMagMoment) * invR3 * axModPair;
     if (toggles.gravitomagEnabled) pe -= (pAngMomentum * sAngMomentum) * invR3;
     if (toggles.onePNEnabled) {
         const pvx = p.vel.x, pvy = p.vel.y;
@@ -148,7 +154,7 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
         const r = 1 / invR;
         const mu = toggles.yukawaMu;
         const expMuR = Math.exp(-mu * r);
-        const ym = p.yukMod; // PQ modulation
+        const ym = yukModPair; // PQ modulation (geometric mean of observer and source)
         pe -= YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invR;
         // Scalar Breit PE: +g²m₁m₂e^{-μr}/(2r) · [v₁·v₂ + (n̂·v₁)(n̂·v₂)(1+μr)]
         if (toggles.onePNEnabled) {

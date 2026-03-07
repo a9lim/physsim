@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING } from './config.js';
 import Photon from './photon.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
@@ -15,6 +15,10 @@ import { TORUS, KLEIN, RP2, minImage, wrapPosition } from './topology.js';
 
 // Reused by disintegration to avoid per-call allocation
 const _disintMiOut = { x: 0, y: 0 };
+
+// Per-particle quadrupole contribution arrays (Fix A7)
+let _d3IContrib = new Float64Array(256);
+let _d3QContrib = new Float64Array(256);
 
 /**
  * Rejection-sample a scalar dipole emission angle.
@@ -142,6 +146,7 @@ export default class Physics {
         p.histY[h] = p.pos.y;
         p.histVx[h] = p.vel.x;
         p.histVy[h] = p.vel.y;
+        p.histAngW[h] = p.angw;
         p.histTime[h] = this.simTime;
         p.histHead = (h + 1) % HISTORY_SIZE;
         if (p.histCount < HISTORY_SIZE) p.histCount++;
@@ -281,9 +286,9 @@ export default class Physics {
     }
 
     /** Sync per-particle axMod/yukMod: interpolate from axion field or default to 1. */
-    _syncAxionField(particles, width, height) {
+    _syncAxionField(particles, width, height, boundaryMode) {
         if (this.axionEnabled && this.sim && this.sim.axionField) {
-            this.sim.axionField.interpolateAxMod(particles, width, height, this.coulombEnabled, this.yukawaEnabled);
+            this.sim.axionField.interpolateAxMod(particles, width, height, this.coulombEnabled, this.yukawaEnabled, boundaryMode, this._topologyConst);
         } else {
             for (let i = 0, n = particles.length; i < n; i++) {
                 particles[i].axMod = 1;
@@ -446,17 +451,17 @@ export default class Physics {
                 p.angVel = relOn ? angwToAngVel(p.angw, p.radius) : p.angw;
             }
             resetForces(particles);
-            this._syncAxionField(particles, width, height);
+            this._syncAxionField(particles, width, height, boundaryMode);
             const initRoot = this.barnesHutEnabled
                 ? this._buildTree(particles)
                 : -1;
             computeAllForces(particles, toggles, this.pool, initRoot, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst, this.sim && this.sim.deadParticles);
             this._applyExternalFields(particles);
             if (this.higgsEnabled && this.sim && this.sim.higgsField) {
-                this.sim.higgsField.applyForces(particles, width, height);
+                this.sim.higgsField.applyForces(particles, width, height, boundaryMode, this._topologyConst);
             }
             if (this.axionEnabled && this.sim && this.sim.axionField) {
-                this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled);
+                this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled, boundaryMode, this._topologyConst);
             }
             if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, initRoot);
             if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
@@ -825,7 +830,17 @@ export default class Physics {
                         const ke = p._yukawaRadAccum - pionMass;
                         if (ke > 0) {
                             // Scalar dipole: cos²θ — rejection-sample from two lobes along ±acceleration
-                            const angle = _scalarDipoleSample(Math.atan2(p.forceYukawa.y, p.forceYukawa.x));
+                            let angle = _scalarDipoleSample(Math.atan2(p.forceYukawa.y, p.forceYukawa.x));
+
+                            // Relativistic aberration: boost from particle rest frame to lab frame
+                            const betaP = Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
+                            if (betaP > EPSILON) {
+                                const gammaP = 1 / Math.sqrt(1 - betaP * betaP);
+                                const boostAngle = Math.atan2(p.vel.y, p.vel.x);
+                                const phiRel = angle - boostAngle;
+                                const labRel = Math.atan2(Math.sin(phiRel), gammaP * (Math.cos(phiRel) + betaP));
+                                angle = labRel + boostAngle;
+                            }
                             const speed = Math.sqrt(ke * (ke + 2 * pionMass)) / (ke + pionMass);
                             const gamma = 1 / Math.sqrt(1 - speed * speed);
                             const wx = gamma * speed * Math.cos(angle);
@@ -845,13 +860,24 @@ export default class Physics {
                             // Radiation reaction: subtract emitted energy from particle KE
                             const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
                             if (wSq > EPSILON_SQ) {
+                                const gamma = Math.sqrt(1 + wSq);
                                 const pKE = relOn
-                                    ? (Math.sqrt(1 + wSq) - 1) * p.mass
+                                    ? (gamma - 1) * p.mass
                                     : 0.5 * p.mass * wSq;
                                 if (pKE > p._yukawaRadAccum) {
-                                    const scale = Math.sqrt(1 - p._yukawaRadAccum / pKE);
-                                    p.w.x *= scale;
-                                    p.w.y *= scale;
+                                    const keNew = pKE - p._yukawaRadAccum;
+                                    let wSqNew;
+                                    if (relOn) {
+                                        const gammaNew = 1 + keNew / p.mass;
+                                        wSqNew = gammaNew * gammaNew - 1;
+                                    } else {
+                                        wSqNew = 2 * keNew / p.mass;
+                                    }
+                                    if (wSqNew > EPSILON_SQ) {
+                                        const scale = Math.sqrt(wSqNew / wSq);
+                                        p.w.x *= scale;
+                                        p.w.y *= scale;
+                                    }
                                 }
                             }
                             p._yukawaRadAccum = 0;
@@ -910,8 +936,8 @@ export default class Physics {
 
             // Higgs field evolution + mass modulation
             if (this.higgsEnabled && this.sim && this.sim.higgsField) {
-                this.sim.higgsField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height);
-                this.sim.higgsField.modulateMasses(particles, width, height, this.blackHoleEnabled);
+                this.sim.higgsField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.relativityEnabled);
+                this.sim.higgsField.modulateMasses(particles, width, height, this.blackHoleEnabled, boundaryMode, this._topologyConst);
             }
 
             // Axion field evolution (axMod/yukMod interpolation deferred to step 7)
@@ -939,11 +965,21 @@ export default class Physics {
                 if (merges.length > 0 && this.sim) {
                     const hasHiggs = this.higgsEnabled && this.sim.higgsField;
                     const hasAxion = this.axionEnabled && this.sim.axionField;
-                    const share = (hasHiggs && hasAxion) ? 0.5 : 1;
-                    for (const m of merges) {
-                        const e = m.energy * share;
-                        if (hasHiggs) this.sim.higgsField.depositExcitation(m.x, m.y, e, width, height);
-                        if (hasAxion) this.sim.axionField.depositExcitation(m.x, m.y, e, width, height);
+                    if (hasHiggs && hasAxion) {
+                        const g2H = HIGGS_COUPLING * HIGGS_COUPLING;
+                        const g2A = AXION_COUPLING * AXION_COUPLING;
+                        const invTotal = 1 / (g2H + g2A);
+                        const fracH = g2H * invTotal;
+                        const fracA = g2A * invTotal;
+                        for (const m of merges) {
+                            this.sim.higgsField.depositExcitation(m.x, m.y, m.energy * fracH, width, height);
+                            this.sim.axionField.depositExcitation(m.x, m.y, m.energy * fracA, width, height);
+                        }
+                    } else {
+                        for (const m of merges) {
+                            if (hasHiggs) this.sim.higgsField.depositExcitation(m.x, m.y, m.energy, width, height);
+                            if (hasAxion) this.sim.axionField.depositExcitation(m.x, m.y, m.energy, width, height);
+                        }
                     }
                 }
             }
@@ -1021,14 +1057,14 @@ export default class Physics {
 
             // Step 7: Recompute forces and B fields for next substep
             resetForces(particles);
-            this._syncAxionField(particles, width, height);
+            this._syncAxionField(particles, width, height, boundaryMode);
             computeAllForces(particles, toggles, this.pool, root, this.barnesHutEnabled, relOn, this.simTime, this.periodic, this.domainW, this.domainH, this._topologyConst, this.sim && this.sim.deadParticles);
             this._applyExternalFields(particles);
             if (this.higgsEnabled && this.sim && this.sim.higgsField) {
-                this.sim.higgsField.applyForces(particles, width, height);
+                this.sim.higgsField.applyForces(particles, width, height, boundaryMode, this._topologyConst);
             }
             if (this.axionEnabled && this.sim && this.sim.axionField) {
-                this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled);
+                this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled, boundaryMode, this._topologyConst);
             }
             if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, root);
             if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
@@ -1045,6 +1081,7 @@ export default class Physics {
                 p.histY[h] = p.pos.y;
                 p.histVx[h] = p.vel.x;
                 p.histVy[h] = p.vel.y;
+                p.histAngW[h] = p.angw;
                 p.histTime[h] = this.simTime;
                 p.histHead = (h + 1) % HISTORY_SIZE;
                 if (p.histCount < HISTORY_SIZE) p.histCount++;
@@ -1055,6 +1092,8 @@ export default class Physics {
         // d³I_xx = Σ 2·(3·vx·Fx + x·Jx), d³I_yy analogous
         // d³I_xy = Σ (Jx·y + 3·Fx·vy + 3·vx·Fy + x·Jy)
         // where Jx = dFx/dt = analytical jerk (grav+Coulomb+Yukawa) + backward-diff residual
+        // Coordinates are COM-relative (A6); GW uses trace-free tensor (U1);
+        // energy extraction weighted by per-particle contribution (A7).
         if (this.radiationEnabled && n >= 2 && this.sim && (this.gravityEnabled || this.coulombEnabled)) {
             const gwQuad = this.gravityEnabled;
             const emQuad = this.coulombEnabled;
@@ -1062,9 +1101,28 @@ export default class Physics {
             let d3Qxx = 0, d3Qxy = 0, d3Qyy = 0;
             let jerkReady = true;
 
+            // Grow per-particle contribution arrays if needed (A7)
+            if (n > _d3IContrib.length) {
+                _d3IContrib = new Float64Array(n);
+                _d3QContrib = new Float64Array(n);
+            }
+
+            // Compute center of mass for COM-relative coordinates (A6)
+            let comX = 0, comY = 0, totalMassQ = 0;
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
-                const x = p.pos.x, y = p.pos.y;
+                comX += p.pos.x * p.mass;
+                comY += p.pos.y * p.mass;
+                totalMassQ += p.mass;
+            }
+            if (totalMassQ > EPSILON) {
+                comX /= totalMassQ;
+                comY /= totalMassQ;
+            }
+
+            for (let i = 0; i < n; i++) {
+                const p = particles[i];
+                const x = p.pos.x - comX, y = p.pos.y - comY;
                 const vx = p.vel.x, vy = p.vel.y;
                 const Fx = p.force.x, Fy = p.force.y;
 
@@ -1094,26 +1152,44 @@ export default class Physics {
                 p._qResFx1 = resFx; p._qResFy1 = resFy;
                 if (p._qResCount < 2) p._qResCount++;
 
-                // Mass quadrupole d³I_ij/dt³
+                // Per-particle mass quadrupole contribution d³I_ij/dt³ (A7)
+                let d3I_xx_i = 0, d3I_xy_i = 0, d3I_yy_i = 0;
                 if (gwQuad) {
-                    d3Ixx += 6 * vx * Fx + 2 * x * Jx;
-                    d3Ixy += Jx * y + 3 * Fx * vy + 3 * vx * Fy + x * Jy;
-                    d3Iyy += 6 * vy * Fy + 2 * y * Jy;
+                    d3I_xx_i = 6 * vx * Fx + 2 * x * Jx;
+                    d3I_xy_i = Jx * y + 3 * Fx * vy + 3 * vx * Fy + x * Jy;
+                    d3I_yy_i = 6 * vy * Fy + 2 * y * Jy;
+                    d3Ixx += d3I_xx_i;
+                    d3Ixy += d3I_xy_i;
+                    d3Iyy += d3I_yy_i;
+                    _d3IContrib[i] = d3I_xx_i * d3I_xx_i + 2 * d3I_xy_i * d3I_xy_i + d3I_yy_i * d3I_yy_i;
+                } else {
+                    _d3IContrib[i] = 0;
                 }
 
-                // EM quadrupole d³Q_ij/dt³ (same structure, weighted by q/m)
+                // Per-particle EM quadrupole contribution d³Q_ij/dt³ (A7)
                 if (emQuad) {
                     const qm = p.charge * p.invMass;
-                    d3Qxx += qm * (6 * vx * Fx + 2 * x * Jx);
-                    d3Qxy += qm * (Jx * y + 3 * Fx * vy + 3 * vx * Fy + x * Jy);
-                    d3Qyy += qm * (6 * vy * Fy + 2 * y * Jy);
+                    const d3Q_xx_i = qm * (6 * vx * Fx + 2 * x * Jx);
+                    const d3Q_xy_i = qm * (Jx * y + 3 * Fx * vy + 3 * vx * Fy + x * Jy);
+                    const d3Q_yy_i = qm * (6 * vy * Fy + 2 * y * Jy);
+                    d3Qxx += d3Q_xx_i;
+                    d3Qxy += d3Q_xy_i;
+                    d3Qyy += d3Q_yy_i;
+                    _d3QContrib[i] = d3Q_xx_i * d3Q_xx_i + 2 * d3Q_xy_i * d3Q_xy_i + d3Q_yy_i * d3Q_yy_i;
+                } else {
+                    _d3QContrib[i] = 0;
                 }
             }
 
             if (jerkReady) {
-                // P_GW = (1/5)|d³I_ij/dt³|²
-                const gwPower = 0.2 * (d3Ixx * d3Ixx + 2 * d3Ixy * d3Ixy + d3Iyy * d3Iyy);
-                // P_EM = (1/180)|d³Q_ij/dt³|²
+                // P_GW = (1/5)|d³I^TF_ij/dt³|² using trace-free reduced quadrupole (U1)
+                // I^TF_ij = I_ij - (1/3)δ_ij·I_kk; for 2D motion in 3D (I_zz=0): trace = I_xx+I_yy
+                const trI = d3Ixx + d3Iyy;
+                const d3Ixx_tf = d3Ixx - trI / 3;
+                const d3Iyy_tf = d3Iyy - trI / 3;
+                // d3Ixy unchanged (off-diagonal)
+                const gwPower = 0.2 * (d3Ixx_tf * d3Ixx_tf + 2 * d3Ixy * d3Ixy + d3Iyy_tf * d3Iyy_tf);
+                // P_EM = (1/180)|d³Q_ij/dt³|² (EM quadrupole is NOT trace-free)
                 const emPower = emQuad ? (1 / 180) * (d3Qxx * d3Qxx + 2 * d3Qxy * d3Qxy + d3Qyy * d3Qyy) : 0;
                 const quadPower = gwPower + emPower;
 
@@ -1135,24 +1211,27 @@ export default class Physics {
 
                     this.sim.totalRadiated += dE;
 
-                    // Tangential drag + per-particle accumulation (both ∝ KE)
+                    // Tangential drag (∝ KE) + per-particle accumulation (∝ contribution, A7)
                     if (dE > EPSILON && totalKE > EPSILON_SQ) {
                         const f = Math.min(0.5 * dE / totalKE, 1);
                         const scale = 1 - f;
                         const fOverDt = f / dt;
-                        const invKE = 1 / totalKE;
+
+                        // Sum per-particle contributions for weighting (A7)
+                        let totalD3I = 0, totalD3Q = 0;
+                        for (let i = 0; i < n; i++) { totalD3I += _d3IContrib[i]; totalD3Q += _d3QContrib[i]; }
+                        const invD3I = totalD3I > EPSILON_SQ ? 1 / totalD3I : 0;
+                        const invD3Q = totalD3Q > EPSILON_SQ ? 1 / totalD3Q : 0;
+
                         for (let i = 0; i < n; i++) {
                             const p = particles[i];
                             p._radDisplayX -= p.mass * p.w.x * fOverDt;
                             p._radDisplayY -= p.mass * p.w.y * fOverDt;
                             p.w.x *= scale;
                             p.w.y *= scale;
-                            // Distribute energy to each particle proportional to KE
-                            const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                            const ke = wSq > EPSILON_SQ ? p.mass * wSq / (Math.sqrt(1 + wSq) + 1) : 0;
-                            const frac = ke * invKE;
-                            p._quadAccum += gwDE * frac;
-                            p._emQuadAccum += emDE * frac;
+                            // Distribute energy proportional to per-particle contribution (A7)
+                            if (invD3I > 0) p._quadAccum += gwDE * _d3IContrib[i] * invD3I;
+                            if (invD3Q > 0) p._emQuadAccum += emDE * _d3QContrib[i] * invD3Q;
                         }
                     }
 
@@ -1351,10 +1430,12 @@ export default class Physics {
             if (maxTidal + centrifugal + coulombSelf > selfGravity) {
                 fragments.push(p);
             } else if (strongestOther && strongestDist > EPSILON && p.mass > MIN_MASS * 4) {
-                // Roche lobe overflow: Eggleton formula r_Roche ≈ 0.462·d·(m/(m+M))^(1/3)
+                // Roche lobe overflow: full Eggleton (1983) formula r_L/a = 0.49q^(2/3) / [0.6q^(2/3) + ln(1+q^(1/3))]
                 const d = strongestDist;
                 const q = p.mass / (p.mass + strongestOther.mass);
-                const rRoche = 0.462 * d * Math.cbrt(q);
+                const q13 = Math.cbrt(q);
+                const q23 = q13 * q13;
+                const rRoche = d * 0.49 * q23 / (0.6 * q23 + Math.log(1 + q13));
                 if (p.radius > rRoche * ROCHE_THRESHOLD) {
                     const l1Mag = Math.sqrt(strongestDx * strongestDx + strongestDy * strongestDy);
                     if (l1Mag > EPSILON) {

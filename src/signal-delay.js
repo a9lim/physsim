@@ -9,7 +9,7 @@ import { TORUS, minImage } from './topology.js';
 const _miOut = { x: 0, y: 0 };
 
 // Shared return object -- caller must read before next call
-const _delayedOut = { x: 0, y: 0, vx: 0, vy: 0 };
+const _delayedOut = { x: 0, y: 0, vx: 0, vy: 0, angw: 0 };
 
 
 /** Solve light-cone equation; returns shared {x,y,vx,vy} or null. */
@@ -189,6 +189,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             _delayedOut.y  = yLo + frac * (yHi - yLo);
             _delayedOut.vx = histVx[loIdx] + frac * (histVx[hiIdx] - histVx[loIdx]);
             _delayedOut.vy = histVy[loIdx] + frac * (histVy[hiIdx] - histVy[loIdx]);
+            _delayedOut.angw = source.histAngW[loIdx] + frac * (source.histAngW[hiIdx] - source.histAngW[loIdx]);
             return _delayedOut;
         }
     }
@@ -250,6 +251,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         _delayedOut.y  = histY[start] + vy * s;
         _delayedOut.vx = vx;
         _delayedOut.vy = vy;
+        _delayedOut.angw = source.histAngW[start];
         return _delayedOut;
     }
 }

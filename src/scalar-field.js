@@ -21,6 +21,7 @@ export default class ScalarField {
         this._grid = gridSize;
         this._gridSq = gsq;
         this._clampMax = clampMax;
+        this._vacValue = 0; // Subclasses override: Higgs=1, Axion=0
 
         this.field = new Float64Array(gsq);
         this.fieldDot = new Float64Array(gsq);
@@ -221,17 +222,20 @@ export default class ScalarField {
         }
     }
 
-    /** PQS interpolation of field value at (x, y). */
-    interpolate(x, y, invCellW, invCellH) {
+    /** PQS interpolation of field value at (x, y).
+     *  Topology-aware via _nb() when bcMode/topoConst provided. */
+    interpolate(x, y, invCellW, invCellH, bcMode, topoConst) {
         this._pqsCoords(x, y, invCellW, invCellH);
         const { ix, iy } = this._pqs;
         const wx = this._wx;
         const wy = this._wy;
+        const vacVal = this._vacValue;
         let val = 0;
         for (let jy = 0; jy < 4; jy++) {
             const wyj = wy[jy];
             for (let jx = 0; jx < 4; jx++) {
-                val += this._fieldAt(ix + jx - 1, iy + jy - 1) * wx[jx] * wyj;
+                const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
+                val += (idx >= 0 ? this.field[idx] : vacVal) * wx[jx] * wyj;
             }
         }
         return val;
@@ -239,30 +243,25 @@ export default class ScalarField {
 
     /** PQS-interpolated gradient at (x, y) from pre-computed grid gradients.
      *  Returns pre-allocated {x, y} or null on NaN.
+     *  Topology-aware via _nb() when bcMode/topoConst provided.
      *  Uses standard PQS value weights on _gradX/_gradY arrays, giving C²
      *  continuous forces (vs C¹ from analytical B-spline derivatives). */
-    gradient(x, y, invCellW, invCellH) {
+    gradient(x, y, invCellW, invCellH, bcMode, topoConst) {
         this._pqsCoords(x, y, invCellW, invCellH);
         const { ix, iy } = this._pqs;
         const wx = this._wx;
         const wy = this._wy;
-        const GRID = this._grid;
-        const LAST = GRID - 1;
         const gxArr = this._gradX;
         const gyArr = this._gradY;
 
         let gx = 0, gy = 0;
         for (let jy = 0; jy < 4; jy++) {
             const wyj = wy[jy];
-            const cy = iy + jy - 1;
-            const ccy = cy < 0 ? 0 : cy > LAST ? LAST : cy;
             for (let jx = 0; jx < 4; jx++) {
-                const cx = ix + jx - 1;
-                const ccx = cx < 0 ? 0 : cx > LAST ? LAST : cx;
-                const idx = ccy * GRID + ccx;
+                const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
                 const w = wx[jx] * wyj;
-                gx += gxArr[idx] * w;
-                gy += gyArr[idx] * w;
+                gx += (idx >= 0 ? gxArr[idx] : 0) * w;
+                gy += (idx >= 0 ? gyArr[idx] : 0) * w;
             }
         }
 

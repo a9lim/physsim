@@ -3,6 +3,7 @@
 
 import { INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ } from './config.js';
 import { minImage } from './topology.js';
+import { bcFromString } from './scalar-field.js';
 
 const _miOut = { x: 0, y: 0 };
 
@@ -100,7 +101,7 @@ export function computeEnergies(particles, physics, sim) {
                 const svDotR = svx * rx + svy * ry;
 
                 if (magneticOn) {
-                    const qqInvR = pi.charge * pj.charge * invR * pi.axMod;
+                    const qqInvR = pi.charge * pj.charge * invR * Math.sqrt(pi.axMod * pj.axMod);
                     if (emFieldEnergyOn) fieldEnergy -= 0.5 * qqInvR * velTerm;
                     const coeff = qqInvR * 0.5;
                     fieldPx += coeff * (svx + rx * svDotR);
@@ -138,6 +139,21 @@ export function computeEnergies(particles, physics, sim) {
         axionFieldEnergy = sim.axionField.energy(physics.domainW, physics.domainH);
     }
 
+    // Particle-field interaction energy
+    let pfiEnergy = 0;
+    if (sim) {
+        const bcMode = sim.boundaryMode ? bcFromString(sim.boundaryMode) : 0;
+        const topoConst = physics._topologyConst || 0;
+
+        if (sim.higgsField && physics.higgsEnabled) {
+            pfiEnergy += sim.higgsField.particleFieldEnergy(particles, physics.domainW, physics.domainH, bcMode, topoConst);
+        }
+        if (sim.axionField && physics.axionEnabled) {
+            pfiEnergy += sim.axionField.particleFieldEnergy(particles, physics.domainW, physics.domainH,
+                physics.coulombEnabled, physics.yukawaEnabled, bcMode, topoConst);
+        }
+    }
+
     // Scalar field momentum: T^{0i} = -φ̇ ∂_i φ
     if (physics.higgsEnabled && sim && sim.higgsField) {
         const m = sim.higgsField.momentum(domW, domH);
@@ -150,7 +166,8 @@ export function computeEnergies(particles, physics, sim) {
 
     return {
         linearKE, spinKE,
-        pe: physics.potentialEnergy,
+        pe: physics.potentialEnergy + pfiEnergy,
+        pfiEnergy,
         fieldEnergy, fieldPx, fieldPy,
         higgsFieldEnergy, axionFieldEnergy,
         px, py,

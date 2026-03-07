@@ -118,7 +118,7 @@ Per substep (inside `Physics.update()` while loop):
 8. **Drift**: `vel = w / sqrt(1 + w^2)`, `pos += vel * dt`
 9. Cosmological expansion (if enabled)
 10. **1PN velocity-Verlet correction**: recompute 1PN at new positions (always pairwise via `compute1PNPairwise()`), kick `w += (F_new - F_old) * dt / (2m)`
-11. **Scalar fields**: evolve Higgs (symplectic Euler), modulate masses; evolve axion, interpolate axMod
+11. **Scalar fields**: evolve Higgs (Störmer-Verlet), modulate masses (momentum-conserving); evolve axion (Störmer-Verlet), interpolate axMod
 12. Rebuild quadtree, handle collisions (with annihilation + merge KE tracking), repel contact forces, photon absorption, pion absorption
 13. Deposit field excitations from merge KE into active scalar fields
 14. Apply external fields, Higgs/Axion gradient forces, sync axMod, reset forces + compute new forces
@@ -145,12 +145,12 @@ Plummer softening: SOFTENING = 8 (SOFTENING_SQ = 64); BH mode: BH_SOFTENING = 4 
 |---|---|---|---|
 | Gravity | `+m1*m2/r^2` (attractive) | `-m1*m2/r` | Gravity |
 | Coulomb | `-q1*q2/r^2` (like-repels) | `+q1*q2/r` | Coulomb |
-| Magnetic dipole | `-3*mu1*mu2/r^4` | `+mu1*mu2/r^3` | Coulomb + Magnetic |
+| Magnetic dipole | `+3*mu1*mu2/r^4` | `+mu1*mu2/r^3` | Coulomb + Magnetic |
 | GM dipole | `+3*L1*L2/r^4` (co-rotating attract) | `-L1*L2/r^3` | Gravity + GM |
 
 ### B-like Forces (velocity-dependent, Boris rotation)
 
-**Lorentz** (Coulomb + Magnetic): Bz from moving charge (`q_s*(v_s x r_hat)_z/r^2`) + spinning dipole (`+mu/r^3`). Display: `forceMagnetic += (q*vel.y*Bz, -q*vel.x*Bz)`.
+**Lorentz** (Coulomb + Magnetic): Bz from moving charge (`q_s*(v_s x r_hat)_z/r^2`) + spinning dipole (`-mu/r^3`). Display: `forceMagnetic += (q*vel.y*Bz, -q*vel.x*Bz)`.
 
 **Gravitomagnetic** (Gravity + GM): Bgz from moving mass (`-m_s*(v_s x r_hat)_z/r^2`) + spinning mass (`-2L/r^3`). Boris parameter: `+2*Bgz*dt/gamma`. Display: `forceGravitomag += (4m*vel.y*Bgz, -4m*vel.x*Bgz)`.
 
@@ -158,7 +158,7 @@ Plummer softening: SOFTENING = 8 (SOFTENING_SQ = 64); BH mode: BH_SOFTENING = 4 
 
 ### Tidal Locking
 
-Always active when Gravity is on (no separate toggle). `coupling = m_other + q1*q2/m1`. `tau = -TIDAL_STRENGTH * coupling^2 * r_body^3 / r^6 * (omega_spin - omega_orbit)`.
+Always active when Gravity is on (no separate toggle). `coupling = m_other + q1*q2/m1`. `tau = -TIDAL_STRENGTH * coupling^2 * r_body^5 / r^6 * (omega_spin - omega_orbit)`. TIDAL_STRENGTH = 0.3.
 
 ### Yukawa Potential
 
@@ -198,7 +198,7 @@ Independent toggle. Mexican hat potential `V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda
 
 - **Mass generation**: `m_eff = baseMass * |phi(x)|`. At VEV, m_eff = baseMass. Symmetric phase (phi->0): effectively massless (floored at EPSILON).
 - **Gradient force**: `F = +g * baseMass * sign(phi) * grad(phi)` where g = HIGGS_COUPLING = 1. Into `forceHiggs`. The `sign(phi)` ensures consistency with mass generation `m = baseMass * |phi|`.
-- **Field equation**: `d^2 phi/dt^2 = laplacian(phi) + mu^2_eff * phi - mu^2 * phi^3 + source/cellArea - 2*m_H * d(phi)/dt`. Symplectic Euler. Source: `g * baseMass` via PQS.
+- **Field equation**: `d^2 phi/dt^2 = laplacian(phi) + mu^2_eff * phi - mu^2 * phi^3 + source/cellArea - 2*m_H * d(phi)/dt`. Störmer-Verlet (KDK, O(dt²)). Source: `g * baseMass` via PQS.
 - **Phase transitions**: `mu^2_eff = mu^2 - KE_local` (thermalK=1). When local KE > mu^2, field relaxes to phi=0.
 - **Boundary**: Despawn -> Dirichlet (phi=1). Bounce -> Neumann. Loop -> periodic (topology-aware).
 - **Energy**: delegates to `_fieldEnergy()` with Mexican hat potential lambda, shifted so V(1)=0 (vacOffset = mu^2/4).
@@ -212,15 +212,15 @@ Independent toggle; requires Coulomb or Yukawa. Quadratic potential `V(a) = 1/2 
 
 **Scalar EM coupling (aF², active when Coulomb on)**: Same for matter and antimatter. The QCD pseudoscalar `aFF~` vanishes in 2D.
 - **Source**: `g * q^2` (g = AXION_COUPLING = 0.05).
-- **EM modulation**: `alpha_eff(x) = alpha * (1 + g*a(x))`. Per-particle `p.axMod` interpolated from local field. Clamped >= 0. Set to 1 when Coulomb off. Used in `pairForce()` and `pairPE()`.
+- **EM modulation**: `alpha_eff(x) = alpha * (1 + g*a(x))`. Per-particle `p.axMod` interpolated from local field. Clamped >= 0. Set to 1 when Coulomb off. Pairwise interactions use geometric mean `sqrt(axMod_i * axMod_j)` for Newton's 3rd law symmetry.
 - **Gradient force**: `F = +g * q^2 * grad(a)`. Into `forceAxion`.
 
 **Pseudoscalar PQ coupling (aGG~ analog, active when Yukawa on)**: Peccei-Quinn mechanism. Flips sign under CP (matter vs antimatter).
 - **Source**: `±g * m` (positive for matter, negative for antimatter).
-- **Yukawa modulation**: `g^2_eff = g^2 * yukMod`. Per-particle `p.yukMod`: `1 + g*a` for matter, `1 - g*a` for antimatter. Clamped >= 0. Set to 1 when Yukawa off. Used in `pairForce()`, `pairPE()`, `compute1PNPairwise()` (Scalar Breit), `_vEff()`.
+- **Yukawa modulation**: `g^2_eff = g^2 * yukMod`. Per-particle `p.yukMod`: `1 + g*a` for matter, `1 - g*a` for antimatter. Clamped >= 0. Set to 1 when Yukawa off. Pairwise interactions use geometric mean `sqrt(yukMod_i * yukMod_j)`. Used in `pairForce()`, `pairPE()`, `compute1PNPairwise()` (Scalar Breit), `_vEff()`.
 - **Gradient force**: `F = ±g * m * grad(a)`. Into `forceAxion`.
 - At vacuum (a=0): `yukMod = 1` for both → CP conserved (PQ solution).
-- **Field equation**: `d^2 a/dt^2 = laplacian(a) - m_a^2 * a - g*m_a * d(a)/dt + source/cellArea`. Damping: zeta = g/2, Q = 1/g, so g*Q = 1 (resonant buildup matches coupling strength).
+- **Field equation**: `d^2 a/dt^2 = laplacian(a) - m_a^2 * a - g*m_a * d(a)/dt + source/cellArea`. Störmer-Verlet (KDK, O(dt²)). Damping: zeta = g/2, Q = 1/g, so g*Q = 1 (resonant buildup matches coupling strength).
 - **Boundary**: Same as Higgs via `ScalarField._nb()`, but Dirichlet uses a=0 (not a=1).
 - **Energy**: delegates to `_fieldEnergy()` with quadratic potential `V(a) = 1/2 m_a^2 a^2`. No offset needed.
 - **Parameters**: One slider: m_a (0.01-0.25, default 0.05).
@@ -234,7 +234,7 @@ Independent toggle; requires Coulomb or Yukawa. Quadratic potential `V(a) = 1/2 
 
 Yukawa interactions emit pions via scalar Larmor radiation: `P = g^2 * m^2 * a^2 / 3 = g^2 * F_yuk^2 / 3`. Scalar charge `Q = g*m` (Yukawa couples proportional to mass); `1/3` angular factor for spin-0 (vs `2/3` for spin-1 EM). Energy accumulated in `p._yukawaRadAccum`; emits when accumulation exceeds `MIN_MASS` (0.01, same threshold as photon emission) and pion KE would be positive (total energy > pion rest mass). Species: pi0 (neutral, 50%), pi+ or pi- (charged, 25% each). Capped at MAX_PIONS = 256.
 
-**Radiation reaction**: After emission, particle's proper velocity `w` is scaled down to subtract the emitted energy from KE, preventing double-counting (force already computed directly).
+**Radiation reaction**: After emission, particle's proper velocity `w` is rescaled using the exact relativistic formula (`gamma_new = 1 + KE_new/m`, `w_new^2 = gamma_new^2 - 1`), preventing double-counting. Pion emission angles are Lorentz-aberrated from the particle's rest frame to the lab frame.
 
 ### Velocity & Deflection
 
@@ -282,7 +282,7 @@ Requires Gravity, Coulomb, or Yukawa. Single toggle controls four mechanisms:
 
 - **Larmor dipole** (requires Coulomb): Landau-Lifshitz force. Jerk is hybrid: analytical for gravity+Coulomb+Yukawa, numerical backward difference for residual. Power-dissipation terms only active with relativity on. Clamped: `|F_rad| <= 0.5 * |F_ext|`.
 - **EM quadrupole** (requires Coulomb): `P = (1/180)|d^3 Q_ij/dt^3|^2`. Emits photons (type: 'em').
-- **GW quadrupole** (requires Gravity): `P = (1/5)|d^3 I_ij/dt^3|^2`. Emits gravitons (type: 'grav', rendered red).
+- **GW quadrupole** (requires Gravity): `P = (1/5)|d^3 I^TF_ij/dt^3|^2` (trace-free STF tensor, COM-relative coordinates). Per-particle energy extraction weighted by contribution to d^3I/dt^3. Emits gravitons (type: 'grav', rendered red).
 - **Pion emission / scalar Larmor** (requires Yukawa): `P = g^2 * F_yuk^2 / 3`. Emits pions (see Pion section).
 
 Photon quadrupole types use TT-projected angular emission via rejection sampling. Photon absorption via quadtree query (self-absorption guard: age < 3).
@@ -298,7 +298,7 @@ Toggle under Relativity (requires Gravity). Locks collision to Merge.
 
 ### Signal Delay
 
-Auto-activates with Relativity. Three-phase solver on per-particle circular history buffers (Float64Array[256], recorded every HISTORY_STRIDE=64 `update()` calls):
+Auto-activates with Relativity. Three-phase solver on per-particle circular history buffers (Float64Array[256] for pos/vel/angw, recorded every HISTORY_STRIDE=64 `update()` calls):
 1. Newton-Raphson segment search (up to 8 iterations)
 2. Exact quadratic solve on converged segment
 3. Constant-velocity extrapolation for t_ret before recorded history (skipped for dead particles)
@@ -309,6 +309,8 @@ Auto-activates with Relativity. Three-phase solver on per-particle circular hist
 
 **Retirement points**: boundary despawn (integrator), collision merge/annihilation (collisions.js returns `removed`), disintegration (main.js), Hawking evaporation (main.js), right-click delete (input.js). All reset paths (preset load, clear, save-load) clear `deadParticles`.
 
+**Liénard-Wiechert aberration**: Signal-delayed forces include the `(1 - n̂·v_source)^{-3}` aberration factor from the retarded Green's function, clamped to [0.01, 100]. Applied to gravity, Coulomb, and dipole forces in `pairForce()`. Retarded angular velocity interpolated from `histAngW` for accurate dipole moments.
+
 BH mode: signal delay at leaf level only; distant aggregates use current positions.
 
 ### Spin-Orbit Coupling
@@ -317,7 +319,7 @@ Requires Magnetic + GM + Spin-Orbit toggle. Independent of Relativity. Stern-Ger
 
 ### Disintegration & Roche
 
-Requires Gravity. Locks collision to Merge. Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into SPAWN_COUNT (4) pieces. Roche overflow: Eggleton formula, continuous mass transfer through L1. Returns `{ fragments, transfers }`.
+Requires Gravity. Locks collision to Merge. Fragments when tidal + centrifugal + Coulomb stress exceeds self-gravity. Splits into SPAWN_COUNT (4) pieces. Roche overflow: full Eggleton (1983) formula `r_L/a = 0.49*q^{2/3} / (0.6*q^{2/3} + ln(1+q^{1/3}))`, continuous mass transfer through L1. Returns `{ fragments, transfers }`.
 
 ### Cosmological Expansion
 
@@ -345,7 +347,7 @@ Canvas uses y-down coordinates. The 2D cross product `rx*vy - ry*vx` gives posit
 
 **PE** (`potential.js`): Tree traversal via `treePE()` when BH on (divides by 2), exact pairwise `pairPE()` with i < j when off. Seven terms: gravitational, Coulomb (with axMod), magnetic dipole (with axMod), GM dipole, 1PN, Bazanski, Yukawa.
 
-**Energy** (`energy.js`): Returns linearKE, spinKE, pe, fieldEnergy, momentum, angular momentum, COM, higgsFieldEnergy, axionFieldEnergy. Relativistic KE uses `wSq / (gamma + 1)`. Darwin field corrections when Magnetic/GM on but 1PN off. Conservation exact with gravity + Coulomb only, pairwise mode.
+**Energy** (`energy.js`): Returns linearKE, spinKE, pe, fieldEnergy, pfiEnergy, momentum, angular momentum, COM, higgsFieldEnergy, axionFieldEnergy. Relativistic KE uses `wSq / (gamma + 1)`. `pfiEnergy` = particle-field interaction energy from Higgs (`-baseMass*(|phi|-1)`) and Axion (`-g*q²*a`, `∓g*m*a`), added to PE. Darwin field corrections when Magnetic/GM on but 1PN off. Conservation exact with gravity + Coulomb only, pairwise mode.
 
 **Collisions**: Three modes -- pass (none), bounce (Hertz contact via `_applyRepulsion()`), merge (quadtree overlap detection, conserves mass/charge/momentum/angular momentum). `handleCollisions()` returns `{ annihilations, merges, removed }` -- integrator emits photons from annihilations, deposits field excitations from merges, and retires removed particles for signal delay fade-out.
 
@@ -431,7 +433,7 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 - Old save files with `collision: 'repel'` are migrated to `'bounce'` in loadState()
 - External Bz enters Boris rotation alongside particle-sourced Bz -- included in `needBoris` condition check
 - ScalarField arrays are `field`/`fieldDot` (not `phi`/`phiDot` or `a`/`aDot`)
-- PQS stencil extends to `[ix-1..ix+2]`; `_fieldAt()` uses boundary clamping, `_depositPQS()` uses `_nb()` for topology wrapping
+- PQS stencil extends to `[ix-1..ix+2]`; `interpolate()` and `gradient()` use `_nb()` for topology-aware boundary handling (not `_fieldAt()` clamping); `_depositPQS()` also uses `_nb()` for topology wrapping
 - Higgs `modulateMasses()` updates radius/radiusSq/invMass inline (not via `updateColor()`) to avoid per-substep string allocation
 - `baseMass` must be saved/loaded and proportionally scaled wherever `mass` is modified
 - `_fieldEnergy()` in ScalarField base handles KE+gradient+potential grid integration; subclasses pass potential lambda
@@ -453,10 +455,14 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 - Dead particles use `_deathMass` (not `mass`) in force/heatmap code -- merged particles have mass=0 but `_deathMass` preserves the pre-merge value
 - `_retireParticle()` must be called BEFORE the particle is removed from the array (needs valid pos/vel for final history snapshot)
 - Collision code saves `_deathMass` before `resolveMerge()` zeroes mass -- `_retireParticle` uses `p.mass > 0` check to decide whether to overwrite
+- Annihilation photon energy includes KE of the annihilated mass fraction (weighted by `annihilated/p.mass`), not just rest mass `2*annihilated`
 - Dead particles skip backward extrapolation in signal-delay solver (deathTime < Infinity guard) -- prevents spurious solutions when true retarded time is past death
 - Dead particles carry `_deathAngVel` (cached by `_retireParticle()`) -- used for magnetic/GM dipole forces in signal-delay path
 - QuadTree `insert()` has depth guard (max 48) to prevent stack overflow from coincident particles
 - `_computeLaplacian()` splits into interior fast path (direct ±1/±GRID indexing) and border path (uses `_nb()`) for performance
 - Heatmap `update()` takes `gravityEnabled`/`coulombEnabled` params to skip disabled force contributions
 - Collisions use relativistic KE (`wSq / (gamma+1) * mass`) for merge energy tracking, not `0.5*m*v²`
+- Field excitation energy split between Higgs and Axion by coupling-weighted ratio `g²_H/(g²_H + g²_A)` when both are active, not 50/50
+- Signal delay `histAngW` buffer records proper angular velocity for retarded dipole moment interpolation -- must be saved/restored alongside `histX`/`histY`/`histVX`/`histVY`
+- `pairForce()` signal-delayed path recomputes `sMagMoment`/`sAngMomentum` from retarded `angw` (not current cached values)
 - External field trig (`cos`/`sin` of angle sliders) cached once per frame via `_cacheExternalFields()`

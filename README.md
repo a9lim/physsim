@@ -25,7 +25,7 @@ Everything runs in natural units (c = 1, G = 1, h-bar = 1). Particles store prop
 - **1PN (Darwin EM)** -- O(v^2/c^2) correction to electromagnetism from the Darwin Lagrangian.
 - **1PN (Bazanski cross-term)** -- Mixed gravity-EM 1PN interaction. Position-dependent 1/r^3 force coupling mass and charge.
 - **1PN (Scalar Breit)** -- O(v^2/c^2) correction for massive scalar boson exchange (Yukawa). Full Breit Hamiltonian with radial and tangential components. Velocity-Verlet corrected.
-- **Signal delay** -- Forces use source positions from the past light cone, solved analytically with a three-phase algorithm (Newton-Raphson segment search, exact quadratic solve, constant-velocity extrapolation). Newly created particles respect light-cone causality; deleted particles continue exerting forces until their signal fades past all observers.
+- **Signal delay** -- Forces use source positions from the past light cone, solved analytically with a three-phase algorithm (Newton-Raphson segment search, exact quadratic solve, constant-velocity extrapolation). Includes the Liénard-Wiechert `(1 - n̂·v)^{-3}` aberration factor. Newly created particles respect light-cone causality; deleted particles continue exerting forces until their signal fades past all observers.
 
 ### Scalar Fields
 
@@ -45,7 +45,7 @@ Two dynamical scalar fields live on 64x64 grids, sharing a common PQS (cubic B-s
 
 - **Larmor radiation** -- Accelerating charges lose energy via the Landau-Lifshitz force (analytical jerk from gravity + Coulomb + Yukawa, numerical backward-difference for residual forces, power-dissipation terms with relativity). Photons are emitted in a dipole pattern with relativistic aberration.
 - **EM quadrupole radiation** -- d^3 Q\_ij/dt^3 formula with TT-projected angular emission via rejection sampling.
-- **Gravitational wave radiation** -- Mass quadrupole d^3 I\_ij/dt^3 formula. Gravitons rendered red.
+- **Gravitational wave radiation** -- Trace-free mass quadrupole d^3 I^TF\_ij/dt^3 formula with COM-relative coordinates and per-particle energy extraction. Gravitons rendered red.
 - **Pion emission (scalar Larmor)** -- Yukawa interactions radiate massive pions with power P = g^2 m^2 a^2 / 3. The scalar charge Q = g\*m (Yukawa couples to mass); the 1/3 angular factor reflects the single polarization of spin-0 radiation (vs 2/3 for spin-1 EM). Pions travel at v < c with proper velocity, experience gravitational deflection with the correct massive-particle factor (1 + v^2), and **decay into photons** (pi0 -> 2 gamma Lorentz-boosted from rest frame, pi+/- -> 1 gamma along flight). Probabilistic decay via half-life, not lifetime.
 - **Photon & pion absorption** -- Quadtree overlap query transfers momentum (and charge for pi+/-) to absorbing particles. Self-absorption guards prevent immediate reabsorption.
 - **Field excitations** -- Inelastic merge collisions deposit Gaussian wave packets into active scalar fields. The existing Klein-Gordon equation propagates them naturally as dispersive waves.
@@ -53,7 +53,7 @@ Two dynamical scalar fields live on 64x64 grids, sharing a common PQS (cubic B-s
 ### Additional Physics
 
 - **Spin-orbit coupling** -- Energy transfer between translational and rotational KE via Stern-Gerlach (mu \* grad(Bz)) and Mathisson-Papapetrou (L \* grad(Bgz)) kicks.
-- **Disintegration** -- Roche-limit fragmentation when tidal + centrifugal + Coulomb stress exceeds self-gravity. Includes Roche lobe overflow with continuous L1 mass transfer.
+- **Disintegration** -- Roche-limit fragmentation when tidal + centrifugal + Coulomb stress exceeds self-gravity. Includes Roche lobe overflow using the full Eggleton (1983) formula with continuous L1 mass transfer.
 - **Black hole mode** -- Kerr-Newman horizons: r+ = M + sqrt(M^2 - a^2 - Q^2) with spin parameter a = I\*|omega|/M. Ergosphere visualization. Hawking radiation at the surface gravity temperature; extremal BHs stop radiating. Sub-threshold BHs evaporate with a final photon burst.
 - **Cosmological expansion** -- Hubble flow v\_H = H\*r from domain center with peculiar velocity redshift. Locks boundary to despawn.
 - **Antimatter & pair production** -- Particles carry an antimatter flag. Matter-antimatter mergers annihilate the lesser mass with photon emission. Energetic photons near massive bodies spontaneously produce particle-antiparticle pairs.
@@ -61,7 +61,7 @@ Two dynamical scalar fields live on 64x64 grids, sharing a common PQS (cubic B-s
 
 ### Integrator
 
-Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepping. The Boris rotation handles velocity-dependent magnetic forces exactly, preserving |v| through each step. Substep count adapts to acceleration magnitude and cyclotron frequency, capped at 32 substeps per frame. The four 1PN sectors (EIH, Darwin EM, Bazanski, scalar Breit) use a velocity-Verlet correction pass for second-order accuracy. Scalar fields evolve via symplectic Euler between the drift and force-recomputation steps.
+Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepping. The Boris rotation handles velocity-dependent magnetic forces exactly, preserving |v| through each step. Substep count adapts to acceleration magnitude and cyclotron frequency, capped at 32 substeps per frame. The four 1PN sectors (EIH, Darwin EM, Bazanski, scalar Breit) use a velocity-Verlet correction pass for second-order accuracy. Scalar fields evolve via Störmer-Verlet (kick-drift-kick, O(dt²)) between the drift and force-recomputation steps.
 
 ### Algorithms
 

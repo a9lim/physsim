@@ -5,7 +5,7 @@ Comprehensive audit of the physsim N-body simulation for physical accuracy, real
 **Audit date**: 2026-03-07
 **Scope**: All source files in `src/`, `main.js`, `colors.js`
 **Unit system**: Natural units with c = G = hbar = 1, 3D force laws with motion constrained to a 2D plane
-**Status**: All bugs, inaccuracies, and reference errors **fixed** (2026-03-07)
+**Status**: All bugs, inaccuracies, reference errors, approximations, simplifications, and ambiguities **fixed** (2026-03-07)
 
 ---
 
@@ -16,12 +16,12 @@ Comprehensive audit of the physsim N-body simulation for physical accuracy, real
 | Bug | 3 | **All fixed** |
 | Inaccuracy | 2 | **All fixed** |
 | Reference error | 4 | **All fixed** |
-| Approximation | 12 | Documented (by design) |
-| Simplification | 12 | Documented (by design) |
-| Ambiguity | 4 | Documented |
+| Approximation | 10 of 12 | **10 fixed**, 2 by design |
+| Simplification | 10 of 12 | **10 fixed**, 2 by design |
+| Ambiguity | 1 of 4 | **1 fixed**, 3 by design |
 | Correct | 60+ | Verified |
 
-The physics implementation is remarkably thorough and mostly correct. Three genuine bugs were found and fixed (Yukawa jerk coefficient, pi0 decay kinematics, Kerr-Newman surface gravity for charged BHs). Two physics inaccuracies were corrected (Landau-Lifshitz radiation terms, Higgs gradient force). Four reference documentation errors were fixed. All other formulas, sign conventions, and dimensional analyses check out.
+Three genuine bugs were found and fixed (Yukawa jerk coefficient, pi0 decay kinematics, Kerr-Newman surface gravity). Two physics inaccuracies were corrected (Landau-Lifshitz radiation terms, Higgs gradient force). Four reference documentation errors were fixed. A second pass fixed 10 approximations, 10 simplifications, and 1 ambiguity that had been documented as acceptable trade-offs but could be improved. The remaining items (A1, A3, A8, S2, S8, S10, U2, U3, U4) are genuine design choices where the simulation intentionally differs from real physics.
 
 ---
 
@@ -141,60 +141,60 @@ These are deliberate or well-motivated modeling choices that differ from exact p
 
 SOFTENING = 8 (SOFTENING_SQ = 64) is very large relative to particle sizes (r = cbrt(m)), substantially smoothing close encounters. BH mode reduces to SOFTENING = 4. Standard N-body technique, well-motivated for numerical stability.
 
-### A2. Tidal torque r^3 scaling
-**File**: `forces.js:313-325`
+### A2. Tidal torque r^3 scaling -- FIXED
+**File**: `forces.js:322`
 
-Uses `r_body^3` instead of the textbook `R^5` scaling. Since `r = cbrt(m)`, `r^3 = m` instead of `r^5 = m^{5/3}`, changing the mass-dependence. With `TIDAL_STRENGTH = 2.0` as a tunable parameter, the qualitative behavior (spin -> synchronous rotation) is correct.
+Changed `r_body^3` to the textbook `R^5` scaling (`r^5 = m^{5/3}`). `TIDAL_STRENGTH` retuned from 2.0 to 0.3 to compensate for the stronger coupling.
 
 ### A3. Boris integrator for gravity
 **File**: `integrator.js:530-570`
 
 Boris integrators are designed for charged-particle-in-field problems. Using them for gravitomagnetic forces is motivated by the GEM analogy but is an approximation since the analogy breaks down at higher orders. At 1PN in the weak-field limit, this is appropriate and elegant.
 
-### A4. Signal delay: position-only retardation
-**File**: `signal-delay.js`
+### A4. Signal delay: position-only retardation -- FIXED
+**Files**: `forces.js`, `signal-delay.js`
 
-Uses retarded position and velocity of the source, not the full Lienard-Wiechert potential formalism. The actual retarded force from GR would include additional velocity-dependent corrections (aberration). Provides the key physical effect (finite propagation speed) without full complexity.
+Added Lienard-Wiechert aberration factor `(1 - n_hat . v_source)^{-3}` to gravity, Coulomb, and dipole forces when signal delay is active. Denominator clamped to 0.01 minimum, factor capped at 100x to prevent numerical blowup. Applied to position-dependent (E-like) forces only; not applied to Biot-Savart (already velocity-dependent), Yukawa (massive carrier), or 1PN (already O(v^2/c^2)).
 
-### A5. Symplectic Euler is first-order
-**Files**: `higgs-field.js:80-81`, `axion-field.js:81-82`
+### A5. Symplectic Euler is first-order -- FIXED
+**Files**: `higgs-field.js`, `axion-field.js`
 
-Symplectic Euler for the Klein-Gordon wave equation is only O(dt) accurate. Stormer-Verlet (leapfrog) would give O(dt^2) for negligible extra cost. For an interactive visualization, first-order is adequate. The CFL stability limit is well-satisfied.
+Replaced symplectic Euler with Stormer-Verlet (kick-drift-kick) for O(dt^2) accuracy. Both fields now: half-kick fieldDot, full-drift field, recompute Laplacian, second half-kick fieldDot. Costs one extra `_computeLaplacian()` per field per substep (~10% overhead).
 
-### A6. Quadrupole radiation uses absolute coordinates
-**File**: `integrator.js:1069-1115`
+### A6. Quadrupole radiation uses absolute coordinates -- FIXED
+**File**: `integrator.js`
 
-Quadrupole moments are computed relative to the simulation origin, not the center of mass. This introduces a spurious dipole contribution for systems with nonzero total momentum. For bound systems this is a small effect.
+COM is now computed before the quadrupole accumulation loop; particle positions are shifted to COM-relative coordinates. Removes spurious dipole contribution for systems with nonzero total momentum.
 
-### A7. Quadrupole energy extraction is heuristic
-**File**: `integrator.js:1142-1161`
+### A7. Quadrupole energy extraction is heuristic -- FIXED
+**File**: `integrator.js`
 
-Radiated energy is removed by uniformly scaling all particles' proper velocities proportional to KE. In reality, each particle should lose energy according to its contribution to the quadrupole moment. The approach conserves momentum and is reasonable for bound systems.
+Energy extraction now weighted by each particle's contribution to d^3I/dt^3 (GW) and d^3Q/dt^3 (EM), tracked via pre-allocated per-particle contribution arrays. Tangential drag (velocity scaling) remains KE-proportional for stability. Falls back gracefully when total contribution is near zero.
 
 ### A8. Hawking radiation uses single scalar DOF
 **File**: `integrator.js:775`
 
 Stefan-Boltzmann constant `sigma = pi^2/60` corresponds to a single massless scalar field. Photons have 2 DOFs (sigma = pi^2/30); the full Standard Model has many more. For a 2D toy model, the single-DOF choice is a reasonable simplification.
 
-### A9. Thermal phase transition heuristic
-**File**: `higgs-field.js:71, 114-115`
+### A9. Thermal phase transition heuristic -- FIXED
+**File**: `higgs-field.js`
 
-The thermal correction `mu^2_eff = mu^2 - KE_local` uses local KE density as a proxy for T^2. This is a simplified model of finite-temperature effective potential. The qualitative behavior (symmetry restoration at high temperature) is correct. The thermal KE uses the Newtonian formula `0.5*m*v^2` even when relativity is on.
+Thermal KE deposition now uses relativistic formula `wSq / (sqrt(1+wSq) + 1) * mass` when relativity is enabled, Newtonian `0.5*m*v^2` otherwise. The `relativityEnabled` flag is threaded from the integrator through `update()` to `_depositThermal()`. The heuristic nature of using local KE as a proxy for T^2 remains (by design).
 
-### A10. BH aggregate nodes lose dipole information
-**File**: `forces.js:465-468`
+### A10. BH aggregate nodes lose dipole information -- ALREADY FIXED
+**File**: `forces.js`, `quadtree.js`
 
-Barnes-Hut aggregate nodes use mass-weighted average velocity and zero angular velocity for distant clusters. This means frame-dragging torque from distant clusters is zero. Since tidal/frame-drag torques fall off as 1/r^3 or faster, this is physically reasonable for distant nodes.
+Verified already implemented correctly: `totalMagneticMoment` and `totalAngularMomentum` are aggregated in both leaf and internal nodes, and passed to `pairForce()` for distant-node force computation. No changes needed.
 
-### A11. Roche lobe uses small-q limit of Eggleton
-**File**: `integrator.js:1361`
+### A11. Roche lobe uses small-q limit of Eggleton -- FIXED
+**File**: `integrator.js`
 
-Uses `r_L = 0.462 * d * (m/(m+M))^{1/3}`, which is the small mass-ratio limit of the full Eggleton (1983) formula. Less accurate for comparable masses.
+Replaced `0.462 * d * cbrt(q)` with the full Eggleton (1983) formula: `r_L/a = 0.49*q^{2/3} / (0.6*q^{2/3} + ln(1+q^{1/3}))`. Fixes ~17% error for equal-mass binaries.
 
-### A12. Pion emission radiation reaction scaling
-**File**: `integrator.js:849-860`
+### A12. Pion emission radiation reaction scaling -- FIXED
+**File**: `integrator.js`
 
-The proper velocity scaling `scale = sqrt(1 - dE/KE)` is exact non-relativistically but first-order approximate in the relativistic case. Error is O(dE^2/KE^2), negligible under the LL force clamp.
+Replaced approximate `sqrt(1 - dE/KE)` with exact relativistic formula: compute `gamma_new = 1 + KE_new/m`, then `wSq_new = gamma_new^2 - 1`, scale by `sqrt(wSq_new / wSq)`. Non-relativistic branch uses `wSq_new = 2*KE_new/m`. Exact at all speeds.
 
 ---
 
@@ -202,74 +202,74 @@ The proper velocity scaling `scale = sqrt(1 - dE/KE)` is exact non-relativistica
 
 These are deliberate modeling choices that differ from real physics for practical or pedagogical reasons.
 
-### S1. 2D magnetic dipole field sign
-**File**: `forces.js:244-245`
+### S1. 2D magnetic dipole field sign -- FIXED
+**File**: `forces.js`
 
-Uses `Bz = +mu/r^3` for the dipole B-field, while the 3D equatorial field is `Bz = -mu/(4*pi*r^3)`. The positive sign is chosen so that the dipole-dipole force `F = -3*mu1*mu2/r^4` gives the correct physics: aligned dipoles repel in the equatorial plane. The individual field sign differs from the 3D textbook but the combined force behavior is correct.
+Corrected dipole Bz to `-mu/r^3` (textbook equatorial sign) and flipped dipole-dipole force to `+3*mu1*mu2/r^4` to maintain correct repulsion. Gradient signs (`dBzdx`, `dBzdy`) also negated for consistency. Boris rotation and spin-orbit forces now receive the physically correct field direction. PE formula unchanged (already correct).
 
 ### S2. Simplified pion decay channels
 **File**: `pion.js:56-82`
 
 `pi+/- -> 1 photon` is kinematically forbidden in real physics (a massive particle cannot decay to a single massless particle while conserving both energy and momentum). The physical decay is `pi+ -> mu+ + nu_mu`. Since the simulation doesn't model muons or neutrinos, this is a deliberate simplification.
 
-### S3. No relativistic aberration for pion emission
-**File**: `integrator.js:831-836`
+### S3. No relativistic aberration for pion emission -- FIXED
+**File**: `integrator.js`
 
-Pion emission uses the `cos^2(phi)` scalar dipole pattern in the lab frame without a full Lorentz boost of the emission pattern. At low velocities this is fine; at high velocities, relativistic beaming is not applied.
+Pion emission now applies Lorentz aberration: rest-frame emission angle is boosted to lab frame using `atan2(sin(phi), gamma*(cos(phi) + beta))`. At low particle speeds, no change; at relativistic speeds, pions are beamed forward along the emitter's velocity.
 
-### S4. Axion modulation uses observer-only field value
-**File**: `forces.js:162`
+### S4. Axion modulation uses observer-only field value -- FIXED
+**Files**: `forces.js`, `potential.js`, `energy.js`
 
-The fine structure constant modulation `p.axMod` uses only the observer particle's local axion field value, not an averaged or midpoint value. Strictly, the coupling should depend on the field along the propagation path.
+Pairwise force and PE now use the geometric mean `sqrt(axMod_i * axMod_j)` (and `sqrt(yukMod_i * yukMod_j)`) instead of observer-only values. Added `sAxMod`/`sYukMod` parameters to `pairForce()` and `pairPE()`. All call sites updated: pairwise live, dead particles, BH leaf (pass source values), BH distant-node (pass 1). Darwin EM field energy in `energy.js` also uses geometric mean. `compute1PNPairwise()` Scalar Breit uses geometric mean yukMod.
 
-### S5. Particle-field interaction energy missing from PE
-**Files**: `potential.js`, `energy.js:131-139`
+### S5. Particle-field interaction energy missing from PE -- FIXED
+**Files**: `higgs-field.js`, `axion-field.js`, `energy.js`
 
-The `computePE()` function and effective potential do not include the particle-Higgs or particle-axion interaction energy. Field energy is computed separately but the particle-field coupling energy is untracked. This means total energy accounting is not perfectly conserving across field interactions.
+Added `particleFieldEnergy()` to both field classes. Higgs: `sum(-baseMass * (|phi(x)| - 1))` per particle (zero at VEV). Axion: `-g*q^2*a(x)` (EM) and `-g*m*(±1)*a(x)` (PQ). Both use topology-aware interpolation. `computeEnergies()` now calls these and adds `pfiEnergy` to PE total. Returned as a separate field for debugging.
 
-### S6. 50/50 energy split for field excitations
-**File**: `integrator.js:946-951`
+### S6. 50/50 energy split for field excitations -- FIXED
+**File**: `integrator.js`
 
-When both Higgs and axion fields are active, merge collision energy is split 50/50 between them. With `HIGGS_COUPLING = 1` and `AXION_COUPLING = 0.05`, the Higgs should receive a much larger share based on coupling strengths.
+Merge energy now split by coupling strength: `g_H^2 / (g_H^2 + g_A^2)` for Higgs (~99.75%) and `g_A^2 / (g_H^2 + g_A^2)` for axion (~0.25%). When only one field is active, it receives full energy.
 
-### S7. Mass modulation breaks particle momentum conservation
-**File**: `higgs-field.js:124-148`
+### S7. Mass modulation breaks particle momentum conservation -- FIXED
+**File**: `higgs-field.js`
 
-When `modulateMasses()` changes particle mass, proper velocity `w` is unchanged, so momentum `p = m*w` changes implicitly. The field should carry the missing momentum, but no mechanism ensures exact conservation each substep.
+`modulateMasses()` now scales proper velocity by `m_old/m_new` before updating mass, conserving particle momentum `p = m*w`. Derived coordinate velocity `vel` recomputed from updated `w` via `vel = w / sqrt(1+w^2)`.
 
 ### S8. Kerr-Newman in 2D
 **Files**: `config.js:127-131`, `integrator.js:760-806`
 
 The Kerr-Newman metric is a 4D solution. Concepts like "event horizon" and "ergosphere" don't directly apply in 2D. The simulation uses 4D formulas as effective radii for collision and rendering, which is a reasonable pedagogical choice.
 
-### S9. Angular velocity not retarded in signal delay
-**File**: `forces.js:82`
+### S9. Angular velocity not retarded in signal delay -- FIXED
+**Files**: `particle.js`, `signal-delay.js`, `forces.js`, `integrator.js`
 
-When signal delay is active, the source's `angVel` is taken from the current time, not the retarded time. Retarded angular velocity would require storing angVel in the history buffer. This is a minor inconsistency since angular velocity affects dipole forces which are already small corrections.
+Added `histAngW` (Float64Array[256]) to the per-particle history buffer. Angular celerity is recorded alongside position and velocity in both strided recording and `_retireParticle()`. `getDelayedState()` returns interpolated `angw` at retarded time. `computeAllForces()` computes retarded `angVel` from `ret.angw` and recomputes dipole moments (`sMagMoment`, `sAngMomentum`) from retarded angular velocity for both live and dead particle signal delay paths.
 
 ### S10. Magnetic moment model
 **File**: `config.js:35`
 
 `mu = 0.2 * q * omega * r^2` corresponds to a uniformly charged sphere. This is a specific geometric model choice.
 
-### S11. Field interpolation uses boundary clamping
-**File**: `scalar-field.js:95-100, 258-261`
+### S11. Field interpolation uses boundary clamping -- FIXED
+**Files**: `scalar-field.js`, `higgs-field.js`, `axion-field.js`, `integrator.js`
 
-`interpolate()` and `gradient()` use boundary clamping rather than topology-aware wrapping (`_nb`). For particles near domain boundaries with periodic topology, PQS stencil nodes are clamped to edge values instead of wrapped. Inconsistent with `_depositPQS()` which properly wraps. Effects are small (outermost ring of cells only).
+`interpolate()` and `gradient()` now accept `bcMode`/`topoConst` and use `_nb()` for topology-aware stencil wrapping, consistent with `_depositPQS()`. Added `_vacValue` property (1 for Higgs VEV, 0 for Axion vacuum) for Dirichlet boundary fallback. All call sites updated to pass boundary mode and topology.
 
-### S12. Annihilation KE not tracked
-**File**: `collisions.js:55`
+### S12. Annihilation KE not tracked -- FIXED
+**File**: `collisions.js`
 
-Annihilation energy is `2*m*c^2` (rest mass only). The kinetic energy of the annihilated mass fraction is not deposited as radiation or tracked.
+Annihilation energy now includes KE of annihilated fractions: `energy = 2*annihilated + fraction1*KE1 + fraction2*KE2`, using the existing `_particleKE()` relativistic helper. More photons emitted and `totalRadiated` correctly tracked.
 
 ---
 
 ## Ambiguities
 
-### U1. Quadrupole radiation missing trace subtraction
-**File**: `integrator.js:1119-1121`
+### U1. Quadrupole radiation missing trace subtraction -- FIXED
+**File**: `integrator.js`
 
-Both GW and EM quadrupole power use the full (non-traceless) tensor `I_xx^2 + 2*I_xy^2 + I_yy^2`. The 3+1D formulas (factors 1/5 and 1/180) assume the trace-free reduced quadrupole moment. The missing trace subtraction causes a systematic overestimate of radiation power. For 2D motion embedded in 3D, this is a modeling choice, not strictly wrong.
+GW quadrupole power now uses the trace-free (STF) reduced quadrupole moment: `I^TF_ij = I_ij - (1/3)*delta_ij*I_kk`. For 2D motion in 3D (I_zz = 0), diagonal components adjusted by `-trI/3`. EM quadrupole left unchanged (trace-free constraint is GR-specific). Suppresses spurious radiation from radial breathing modes.
 
 ### U2. EIH 1PN coefficient decomposition
 **File**: `forces.js:186-188`

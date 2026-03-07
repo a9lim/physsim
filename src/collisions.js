@@ -52,7 +52,10 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
                     // Total momentum of annihilating mass
                     const apx = (p1.w.x + real2.w.x) * annihilated;
                     const apy = (p1.w.y + real2.w.y) * annihilated;
-                    annihilations.push({ x: cx, y: cy, energy: 2 * annihilated, px: apx, py: apy });
+                    const fraction1 = annihilated / p1.mass;
+                    const fraction2 = annihilated / real2.mass;
+                    const keAnnihilated = fraction1 * _particleKE(p1) + fraction2 * _particleKE(real2);
+                    annihilations.push({ x: cx, y: cy, energy: 2 * annihilated + keAnnihilated, px: apx, py: apy });
                     const origM1 = p1.mass, origM2 = real2.mass;
                     // Save pre-annihilation mass for signal delay retirement
                     p1._deathMass = origM1;
