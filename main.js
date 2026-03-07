@@ -29,6 +29,7 @@ class Simulation {
         this.renderer = new Renderer(this.ctx, this.width, this.height);
         this.domainW = this.width / WORLD_SCALE;
         this.domainH = this.height / WORLD_SCALE;
+        this._domainDiagonal = 2 * Math.sqrt(this.domainW * this.domainW + this.domainH * this.domainH);
         this.renderer.domainW = this.domainW;
         this.renderer.domainH = this.domainH;
         this.renderer.setTheme(true);
@@ -188,6 +189,7 @@ class Simulation {
         this.canvas.height = this.height;
         this.domainW = this.width / WORLD_SCALE;
         this.domainH = this.height / WORLD_SCALE;
+        this._domainDiagonal = 2 * Math.sqrt(this.domainW * this.domainW + this.domainH * this.domainH);
         this.renderer.resize(this.width, this.height);
         this.renderer.domainW = this.domainW;
         this.renderer.domainH = this.domainH;
@@ -372,20 +374,20 @@ class Simulation {
                     this.particles.length = writeIdx;
                 }
 
-                this.accumulator -= PHYSICS_DT;
-            }
-
-            // Clean up dead particles whose light-cone can no longer reach any observer
-            if (this.deadParticles.length > 0) {
-                const maxDist = 2 * Math.sqrt(this.domainW * this.domainW + this.domainH * this.domainH);
-                let dw = 0;
-                for (let i = 0; i < this.deadParticles.length; i++) {
-                    const dp = this.deadParticles[i];
-                    if (this.physics.simTime - dp.deathTime < maxDist) {
-                        this.deadParticles[dw++] = dp;
+                // Clean up dead particles whose light-cone can no longer reach any observer
+                if (this.deadParticles.length > 0) {
+                    const maxDist = this._domainDiagonal;
+                    let dw = 0;
+                    for (let i = 0; i < this.deadParticles.length; i++) {
+                        const dp = this.deadParticles[i];
+                        if (this.physics.simTime - dp.deathTime < maxDist) {
+                            this.deadParticles[dw++] = dp;
+                        }
                     }
+                    this.deadParticles.length = dw;
                 }
-                this.deadParticles.length = dw;
+
+                this.accumulator -= PHYSICS_DT;
             }
         }
 
@@ -394,7 +396,8 @@ class Simulation {
             this.physics.relativityEnabled,
             this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
             this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
-            this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles);
+            this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
+            this.physics.gravityEnabled, this.physics.coulombEnabled);
         this.phasePlot.update(this.particles, this.selectedParticle);
         this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons, this.pions);

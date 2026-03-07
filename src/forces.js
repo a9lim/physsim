@@ -124,7 +124,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
                 const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
                 if (!ret) continue;
                 pairForce(p, ret.x, ret.y, ret.vx, ret.vy,
-                    o._deathMass, o.charge, o.angVel,
+                    o._deathMass, o.charge, o._deathAngVel,
                     o.magMoment, o.angMomentum, p.force, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology);
             }
@@ -303,12 +303,10 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         out.y += ry * fDir;
         p.forceYukawa.x += rx * fDir;
         p.forceYukawa.y += ry * fDir;
-        // Analytical jerk for radiation reaction
-        const jBase = YUKAWA_G2 * p.mass * sMass * expMuR;
-        const term1 = (invRSq + mu * invR) * invR;
-        const jRadial = -(3 * invRSq + 2 * mu * invR + mu * mu) * rDotVr * jBase * invRSq * invR;
-        p.jerk.x += vrx * jBase * term1 + rx * jRadial;
-        p.jerk.y += vry * jBase * term1 + ry * jRadial;
+        // Analytical jerk for radiation reaction (jBase * term1 == fDir)
+        const jRadial = -(3 * invRSq + 2 * mu * invR + mu * mu) * rDotVr * YUKAWA_G2 * p.mass * sMass * expMuR * invRSq * invR;
+        p.jerk.x += vrx * fDir + rx * jRadial;
+        p.jerk.y += vry * fDir + ry * jRadial;
 
         // Scalar Breit O(v²/c²) correction from massive scalar boson exchange.
         // δH = g²m₁m₂e^{-μr}/(2r) · [v₁·v₂ + (n̂·v₁)(n̂·v₂)(1+μr)]
@@ -338,8 +336,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const crossRV = rx * (svy - p.vel.y) - ry * (svx - p.vel.x);
         const wOrbit = crossRV * invRSq;
         const dw = p.angVel - wOrbit;
-        let coupling = 0;
-        if (toggles.gravityEnabled) coupling += sMass;
+        let coupling = sMass;
         if (toggles.coulombEnabled && p.mass > EPSILON) coupling += p.charge * sCharge / p.mass;
         const ri3 = p.radiusSq * p.radius;
         const invR6 = invRSq * invRSq * invRSq;
@@ -374,6 +371,7 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
             const rSq = rx * rx + ry * ry + SOFTENING_SQ_VAL;
             const invRSq = 1 / rSq;
             const invR = Math.sqrt(invRSq);
+            const r = 1 / invR;
             const svx = o.vel.x, svy = o.vel.y;
             const nx = rx * invR, ny = ry * invR;
 
@@ -388,7 +386,6 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
                     + 5 * pMass * invR + 4 * o.mass * invR;
                 const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
                 const v2Coeff = 3 * nDotV2;
-                const r = 1 / invR;
                 const base = o.mass * invRSq * invR;
                 p.force1PN.x += base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
                 p.force1PN.y += base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
@@ -416,7 +413,6 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
 
             // Yukawa scalar Breit correction
             if (yukawaEnabled) {
-                const r = 1 / invR;
                 const mu = yukawaMu;
                 const expMuR = Math.exp(-mu * r);
                 const nDotV1 = nx * pvx + ny * pvy;
@@ -486,8 +482,8 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             // Distant node: use aggregate (size/d < theta, computed as size²<theta²·d²)
             const nodeMass = pool.totalMass[nodeIdx];
-            const avgVx = nodeMass > 0 ? pool.totalMomentumX[nodeIdx] / nodeMass : 0;
-            const avgVy = nodeMass > 0 ? pool.totalMomentumY[nodeIdx] / nodeMass : 0;
+            const avgVx = pool.totalMomentumX[nodeIdx] / nodeMass;
+            const avgVy = pool.totalMomentumY[nodeIdx] / nodeMass;
             pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, nodeMass, pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology);
         } else if (pool.divided[nodeIdx]) {
             // Push children onto stack

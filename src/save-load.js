@@ -1,5 +1,6 @@
 import Particle from './particle.js';
 import { angwToAngVel } from './relativity.js';
+import { DEFAULT_SPEED_SCALE } from './config.js';
 
 // Maps physics flag names to UI toggle element IDs (same order as presets.js TOGGLE_ORDER)
 const TOGGLE_SYNC = [
@@ -120,7 +121,7 @@ export function loadState(state, sim) {
         sim.collisionMode = col === 'repel' ? 'bounce' : col;
         sim.boundaryMode = state.settings.boundary || 'despawn';
         sim.topology = state.settings.topology || 'torus';
-        sim.speedScale = state.settings.speed || 100;
+        sim.speedScale = state.settings.speed ?? DEFAULT_SPEED_SCALE;
         if (state.settings.friction != null) ph.bounceFriction = state.settings.friction;
     }
 
@@ -132,9 +133,7 @@ export function loadState(state, sim) {
 
     for (const pd of state.particles) {
         const p = new Particle(pd.x, pd.y, pd.mass, pd.charge);
-        p.mass = pd.mass;
         p.baseMass = pd.baseMass ?? pd.mass;
-        p.charge = pd.charge;
         p.angw = pd.angw;
         p.antimatter = pd.antimatter || false;
         p.creationTime = -Infinity; // loaded particles treated as always existing

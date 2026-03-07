@@ -3,9 +3,8 @@
 // Unlike Photon (massless, |v|=c), pions travel at v<c with proper velocity w.
 
 import Vec2 from './vec2.js';
-import { BH_THETA, BOSON_SOFTENING_SQ, EPSILON } from './config.js';
-
-let _piStack = new Int32Array(256);
+import { BOSON_SOFTENING_SQ } from './config.js';
+import { treeDeflectBoson } from './boson-utils.js';
 
 export default class Pion {
     constructor(x, y, wx, wy, mass, charge, energy, emitterId = -1) {
@@ -34,7 +33,7 @@ export default class Pion {
         const vSq = this.vel.x * this.vel.x + this.vel.y * this.vel.y;
         const grFactor = 1 + vSq;
         if (pool && root >= 0) {
-            this._treeDeflect(dt, pool, root, grFactor);
+            treeDeflectBoson(this.pos, this.w, grFactor, dt, pool, root);
         } else if (particles) {
             for (let i = 0; i < particles.length; i++) {
                 const p = particles[i];
@@ -76,46 +75,5 @@ export default class Pion {
             sim.totalRadiatedPy += ePerPh * sinA;
         }
         this.alive = false;
-    }
-
-    _treeDeflect(dt, pool, rootIdx, grFactor) {
-        const thetaSq = BH_THETA * BH_THETA;
-        const px = this.pos.x, py = this.pos.y;
-        let stackTop = 0;
-        if (_piStack.length < pool.maxNodes) _piStack = new Int32Array(pool.maxNodes);
-        _piStack[stackTop++] = rootIdx;
-
-        while (stackTop > 0) {
-            const nodeIdx = _piStack[--stackTop];
-            if (pool.totalMass[nodeIdx] === 0) continue;
-
-            const dx = pool.comX[nodeIdx] - px;
-            const dy = pool.comY[nodeIdx] - py;
-            const dSq = dx * dx + dy * dy;
-            const size = pool.bw[nodeIdx] * 2;
-
-            if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
-                const base = nodeIdx * pool.nodeCapacity;
-                for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
-                    const p = pool.points[base + i];
-                    const pdx = p.pos.x - px;
-                    const pdy = p.pos.y - py;
-                    const rSq = pdx * pdx + pdy * pdy + BOSON_SOFTENING_SQ;
-                    const invR3 = 1 / (rSq * Math.sqrt(rSq));
-                    this.w.x += grFactor * p.mass * pdx * invR3 * dt;
-                    this.w.y += grFactor * p.mass * pdy * invR3 * dt;
-                }
-            } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
-                const rSq = dSq + BOSON_SOFTENING_SQ;
-                const invR3 = 1 / (rSq * Math.sqrt(rSq));
-                this.w.x += grFactor * pool.totalMass[nodeIdx] * dx * invR3 * dt;
-                this.w.y += grFactor * pool.totalMass[nodeIdx] * dy * invR3 * dt;
-            } else if (pool.divided[nodeIdx]) {
-                _piStack[stackTop++] = pool.nw[nodeIdx];
-                _piStack[stackTop++] = pool.ne[nodeIdx];
-                _piStack[stackTop++] = pool.sw[nodeIdx];
-                _piStack[stackTop++] = pool.se[nodeIdx];
-            }
-        }
     }
 }

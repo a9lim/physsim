@@ -201,8 +201,6 @@ export function setupUI(sim) {
         } else {
             collisionToggles.classList.remove('ctrl-disabled');
         }
-        for (const p of sim.particles) p.updateColor();
-
         // 3. Expansion locks boundary to despawn
         if (tEl['expansion-toggle'].checked) {
             sim.boundaryMode = 'despawn';
@@ -235,6 +233,10 @@ export function setupUI(sim) {
             if (id === 'axion-toggle' && !tEl[id].checked) {
                 for (const p of sim.particles) p.axMod = 1;
                 if (sim.axionField) sim.axionField.reset();
+            }
+            // BH toggle changes radius calculation (Kerr-Newman vs cbrt)
+            if (id === 'blackhole-toggle') {
+                for (const p of sim.particles) p.updateColor();
             }
             updateAllDeps();
         });

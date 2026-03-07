@@ -99,11 +99,8 @@ export function computeEnergies(particles, physics, sim) {
                 const svx = pi.vel.x + pj.vel.x, svy = pi.vel.y + pj.vel.y;
                 const svDotR = svx * rx + svy * ry;
 
-                // Use average of both particles' local axion coupling
-                const pairAxMod = (pi.axMod + pj.axMod) * 0.5;
-
                 if (magneticOn) {
-                    const qqInvR = pi.charge * pj.charge * invR * pairAxMod;
+                    const qqInvR = pi.charge * pj.charge * invR * pi.axMod;
                     if (emFieldEnergyOn) fieldEnergy -= 0.5 * qqInvR * velTerm;
                     const coeff = qqInvR * 0.5;
                     fieldPx += coeff * (svx + rx * svDotR);
@@ -123,7 +120,7 @@ export function computeEnergies(particles, physics, sim) {
                     const invRSq = invR * invR;
                     const crossCoeff = pi.charge * pj.charge * (pi.mass + pj.mass)
                         - (pi.charge * pi.charge * pj.mass + pj.charge * pj.charge * pi.mass);
-                    fieldEnergy += 0.5 * crossCoeff * invRSq * pairAxMod;
+                    fieldEnergy += 0.5 * crossCoeff * invRSq;
                 }
             }
         }

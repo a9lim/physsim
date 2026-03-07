@@ -124,8 +124,9 @@ export default class QuadTreePool {
         this.divided[idx] = 1;
     }
 
-    insert(idx, particle) {
+    insert(idx, particle, depth = 0) {
         if (!this._contains(idx, particle.pos.x, particle.pos.y)) return false;
+        if (depth > 48) return true; // prevent stack overflow from coincident particles
 
         const cap = this.nodeCapacity;
         if (this.pointCount[idx] < cap && !this.divided[idx]) {
@@ -139,19 +140,19 @@ export default class QuadTreePool {
             const base = idx * cap;
             for (let i = 0; i < this.pointCount[idx]; i++) {
                 const p = this.points[base + i];
-                this.insert(this.nw[idx], p) ||
-                    this.insert(this.ne[idx], p) ||
-                    this.insert(this.sw[idx], p) ||
-                    this.insert(this.se[idx], p);
+                this.insert(this.nw[idx], p, depth + 1) ||
+                    this.insert(this.ne[idx], p, depth + 1) ||
+                    this.insert(this.sw[idx], p, depth + 1) ||
+                    this.insert(this.se[idx], p, depth + 1);
                 this.points[base + i] = null;
             }
             this.pointCount[idx] = 0;
         }
 
-        return this.insert(this.nw[idx], particle) ||
-            this.insert(this.ne[idx], particle) ||
-            this.insert(this.sw[idx], particle) ||
-            this.insert(this.se[idx], particle);
+        return this.insert(this.nw[idx], particle, depth + 1) ||
+            this.insert(this.ne[idx], particle, depth + 1) ||
+            this.insert(this.sw[idx], particle, depth + 1) ||
+            this.insert(this.se[idx], particle, depth + 1);
     }
 
     calculateMassDistribution(rootIdx) {

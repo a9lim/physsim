@@ -173,45 +173,12 @@ export default class HiggsField extends ScalarField {
         }
     }
 
-    /** Total field energy: KE + gradient + potential, integrated over grid. */
+    /** Total field energy: KE + gradient + Mexican hat potential, integrated over grid. */
     energy(domainW, domainH) {
-        const GRID = this._grid;
-        const cellW = domainW / GRID;
-        const cellH = domainH / GRID;
-        if (cellW < EPSILON || cellH < EPSILON) return 0;
-        const cellArea = cellW * cellH;
-        const invCellW = 1 / cellW;
-        const invCellH = 1 / cellH;
-        const field = this.field;
-        const fieldDot = this.fieldDot;
         const muSq = 0.5 * this.mass * this.mass;
-        // V(VEV) = -½μ²·1² + ¼λ·1⁴ = -½μ² + ¼μ² = -¼μ², offset = +¼μ²
-        const vacOffset = 0.25 * muSq;
-        let total = 0;
-
-        for (let iy = 0; iy < GRID; iy++) {
-            for (let ix = 0; ix < GRID; ix++) {
-                const idx = iy * GRID + ix;
-                const p = field[idx];
-
-                // KE: 1/2 (dphi/dt)^2
-                const ke = 0.5 * fieldDot[idx] * fieldDot[idx];
-
-                // Gradient energy: 1/2 |grad phi|^2
-                const phiR = ix + 1 < GRID ? field[idx + 1] : p;
-                const phiB = iy + 1 < GRID ? field[idx + GRID] : p;
-                const dxPhi = (phiR - p) * invCellW;
-                const dyPhi = (phiB - p) * invCellH;
-                const gradE = 0.5 * (dxPhi * dxPhi + dyPhi * dyPhi);
-
-                // V(φ) = -½μ²φ² + ¼λφ⁴ + vacOffset  (λ=μ², shifted so V(1)=0)
-                const pot = -0.5 * muSq * p * p + 0.25 * muSq * p * p * p * p + vacOffset;
-
-                total += (ke + gradE + pot) * cellArea;
-            }
-        }
-
-        return total === total ? total : 0; // NaN guard
+        const vacOffset = 0.25 * muSq; // shift so V(VEV=1)=0
+        return this._fieldEnergy(domainW, domainH,
+            p => muSq * (-0.5 * p * p + 0.25 * p * p * p * p) + vacOffset);
     }
 
     /** Render field deviation from VEV=1 to offscreen canvas.
