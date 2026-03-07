@@ -56,7 +56,7 @@ Two dynamical scalar fields live on 64x64 grids, sharing a common PQS (cubic B-s
 - **Disintegration** -- Roche-limit fragmentation when tidal + centrifugal + Coulomb stress exceeds self-gravity. Includes Roche lobe overflow using the full Eggleton (1983) formula with continuous L1 mass transfer.
 - **Black hole mode** -- Kerr-Newman horizons: r+ = M + sqrt(M^2 - a^2 - Q^2) with spin parameter a = I\*|omega|/M. Ergosphere visualization. Hawking radiation at the surface gravity temperature; extremal BHs stop radiating. Sub-threshold BHs evaporate with a final photon burst.
 - **Cosmological expansion** -- Hubble flow v\_H = H\*r from domain center with peculiar velocity redshift. Locks boundary to despawn.
-- **Antimatter & pair production** -- Particles carry an antimatter flag. Matter-antimatter mergers annihilate the lesser mass with photon emission. Energetic photons near massive bodies spontaneously produce particle-antiparticle pairs.
+- **Antimatter & pair production** -- Right-click spawns antimatter (negated charge and spin). Left-click deletes antimatter; right-click deletes matter. Same-type click selects; opposite-type deletes. Matter-antimatter mergers annihilate the lesser mass with photon emission. Energetic photons near massive bodies spontaneously produce particle-antiparticle pairs.
 - **External background fields** -- Uniform gravitational (F = mg), electric (F = qE), and magnetic (Bz) fields with configurable strength and direction. External Bz integrated exactly via Boris rotation.
 
 ### Integrator
@@ -74,16 +74,16 @@ Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepp
 
 | Input | Action |
 |-------|--------|
-| Left click | Spawn particle (Place / Shoot / Orbit mode) |
-| Left drag | Set velocity (Shoot mode) |
-| Right click | Remove particle |
+| Left click | Spawn particle / select matter / delete antimatter |
+| Left drag | Spawn with velocity |
+| Right click | Spawn antimatter / select antimatter / delete matter |
+| Right drag | Spawn antimatter with velocity |
 | Scroll | Zoom |
 | `Space` | Pause / resume |
 | `.` | Step forward one frame |
 | `1`--`9` | Load preset directly |
 | `V` / `F` / `C` | Toggle velocity / force / component vectors |
 | `T` / `S` | Toggle theme / sidebar |
-| `A` | Toggle antimatter spawn mode |
 | `?` | Keyboard shortcut help |
 
 ### Sidebar Tabs
@@ -121,37 +121,37 @@ Zero-dependency vanilla JavaScript with Canvas 2D rendering. All physics and ren
 ## Architecture
 
 ```
-main.js                     417 lines  Simulation class, fixed-timestep loop, pair production, pion loop, window.sim
-index.html                  509 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders
+main.js                     414 lines  Simulation class, fixed-timestep loop, pair production, pion loop, window.sim
+index.html                  476 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders
 styles.css                  269 lines  Project-specific CSS overrides
 colors.js                    18 lines  Project color tokens (extends shared-tokens.js)
 src/
-  integrator.js            1382 lines  Physics: Boris substep loop, radiation, pion emission/absorption, field excitations,
+  integrator.js            1463 lines  Physics: Boris substep loop, radiation, pion emission/absorption, field excitations,
                                        tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields
-  reference.js              697 lines  Physics reference content (KaTeX math)
-  presets.js                694 lines  19 preset scenarios (Gravity / EM / Exotic / Cosmological)
-  ui.js                     529 lines  DOM setup, declarative toggle dependencies, info tips, shortcuts
-  renderer.js               528 lines  Canvas 2D: particles, trails, spin rings, vectors, photons, pions, field overlays
-  forces.js                 477 lines  Pairwise + Barnes-Hut force accumulation, 1PN (4 sectors), Yukawa + PQ modulation
-  scalar-field.js           392 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C^2 gradients,
+  reference.js              688 lines  Physics reference content (KaTeX math)
+  presets.js                688 lines  19 preset scenarios (Gravity / EM / Exotic / Cosmological)
+  renderer.js               532 lines  Canvas 2D: particles, trails, spin rings, vectors, photons, pions, field overlays
+  ui.js                     517 lines  DOM setup, declarative toggle dependencies, info tips, shortcuts
+  forces.js                 514 lines  Pairwise + Barnes-Hut force accumulation, 1PN (4 sectors), Yukawa + PQ modulation
+  scalar-field.js           391 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C^2 gradients,
                                        field energy, field excitations
   quadtree.js               274 lines  SoA pool-based Barnes-Hut tree (zero GC)
-  input.js                  270 lines  Mouse/touch, Place/Shoot/Orbit spawn modes
-  signal-delay.js           255 lines  Three-phase light-cone solver on circular history buffers
+  axion-field.js            261 lines  AxionField: quadratic potential, scalar aF^2 coupling, Peccei-Quinn CP violation
+  higgs-field.js            259 lines  HiggsField: Mexican hat potential, mass modulation, thermal phase transitions
+  signal-delay.js           257 lines  Three-phase light-cone solver on circular history buffers
   heatmap.js                248 lines  Gravitational + electric + Yukawa potential field overlay
-  axion-field.js            223 lines  AxionField: quadratic potential, scalar aF^2 coupling, Peccei-Quinn CP violation
-  higgs-field.js            209 lines  HiggsField: Mexican hat potential, mass modulation, thermal phase transitions
+  input.js                  238 lines  Mouse/touch, left/right-click symmetry (matter/antimatter)
   save-load.js              205 lines  State serialization, quick save/load, file export/import
   effective-potential.js    204 lines  V_eff(r) sidebar canvas with axMod/yukMod modulation
-  potential.js              164 lines  PE computation (7 terms, pairwise + tree traversal)
-  energy.js                 160 lines  KE, PE, field energy, momentum, angular momentum
-  collisions.js             138 lines  Merge, annihilation, baseMass conservation, relativistic merge KE tracking
-  stats-display.js          131 lines  Sidebar energy/momentum/drift readout
+  energy.js                 177 lines  KE, PE, field energy, momentum, angular momentum
+  potential.js              170 lines  PE computation (7 terms, pairwise + tree traversal)
+  collisions.js             141 lines  Merge, annihilation, baseMass conservation, relativistic merge KE tracking
+  particle.js               132 lines  Particle: 11 force Vec2s, axMod/yukMod, baseMass, antimatter, signal delay history
   config.js                 131 lines  Named constants (softening, BH, numerical, pion, field, pair production)
-  particle.js               128 lines  Particle: 11 force Vec2s, axMod/yukMod, baseMass, antimatter, signal delay history
+  stats-display.js          123 lines  Sidebar energy/momentum/drift readout
+  pion.js                   123 lines  Massive Yukawa force carrier: proper velocity, (1+v^2) GR deflection, Lorentz-boosted decay
   phase-plot.js             117 lines  Phase space r-v_r plot (512-sample ring buffer)
   topology.js               112 lines  Torus / Klein / RP^2 min-image + wrapping
-  pion.js                   123 lines  Massive Yukawa force carrier: proper velocity, (1+v^2) GR deflection, Lorentz-boosted decay
   vec2.js                    61 lines  2D vector math
   boson-utils.js             58 lines  Shared BH tree walk for photon/pion gravitational lensing
   photon.js                  45 lines  Radiation photon with BH tree lensing
