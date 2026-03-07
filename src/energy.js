@@ -2,7 +2,7 @@
 // Three-pass accumulator: KE + momentum, angular momentum about COM, Darwin field corrections.
 
 import { INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ } from './config.js';
-import { TORUS, minImage } from './topology.js';
+import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 

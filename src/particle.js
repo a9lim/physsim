@@ -105,7 +105,7 @@ export default class Particle {
     updateColor() {
         const bh = window.sim && window.sim.physics.blackHoleEnabled;
         if (bh) {
-            this.radius = kerrNewmanRadius(this.mass, this.radiusSq, this.angVel, this.charge);
+            this.radius = kerrNewmanRadius(this.mass, Math.cbrt(this.mass) ** 2, this.angVel, this.charge);
         } else {
             this.radius = Math.cbrt(this.mass);
         }

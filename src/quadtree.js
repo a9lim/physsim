@@ -3,12 +3,6 @@
 
 import { INERTIA_K, MAG_MOMENT_K } from './config.js';
 
-export class Rect {
-    constructor(x, y, w, h) {
-        this.x = x; this.y = y; this.w = w; this.h = h;
-    }
-}
-
 const NONE = -1;
 
 export default class QuadTreePool {

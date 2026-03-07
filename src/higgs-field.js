@@ -136,7 +136,7 @@ export default class HiggsField extends ScalarField {
             p.mass = newMass;
 
             if (blackHoleEnabled) {
-                p.radius = kerrNewmanRadius(p.mass, p.radiusSq, p.angVel, p.charge);
+                p.radius = kerrNewmanRadius(p.mass, Math.cbrt(p.mass) ** 2, p.angVel, p.charge);
             } else {
                 p.radius = Math.cbrt(p.mass);
             }

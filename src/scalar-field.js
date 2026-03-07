@@ -51,12 +51,10 @@ export default class ScalarField {
     }
 
     /**
-     * Get neighbor grid index with boundary-aware wrapping.
+     * Get grid index with boundary-aware wrapping.
      * Returns -1 for Dirichlet boundary (caller uses vacuum value).
      */
-    _nb(ix, iy, dx, dy, bcMode, topoConst) {
-        let nx = ix + dx;
-        let ny = iy + dy;
+    _nb(nx, ny, bcMode, topoConst) {
         const GRID = this._grid;
 
         if (bcMode === BC_LOOP) {
@@ -130,34 +128,6 @@ export default class ScalarField {
         wy[3] = dy3 / 6;
     }
 
-    /** Wrap grid coordinates with boundary awareness. */
-    _wrapIdx(nx, ny, bcMode, topoConst) {
-        const GRID = this._grid;
-        if (bcMode === BC_LOOP) {
-            if (topoConst === TORUS) {
-                if (nx < 0) nx += GRID; else if (nx >= GRID) nx -= GRID;
-                if (ny < 0) ny += GRID; else if (ny >= GRID) ny -= GRID;
-            } else if (topoConst === KLEIN) {
-                if (nx < 0) nx += GRID; else if (nx >= GRID) nx -= GRID;
-                if (ny < 0) { ny += GRID; nx = GRID - 1 - nx; }
-                else if (ny >= GRID) { ny -= GRID; nx = GRID - 1 - nx; }
-            } else {
-                if (nx < 0) { nx += GRID; ny = GRID - 1 - ny; }
-                else if (nx >= GRID) { nx -= GRID; ny = GRID - 1 - ny; }
-                if (ny < 0) { ny += GRID; nx = GRID - 1 - nx; }
-                else if (ny >= GRID) { ny -= GRID; nx = GRID - 1 - nx; }
-            }
-            return ny * GRID + nx;
-        }
-        if (bcMode === BC_BOUNCE) {
-            if (nx < 0) nx = 0; else if (nx >= GRID) nx = GRID - 1;
-            if (ny < 0) ny = 0; else if (ny >= GRID) ny = GRID - 1;
-            return ny * GRID + nx;
-        }
-        if (nx < 0 || nx >= GRID || ny < 0 || ny >= GRID) return -1;
-        return ny * GRID + nx;
-    }
-
     /** Deposit value at (x,y) into grid using PQS 4×4 stencil.
      *  Boundary-aware: wraps stencil nodes for periodic topologies.
      */
@@ -169,7 +139,7 @@ export default class ScalarField {
         for (let jy = 0; jy < 4; jy++) {
             const wyj = wy[jy];
             for (let jx = 0; jx < 4; jx++) {
-                const idx = this._wrapIdx(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
+                const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
                 if (idx < 0) continue; // Dirichlet boundary
                 out[idx] += value * wx[jx] * wyj;
             }
@@ -200,10 +170,10 @@ export default class ScalarField {
                 if (ix > 0 && ix < last && iy > 0 && iy < last) continue;
                 const idx = iy * GRID + ix;
                 const fC = field[idx];
-                const iL = this._nb(ix, iy, -1, 0, bcMode, topoConst);
-                const iR = this._nb(ix, iy, 1, 0, bcMode, topoConst);
-                const iT = this._nb(ix, iy, 0, -1, bcMode, topoConst);
-                const iB = this._nb(ix, iy, 0, 1, bcMode, topoConst);
+                const iL = this._nb(ix - 1, iy, bcMode, topoConst);
+                const iR = this._nb(ix + 1, iy, bcMode, topoConst);
+                const iT = this._nb(ix, iy - 1, bcMode, topoConst);
+                const iB = this._nb(ix, iy + 1, bcMode, topoConst);
                 const fL = iL >= 0 ? field[iL] : vacValue;
                 const fR = iR >= 0 ? field[iR] : vacValue;
                 const fT = iT >= 0 ? field[iT] : vacValue;

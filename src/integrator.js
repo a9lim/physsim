@@ -2,7 +2,7 @@
 // Adaptive-substep Boris integrator. Separates E-like (position-dependent) and
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
-import QuadTreePool, { Rect } from './quadtree.js';
+import QuadTreePool from './quadtree.js';
 import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_YUKAWA_MU, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, PION_LIFETIME, MAX_PIONS, YUKAWA_G2 } from './config.js';
 import Photon from './photon.js';
 import Pion from './pion.js';
@@ -35,7 +35,7 @@ function _quadSample(Axx, Axy) {
 
 export default class Physics {
     constructor() {
-        this.boundary = new Rect(0, 0, 0, 0);
+        this.boundary = { x: 0, y: 0, w: 0, h: 0 };
         this.pool = new QuadTreePool(QUADTREE_CAPACITY);
 
         this.gravityEnabled = true;
@@ -746,7 +746,7 @@ export default class Physics {
                     const p = particles[i];
                     if (p.mass <= MIN_MASS) continue;
                     const M = p.mass;
-                    const a = INERTIA_K * p.radiusSq * Math.abs(p.angVel);
+                    const a = INERTIA_K * Math.cbrt(M) ** 2 * Math.abs(p.angVel);
                     const Q = p.charge;
                     const disc = M * M - a * a - Q * Q;
                     let power;
@@ -810,7 +810,7 @@ export default class Physics {
                             const gamma = 1 / Math.sqrt(1 - speed * speed);
                             const wx = gamma * speed * Math.cos(angle);
                             const wy = gamma * speed * Math.sin(angle);
-                            const charge = Math.abs(p.charge) < EPSILON ? 0 : (Math.random() < 0.33 ? 0 : (Math.random() < 0.5 ? 1 : -1));
+                            const charge = Math.abs(p.charge) < EPSILON ? 0 : (Math.random() < 0.5 ? 0 : (Math.random() < 0.5 ? 1 : -1));
                             const offset = spawnOffset(p.radius);
                             pions.push(new Pion(
                                 p.pos.x + Math.cos(angle) * offset,

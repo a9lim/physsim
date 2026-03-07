@@ -258,7 +258,7 @@ export default class Renderer {
             }
             if (bhEnabled && p.mass > 0) {
                 const M = p.mass;
-                const a = INERTIA_K * p.radiusSq * Math.abs(p.angVel);
+                const a = INERTIA_K * Math.cbrt(p.mass) ** 2 * Math.abs(p.angVel);
                 const rErgo = M + Math.sqrt(Math.max(0, M * M - a * a));
                 if (rErgo > p.radius + 0.3) {
                     ctx.globalCompositeOperation = 'source-over';

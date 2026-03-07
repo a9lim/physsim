@@ -65,50 +65,28 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
             calculateForce(particles[i], pool, root, BH_THETA, particles[i].force, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
         }
     } else {
-        // When signal delay is off and 1PN is off, forces are symmetric — use j>i loop
-        // (1PN uses per-particle velocity so forces are NOT symmetric; signal delay
-        // makes source positions asymmetric)
-        const canSymmetric = !useSignalDelay && !toggles.onePNEnabled;
+        for (let i = 0; i < n; i++) {
+            const p = particles[i];
+            for (let j = 0; j < n; j++) {
+                if (i === j) continue;
+                const o = particles[j];
 
-        if (canSymmetric) {
-            for (let i = 0; i < n; i++) {
-                const p = particles[i];
-                for (let j = i + 1; j < n; j++) {
-                    const o = particles[j];
-                    pairForce(p, o.pos.x, o.pos.y, o.vel.x, o.vel.y,
-                        o.mass, o.charge, o.angVel,
-                        o.magMoment, o.angMomentum, p.force, toggles,
-                        periodic, domW, domH, halfDomW, halfDomH, topology);
-                    pairForce(o, p.pos.x, p.pos.y, p.vel.x, p.vel.y,
-                        p.mass, p.charge, p.angVel,
-                        p.magMoment, p.angMomentum, o.force, toggles,
-                        periodic, domW, domH, halfDomW, halfDomH, topology);
+                let sx, sy, svx, svy, sAngVel;
+                if (useSignalDelay) {
+                    if (o.histCount < 2) continue; // no history — outside light cone
+                    const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                    if (!ret) continue; // signal-delayed time predates particle
+                    sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
+                    sAngVel = o.angVel;
+                } else {
+                    sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
+                    sAngVel = o.angVel;
                 }
-            }
-        } else {
-            for (let i = 0; i < n; i++) {
-                const p = particles[i];
-                for (let j = 0; j < n; j++) {
-                    if (i === j) continue;
-                    const o = particles[j];
 
-                    let sx, sy, svx, svy, sAngVel;
-                    if (useSignalDelay) {
-                        if (o.histCount < 2) continue; // no history — outside light cone
-                        const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
-                        if (!ret) continue; // retarded time predates particle
-                        sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
-                        sAngVel = o.angVel;
-                    } else {
-                        sx = o.pos.x; sy = o.pos.y; svx = o.vel.x; svy = o.vel.y;
-                        sAngVel = o.angVel;
-                    }
-
-                    pairForce(p, sx, sy, svx, svy,
-                        o.mass, o.charge, sAngVel,
-                        o.magMoment, o.angMomentum, p.force, toggles,
-                        periodic, domW, domH, halfDomW, halfDomH, topology);
-                }
+                pairForce(p, sx, sy, svx, svy,
+                    o.mass, o.charge, sAngVel,
+                    o.magMoment, o.angMomentum, p.force, toggles,
+                    periodic, domW, domH, halfDomW, halfDomH, topology);
             }
         }
     }
