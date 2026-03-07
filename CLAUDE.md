@@ -23,11 +23,11 @@ styles.css               245 lines  Project-specific CSS overrides, toggle/slide
 colors.js                 18 lines  Project color tokens (particle hues, spin ring colors)
 src/
   integrator.js         1382 lines  Physics class: Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields, _retireParticle
-  ui.js                  529 lines  setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
+  ui.js                  527 lines  setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
   renderer.js            528 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
-  forces.js              477 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
+  forces.js              514 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
   presets.js             694 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
-  reference.js           697 lines  REFERENCE object: physics reference content (KaTeX math)
+  reference.js           688 lines  REFERENCE object: physics reference content (KaTeX math)
   scalar-field.js        392 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
   higgs-field.js         209 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
   axion-field.js         217 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, PQ pseudoscalar coupling, EM + Yukawa modulation
@@ -309,7 +309,7 @@ Auto-activates with Relativity. Three-phase solver on per-particle circular hist
 
 **Retirement points**: boundary despawn (integrator), collision merge/annihilation (collisions.js returns `removed`), disintegration (main.js), Hawking evaporation (main.js), right-click delete (input.js). All reset paths (preset load, clear, save-load) clear `deadParticles`.
 
-**Liénard-Wiechert aberration**: Signal-delayed forces include the `(1 - n̂·v_source)^{-3}` aberration factor from the retarded Green's function, clamped to [0.01, 100]. Applied to gravity, Coulomb, and dipole forces in `pairForce()`. Retarded angular velocity interpolated from `histAngW` for accurate dipole moments.
+**Liénard-Wiechert aberration**: Signal-delayed forces include the `(1 - n̂·v_source)^{-3}` aberration factor from the retarded Green's function, clamped to [0.01, 100]. Applied to gravity, Coulomb, Yukawa, and dipole forces in `pairForce()`. Not applied to 1PN corrections (already O(v²), aberration would give O(v³)). Retarded angular velocity interpolated from `histAngW` for accurate dipole moments.
 
 BH mode: signal delay at leaf level only; distant aggregates use current positions.
 
