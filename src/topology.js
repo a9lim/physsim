@@ -25,30 +25,51 @@ export function minImage(ox, oy, sx, sy, topology, W, H, halfW, halfH, out) {
         return;
     }
 
-    // Candidate 0: identity (torus wrap)
-    let bx = torusWrap(dx, W, halfW);
-    let by = torusWrap(dy, H, halfH);
-    let bestDx = bx, bestDy = by, bestSq = bx * bx + by * by;
+    // Klein/RP²: translational periods are 2H (Klein) or 2W & 2H (RP²).
+    // Candidate 0 must NOT torus-wrap axes that only have glide reflections,
+    // otherwise it creates phantom images (e.g. (sx, sy±H) instead of (W-sx, sy±H)).
+    const doubleH = 2 * H;
+
+    if (topology === KLEIN) {
+        // Candidate 0: x periodic (period W), y not periodic (period 2H > domain)
+        let bx = torusWrap(dx, W, halfW);
+        let by = dy;
+        let bestDx = bx, bestDy = by, bestSq = bx * bx + by * by;
+
+        // Candidate 1: y-glide  (x,y) ~ (W-x, y+H)
+        _c.x = torusWrap((W - sx) - ox, W, halfW);
+        _c.y = torusWrap((sy + H) - oy, doubleH, H);
+        let sq = _c.x * _c.x + _c.y * _c.y;
+        if (sq < bestSq) { bestDx = _c.x; bestDy = _c.y; }
+
+        out.x = bestDx;
+        out.y = bestDy;
+        return;
+    }
+
+    // RP²: both axes have glide reflections, translational periods 2W & 2H
+    const doubleW = 2 * W;
+
+    // Candidate 0: no wrapping (|dx| ≤ W, |dy| ≤ H, within half-periods)
+    let bestDx = dx, bestDy = dy, bestSq = dx * dx + dy * dy;
 
     // Candidate 1: y-glide  (x,y) ~ (W-x, y+H)
-    _c.x = torusWrap((W - sx) - ox, W, halfW);
-    _c.y = torusWrap((sy + H) - oy, H, halfH);
+    _c.x = (W - sx) - ox;
+    _c.y = torusWrap((sy + H) - oy, doubleH, H);
     let sq = _c.x * _c.x + _c.y * _c.y;
     if (sq < bestSq) { bestDx = _c.x; bestDy = _c.y; bestSq = sq; }
 
-    if (topology === RP2) {
-        // Candidate 2: x-glide  (x,y) ~ (x+W, H-y)
-        _c.x = torusWrap((sx + W) - ox, W, halfW);
-        _c.y = torusWrap((H - sy) - oy, H, halfH);
-        sq = _c.x * _c.x + _c.y * _c.y;
-        if (sq < bestSq) { bestDx = _c.x; bestDy = _c.y; bestSq = sq; }
+    // Candidate 2: x-glide  (x,y) ~ (x+W, H-y)
+    _c.x = torusWrap((sx + W) - ox, doubleW, W);
+    _c.y = (H - sy) - oy;
+    sq = _c.x * _c.x + _c.y * _c.y;
+    if (sq < bestSq) { bestDx = _c.x; bestDy = _c.y; bestSq = sq; }
 
-        // Candidate 3: both glides
-        _c.x = torusWrap((2 * W - sx) - ox, W, halfW);
-        _c.y = torusWrap((2 * H - sy) - oy, H, halfH);
-        sq = _c.x * _c.x + _c.y * _c.y;
-        if (sq < bestSq) { bestDx = _c.x; bestDy = _c.y; bestSq = sq; }
-    }
+    // Candidate 3: both glides
+    _c.x = torusWrap((2 * W - sx) - ox, doubleW, W);
+    _c.y = torusWrap((2 * H - sy) - oy, doubleH, H);
+    sq = _c.x * _c.x + _c.y * _c.y;
+    if (sq < bestSq) { bestDx = _c.x; bestDy = _c.y; }
 
     out.x = bestDx;
     out.y = bestDy;
