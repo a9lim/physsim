@@ -162,7 +162,7 @@ Always active when Gravity is on (no separate toggle). `coupling = m_other + q1*
 
 ### Yukawa Potential
 
-Independent toggle. `F = -g^2 * m1*m2 * exp(-mu*r)/r^2 * (1+mu*r)`. Parameters: `yukawaCoupling` (default 14), `yukawaMu` (default 0.15, slider 0.05-0.50). Includes analytical jerk for radiation. Emits pions as massive force carriers (see Pion section). **Scalar Breit correction** (requires 1PN): O(v^2/c^2) velocity-dependent correction from massive scalar boson exchange Hamiltonian `δH = g²m₁m₂e^{-μr}/(2r) * [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Force into `force1PN`. Velocity-Verlet corrected via `compute1PNPairwise()`.
+Independent toggle. `F = -g^2 * m1*m2 * exp(-mu*r)/r^2 * (1+mu*r)`. Parameters: `yukawaCoupling` (default 14), `yukawaMu` (default 0.15, slider 0.05-0.25). Includes analytical jerk for radiation. Emits pions as massive force carriers (see Pion section). **Scalar Breit correction** (requires 1PN): O(v^2/c^2) velocity-dependent correction from massive scalar boson exchange Hamiltonian `δH = g²m₁m₂e^{-μr}/(2r) * [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Force into `force1PN`. Velocity-Verlet corrected via `compute1PNPairwise()`.
 
 ### External Background Fields
 
@@ -194,7 +194,7 @@ Field arrays are `field`/`fieldDot` (not `phi`/`phiDot` or `a`/`aDot`). Grid siz
 
 ### Higgs Field
 
-Independent toggle. Mexican hat potential `V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4`. VEV=1; free parameter is m_H (slider 0.25-1.00, default 0.50). With VEV=1: `lambda = mu^2 = m_H^2/2`.
+Independent toggle. Mexican hat potential `V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4`. VEV=1; free parameter is m_H (slider 0.25-0.75, default 0.50). With VEV=1: `lambda = mu^2 = m_H^2/2`.
 
 - **Mass generation**: `m_eff = baseMass * max(|phi(x)|, HIGGS_MASS_FLOOR)`. At VEV, m_eff = baseMass. Symmetric phase (phi→0): floored at 5% baseMass (HIGGS_MASS_FLOOR=0.05), capping gradient-force acceleration at 20× and preventing thermal-depletion runaway.
 - **Gradient force**: `F = +g * baseMass * sign(phi) * grad(phi)` where g = HIGGS_COUPLING = 1. Into `forceHiggs`. The `sign(phi)` ensures consistency with mass generation `m = baseMass * |phi|`.
@@ -223,7 +223,7 @@ Independent toggle; requires Coulomb or Yukawa. Quadratic potential `V(a) = 1/2 
 - **Field equation**: `d^2 a/dt^2 = laplacian(a) - m_a^2 * a - g*m_a * d(a)/dt + source/cellArea`. Störmer-Verlet (KDK, O(dt²)). Damping: zeta = g/2, Q = 1/g, so g*Q = 1 (resonant buildup matches coupling strength).
 - **Boundary**: Same as Higgs via `ScalarField._nb()`, but Dirichlet uses a=0 (not a=1).
 - **Energy**: delegates to `_fieldEnergy()` with quadratic potential `V(a) = 1/2 m_a^2 a^2`. No offset needed.
-- **Parameters**: One slider: m_a (0.01-0.25, default 0.05).
+- **Parameters**: One slider: m_a (0.01-0.10, default 0.05).
 - **Rendering**: Indigo = positive (a > 0), yellow = negative (a < 0). Alpha proportional to |a|*4.
 
 ## Pions (Massive Force Carriers)
