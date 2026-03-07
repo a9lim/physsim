@@ -64,7 +64,7 @@ export default class AxionField extends ScalarField {
         // Klein-Gordon: d²a/dt² = ∇²a - m_a²·a - g·m_a·ȧ + source  (ζ = g/2, Q = 1/g)
         const mA = this.mass;
         const mASq = mA * mA;
-        const damp = AXION_COUPLING * mA; // Q = 1/g = 5, so g·Q = 1 (resonant buildup ≈ static response)
+        const damp = AXION_COUPLING * mA; // Q = 1/g = 20, so g·Q = 1 (resonant buildup ≈ static response)
         const lap = this._laplacian;
 
         for (let i = 0; i < GRID_SQ; i++) {
