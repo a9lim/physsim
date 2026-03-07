@@ -4,6 +4,7 @@
 
 import { SOFTENING_SQ, BH_THETA, YUKAWA_COUPLING, HEATMAP_GRID, HEATMAP_INTERVAL, HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA } from './config.js';
 import { getDelayedState } from './signal-delay.js';
+import { minImage } from './topology.js';
 
 // Parse heatmap colors from shared palette at module load (0-255 ints)
 const _ph = window._parseHex; // hex -> [r,g,b] in 0–1
@@ -86,6 +87,8 @@ function treePotential(pool, rootIdx, wx, wy, thetaSq, softeningSq, doGravity, d
 const _treeOut = { g: 0, e: 0, y: 0 };
 // Reusable observer object for signal delay (avoids allocation per grid cell)
 const _hmObs = { pos: { x: 0, y: 0 } };
+// Zero-alloc output for minImage()
+const _miOut = { x: 0, y: 0 };
 
 // Heatmap display modes
 export const HEATMAP_MODES = ['all', 'gravity', 'electric', 'yukawa'];
@@ -143,17 +146,20 @@ export default class Heatmap {
                 } else {
                     for (let i = 0; i < n; i++) {
                         const p = particles[i];
-                        let px, py;
+                        let dx, dy;
                         if (useDelay) {
                             if (p.histCount < 2) continue; // no history — light hasn't propagated yet
                             _hmObs.pos.x = wx; _hmObs.pos.y = wy;
                             const ret = getDelayedState(p, _hmObs, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
                             if (!ret) continue; // outside past light cone
-                            px = ret.x; py = ret.y;
+                            dx = wx - ret.x; dy = wy - ret.y;
                         } else {
-                            px = p.pos.x; py = p.pos.y;
+                            dx = wx - p.pos.x; dy = wy - p.pos.y;
                         }
-                        const dx = wx - px, dy = wy - py;
+                        if (periodic) {
+                            minImage(0, 0, dx, dy, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                            dx = _miOut.x; dy = _miOut.y;
+                        }
                         const rSq = dx * dx + dy * dy + softeningSq;
                         const invR = 1 / Math.sqrt(rSq);
                         if (doGravity) gPhi -= p.mass * invR;
@@ -173,7 +179,11 @@ export default class Heatmap {
                         if (dp.histCount < 2) continue;
                         const ret = getDelayedState(dp, _hmObs, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
                         if (!ret) continue;
-                        const dx = wx - ret.x, dy = wy - ret.y;
+                        let dx = wx - ret.x, dy = wy - ret.y;
+                        if (periodic) {
+                            minImage(0, 0, dx, dy, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                            dx = _miOut.x; dy = _miOut.y;
+                        }
                         const rSq = dx * dx + dy * dy + softeningSq;
                         const invR = 1 / Math.sqrt(rSq);
                         if (doGravity) gPhi -= dp._deathMass * invR;
