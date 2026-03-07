@@ -4,7 +4,7 @@
 // m_H is the free parameter (slider 0.25-1, default 0.5)
 // Extends ScalarField for shared PQS infrastructure.
 
-import { HIGGS_GRID, DEFAULT_HIGGS_MASS, HIGGS_PHI_MAX, HIGGS_COUPLING, EPSILON, kerrNewmanRadius } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, EPSILON, kerrNewmanRadius } from './config.js';
 import ScalarField, { bcFromString } from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -14,7 +14,7 @@ const _enhancedRGB = _ph(window._PALETTE.extended.cyan).map(v => (v * 255 + 0.5)
 
 export default class HiggsField extends ScalarField {
     constructor() {
-        super(HIGGS_GRID, HIGGS_PHI_MAX);
+        super(SCALAR_GRID, SCALAR_FIELD_MAX);
         this._thermal = new Float64Array(this._gridSq);
         this.mass = DEFAULT_HIGGS_MASS;
         this.reset();
@@ -84,11 +84,11 @@ export default class HiggsField extends ScalarField {
             if (newPhi !== newPhi) { // NaN guard
                 field[i] = 1;
                 fieldDot[i] = 0;
-            } else if (newPhi > HIGGS_PHI_MAX) {
-                field[i] = HIGGS_PHI_MAX;
+            } else if (newPhi > SCALAR_FIELD_MAX) {
+                field[i] = SCALAR_FIELD_MAX;
                 fieldDot[i] = 0;
-            } else if (newPhi < -HIGGS_PHI_MAX) {
-                field[i] = -HIGGS_PHI_MAX;
+            } else if (newPhi < -SCALAR_FIELD_MAX) {
+                field[i] = -SCALAR_FIELD_MAX;
                 fieldDot[i] = 0;
             } else {
                 field[i] = newPhi;

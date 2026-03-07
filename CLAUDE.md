@@ -81,8 +81,8 @@ signal-delay.js  <- config (HISTORY_SIZE, NR_TOLERANCE, EPSILON), TORUS + minIma
 save-load.js     <- Particle, angwToAngVel (relativity)
 effective-potential.js <- config (SOFTENING_SQ, BH_SOFTENING_SQ, YUKAWA_G2)
 scalar-field.js  <- config (EPSILON), topology (TORUS, KLEIN, RP2)
-higgs-field.js   <- config (HIGGS_GRID, DEFAULT_HIGGS_MASS, HIGGS_PHI_MAX, HIGGS_COUPLING, EPSILON, kerrNewmanRadius), ScalarField + bcFromString (scalar-field)
-axion-field.js   <- config (AXION_GRID, AXION_A_MAX, DEFAULT_AXION_MASS, EPSILON), ScalarField + bcFromString (scalar-field)
+higgs-field.js   <- config (SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, EPSILON, kerrNewmanRadius), ScalarField + bcFromString (scalar-field)
+axion-field.js   <- config (SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, EPSILON), ScalarField + bcFromString (scalar-field)
 particle.js      <- Vec2, config (HISTORY_SIZE, kerrNewmanRadius)
 reference.js     (no imports - pure data)
 ```
@@ -198,7 +198,7 @@ Requires Coulomb. Axion-like scalar field on a 64×64 grid with quadratic potent
 
 **Field energy**: `E = ∫(½ȧ² + ½|∇a|² + ½m_a²a²)dA`. No offset needed (V(0)=0). Tracked in stats as `axionFieldEnergy`, included in total energy.
 
-**Parameters**: One slider: `mass` (m_a, default 0.05, range 0.01–0.25). Config constants: `AXION_GRID = 64`, `AXION_A_MAX = 2`, `AXION_COUPLING = 0.05`.
+**Parameters**: One slider: `mass` (m_a, default 0.05, range 0.01–0.25). Config constants: `SCALAR_GRID = 64`, `SCALAR_FIELD_MAX = 2`, `AXION_COUPLING = 0.05`.
 
 **Rendering**: Offscreen 64×64 canvas, bilinear-upscaled. Blue = positive (a > 0), red = negative (a < 0). Alpha ∝ |a|×4. Colors from `_PALETTE.extended`. Force vector color: orange (`--ext-orange`).
 
@@ -237,7 +237,7 @@ Independent toggle (`physics.higgsEnabled`). Dynamical real scalar field on a 64
 
 **Damping**: Critical damping `damp = 2·m_H`. Prevents field ringing. Scales with m_H so the field always settles without oscillation.
 
-**Parameters**: One slider: `mass` (m_H, default 0.05, range 0.01–0.25). Config constants: `HIGGS_GRID = 64`, `HIGGS_PHI_MAX = 2`, `HIGGS_COUPLING = 0.05`. VEV=1, thermalK=1, damping ratio=1 baked in.
+**Parameters**: One slider: `mass` (m_H, default 0.05, range 0.01–0.25). Config constants: `SCALAR_GRID = 64`, `SCALAR_FIELD_MAX = 2`, `HIGGS_COUPLING = 0.05`. VEV=1, thermalK=1, damping ratio=1 baked in.
 
 **Rendering**: Offscreen 64×64 canvas, bilinear-upscaled to world space. Magenta = depleted (φ < 1), cyan = enhanced (φ > 1). Alpha ∝ |deviation|×(8/g). Colors from `_PALETTE.extended`. Force vector color: magenta (`--ext-magenta`).
 

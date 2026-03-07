@@ -45,9 +45,11 @@ export const TIDAL_STRENGTH = 2.0;
 export const YUKAWA_G2 = 1.0;            // coupling strength (fixed)
 export const DEFAULT_YUKAWA_MU = 0.05;  // mediator mass (inverse range)
 
+// Scalar fields (shared grid size and field value clamp for Higgs and Axion)
+export const SCALAR_GRID = 64;
+export const SCALAR_FIELD_MAX = 2;       // field value clamp (prevent runaway)
+
 // Axion field: V(a) = 1/2 m_a² a² (quadratic potential, no SSB)
-export const AXION_GRID = 64;
-export const AXION_A_MAX = 2;            // field value clamp (keeps axMod in [0,3])
 export const DEFAULT_AXION_MASS = 0.05; // mediator mass (oscillation frequency)
 export const AXION_COUPLING = 0.05;      // g in L = -(1+g·a)F²/4; also sets Q = 1/g, ζ = g/2
 
@@ -62,8 +64,6 @@ export const ROCHE_TRANSFER_RATE = 0.01;  // mass transfer rate coefficient
 export const DEFAULT_HUBBLE = 0.001;  // Hubble parameter
 
 // Higgs field: V(φ) = -(m_H²/4)φ² + (m_H²/8)φ⁴ (VEV=1, λ=m_H²/2)
-export const HIGGS_GRID = 64;
-export const HIGGS_PHI_MAX = 2;              // field value clamp (prevent runaway)
 export const DEFAULT_HIGGS_MASS = 0.05;       // Higgs boson mass (mediator range ~ 1/m_H)
 export const HIGGS_COUPLING = 0.05;            // Yukawa coupling g (source = g·baseMass, force = g·baseMass·∇φ)
 

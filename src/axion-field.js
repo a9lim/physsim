@@ -13,7 +13,7 @@
 // Source: g·q² (regularized EM self-energy from aF² vertex, g = AXION_COUPLING).
 // Gradient force: F = -g·q²·∇a. EM modulation: α_eff = α·(1 + g·a).
 
-import { AXION_GRID, AXION_A_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, EPSILON } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, EPSILON } from './config.js';
 import ScalarField, { bcFromString } from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -23,7 +23,7 @@ const _negRGB = _ph(window._PALETTE.extended.red).map(v => (v * 255 + 0.5) | 0);
 
 export default class AxionField extends ScalarField {
     constructor() {
-        super(AXION_GRID, AXION_A_MAX);
+        super(SCALAR_GRID, SCALAR_FIELD_MAX);
         this.mass = DEFAULT_AXION_MASS;
         this.reset();
     }
@@ -80,11 +80,11 @@ export default class AxionField extends ScalarField {
             if (newA !== newA) { // NaN guard
                 field[i] = 0;
                 fieldDot[i] = 0;
-            } else if (newA > AXION_A_MAX) {
-                field[i] = AXION_A_MAX;
+            } else if (newA > SCALAR_FIELD_MAX) {
+                field[i] = SCALAR_FIELD_MAX;
                 fieldDot[i] = 0;
-            } else if (newA < -AXION_A_MAX) {
-                field[i] = -AXION_A_MAX;
+            } else if (newA < -SCALAR_FIELD_MAX) {
+                field[i] = -SCALAR_FIELD_MAX;
                 fieldDot[i] = 0;
             } else {
                 field[i] = newA;
