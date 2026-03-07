@@ -254,12 +254,15 @@ class Simulation {
                 this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
 
                 // Update photons, swap-and-pop dead ones (O(n) vs splice O(n²))
-                const _pool = this.physics.barnesHutEnabled ? this.physics.pool : null;
+                // Gravitational lensing only when gravity is on
+                const _gravOn = this.physics.gravityEnabled;
+                const _pool = (_gravOn && this.physics.barnesHutEnabled) ? this.physics.pool : null;
                 const _root = this.physics._lastRoot;
+                const _lensParticles = _gravOn ? this.particles : null;
                 let pLen = this.photons.length;
                 for (let i = pLen - 1; i >= 0; i--) {
                     const ph = this.photons[i];
-                    ph.update(PHYSICS_DT, this.particles, _pool, _root);
+                    ph.update(PHYSICS_DT, _lensParticles, _pool, _root);
                     if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
                         this.photons[i] = this.photons[--pLen];
                     }
@@ -303,7 +306,7 @@ class Simulation {
                 let piLen = this.pions.length;
                 for (let i = piLen - 1; i >= 0; i--) {
                     const pn = this.pions[i];
-                    pn.update(PHYSICS_DT, this.particles, _pool, _root);
+                    pn.update(PHYSICS_DT, _lensParticles, _pool, _root);
                     if (!pn.alive) {
                         this.pions[i] = this.pions[--piLen];
                     } else if (pn.lifetime > PION_LIFETIME) {

@@ -17,6 +17,19 @@ import { TORUS, KLEIN, RP2, minImage, wrapPosition } from './topology.js';
 const _disintMiOut = { x: 0, y: 0 };
 
 /**
+ * Rejection-sample a scalar dipole emission angle.
+ * Power ∝ cos²(φ − accelAngle): two lobes along ±acceleration axis.
+ */
+function _scalarDipoleSample(accelAngle) {
+    for (let tries = 0; tries < MAX_REJECTION_SAMPLES; tries++) {
+        const phi = Math.random() * TWO_PI;
+        const cosTheta = Math.cos(phi - accelAngle);
+        if (Math.random() <= cosTheta * cosTheta) return phi;
+    }
+    return accelAngle + (Math.random() < 0.5 ? PI : 0);
+}
+
+/**
  * Rejection-sample a quadrupole emission angle.
  * Power ∝ (Axx·cos2φ + Axy·sin2φ)² where Axx, Axy are the relevant
  * d³ tensor components. Peak amplitude = sqrt(Axx²+Axy²).
@@ -801,11 +814,12 @@ export default class Physics {
                     // Scalar charge Q = g·m (Yukawa couples ∝ m), so Q²a² = g²m²(F/m)² = g²F²
                     const dE = YUKAWA_G2 / 3 * fYukSq * dtSub;
                     p._yukawaRadAccum += dE;
-                    if (p._yukawaRadAccum >= MIN_MASS && pions.length < MAX_PIONS) {
-                        const pionMass = this.yukawaMu;
+                    const pionMass = this.yukawaMu;
+                    if (p._yukawaRadAccum >= pionMass + MIN_MASS && pions.length < MAX_PIONS) {
                         const ke = p._yukawaRadAccum - pionMass;
                         if (ke > 0) {
-                            const angle = Math.atan2(p.forceYukawa.y, p.forceYukawa.x);
+                            // Scalar dipole: cos²θ — rejection-sample from two lobes along ±acceleration
+                            const angle = _scalarDipoleSample(Math.atan2(p.forceYukawa.y, p.forceYukawa.x));
                             const speed = Math.sqrt(ke * (ke + 2 * pionMass)) / (ke + pionMass);
                             const gamma = 1 / Math.sqrt(1 - speed * speed);
                             const wx = gamma * speed * Math.cos(angle);
