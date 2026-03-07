@@ -1,6 +1,6 @@
 import Particle from './particle.js';
 import { angwToAngVel } from './relativity.js';
-import { DEFAULT_SPEED_SCALE } from './config.js';
+import { DEFAULT_SPEED_SCALE, COL_NAMES, BOUND_NAMES, TOPO_NAMES, colFromString, boundFromString, topoFromString } from './config.js';
 
 // Maps physics flag names to UI toggle element IDs (same order as presets.js TOGGLE_ORDER)
 const TOGGLE_SYNC = [
@@ -70,9 +70,9 @@ export function saveState(sim) {
         })),
         toggles: {},
         settings: {
-            collision: sim.collisionMode,
-            boundary: sim.boundaryMode,
-            topology: sim.topology,
+            collision: COL_NAMES[sim.collisionMode],
+            boundary: BOUND_NAMES[sim.boundaryMode],
+            topology: TOPO_NAMES[sim.topology],
             speed: sim.speedScale,
             friction: sim.physics.bounceFriction,
         },
@@ -117,10 +117,10 @@ export function loadState(state, sim) {
     if (sim.axionField) sim.axionField.reset();
 
     if (state.settings) {
-        const col = state.settings.collision || 'pass';
-        sim.collisionMode = col === 'repel' ? 'bounce' : col;
-        sim.boundaryMode = state.settings.boundary || 'despawn';
-        sim.topology = state.settings.topology || 'torus';
+        const col = state.settings.collision === 'repel' ? 'bounce' : (state.settings.collision || 'pass');
+        sim.collisionMode = colFromString(col);
+        sim.boundaryMode = boundFromString(state.settings.boundary);
+        sim.topology = topoFromString(state.settings.topology);
         sim.speedScale = state.settings.speed ?? DEFAULT_SPEED_SCALE;
         if (state.settings.friction != null) ph.bounceFriction = state.settings.friction;
     }

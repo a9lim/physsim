@@ -1,7 +1,7 @@
 // ─── Phase Space Plot ───
 // r vs v_r relative to the most massive body; 512-sample ring buffer.
-import { TWO_PI, PHASE_BUFFER_LEN } from './config.js';
-import { TORUS, minImage } from './topology.js';
+import { TWO_PI, PHASE_BUFFER_LEN, TORUS } from './config.js';
+import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 

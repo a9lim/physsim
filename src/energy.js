@@ -3,7 +3,6 @@
 
 import { INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ } from './config.js';
 import { minImage } from './topology.js';
-import { bcFromString } from './scalar-field.js';
 
 const _miOut = { x: 0, y: 0 };
 
@@ -142,7 +141,7 @@ export function computeEnergies(particles, physics, sim) {
     // Particle-field interaction energy
     let pfiEnergy = 0;
     if (sim) {
-        const bcMode = sim.boundaryMode ? bcFromString(sim.boundaryMode) : 0;
+        const bcMode = sim.boundaryMode || 0;
         const topoConst = physics._topologyConst || 0;
 
         if (sim.higgsField && physics.higgsEnabled) {

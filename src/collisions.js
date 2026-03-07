@@ -1,9 +1,9 @@
 // ─── Collision Detection & Resolution ───
 // Quadtree-accelerated overlap detection with merge resolution.
 
-import { INERTIA_K } from './config.js';
+import { INERTIA_K, COL_MERGE, TORUS } from './config.js';
 import { angwToAngVel } from './relativity.js';
-import { TORUS, minImage, wrapPosition } from './topology.js';
+import { minImage, wrapPosition } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 
@@ -45,7 +45,7 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
 
             if (dist < minDist) {
                 // Annihilation: matter + antimatter -> energy
-                if (p1.antimatter !== real2.antimatter && mode === 'merge') {
+                if (p1.antimatter !== real2.antimatter && mode === COL_MERGE) {
                     const annihilated = Math.min(p1.mass, real2.mass);
                     const cx = p1.pos.x + dx * 0.5;
                     const cy = p1.pos.y + dy * 0.5;
@@ -66,7 +66,7 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
                     if (origM2 > 0) real2.baseMass *= real2.mass / origM2;
                     p1.updateColor();
                     real2.updateColor();
-                } else if (mode === 'merge') {
+                } else if (mode === COL_MERGE) {
                     // Compute KE before merge for field excitation energy (relativistic)
                     const keBefore = _particleKE(p1) + _particleKE(real2);
                     const p2miX = p1.pos.x + dx, p2miY = p1.pos.y + dy;
@@ -87,7 +87,7 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
     }
 
     const removed = [];
-    if (mode === 'merge') {
+    if (mode === COL_MERGE) {
         let write = 0;
         for (let read = 0; read < particles.length; read++) {
             if (particles[read].mass !== 0) {

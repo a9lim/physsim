@@ -28,7 +28,7 @@ src/
   forces.js              514 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
   presets.js             688 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   reference.js           690 lines  REFERENCE object: physics reference content (KaTeX math)
-  scalar-field.js        391 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
+  scalar-field.js        381 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
   higgs-field.js         259 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
   axion-field.js         261 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, PQ pseudoscalar coupling, EM + Yukawa modulation
   quadtree.js            274 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard
@@ -40,11 +40,11 @@ src/
   potential.js           170 lines  computePE(), treePE(), pairPE() (7 PE terms)
   energy.js              177 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin, field energies
   stats-display.js       131 lines  StatsDisplay: energy/momentum/drift DOM updates (x100 display scale)
-  config.js              134 lines  Named constants, spawnOffset(), kerrNewmanRadius() helpers, pion/field excitation constants
+  config.js              153 lines  Named constants, mode enums (COL_*/BOUND_*/TORUS/KLEIN/RP2), spawnOffset(), kerrNewmanRadius() helpers
   particle.js            132 lines  Particle: pos, vel, w, angw, baseMass, antimatter, cached magMoment/angMomentum, 11 force Vec2s, axMod, _yukawaRadAccum, history, creationTime/deathTime/_deathMass/_deathAngVel
   phase-plot.js          117 lines  PhasePlot: r vs v_r sidebar canvas (512-sample ring buffer)
   collisions.js          141 lines  handleCollisions(), resolveMerge(), antimatter annihilation, baseMass conservation, relativistic merge KE tracking, returns removed particles
-  topology.js            112 lines  TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
+  topology.js            105 lines  minImage(), wrapPosition() (constants moved to config.js)
   vec2.js                 61 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist, static sub
   boson-utils.js          58 lines  treeDeflectBoson(): shared BH tree walk for gravitational lensing of photons and pions
   massless-boson.js       45 lines  MasslessBoson: pos, vel, energy, lifetime, type ('em'/'grav'), gravitational lensing via boson-utils
@@ -73,8 +73,8 @@ heatmap.js    <- config, getDelayedState, topology
 effective-potential.js <- config, topology
 phase-plot.js  <- config, topology
 scalar-field.js <- config, topology
-higgs-field.js  <- config, ScalarField + bcFromString
-axion-field.js  <- config, ScalarField + bcFromString
+higgs-field.js  <- config, ScalarField
+axion-field.js  <- config, ScalarField
 ```
 
 ## Physics Engine
@@ -190,7 +190,7 @@ Shared PQS (cubic B-spline, order 3) grid infrastructure for Higgs and Axion. 4x
 
 Key methods: `_nb()` (boundary-aware neighbor), `_depositPQS()` (topology-aware deposition), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()` (central differences, interior fast path + border path), `interpolate()`, `gradient()` (PQS-interpolates pre-computed grid gradients), `_fieldEnergy(domainW, domainH, potentialFn)` (shared KE+gradient+potential grid integration), `draw()`, `depositExcitation()` (Gaussian wave packet into `fieldDot`).
 
-`bcFromString()` converts boundary mode string to integer (BC_DESPAWN=0 / BC_BOUNCE=1 / BC_LOOP=2).
+Boundary mode integers (BOUND_DESPAWN=0 / BOUND_BOUNCE=1 / BOUND_LOOP=2) defined in config.js, passed directly from integrator.
 
 Field arrays are `field`/`fieldDot` (not `phi`/`phiDot` or `a`/`aDot`). Grid size: SCALAR_GRID = 64. Field clamp: SCALAR_FIELD_MAX = 2.
 
@@ -362,7 +362,7 @@ Canvas uses y-down coordinates. The 2D cross product `rx*vy - ry*vx` gives posit
 
 ## Topology
 
-When boundary = "loop": Torus (both axes normal), Klein (y-wrap mirrors x, negates w.x/angw), RP^2 (both axes glide reflections, 4 min-image candidates). `minImage()` zero-alloc via `out` parameter. `sim.topology` string -> `physics._topologyConst` integer (TORUS=0/KLEIN=1/RP2=2).
+When boundary = "loop": Torus (both axes normal), Klein (y-wrap mirrors x, negates w.x/angw), RP^2 (both axes glide reflections, 4 min-image candidates). `minImage()` zero-alloc via `out` parameter. `sim.topology` is an integer constant (TORUS=0/KLEIN=1/RP2=2) from config.js; UI converts from string via `topoFromString()`.
 
 ## Barnes-Hut
 

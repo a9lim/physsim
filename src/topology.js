@@ -1,9 +1,7 @@
 // ─── Topology Module ───
 // Minimum-image separation and boundary wrapping for T^2, Klein bottle, and RP^2.
 
-export const TORUS = 0;
-export const KLEIN = 1;
-export const RP2   = 2;
+import { TORUS, KLEIN, RP2 } from './config.js';
 
 const _c = { x: 0, y: 0 };
 

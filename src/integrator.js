@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
 import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
@@ -11,7 +11,7 @@ import { angwToAngVel } from './relativity.js';
 import { resetForces, computeAllForces, compute1PNPairwise } from './forces.js';
 import { handleCollisions } from './collisions.js';
 import { computePE } from './potential.js';
-import { TORUS, KLEIN, RP2, minImage, wrapPosition } from './topology.js';
+import { minImage, wrapPosition } from './topology.js';
 
 // Reused by disintegration to avoid per-call allocation
 const _disintMiOut = { x: 0, y: 0 };
@@ -438,8 +438,8 @@ export default class Physics {
 
         this.domainW = width;
         this.domainH = height;
-        this.periodic = (boundaryMode === 'loop');
-        this._topologyConst = topology === 'klein' ? KLEIN : topology === 'rp2' ? RP2 : TORUS;
+        this.periodic = (boundaryMode === BOUND_LOOP);
+        this._topologyConst = topology;
 
         let n = particles.length;
         const relOn = this.relativityEnabled;
@@ -470,8 +470,8 @@ export default class Physics {
             if (this.axionEnabled && this.sim && this.sim.axionField) {
                 this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled, boundaryMode, this._topologyConst);
             }
-            if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, initRoot);
-            if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
+            if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, initRoot);
+            if (boundaryMode === BOUND_BOUNCE) this._applyBoundaryForces(particles, width, height, offX, offY);
             this._forcesInit = true;
         }
 
@@ -613,7 +613,7 @@ export default class Physics {
             }
 
             // Frame-dragging torque + tidal locking + contact friction torque (fused)
-            if ((hasGM && relOn) || hasGrav || collisionMode === 'bounce') {
+            if ((hasGM && relOn) || hasGrav || collisionMode === COL_BOUNCE) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     let torque = 0;
@@ -957,7 +957,7 @@ export default class Physics {
             lastRoot = root;
 
             // Step 6: Collisions (bounce uses force-based Hertz repulsion; only merge goes here)
-            if (collisionMode === 'merge') {
+            if (collisionMode === COL_MERGE) {
                 const { annihilations, merges, removed } = handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled, this.periodic, this.domainW, this.domainH, this._topologyConst);
                 n = particles.length;
                 // Retire removed particles for signal delay fade-out
@@ -1070,8 +1070,8 @@ export default class Physics {
             if (this.axionEnabled && this.sim && this.sim.axionField) {
                 this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled, boundaryMode, this._topologyConst);
             }
-            if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, root);
-            if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
+            if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, root);
+            if (boundaryMode === BOUND_BOUNCE) this._applyBoundaryForces(particles, width, height, offX, offY);
         }
 
         // Record signal delay history (strided: ~60 snapshots/sec at 100× speed)
@@ -1334,15 +1334,15 @@ export default class Physics {
             const left = offX, top = offY;
             const right = offX + width, bottom = offY + height;
 
-            if (boundaryMode === 'despawn') {
+            if (boundaryMode === BOUND_DESPAWN) {
                 if (p.pos.x < left - DESPAWN_MARGIN || p.pos.x > right + DESPAWN_MARGIN ||
                     p.pos.y < top - DESPAWN_MARGIN || p.pos.y > bottom + DESPAWN_MARGIN) {
                     this._retireParticle(p);
                     continue;
                 }
-            } else if (boundaryMode === 'loop') {
+            } else if (boundaryMode === BOUND_LOOP) {
                 wrapPosition(p, this._topologyConst, width, height);
-            } else if (boundaryMode === 'bounce') {
+            } else if (boundaryMode === BOUND_BOUNCE) {
                 // Safety clamp: Hertz wall forces handle repulsion during substeps,
                 // but clamp position to prevent deep penetration at extreme speeds
                 if (p.pos.x < left) p.pos.x = left;

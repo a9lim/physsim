@@ -2,9 +2,9 @@
 // Pairwise and Barnes-Hut force accumulation. Separates E-like (position-dependent)
 // from B-like (velocity-dependent) forces for the Boris integrator.
 
-import { BH_THETA, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_COUPLING, EPSILON } from './config.js';
+import { BH_THETA, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_COUPLING, EPSILON, TORUS } from './config.js';
 import { getDelayedState } from './signal-delay.js';
-import { TORUS, minImage } from './topology.js';
+import { minImage } from './topology.js';
 
 // Reused by minImage() to avoid per-call allocation
 const _miOut = { x: 0, y: 0 };

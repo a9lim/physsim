@@ -1,7 +1,7 @@
 // ─── UI Setup ───
 // Wires all panel controls, toggles, presets, shortcuts, and info tips to the sim.
 import { loadPreset, PRESETS, PRESET_ORDER } from './presets.js';
-import { PHYSICS_DT, WORLD_SCALE } from './config.js';
+import { PHYSICS_DT, WORLD_SCALE, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, colFromString, boundFromString, topoFromString } from './config.js';
 import { REFERENCE } from './reference.js';
 
 const HINT_FADE_DELAY = 5000;
@@ -92,7 +92,7 @@ export function setupUI(sim) {
     const frictionGroup = document.getElementById('friction-group');
 
     const updateFrictionVisibility = () => {
-        frictionGroup.style.display = (sim.collisionMode === 'bounce' || sim.boundaryMode === 'bounce') ? '' : 'none';
+        frictionGroup.style.display = (sim.collisionMode === COL_BOUNCE || sim.boundaryMode === BOUND_BOUNCE) ? '' : 'none';
     };
 
     const bindToggleGroup = (id, attr, setter) => {
@@ -107,15 +107,15 @@ export function setupUI(sim) {
     };
 
     bindToggleGroup('collision-toggles', 'collision', (v) => {
-        sim.collisionMode = v;
+        sim.collisionMode = colFromString(v);
         updateFrictionVisibility();
     });
     bindToggleGroup('boundary-toggles', 'boundary', (v) => {
-        sim.boundaryMode = v;
+        sim.boundaryMode = boundFromString(v);
         document.getElementById('topology-group').style.display = v === 'loop' ? '' : 'none';
         updateFrictionVisibility();
     });
-    bindToggleGroup('topology-toggles', 'topology', (v) => { sim.topology = v; });
+    bindToggleGroup('topology-toggles', 'topology', (v) => { sim.topology = topoFromString(v); });
 
     // ─── Physics toggles ───
     const toggleDefs = [
@@ -184,7 +184,7 @@ export function setupUI(sim) {
         const bhOn = tEl['blackhole-toggle'].checked;
         const disintOn = tEl['disintegration-toggle'].checked;
         if (bhOn || disintOn) {
-            sim.collisionMode = 'merge';
+            sim.collisionMode = COL_MERGE;
             collisionToggles.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
             collisionToggles.querySelector('[data-collision="merge"]').classList.add('active');
             collisionToggles.classList.add('ctrl-disabled');
@@ -193,7 +193,7 @@ export function setupUI(sim) {
         }
         // 3. Expansion locks boundary to despawn
         if (tEl['expansion-toggle'].checked) {
-            sim.boundaryMode = 'despawn';
+            sim.boundaryMode = BOUND_DESPAWN;
             boundaryToggles.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
             boundaryToggles.querySelector('[data-boundary="despawn"]').classList.add('active');
             boundaryToggles.classList.add('ctrl-disabled');
