@@ -280,12 +280,15 @@ export default class Physics {
         }
     }
 
-    /** Sync per-particle axMod: interpolate from axion field or default to 1. */
+    /** Sync per-particle axMod/yukMod: interpolate from axion field or default to 1. */
     _syncAxionField(particles, width, height) {
         if (this.axionEnabled && this.sim && this.sim.axionField) {
-            this.sim.axionField.interpolateAxMod(particles, width, height);
+            this.sim.axionField.interpolateAxMod(particles, width, height, this.coulombEnabled, this.yukawaEnabled);
         } else {
-            for (let i = 0, n = particles.length; i < n; i++) particles[i].axMod = 1;
+            for (let i = 0, n = particles.length; i < n; i++) {
+                particles[i].axMod = 1;
+                particles[i].yukMod = 1;
+            }
         }
     }
 
@@ -307,7 +310,7 @@ export default class Physics {
                     const vt = p.vel.y + p.angVel * r;
                     const Ft = -friction * Fn * Math.max(-1, Math.min(1, vt * 10));
                     p.force.y += Ft;
-                    p._tidalTorque += r * Ft;
+                    p._contactTorque += r * Ft;
                 }
             }
             // Right wall
@@ -320,7 +323,7 @@ export default class Physics {
                     const vt = -p.vel.y - p.angVel * r;
                     const Ft = -friction * Fn * Math.max(-1, Math.min(1, vt * 10));
                     p.force.y -= Ft;
-                    p._tidalTorque -= r * Ft;
+                    p._contactTorque -= r * Ft;
                 }
             }
             // Top wall
@@ -333,7 +336,7 @@ export default class Physics {
                     const vt = -p.vel.x + p.angVel * r;
                     const Ft = -friction * Fn * Math.max(-1, Math.min(1, vt * 10));
                     p.force.x -= Ft;
-                    p._tidalTorque += r * Ft;
+                    p._contactTorque += r * Ft;
                 }
             }
             // Bottom wall
@@ -346,7 +349,7 @@ export default class Physics {
                     const vt = p.vel.x - p.angVel * r;
                     const Ft = -friction * Fn * Math.max(-1, Math.min(1, vt * 10));
                     p.force.x += Ft;
-                    p._tidalTorque -= r * Ft;
+                    p._contactTorque -= r * Ft;
                 }
             }
         }
@@ -410,8 +413,8 @@ export default class Physics {
             p2.force.x -= tx * Ft;
             p2.force.y -= ty * Ft;
             // Torque: r × F_t (accumulated for the torque step)
-            p1._tidalTorque += p1.radius * Ft;
-            p2._tidalTorque -= p2.radius * Ft;
+            p1._contactTorque += p1.radius * Ft;
+            p2._contactTorque -= p2.radius * Ft;
         }
     }
 
@@ -453,7 +456,7 @@ export default class Physics {
                 this.sim.higgsField.applyForces(particles, width, height);
             }
             if (this.axionEnabled && this.sim && this.sim.axionField) {
-                this.sim.axionField.applyForces(particles, width, height);
+                this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled);
             }
             if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, initRoot);
             if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
@@ -597,13 +600,14 @@ export default class Physics {
                 }
             }
 
-            // Frame-dragging torque + tidal locking + bounce contact torque (fused)
+            // Frame-dragging torque + tidal locking + contact friction torque (fused)
             if ((hasGM && relOn) || hasGrav || collisionMode === 'bounce') {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     let torque = 0;
                     if (hasGM && relOn) torque += p._frameDragTorque;
                     if (hasGrav) torque += p._tidalTorque;
+                    torque += p._contactTorque;
                     if (torque === 0) continue;
                     const I = INERTIA_K * p.mass * p.radiusSq;
                     p.angw += torque * dtSub / I;
@@ -914,9 +918,9 @@ export default class Physics {
                 this.sim.higgsField.modulateMasses(particles, width, height, this.blackHoleEnabled);
             }
 
-            // Axion field evolution (axMod interpolation deferred to step 7)
+            // Axion field evolution (axMod/yukMod interpolation deferred to step 7)
             if (this.axionEnabled && this.sim && this.sim.axionField) {
-                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height);
+                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.coulombEnabled, this.yukawaEnabled);
             }
 
             // Step 5: Rebuild quadtree at new positions
@@ -1028,7 +1032,7 @@ export default class Physics {
                 this.sim.higgsField.applyForces(particles, width, height);
             }
             if (this.axionEnabled && this.sim && this.sim.axionField) {
-                this.sim.axionField.applyForces(particles, width, height);
+                this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled);
             }
             if (collisionMode === 'bounce') this._applyRepulsion(particles, this.pool, root);
             if (boundaryMode === 'bounce') this._applyBoundaryForces(particles, width, height, offX, offY);
@@ -1236,6 +1240,7 @@ export default class Physics {
                 }
                 if (fdEnabled && p._frameDragTorque) p.torqueFrameDrag = p._frameDragTorque;
                 if (tidEnabled && p._tidalTorque) p.torqueTidal = p._tidalTorque;
+                if (p._contactTorque) p.torqueContact = p._contactTorque;
                 if (radEnabled) {
                     p.forceRadiation.x = p._radDisplayX;
                     p.forceRadiation.y = p._radDisplayY;

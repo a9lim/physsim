@@ -32,10 +32,12 @@ export default class Particle {
         this.forceExternal = new Vec2(0, 0);
         this.forceHiggs = new Vec2(0, 0);
         this.forceAxion = new Vec2(0, 0);
-        this.axMod = 1; // local EM coupling modulation from axion field
+        this.axMod = 1; // local EM coupling modulation from axion field (scalar aF²)
+        this.yukMod = 1; // local Yukawa coupling modulation from axion field (pseudoscalar PQ)
         this.torqueSpinOrbit = 0;
         this.torqueFrameDrag = 0;
         this.torqueTidal = 0;
+        this.torqueContact = 0;
         this._f1pnOld = { x: 0, y: 0 };
 
         this.mass = mass;
@@ -56,6 +58,7 @@ export default class Particle {
         this.dBgzdy = 0;
         this._tidalTorque = 0;
         this._frameDragTorque = 0;
+        this._contactTorque = 0;
 
         // Radiation accumulators (used by integrator)
         this._radAccum = 0;

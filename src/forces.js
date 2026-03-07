@@ -29,6 +29,7 @@ export function resetForces(particles) {
         p.torqueSpinOrbit = 0;
         p.torqueFrameDrag = 0;
         p.torqueTidal = 0;
+        p.torqueContact = 0;
         p.Bz = 0;
         p.Bgz = 0;
         p.dBzdx = 0;
@@ -37,6 +38,7 @@ export function resetForces(particles) {
         p.dBgzdy = 0;
         p._frameDragTorque = 0;
         p._tidalTorque = 0;
+        p._contactTorque = 0;
     }
 }
 
@@ -275,14 +277,15 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const mu = toggles.yukawaMu;
         const r = 1 / invR;
         const expMuR = Math.exp(-mu * r);
+        const ym = p.yukMod; // PQ modulation (flips for antimatter when axion active)
         // F = g² · exp(-μr) · (1/r² + μ/r) · r̂  (attractive, like gravity)
-        const fDir = YUKAWA_COUPLING * p.mass * sMass * expMuR * (invRSq + mu * invR) * invR;
+        const fDir = YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * (invRSq + mu * invR) * invR;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceYukawa.x += rx * fDir;
         p.forceYukawa.y += ry * fDir;
         // Analytical jerk for radiation reaction (jBase * term1 == fDir)
-        const jRadial = -(3 * invRSq + 2 * mu * invR + mu * mu) * rDotVr * YUKAWA_COUPLING * p.mass * sMass * expMuR * invRSq * invR;
+        const jRadial = -(3 * invRSq + 2 * mu * invR + mu * mu) * rDotVr * YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invRSq * invR;
         p.jerk.x += vrx * fDir + rx * jRadial;
         p.jerk.y += vry * fDir + ry * jRadial;
 
@@ -296,7 +299,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
             const nDotV2 = nx * svx + ny * svy;
             const v1DotV2 = pvx * svx + pvy * svy;
             const alpha = 1 + mu * r;
-            const beta = 0.5 * YUKAWA_COUPLING * p.mass * sMass * expMuR * invRSq;
+            const beta = 0.5 * YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invRSq;
             const radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1) * nDotV1 * nDotV2);
             const fx = beta * (radial * nx + alpha * (nDotV2 * pvx + nDotV1 * svx));
             const fy = beta * (radial * ny + alpha * (nDotV2 * pvy + nDotV1 * svy));
@@ -389,7 +392,7 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
                 p.force1PN.y += ry * fDir;
             }
 
-            // Yukawa scalar Breit correction
+            // Yukawa scalar Breit correction (with PQ modulation)
             if (yukawaEnabled) {
                 const mu = yukawaMu;
                 const expMuR = Math.exp(-mu * r);
@@ -397,7 +400,7 @@ export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, 
                 const nDotV2 = nx * svx + ny * svy;
                 const v1DotV2 = pvx * svx + pvy * svy;
                 const alpha = 1 + mu * r;
-                const beta = 0.5 * YUKAWA_COUPLING * pMass * o.mass * expMuR * invRSq;
+                const beta = 0.5 * YUKAWA_COUPLING * p.yukMod * pMass * o.mass * expMuR * invRSq;
                 const radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1) * nDotV1 * nDotV2);
                 p.force1PN.x += beta * (radial * nx + alpha * (nDotV2 * pvx + nDotV1 * svx));
                 p.force1PN.y += beta * (radial * ny + alpha * (nDotV2 * pvy + nDotV1 * svy));

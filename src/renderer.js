@@ -15,6 +15,7 @@ const _forceCompColors = {
     torqueSO:    _PAL.extended.purple,
     torqueFD:    _PAL.extended.rose,
     torqueTidal: _PAL.extended.red,
+    torqueContact: _PAL.extended.brown,
     yukawa:      _PAL.extended.green,
     external:    _PAL.extended.brown,
     higgs:       _PAL.extended.lime,
@@ -378,13 +379,14 @@ export default class Renderer {
 
     drawTotalTorqueArc(ctx, particles, invZoom, isLight) {
         const color = isLight ? _PAL.accent : _PAL.accentLight;
-        this._drawTorqueArc(ctx, particles, invZoom, color, 2.5, (p) => p.torqueSpinOrbit + p.torqueFrameDrag + p.torqueTidal);
+        this._drawTorqueArc(ctx, particles, invZoom, color, 3, (p) => p.torqueSpinOrbit + p.torqueFrameDrag + p.torqueTidal + p.torqueContact);
     }
 
     drawTorqueArcs(ctx, particles, invZoom, isLight) {
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSO, 2, (p) => p.torqueSpinOrbit);
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueFD, 1.5, (p) => p.torqueFrameDrag);
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueTidal, 1, (p) => p.torqueTidal);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSO, 2.5, (p) => p.torqueSpinOrbit);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueFD, 2, (p) => p.torqueFrameDrag);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueTidal, 1.5, (p) => p.torqueTidal);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueContact, 1, (p) => p.torqueContact);
     }
 
     _drawTorqueArc(ctx, particles, invZoom, color, offset, getValue) {
