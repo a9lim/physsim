@@ -104,8 +104,18 @@ body {
 .tog-onepn        { --tog-color: var(--ext-orange); }
 .tog-blackhole    { --tog-color: var(--text); }
 .tog-yukawa       { --tog-color: var(--ext-green); }
-.tog-axion        { --tog-color: var(--ext-blue); }
-.tog-higgs        { --tog-color: var(--ext-magenta); }
+.tog-axion        { --tog-color: var(--ext-indigo); }
+.tog-higgs        { --tog-color: var(--ext-lime); }
+
+/* ═══════════════════════════════════════════════
+   Themed Slider Thumbs
+   ═══════════════════════════════════════════════ */
+#yukawa-sliders input[type=range]::-webkit-slider-thumb { background: var(--ext-green); }
+#yukawa-sliders input[type=range]::-moz-range-thumb     { background: var(--ext-green); }
+#axion-sliders  input[type=range]::-webkit-slider-thumb  { background: var(--ext-indigo); }
+#axion-sliders  input[type=range]::-moz-range-thumb      { background: var(--ext-indigo); }
+#higgs-sliders  input[type=range]::-webkit-slider-thumb  { background: var(--ext-lime); }
+#higgs-sliders  input[type=range]::-moz-range-thumb      { background: var(--ext-lime); }
 
 /* ═══════════════════════════════════════════════
    Particle Tooltip & Selection
