@@ -961,25 +961,22 @@ export default class Physics {
                         this.sim.emitPhotonBurst(ann.x, ann.y, ann.energy, 0, -1);
                     }
                 }
-                // Field excitations from merge collisions (Higgs/Axion boson emission)
-                if (merges.length > 0 && this.sim) {
+                // Field excitations from merges and annihilations (Higgs/Axion boson emission)
+                const excitations = merges.length > 0 || annihilations.length > 0;
+                if (excitations && this.sim) {
                     const hasHiggs = this.higgsEnabled && this.sim.higgsField;
                     const hasAxion = this.axionEnabled && this.sim.axionField;
-                    if (hasHiggs && hasAxion) {
+                    if (hasHiggs || hasAxion) {
                         const g2H = HIGGS_COUPLING * HIGGS_COUPLING;
                         const g2A = AXION_COUPLING * AXION_COUPLING;
-                        const invTotal = 1 / (g2H + g2A);
-                        const fracH = g2H * invTotal;
-                        const fracA = g2A * invTotal;
-                        for (const m of merges) {
-                            this.sim.higgsField.depositExcitation(m.x, m.y, m.energy * fracH, width, height);
-                            this.sim.axionField.depositExcitation(m.x, m.y, m.energy * fracA, width, height);
-                        }
-                    } else {
-                        for (const m of merges) {
-                            if (hasHiggs) this.sim.higgsField.depositExcitation(m.x, m.y, m.energy, width, height);
-                            if (hasAxion) this.sim.axionField.depositExcitation(m.x, m.y, m.energy, width, height);
-                        }
+                        const fracH = (hasHiggs && hasAxion) ? g2H / (g2H + g2A) : 1;
+                        const fracA = (hasHiggs && hasAxion) ? g2A / (g2H + g2A) : 1;
+                        const deposit = (x, y, energy) => {
+                            if (hasHiggs) this.sim.higgsField.depositExcitation(x, y, energy * fracH, width, height);
+                            if (hasAxion) this.sim.axionField.depositExcitation(x, y, energy * fracA, width, height);
+                        };
+                        for (const m of merges) deposit(m.x, m.y, m.energy);
+                        for (const a of annihilations) deposit(a.x, a.y, a.energy);
                     }
                 }
             }
