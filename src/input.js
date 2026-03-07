@@ -151,7 +151,7 @@ export default class InputHandler {
     _deleteParticlesAt(pos) {
         const kept = [];
         for (const p of this.sim.particles) {
-            if (p.pos.dist(pos) > p.radius) {
+            if (p.antimatter || p.pos.dist(pos) > p.radius) {
                 kept.push(p);
             } else {
                 this.sim.physics._retireParticle(p);
@@ -167,7 +167,7 @@ export default class InputHandler {
         if (e.button === 2) {
             const pos = this._getPosNew(e.clientX, e.clientY);
             const hit = this.findParticleAt(pos);
-            if (hit) {
+            if (hit && !hit.antimatter) {
                 this._deleteParticlesAt(pos);
                 return;
             }
