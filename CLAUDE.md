@@ -18,32 +18,32 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 
 ```
 main.js                  417 lines  Simulation class, emitPhotonBurst(), fixed-timestep loop, save/load, pair production, pion loop, deadParticles cleanup, window.sim
-index.html               511 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders, antimatter button
-styles.css               245 lines  Project-specific CSS overrides, toggle/slider theme colors
+index.html               485 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders, antimatter button
+styles.css               269 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                 18 lines  Project color tokens (particle hues, spin ring colors)
 src/
-  integrator.js         1382 lines  Physics class: Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields, _retireParticle
+  integrator.js         1463 lines  Physics class: Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields, _retireParticle
   ui.js                  527 lines  setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
-  renderer.js            528 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
+  renderer.js            530 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
   forces.js              514 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
-  presets.js             694 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
+  presets.js             693 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   reference.js           688 lines  REFERENCE object: physics reference content (KaTeX math)
-  scalar-field.js        392 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
-  higgs-field.js         209 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
-  axion-field.js         217 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, PQ pseudoscalar coupling, EM + Yukawa modulation
+  scalar-field.js        391 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
+  higgs-field.js         259 lines  HiggsField extends ScalarField: Mexican hat potential, thermal phase transitions, mass modulation
+  axion-field.js         261 lines  AxionField extends ScalarField: quadratic potential, scalar aF^2 coupling, PQ pseudoscalar coupling, EM + Yukawa modulation
   quadtree.js            274 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard
-  input.js               270 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
-  signal-delay.js        255 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
+  input.js               236 lines  InputHandler: mouse/touch, Place/Shoot/Orbit modes, hover tooltip
+  signal-delay.js        257 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
   heatmap.js             248 lines  Heatmap: 64x64 potential field overlay, mode selector, signal-delayed positions, dead particle contributions, force-toggle-aware
-  effective-potential.js 203 lines  EffectivePotentialPlot: V_eff(r) sidebar canvas, auto-scaling
+  effective-potential.js 204 lines  EffectivePotentialPlot: V_eff(r) sidebar canvas, auto-scaling
   save-load.js           205 lines  saveState(), loadState(), downloadState(), uploadState(), quickSave/Load(), baseMass persistence
-  potential.js           163 lines  computePE(), treePE(), pairPE() (7 PE terms)
-  energy.js              160 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin, field energies
+  potential.js           170 lines  computePE(), treePE(), pairPE() (7 PE terms)
+  energy.js              177 lines  computeEnergies(): KE, spin KE, momentum, angular momentum, Darwin, field energies
   stats-display.js       131 lines  StatsDisplay: energy/momentum/drift DOM updates (x100 display scale)
   config.js              131 lines  Named constants, spawnOffset(), kerrNewmanRadius() helpers, pion/field excitation constants
-  particle.js            128 lines  Particle: pos, vel, w, angw, baseMass, antimatter, cached magMoment/angMomentum, 11 force Vec2s, axMod, _yukawaRadAccum, history, creationTime/deathTime/_deathMass/_deathAngVel
+  particle.js            132 lines  Particle: pos, vel, w, angw, baseMass, antimatter, cached magMoment/angMomentum, 11 force Vec2s, axMod, _yukawaRadAccum, history, creationTime/deathTime/_deathMass/_deathAngVel
   phase-plot.js          117 lines  PhasePlot: r vs v_r sidebar canvas (512-sample ring buffer)
-  collisions.js          138 lines  handleCollisions(), resolveMerge(), antimatter annihilation, baseMass conservation, relativistic merge KE tracking, returns removed particles
+  collisions.js          141 lines  handleCollisions(), resolveMerge(), antimatter annihilation, baseMass conservation, relativistic merge KE tracking, returns removed particles
   topology.js            112 lines  TORUS/KLEIN/RP2 constants, minImage(), wrapPosition()
   vec2.js                 61 lines  Vec2 class: set, clone, add, sub, scale, mag, magSq, normalize, dist, static sub
   boson-utils.js          58 lines  treeDeflectBoson(): shared BH tree walk for gravitational lensing of photons and pions

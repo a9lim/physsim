@@ -50,15 +50,7 @@ export default class StatsDisplay {
         this.dom.potentialE.textContent = fmt(e.pe);
         this.dom.totalE.textContent = fmt(total);
         this.dom.energyDrift.textContent = fmtDrift(eDrift);
-        this.dom.fieldE.textContent = fmt(e.fieldEnergy);
-        if (this.dom.higgsFieldE) {
-            this.dom.higgsFieldE.textContent = fmt(e.higgsFieldEnergy);
-            this.dom.higgsFieldE.closest('.stat-row').hidden = e.higgsFieldEnergy === 0;
-        }
-        if (this.dom.axionFieldE) {
-            this.dom.axionFieldE.textContent = fmt(e.axionFieldEnergy);
-            this.dom.axionFieldE.closest('.stat-row').hidden = e.axionFieldEnergy === 0;
-        }
+        this.dom.fieldE.textContent = fmt(e.fieldEnergy + e.higgsFieldEnergy + e.axionFieldEnergy);
         this.dom.radiatedE.textContent = fmt(sim.totalRadiated);
         this.dom.momentum.textContent = fmt(pMag);
         this.dom.particleMom.textContent = fmt(Math.sqrt(e.px * e.px + e.py * e.py));

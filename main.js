@@ -79,8 +79,6 @@ class Simulation {
             totalE: document.getElementById('totalE'),
             energyDrift: document.getElementById('energyDrift'),
             fieldE: document.getElementById('fieldE'),
-            higgsFieldE: document.getElementById('higgsFieldE'),
-            axionFieldE: document.getElementById('axionFieldE'),
             radiatedE: document.getElementById('radiatedE'),
             momentum: document.getElementById('momentum'),
             particleMom: document.getElementById('particleMom'),
