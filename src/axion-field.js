@@ -125,7 +125,7 @@ export default class AxionField extends ScalarField {
         }
     }
 
-    /** Apply gradient force: F = -g·q² * grad(a) where g = AXION_COUPLING.
+    /** Apply gradient force: F = +g·q² * grad(a) where g = AXION_COUPLING.
      *  PQS gradient weights (derivative of cubic B-spline) give C¹ continuous forces.
      */
     applyForces(particles, domainW, domainH) {
@@ -144,8 +144,8 @@ export default class AxionField extends ScalarField {
             const grad = this.gradient(p.pos.x, p.pos.y, invCellW, invCellH);
             if (!grad) continue;
 
-            const forceX = -AXION_COUPLING * qSq * grad.x;
-            const forceY = -AXION_COUPLING * qSq * grad.y;
+            const forceX = AXION_COUPLING * qSq * grad.x;
+            const forceY = AXION_COUPLING * qSq * grad.y;
 
             p.force.x += forceX;
             p.force.y += forceY;

@@ -197,7 +197,7 @@ Field arrays are `field`/`fieldDot` (not `phi`/`phiDot` or `a`/`aDot`). Grid siz
 Independent toggle. Mexican hat potential `V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4`. VEV=1; free parameter is m_H (slider 0.01-0.25, default 0.05). With VEV=1: `lambda = mu^2 = m_H^2/2`.
 
 - **Mass generation**: `m_eff = baseMass * |phi(x)|`. At VEV, m_eff = baseMass. Symmetric phase (phi->0): effectively massless (floored at EPSILON).
-- **Gradient force**: `F = -g * baseMass * grad(phi)` where g = HIGGS_COUPLING = 0.05. Into `forceHiggs`.
+- **Gradient force**: `F = +g * baseMass * grad(phi)` where g = HIGGS_COUPLING = 0.05. Into `forceHiggs`.
 - **Field equation**: `d^2 phi/dt^2 = laplacian(phi) + mu^2_eff * phi - mu^2 * phi^3 + source/cellArea - 2*m_H * d(phi)/dt`. Symplectic Euler. Source: `g * baseMass` via PQS.
 - **Phase transitions**: `mu^2_eff = mu^2 - KE_local` (thermalK=1). When local KE > mu^2, field relaxes to phi=0.
 - **Boundary**: Despawn -> Dirichlet (phi=1). Bounce -> Neumann. Loop -> periodic (topology-aware).
@@ -212,7 +212,7 @@ Requires Coulomb. Quadratic potential `V(a) = 1/2 m_a^2 a^2`. No symmetry breaki
 
 - **Source**: Charged particles deposit `g * q^2` (g = AXION_COUPLING = 0.05). Neutral particles don't interact.
 - **EM modulation**: `alpha_eff(x) = alpha * (1 + g*a(x))`. Per-particle `p.axMod` interpolated from local field. Clamped >= 0 to prevent EM force sign reversal. Used in `pairForce()` and `pairPE()`.
-- **Gradient force**: `F = -g * q^2 * grad(a)`. Into `forceAxion`.
+- **Gradient force**: `F = +g * q^2 * grad(a)`. Into `forceAxion`.
 - **Field equation**: `d^2 a/dt^2 = laplacian(a) - m_a^2 * a - g*m_a * d(a)/dt + source/cellArea`. Damping: zeta = g/2, Q = 1/g, so g*Q = 1 (resonant buildup matches coupling strength).
 - **Boundary**: Same as Higgs via `ScalarField._nb()`, but Dirichlet uses a=0 (not a=1).
 - **Energy**: delegates to `_fieldEnergy()` with quadratic potential `V(a) = 1/2 m_a^2 a^2`. No offset needed.

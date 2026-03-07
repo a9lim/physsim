@@ -145,7 +145,7 @@ export default class HiggsField extends ScalarField {
         }
     }
 
-    /** Apply gradient force: F = -g·baseMass * grad(phi) where g = HIGGS_COUPLING.
+    /** Apply gradient force: F = +g·baseMass * grad(phi) where g = HIGGS_COUPLING.
      *  PQS gradient weights (derivative of cubic B-spline) give C¹ continuous forces.
      */
     applyForces(particles, domainW, domainH) {
@@ -163,8 +163,8 @@ export default class HiggsField extends ScalarField {
             const grad = this.gradient(p.pos.x, p.pos.y, invCellW, invCellH);
             if (!grad) continue;
 
-            const forceX = -HIGGS_COUPLING * p.baseMass * grad.x;
-            const forceY = -HIGGS_COUPLING * p.baseMass * grad.y;
+            const forceX = HIGGS_COUPLING * p.baseMass * grad.x;
+            const forceY = HIGGS_COUPLING * p.baseMass * grad.y;
 
             p.force.x += forceX;
             p.force.y += forceY;
