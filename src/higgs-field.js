@@ -4,7 +4,7 @@
 // m_H is the free parameter (slider 0.25-1, default 0.5)
 // Extends ScalarField for shared PQS infrastructure.
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, EPSILON, kerrNewmanRadius } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, EPSILON, kerrNewmanRadius } from './config.js';
 import ScalarField, { bcFromString } from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -151,10 +151,10 @@ export default class HiggsField extends ScalarField {
             if (p.baseMass < EPSILON) continue;
 
             const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
-            const newMass = Math.max(p.baseMass * Math.abs(phiLocal), EPSILON);
+            const newMass = Math.max(p.baseMass * Math.abs(phiLocal), HIGGS_MASS_FLOOR * p.baseMass);
             if (newMass !== newMass) continue; // NaN guard
 
-            // Fix 3 (S7): conserve momentum by adjusting proper velocity
+            // Conserve momentum by adjusting proper velocity
             const massRatio = p.mass / newMass;
             p.w.x *= massRatio;
             p.w.y *= massRatio;

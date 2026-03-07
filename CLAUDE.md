@@ -196,7 +196,7 @@ Field arrays are `field`/`fieldDot` (not `phi`/`phiDot` or `a`/`aDot`). Grid siz
 
 Independent toggle. Mexican hat potential `V(phi) = -1/2 mu^2 phi^2 + 1/4 lambda phi^4`. VEV=1; free parameter is m_H (slider 0.25-1.00, default 0.50). With VEV=1: `lambda = mu^2 = m_H^2/2`.
 
-- **Mass generation**: `m_eff = baseMass * |phi(x)|`. At VEV, m_eff = baseMass. Symmetric phase (phi->0): effectively massless (floored at EPSILON).
+- **Mass generation**: `m_eff = baseMass * max(|phi(x)|, HIGGS_MASS_FLOOR)`. At VEV, m_eff = baseMass. Symmetric phase (phi→0): floored at 5% baseMass (HIGGS_MASS_FLOOR=0.05), capping gradient-force acceleration at 20× and preventing thermal-depletion runaway.
 - **Gradient force**: `F = +g * baseMass * sign(phi) * grad(phi)` where g = HIGGS_COUPLING = 1. Into `forceHiggs`. The `sign(phi)` ensures consistency with mass generation `m = baseMass * |phi|`.
 - **Field equation**: `d^2 phi/dt^2 = laplacian(phi) + mu^2_eff * phi - mu^2 * phi^3 + source/cellArea - 2*m_H * d(phi)/dt`. Störmer-Verlet (KDK, O(dt²)). Source: `g * baseMass` via PQS.
 - **Phase transitions**: `mu^2_eff = mu^2 - KE_local` (thermalK=1). When local KE > mu^2, field relaxes to phi=0.
