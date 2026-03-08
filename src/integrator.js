@@ -57,6 +57,8 @@ export default class Physics {
         this.pool = new QuadTreePool(QUADTREE_CAPACITY);
 
         this.gravityEnabled = true;
+        this.bosonGravEnabled = false;
+        this.fieldGravEnabled = false;
         this.coulombEnabled = true;
         this.magneticEnabled = true;
         this.gravitomagEnabled = true;
@@ -477,15 +479,15 @@ export default class Physics {
             if (this.axionEnabled && this.sim && this.sim.axionField) {
                 this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled, boundaryMode, this._topologyConst);
             }
-            if (this.gravityEnabled) {
-                if (this.higgsEnabled && this.sim && this.sim.higgsField) {
+            if (this.fieldGravEnabled && this.sim) {
+                if (this.higgsEnabled && this.sim.higgsField) {
                     this.sim.higgsField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
                 }
-                if (this.axionEnabled && this.sim && this.sim.axionField) {
+                if (this.axionEnabled && this.sim.axionField) {
                     this.sim.axionField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
                 }
-                if (this.sim) computeBosonGravity(particles, this.sim.photons, this.sim.pions, toggles.softeningSq);
             }
+            if (this.bosonGravEnabled && this.sim) computeBosonGravity(particles, this.sim.photons, this.sim.pions, toggles.softeningSq);
             if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, initRoot);
             if (boundaryMode === BOUND_BOUNCE) this._applyBoundaryForces(particles, width, height, offX, offY);
             this._forcesInit = true;
@@ -969,13 +971,13 @@ export default class Physics {
 
             // Higgs field evolution + mass modulation
             if (this.higgsEnabled && this.sim && this.sim.higgsField) {
-                this.sim.higgsField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.relativityEnabled, this.gravityEnabled, toggles.softeningSq);
+                this.sim.higgsField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.relativityEnabled, this.fieldGravEnabled, toggles.softeningSq);
                 this.sim.higgsField.modulateMasses(particles, width, height, this.blackHoleEnabled, boundaryMode, this._topologyConst);
             }
 
             // Axion field evolution (axMod/yukMod interpolation deferred to step 7)
             if (this.axionEnabled && this.sim && this.sim.axionField) {
-                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.coulombEnabled, this.yukawaEnabled, this.gravityEnabled, toggles.softeningSq);
+                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.coulombEnabled, this.yukawaEnabled, this.fieldGravEnabled, toggles.softeningSq);
             }
 
             // Step 5: Rebuild quadtree at new positions
@@ -1113,15 +1115,15 @@ export default class Physics {
             if (this.axionEnabled && this.sim && this.sim.axionField) {
                 this.sim.axionField.applyForces(particles, width, height, this.coulombEnabled, this.yukawaEnabled, boundaryMode, this._topologyConst);
             }
-            if (this.gravityEnabled) {
-                if (this.higgsEnabled && this.sim && this.sim.higgsField) {
+            if (this.fieldGravEnabled && this.sim) {
+                if (this.higgsEnabled && this.sim.higgsField) {
                     this.sim.higgsField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
                 }
-                if (this.axionEnabled && this.sim && this.sim.axionField) {
+                if (this.axionEnabled && this.sim.axionField) {
                     this.sim.axionField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
                 }
-                if (this.sim) computeBosonGravity(particles, this.sim.photons, this.sim.pions, toggles.softeningSq);
             }
+            if (this.bosonGravEnabled && this.sim) computeBosonGravity(particles, this.sim.photons, this.sim.pions, toggles.softeningSq);
             if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, root);
             if (boundaryMode === BOUND_BOUNCE) this._applyBoundaryForces(particles, width, height, offX, offY);
         }
@@ -1330,7 +1332,7 @@ export default class Physics {
         // PE cached from the last substep's force computation (eliminates separate tree walk)
         this._lastRoot = lastRoot;
         this.potentialEnergy = getPEAccum();
-        if (this.gravityEnabled && this.sim) {
+        if (this.fieldGravEnabled && this.sim) {
             if (this.higgsEnabled && this.sim.higgsField)
                 this.potentialEnergy += this.sim.higgsField.gravPE(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
             if (this.axionEnabled && this.sim.axionField)
@@ -1418,7 +1420,7 @@ export default class Physics {
         this._syncToggles();
         const toggles = this._toggles;
         this.potentialEnergy = computePE(particles, toggles, this.pool, root >= 0 ? root : -1, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst, this.relativityEnabled, this.simTime);
-        if (this.gravityEnabled && this.sim) {
+        if (this.fieldGravEnabled && this.sim) {
             const dw = this.domainW, dh = this.domainH;
             if (this.higgsEnabled && this.sim.higgsField)
                 this.potentialEnergy += this.sim.higgsField.gravPE(particles, dw, dh, toggles.softeningSq, this.periodic, this._topologyConst);

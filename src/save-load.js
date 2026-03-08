@@ -5,6 +5,8 @@ import { DEFAULT_SPEED_SCALE, COL_NAMES, BOUND_NAMES, TOPO_NAMES, colFromString,
 // Maps physics flag names to UI toggle element IDs (same order as presets.js TOGGLE_ORDER)
 const TOGGLE_SYNC = [
     ['gravityEnabled', 'gravity-toggle'],
+    ['bosonGravEnabled', 'bosongrav-toggle'],
+    ['fieldGravEnabled', 'fieldgrav-toggle'],
     ['coulombEnabled', 'coulomb-toggle'],
     ['relativityEnabled', 'relativity-toggle'],
     ['gravitomagEnabled', 'gravitomag-toggle'],
@@ -79,7 +81,8 @@ export function saveState(sim) {
         camera: { x: sim.camera.x, y: sim.camera.y, zoom: sim.camera.zoom },
     };
     const ph = sim.physics;
-    for (const key of ['gravityEnabled', 'coulombEnabled', 'magneticEnabled',
+    for (const key of ['gravityEnabled', 'bosonGravEnabled', 'fieldGravEnabled',
+        'coulombEnabled', 'magneticEnabled',
         'gravitomagEnabled', 'relativityEnabled', 'barnesHutEnabled',
         'radiationEnabled', 'blackHoleEnabled', 'disintegrationEnabled',
         'spinOrbitEnabled',

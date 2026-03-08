@@ -182,9 +182,9 @@ PQS (cubic B-spline, order 3) grid on 64×64. 4×4 stencil per particle. C² int
 
 Key methods: `_nb()` (topology-aware neighbor, absolute coords), `_depositPQS()` (interior fast path + border fallback), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()`, `interpolate()`, `gradient()`, `interpolateWithGradient()` (fused, single stencil walk), `_fieldEnergy()`, `depositExcitation()`, `_computeEnergyDensity()`, `applyGravForces()`, `gravPE()`, `computeSelfGravity()`.
 
-**Particle-field gravity** (requires `gravityEnabled`): Field energy density gravitates particles via direct O(N×GRID²) summation. Each cell is a point mass `ρ·dA`. Only excitations gravitate (ρ=0 at vacuum). Subclasses override `_addPotentialEnergy()` for V(φ). Call `applyGravForces()` AFTER field `update()` (needs current `_gradX`/`_gradY`).
+**Particle-field gravity** (requires Gravity → Field Gravity toggle): Field energy density gravitates particles via direct O(N×GRID²) summation. Each cell is a point mass `ρ·dA`. Only excitations gravitate (ρ=0 at vacuum). Subclasses override `_addPotentialEnergy()` for V(φ). Call `applyGravForces()` AFTER field `update()` (needs current `_gradX`/`_gradY`). Default off.
 
-**Field self-gravity** (requires `gravityEnabled`): Weak-field GR correction to Klein-Gordon: `φ̈ = (1+4Φ)∇²φ + 2∇Φ·∇φ - (1+2Φ)V'(φ)`. Φ from field energy density via coarse 8×8 grid O(SG⁴≈4K), bilinear-upsampled to 64×64. Φ computed once per `update()`. `∇Φ·∇φ` cross-term uses stale `_gradX/_gradY` (error O(dt²Φ)).
+**Field self-gravity** (requires Gravity → Field Gravity toggle): Weak-field GR correction to Klein-Gordon: `φ̈ = (1+4Φ)∇²φ + 2∇Φ·∇φ - (1+2Φ)V'(φ)`. Φ from field energy density via coarse 8×8 grid O(SG⁴≈4K), bilinear-upsampled to 64×64. Φ computed once per `update()`. `∇Φ·∇φ` cross-term uses stale `_gradX/_gradY` (error O(dt²Φ)).
 
 Field arrays: `field`/`fieldDot` (not `phi`/`phiDot`). Field clamp: SCALAR_FIELD_MAX = 2.
 
@@ -222,7 +222,7 @@ Pion class in `pion.js`. Mass = `yukawaMu`. Proper velocity `w`: `vel = w/√(1+
 
 **Absorption**: Quadtree overlap query. Transfers momentum + charge. Self-absorption permanently blocked by `emitterId`.
 
-**Boson gravity** (requires Gravity): Boson→particle O(N×N_bosons) into `forceGravity`. Boson↔boson O(N_bosons²) mutual gravity with correct GR deflection factors (2 for photons, 1+v² for pions). Both use `BOSON_SOFTENING_SQ = 4`.
+**Boson gravity** (requires Gravity → Boson Gravity toggle): Particle→boson BH tree lensing, boson→particle O(N×N_bosons) into `forceGravity`, boson↔boson O(N_bosons²) mutual gravity with correct GR deflection factors (2 for photons, 1+v² for pions). All use `BOSON_SOFTENING_SQ = 4`. Default off.
 
 ## Field Excitations
 
@@ -321,12 +321,14 @@ Boundary "loop": Torus (TORUS=0), Klein bottle (KLEIN=1, y-wrap mirrors x), RP²
 Forces:                        Physics:
   Gravity                        Relativity          [signal delay auto-activates]
     -> Gravitomagnetic             -> 1PN             [requires Magnetic, GM, or Yukawa]
-    (+ tidal locking, always)      -> Black Hole      [+Gravity, locks collision to Merge]
-  Coulomb                        Spin-Orbit           [requires Magnetic or GM]
-    -> Magnetic                  Radiation             [requires Gravity, Coulomb, or Yukawa]
-  Yukawa               [independent]   Larmor + EM quad   [when Coulomb on]
-  Axion                [requires Coulomb or Yukawa]    GW quad [when Gravity on]
-    aF² channel (when Coulomb on)  Pion emission      [when Yukawa on]
+    -> Boson Gravity               -> Black Hole      [+Gravity, locks collision to Merge]
+    -> Field Gravity             Spin-Orbit           [requires Magnetic or GM]
+    (+ tidal locking, always)    Radiation             [requires Gravity, Coulomb, or Yukawa]
+  Coulomb                          Larmor + EM quad   [when Coulomb on]
+    -> Magnetic                    GW quad            [when Gravity on]
+  Yukawa               [independent]  Pion emission   [when Yukawa on]
+  Axion                [requires Coulomb or Yukawa]
+    aF² channel (when Coulomb on)
     PQ channel  (when Yukawa on)
   Higgs                [independent]
 Disintegration                   [requires Gravity, locks collision to Merge]
@@ -336,7 +338,7 @@ Expansion                        [independent, in Engine tab]
 
 Declarative `DEPS` array in `ui.js`, topological evaluation via `updateAllDeps()`.
 
-Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit, radiation. Defaults off: Yukawa, Axion, Higgs, Disintegration, Expansion, Barnes-Hut, Black Hole.
+Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit, radiation. Defaults off: Boson Gravity, Field Gravity, Yukawa, Axion, Higgs, Disintegration, Expansion, Barnes-Hut, Black Hole.
 
 ## UI
 

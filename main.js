@@ -289,10 +289,10 @@ class Simulation {
 
                 // Update photons, swap-and-pop dead ones, release to pool
                 // Gravitational lensing only when gravity is on
-                const _gravOn = this.physics.gravityEnabled;
-                const _pool = (_gravOn && this.physics.barnesHutEnabled) ? this.physics.pool : null;
+                const _bosonGrav = this.physics.bosonGravEnabled;
+                const _pool = (_bosonGrav && this.physics.barnesHutEnabled) ? this.physics.pool : null;
                 const _root = this.physics._lastRoot;
-                const _lensParticles = _gravOn ? this.particles : null;
+                const _lensParticles = _bosonGrav ? this.particles : null;
                 let pLen = this.photons.length;
                 for (let i = pLen - 1; i >= 0; i--) {
                     const ph = this.photons[i];
@@ -357,7 +357,7 @@ class Simulation {
                 this.pions.length = piLen;
 
                 // Mutual boson-boson gravitational interaction
-                if (_gravOn) applyBosonBosonGravity(this.photons, this.pions, PHYSICS_DT);
+                if (_bosonGrav) applyBosonBosonGravity(this.photons, this.pions, PHYSICS_DT);
 
                 const { fragments: toFragment, transfers: rocheTransfers } = this.physics.checkDisintegration(this.particles, this.physics._lastRoot);
                 // Handle Roche lobe overflow mass transfers
