@@ -1,5 +1,5 @@
 import Vec2 from './vec2.js';
-import { BOSON_SOFTENING_SQ, EPSILON } from './config.js';
+import { BOSON_SOFTENING_SQ, EPSILON, MAX_PHOTONS } from './config.js';
 import { treeDeflectBoson } from './boson-utils.js';
 
 // ─── Object Pool ───
@@ -44,9 +44,9 @@ export default class MasslessBoson {
         return new MasslessBoson(x, y, vx, vy, energy, emitterId);
     }
 
-    /** Return a dead boson to the pool for later reuse. */
+    /** Return a dead boson to the pool for later reuse. M9: Cap to avoid unbounded GC tracing. */
     static release(b) {
-        _pool[_poolSize++] = b;
+        if (_poolSize < MAX_PHOTONS) _pool[_poolSize++] = b;
     }
 
     /** Drain all pooled instances (call on simulation reset). */

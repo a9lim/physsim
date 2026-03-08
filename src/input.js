@@ -27,6 +27,9 @@ export default class InputHandler {
         this._lastPinchCenterX = 0;
         this._lastPinchCenterY = 0;
         this._rightButton = false;
+        // A8: Throttle findParticleAt — resolve in rAF instead of per-mousemove
+        this._hoverPending = false;
+        this._hoverE = null;
 
         this.setupListeners();
     }
@@ -153,7 +156,13 @@ export default class InputHandler {
 
     _deleteParticle(p) {
         this.sim.physics._retireParticle(p);
-        this.sim.particles = this.sim.particles.filter(q => q !== p);
+        // A9: swap-and-pop instead of filter (O(1) vs O(N), no allocation)
+        const arr = this.sim.particles;
+        const idx = arr.indexOf(p);
+        if (idx !== -1) {
+            arr[idx] = arr[arr.length - 1];
+            arr.pop();
+        }
         if (this.sim.selectedParticle === p) this.sim.selectedParticle = null;
         this.sim._dirty = true;
     }
@@ -190,17 +199,27 @@ export default class InputHandler {
 
         if (this.isDragging) this.sim._dirty = true;
 
-        const hit = this.findParticleAt(this.currentPos);
-        this.hoveredParticle = hit;
-        if (hit) {
-            const speed = Math.sqrt(hit.vel.x * hit.vel.x + hit.vel.y * hit.vel.y);
-            const spin = (hit.angVel * hit.radius).toFixed(3);
-            this.tooltip.textContent = `m=${hit.mass.toFixed(2)}  q=${hit.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
-            this.tooltip.style.left = (e.clientX + 14) + 'px';
-            this.tooltip.style.top = (e.clientY - 10) + 'px';
-            this.tooltip.hidden = false;
+        // A8: Defer hover search to rAF (120-240Hz mousemove → ~60Hz search)
+        if (!this._hoverPending) {
+            this._hoverPending = true;
+            this._hoverE = e;
+            requestAnimationFrame(() => {
+                this._hoverPending = false;
+                const ev = this._hoverE;
+                const hit = this.findParticleAt(this.currentPos);
+                this.hoveredParticle = hit;
+                if (hit) {
+                    const speed = Math.sqrt(hit.vel.x * hit.vel.x + hit.vel.y * hit.vel.y);
+                    const spin = (hit.angVel * hit.radius).toFixed(3);
+                    this.tooltip.textContent = `m=${hit.mass.toFixed(2)}  q=${hit.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
+                    this.tooltip.style.transform = `translate(${ev.clientX + 14}px,${ev.clientY - 10}px)`;
+                    this.tooltip.hidden = false;
+                } else {
+                    this.tooltip.hidden = true;
+                }
+            });
         } else {
-            this.tooltip.hidden = true;
+            this._hoverE = e; // Update to latest event for pending rAF
         }
     }
 

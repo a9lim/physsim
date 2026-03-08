@@ -109,41 +109,64 @@ export default class QuadTreePool {
     _subdivide(idx) {
         const x = this.bx[idx], y = this.by[idx];
         const hw = this.bw[idx] / 2, hh = this.bh[idx] / 2;
-        this.nw[idx] = this.alloc(x - hw, y - hh, hw, hh);
-        this.ne[idx] = this.alloc(x + hw, y - hh, hw, hh);
-        this.sw[idx] = this.alloc(x - hw, y + hh, hw, hh);
-        this.se[idx] = this.alloc(x + hw, y + hh, hw, hh);
+        // P8: Single capacity check before 4 allocations
+        if (this.count + 4 > this.maxNodes) this._grow();
+        const c = this.count;
+        // Inline alloc without per-call capacity check
+        this.count = c + 4;
+        const ids = [c, c + 1, c + 2, c + 3];
+        const xs = [x - hw, x + hw, x - hw, x + hw];
+        const ys = [y - hh, y - hh, y + hh, y + hh];
+        for (let k = 0; k < 4; k++) {
+            const id = ids[k];
+            this.bx[id] = xs[k]; this.by[id] = ys[k];
+            this.bw[id] = hw; this.bh[id] = hh;
+            this.totalMass[id] = 0; this.totalCharge[id] = 0;
+            this.totalMagneticMoment[id] = 0; this.totalAngularMomentum[id] = 0;
+            this.totalMomentumX[id] = 0; this.totalMomentumY[id] = 0;
+            this.comX[id] = xs[k]; this.comY[id] = ys[k];
+            this.nw[id] = NONE; this.ne[id] = NONE;
+            this.sw[id] = NONE; this.se[id] = NONE;
+            this.pointCount[id] = 0; this.divided[id] = 0;
+        }
+        this.nw[idx] = ids[0]; this.ne[idx] = ids[1];
+        this.sw[idx] = ids[2]; this.se[idx] = ids[3];
         this.divided[idx] = 1;
     }
 
-    insert(idx, particle, depth = 0) {
+    // P1: Direct quadrant child selection — 2 comparisons instead of up to 4 _contains checks
+    _childFor(idx, px, py) {
+        return py <= this.by[idx]
+            ? (px <= this.bx[idx] ? this.nw[idx] : this.ne[idx])
+            : (px <= this.bx[idx] ? this.sw[idx] : this.se[idx]);
+    }
+
+    // P7: Iterative insert — eliminates recursive stack frames (up to depth 48)
+    insert(idx, particle) {
         if (!this._contains(idx, particle.pos.x, particle.pos.y)) return false;
-        if (depth > 48) return true; // prevent stack overflow from coincident particles
-
         const cap = this.nodeCapacity;
-        if (this.pointCount[idx] < cap && !this.divided[idx]) {
-            this.points[idx * cap + this.pointCount[idx]] = particle;
-            this.pointCount[idx]++;
-            return true;
-        }
+        const px = particle.pos.x, py = particle.pos.y;
+        let depth = 0;
 
-        if (!this.divided[idx]) {
-            this._subdivide(idx);
-            const base = idx * cap;
-            for (let i = 0; i < this.pointCount[idx]; i++) {
-                const p = this.points[base + i];
-                this.insert(this.nw[idx], p, depth + 1) ||
-                    this.insert(this.ne[idx], p, depth + 1) ||
-                    this.insert(this.sw[idx], p, depth + 1) ||
-                    this.insert(this.se[idx], p, depth + 1);
+        while (depth <= 48) {
+            if (this.pointCount[idx] < cap && !this.divided[idx]) {
+                this.points[idx * cap + this.pointCount[idx]] = particle;
+                this.pointCount[idx]++;
+                return true;
             }
-            this.pointCount[idx] = 0;
+            if (!this.divided[idx]) {
+                this._subdivide(idx);
+                const base = idx * cap;
+                for (let i = 0; i < this.pointCount[idx]; i++) {
+                    const p = this.points[base + i];
+                    this.insert(this._childFor(idx, p.pos.x, p.pos.y), p);
+                }
+                this.pointCount[idx] = 0;
+            }
+            idx = this._childFor(idx, px, py);
+            depth++;
         }
-
-        return this.insert(this.nw[idx], particle, depth + 1) ||
-            this.insert(this.ne[idx], particle, depth + 1) ||
-            this.insert(this.sw[idx], particle, depth + 1) ||
-            this.insert(this.se[idx], particle, depth + 1);
+        return true; // depth guard: accept particle at max depth
     }
 
     calculateMassDistribution(rootIdx) {

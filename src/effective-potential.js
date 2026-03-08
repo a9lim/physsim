@@ -19,11 +19,24 @@ export default class EffectivePotentialPlot {
         this.currentR = 0;
         this.currentV = 0;
         this._valid = false;
+        // R11: Cached layout dimensions (avoids reflow from clientWidth reads)
+        this._cachedWidth = 180;
+        this._cachedDpr = devicePixelRatio || 1;
+        // R12: Dirty flag — skip 200-sample recomputation when key inputs unchanged
+        this._lastSelId = -1;
+        this._lastRefId = -1;
+        this._lastR10 = -1; // r rounded to 1 decimal
+        this._lastToggleKey = '';
+    }
+
+    /** R11: Call on resize to refresh cached dimensions. */
+    cacheSize() {
+        this._cachedWidth = this.canvas.clientWidth || 180;
+        this._cachedDpr = devicePixelRatio || 1;
     }
 
     update(particles, selectedParticle, physics) {
-        this._valid = false;
-        if (!this.enabled || !selectedParticle) return;
+        if (!this.enabled || !selectedParticle) { this._valid = false; return; }
 
         const sel = selectedParticle;
 
@@ -33,7 +46,10 @@ export default class EffectivePotentialPlot {
             if (p === sel) continue;
             if (p.mass > maxM) { maxM = p.mass; ref = p; }
         }
-        if (!ref) return;
+        if (!ref) { this._valid = false; return; }
+
+        // R12: Build toggle key and check if curve needs recomputation
+        const toggleKey = `${physics.gravityEnabled}${physics.coulombEnabled}${physics.magneticEnabled}${physics.gravitomagEnabled}${physics.yukawaEnabled}`;
 
         // Relative state (minimum-image for periodic boundaries)
         let dx, dy;
@@ -47,6 +63,20 @@ export default class EffectivePotentialPlot {
             dy = sel.pos.y - ref.pos.y;
         }
         const r = Math.sqrt(dx * dx + dy * dy) || 1;
+
+        // R12: Skip full curve recomputation when key inputs haven't changed
+        const r10 = Math.round(r * 10);
+        if (sel.id === this._lastSelId && ref.id === this._lastRefId &&
+            r10 === this._lastR10 && toggleKey === this._lastToggleKey && this._valid) {
+            // Only update marker position (cheap)
+            this.currentR = r;
+            return;
+        }
+        this._lastSelId = sel.id;
+        this._lastRefId = ref.id;
+        this._lastR10 = r10;
+        this._lastToggleKey = toggleKey;
+
         const dvx = sel.vel.x - ref.vel.x;
         const dvy = sel.vel.y - ref.vel.y;
 
@@ -122,8 +152,8 @@ export default class EffectivePotentialPlot {
     draw(isLight) {
         if (!this.enabled || !this._valid) return;
 
-        const dpr = devicePixelRatio || 1;
-        const ps = this.canvas.clientWidth || 180;
+        const dpr = this._cachedDpr;
+        const ps = this._cachedWidth;
         const pxW = Math.round(ps * dpr);
         const pxH = Math.round(ps * dpr);
         if (this.canvas.width !== pxW || this.canvas.height !== pxH) {

@@ -17,29 +17,33 @@ Serve from `a9lim.github.io/` -- shared files load via absolute paths. ES6 modul
 ## File Map
 
 ```
-main.js                  463 lines  Simulation class, fixed-timestep loop, pair production, pion loop, dirty-flag render, window.sim
-index.html               476 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders
+main.js                  494 lines  Simulation class, fixed-timestep loop, pair production, pion loop, dirty-flag render, window.sim
+index.html               478 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders
 styles.css               269 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                 18 lines  Project color tokens (extends shared-tokens.js)
 src/
   integrator.js         1538 lines  Physics: Boris substep loop, radiation, pion emission/absorption, field excitations,
                                      tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields
-  forces.js              766 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(), boson gravity,
-                                     PE accumulator (resetPEAccum/getPEAccum)
+  forces.js              824 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(), boson gravity,
+                                     PE accumulator (resetPEAccum/getPEAccum), inline torus minImage
   reference.js           714 lines  REFERENCE object: physics reference content (KaTeX math)
   presets.js             688 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
-  scalar-field.js        793 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C² gradients,
+  scalar-field.js        858 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C² gradients,
                                      field energy, excitations, particle-field gravity, self-gravity (8×8 coarse),
-                                     fused interpolateWithGradient(), self-gravity early exit
-  renderer.js            665 lines  Canvas 2D: particles, trails, spin rings, ergosphere, batched force arrows, photons, pions, fields
-  ui.js                  533 lines  setupUI(), declarative dependency graph, info tips, reference overlay, shortcuts, dirty flag
-  heatmap.js             309 lines  64x64 potential field overlay, signal-delayed positions, force-toggle-aware
+                                     fused interpolateWithGradient(), interior fast-path PQS, self-gravity early exit
+  renderer.js            729 lines  Canvas 2D: particles, trails, batched spin rings, ergosphere, batched force arrows,
+                                     photons (alpha-bucketed), pions (batched fill), fields, shadowBlur bucketing
+  ui.js                  544 lines  setupUI(), declarative dependency graph, info tips, reference overlay, shortcuts,
+                                     dirty flag, KaTeX render cache, lazy field init triggers
+  heatmap.js             315 lines  64x64 potential field overlay, signal-delayed positions, force-toggle-aware
   axion-field.js         299 lines  AxionField: quadratic potential, aF² EM coupling, PQ pseudoscalar coupling
   higgs-field.js         305 lines  HiggsField: Mexican hat potential, mass modulation, thermal phase transitions
-  quadtree.js            271 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard
+  quadtree.js            294 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard,
+                                     iterative insert, direct quadrant child selection
   signal-delay.js        260 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
-  input.js               257 lines  InputHandler: mouse/touch, left/right-click symmetry (matter/antimatter), dirty flag
-  effective-potential.js 214 lines  V_eff(r) sidebar canvas, auto-scaling, axMod/yukMod modulation
+  input.js               276 lines  InputHandler: mouse/touch, left/right-click symmetry (matter/antimatter), dirty flag,
+                                     rAF-throttled hover, swap-and-pop particle removal
+  effective-potential.js 244 lines  V_eff(r) sidebar canvas, auto-scaling, axMod/yukMod modulation, dirty-flag skip
   potential.js           211 lines  computePE(), treePE(), pairPE() (7 PE terms)
   save-load.js           205 lines  saveState(), loadState(), downloadState(), uploadState(), quickSave/Load()
   energy.js              191 lines  KE, spin KE, PE, field energy, momentum, angular momentum
@@ -48,8 +52,8 @@ src/
   collisions.js          152 lines  handleCollisions(), resolveMerge(), annihilation, relativistic merge KE
   particle.js            135 lines  Particle: pos, vel, w, angw, baseMass, 11 force Vec2s, signal delay history
   topology.js            131 lines  minImage(), wrapPosition() for Torus/Klein/RP²
-  phase-plot.js          128 lines  Phase space r-v_r plot (512-sample ring buffer)
-  stats-display.js       123 lines  Sidebar energy/momentum/drift readout (×100 display scale)
+  phase-plot.js          137 lines  Phase space r-v_r plot (512-sample ring buffer)
+  stats-display.js       138 lines  Sidebar energy/momentum/drift readout (×100 display scale), textContent change detection
   vec2.js                 61 lines  Vec2 class: set, clone, add, sub, scale, mag, normalize, dist
   boson-utils.js          60 lines  treeDeflectBoson(): shared BH tree walk for photon/pion lensing
   massless-boson.js       89 lines  MasslessBoson: pos, vel, energy, type ('em'/'grav'), BH tree lensing, object pool
@@ -344,9 +348,9 @@ Topbar: Home | "No-Hair" | Pause/Step/Reset/Save/Load | Theme | Panel toggle.
 
 ## Renderer
 
-Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16. Camera starts at zoom = WORLD_SCALE. Viewport culling: particles, photons, pions skip draw when outside camera bounds (`_vpLeft/Right/Top/Bottom`). Field overlays throttled to every FIELD_RENDER_INTERVAL (2) frames.
+Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16. Camera starts at zoom = WORLD_SCALE. Viewport culling: particles, photons, pions skip draw when outside camera bounds (`_vpLeft/Right/Top/Bottom`). Field overlays throttled to every FIELD_RENDER_INTERVAL (2) frames. Rendering batched aggressively: shadowBlur buckets, alpha buckets (photons), spin rings by sign, ergospheres+antimatter markers, pion fills.
 
-- **Particles**: r = ∛(mass) (BH: r₊), glow in dark. Neutral=slate. Charged: RGB lerp red(+)/blue(-), intensity=|q|/5.
+- **Particles**: r = ∛(mass) (BH: r₊), glow in dark (shadowBlur bucketed by tier). Neutral=slate. Charged: RGB lerp red(+)/blue(-), intensity=|q|/5.
 - **Trails**: circular Float32Array[256], wrap-detection for periodic boundaries
 - **Force vectors**: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green, external=brown, higgs=lime, axion=indigo
 - **Field overlays**: 64×64 offscreen, bilinear-upscaled. Higgs: purple(depleted)/lime(enhanced). Axion: indigo(+)/yellow(-).
@@ -368,7 +372,26 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16. Camera st
 - History recording counts `update()` calls, not substeps
 - `sim.clearBosons()` releases photons/pions to pools and truncates arrays — use on preset load, clear, save-load
 - PE accumulated inline in `pairForce()` via `_peAccum`; `potential.js` is fallback only (preset loads)
-- **Object pooling**: `MasslessBoson.acquire()`/`.release()` and `Pion.acquire()`/`.release()` recycle dead instances. Module-level pool arrays, `_reset()` mutates existing Vec2s (no allocation). All creation sites use `.acquire()`, all removal sites call `.release()` before swap-and-pop.
+- **Object pooling**: `MasslessBoson.acquire()`/`.release()` and `Pion.acquire()`/`.release()` recycle dead instances. Module-level pool arrays, `_reset()` mutates existing Vec2s (no allocation). Pool caps (64 each) prevent unbounded growth. All creation sites use `.acquire()`, all removal sites call `.release()` before swap-and-pop.
 - **Dirty flag**: `sim._dirty` skips entire render/stats path when paused with no interaction. Set by: physics update, camera, input, UI toggles, presets, theme, resize. `markDirty()` public method for external callers.
 - **Batched force arrows**: Renderer accumulates arrows into pre-allocated `Float32Array` buffers, one `stroke()`+`fill()` per color. O(forces) canvas calls instead of O(particles×forces).
+- **Batched spin rings**: Grouped by angular velocity sign, two passes (pos/neg) with one `stroke()`+`fill()` each. 4 canvas calls total instead of 9×N.
+- **Photon alpha buckets**: 4 alpha bands (bright/med/dim/faint) → 4 `stroke()` calls instead of per-photon style changes.
+- **shadowBlur bucketing**: Particles sorted into glow tiers, one `shadowBlur` set per tier instead of per-particle.
+- **Inline torus minImage**: `pairForce()`, `_accum1PN()`, `calculateForce()`, `_compute1PNTreeWalk()` inline the torus fast path to eliminate cross-module function call overhead in O(N²) loops. Klein/RP² still dispatch to `minImage()`.
+- **Yukawa cutoff**: `exp(-μr) < 0.002` ⟹ skip `Math.exp` when `μr > 6` in `pairForce()`.
+- **Aberration pre-multiply**: Signal-delay aberration factor `(1 - n̂·v)^{-3}` pre-multiplied into `invR3a`/`invR5a` once per pair, reused across gravity/Coulomb/dipole/Yukawa terms.
+- **Jerk guard**: Analytical jerk for Larmor radiation gated behind `radiationEnabled` flag — skips computation when radiation off.
+- **Precomputed per-frame flags**: `_needAxMod`, conditional photon renorm flag computed once in `computeAllForces()` before pair loop.
+- **Quadtree iterative insert**: Stack-based iterative insert replaces recursion. Direct quadrant child selection via `_childFor()` eliminates linear scan.
+- **Lazy field init**: Higgs/Axion fields are `null` until first toggle-on (`ensureHiggsField()`/`ensureAxionField()` in main.js). Avoids 64×64 grid allocation + per-frame update when fields unused.
+- **KaTeX render cache**: `ui.js` caches rendered KaTeX HTML by expression string, avoiding re-render on repeated info-tip opens.
+- **KaTeX CSS preload**: Non-render-blocking `<link rel="preload" as="style">` pattern with `onload` swap.
+- **V_eff dirty flag**: Hashes `(selId, refId, r_rounded, toggleKey)` to skip 200-sample curve recomputation when inputs unchanged.
+- **Interior fast-path PQS**: `interpolate()`, `gradient()`, `interpolateWithGradient()` skip `_nb()` dispatch when stencil fully inside grid bounds. `_depositPQS()` and `_computeLaplacian()` also have interior fast paths.
+- **Self-gravity early exit**: Skip O(SG⁴) coarse potential when field energy density below epsilon. `applyGravForces()` also exits early when field at vacuum (`hasEnergy` flag).
+- **rAF-throttled hover**: `InputHandler` throttles mousemove tooltip updates to animation frame rate.
+- **visibilitychange halt**: `main.js` pauses physics accumulator when tab hidden, preventing time spiral on refocus.
+- **Accumulator cap**: ACCUMULATOR_CAP = 2 frames max per drain (prevents spiral of death).
+- **textContent change detection**: `StatsDisplay` only writes DOM when value actually changed.
 - Display throttles: STATS_THROTTLE_MASK=7 (energy, 8th frame), SIDEBAR_THROTTLE_MASK=1 (phase/effpot/selected, 2nd frame), FIELD_RENDER_INTERVAL=2, HEATMAP_INTERVAL=4

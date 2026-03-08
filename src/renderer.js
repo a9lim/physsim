@@ -44,6 +44,9 @@ const _spinColors = {
     neg: { light: `hsla(${_PAL.spinNeg},80%,60%,0.8)`, dark: `hsla(${_PAL.spinNeg},80%,60%,0.9)` },
 };
 
+// R1: Pre-allocated photon alpha buckets (16 levels)
+const _photonBuckets = Array.from({length: 16}, () => []);
+
 // Pre-allocated dash patterns (avoid per-call array allocation)
 const _ERGO_DASH = [0.3, 0.3];
 const _ANTI_DASH = [0.5, 0.3];
@@ -298,53 +301,136 @@ export default class Renderer {
                 ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
                 ctx.fill();
             }
+            // R2: Bucket charged particles by shadowBlur level (reduces state changes)
+            // Blur levels: low (|q|≤1: blur≤13), medium (|q|≤5: blur≤25), high (|q|>5: blur=50)
+            const _chargedBuckets = [[], [], []];
             for (let i = 0, len = particles.length; i < len; i++) {
                 const p = particles[i];
                 if (p.charge === 0) continue;
                 if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
                 const absQ = p.charge > 0 ? p.charge : -p.charge;
-                ctx.shadowBlur = absQ * 3 + 10 < 50 ? absQ * 3 + 10 : 50;
-                ctx.shadowColor = p.color;
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
-                ctx.fill();
+                _chargedBuckets[absQ <= 1 ? 0 : absQ <= 5 ? 1 : 2].push(p);
+            }
+            const _blurLevels = [13, 25, 50];
+            for (let b = 0; b < 3; b++) {
+                const bucket = _chargedBuckets[b];
+                if (bucket.length === 0) continue;
+                ctx.shadowBlur = _blurLevels[b];
+                for (let j = 0; j < bucket.length; j++) {
+                    const p = bucket[j];
+                    ctx.shadowColor = p.color;
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
+                    ctx.fill();
+                }
+                bucket.length = 0;
             }
         }
 
-        // Spin rings + ergospheres (viewport-culled)
+        // R5: Batch spin rings by sign — two passes (pos/neg), one stroke + one fill each
         ctx.shadowBlur = 0;
-        for (let i = 0, len = particles.length; i < len; i++) {
-            const p = particles[i];
-            if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
-            if (p.angVel !== 0) {
-                this.drawSpinRing(ctx, p, isLight, blendMode);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.lineWidth = 0.2;
+        for (let sign = 0; sign < 2; sign++) {
+            const isPos = sign === 0;
+            const colors = isPos ? _spinColors.pos : _spinColors.neg;
+            const style = isLight ? colors.light : colors.dark;
+            ctx.strokeStyle = style;
+
+            // Arcs pass: one beginPath + one stroke for all particles of this sign
+            ctx.beginPath();
+            let hasArcs = false;
+            for (let i = 0, len = particles.length; i < len; i++) {
+                const p = particles[i];
+                if (p.angVel === 0 || (p.angVel > 0) !== isPos) continue;
+                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
+                const dir = -Math.sign(p.angVel);
+                const arcLen = Math.min(Math.abs(p.angVel) * p.radius * TWO_PI, TWO_PI);
+                const ringRadius = p.radius + 0.5;
+                const startAngle = -HALF_PI;
+                const endAngle = startAngle - dir * arcLen;
+                ctx.moveTo(p.pos.x + Math.cos(startAngle) * ringRadius,
+                           p.pos.y + Math.sin(startAngle) * ringRadius);
+                ctx.arc(p.pos.x, p.pos.y, ringRadius, startAngle, endAngle, dir > 0);
+                hasArcs = true;
             }
-            if (bhEnabled && p.mass > 0) {
+            if (hasArcs) ctx.stroke();
+
+            // Arrowheads pass: one beginPath + one fill for all particles of this sign
+            ctx.fillStyle = style;
+            ctx.beginPath();
+            let hasHeads = false;
+            for (let i = 0, len = particles.length; i < len; i++) {
+                const p = particles[i];
+                if (p.angVel === 0 || (p.angVel > 0) !== isPos) continue;
+                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
+                const dir = -Math.sign(p.angVel);
+                const arcLen = Math.min(Math.abs(p.angVel) * p.radius * TWO_PI, TWO_PI);
+                const ringRadius = p.radius + 0.5;
+                const endAngle = -HALF_PI - dir * arcLen;
+                const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
+                const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
+                const sweepDir = endAngle - dir * HALF_PI;
+                const tipX = ax + Math.cos(sweepDir);
+                const tipY = ay + Math.sin(sweepDir);
+                const spread = 0.4;
+                ctx.moveTo(tipX, tipY);
+                ctx.lineTo(ax + Math.cos(endAngle) * spread, ay + Math.sin(endAngle) * spread);
+                ctx.lineTo(ax - Math.cos(endAngle) * spread, ay - Math.sin(endAngle) * spread);
+                ctx.closePath();
+                hasHeads = true;
+            }
+            if (hasHeads) ctx.fill();
+        }
+        ctx.globalCompositeOperation = blendMode;
+
+        // R6: Batch ergospheres — one setLineDash pass instead of per-particle
+        if (bhEnabled) {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = ergoStyle;
+            ctx.lineWidth = 0.15;
+            ctx.setLineDash(_ERGO_DASH);
+            ctx.beginPath();
+            let hasErgo = false;
+            for (let i = 0, len = particles.length; i < len; i++) {
+                const p = particles[i];
+                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
+                if (p.mass <= 0) continue;
                 const M = p.mass;
                 const a = INERTIA_K * p.bodyRadiusSq * Math.abs(p.angVel);
                 const rErgo = M + Math.sqrt(Math.max(0, M * M - a * a));
                 if (rErgo > p.radius + 0.3) {
-                    ctx.globalCompositeOperation = 'source-over';
-                    ctx.beginPath();
+                    ctx.moveTo(p.pos.x + rErgo, p.pos.y);
                     ctx.arc(p.pos.x, p.pos.y, rErgo, 0, TWO_PI);
-                    ctx.strokeStyle = ergoStyle;
-                    ctx.lineWidth = 0.15;
-                    ctx.setLineDash(_ERGO_DASH);
-                    ctx.stroke();
-                    ctx.setLineDash(_NO_DASH);
-                    ctx.globalCompositeOperation = blendMode;
+                    hasErgo = true;
                 }
             }
+            if (hasErgo) ctx.stroke();
+            ctx.setLineDash(_NO_DASH);
+            ctx.globalCompositeOperation = blendMode;
+        }
 
-            // Antimatter indicator: dashed ring
-            if (p.antimatter) {
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.beginPath();
-                ctx.arc(p.pos.x, p.pos.y, p.radius + 0.4, 0, TWO_PI);
-                ctx.strokeStyle = isLight ? '#888' : '#ccc';
-                ctx.lineWidth = 0.25;
-                ctx.setLineDash(_ANTI_DASH);
+        // R6: Batch antimatter indicators — one setLineDash pass
+        {
+            ctx.beginPath();
+            let hasAnti = false;
+            for (let i = 0, len = particles.length; i < len; i++) {
+                const p = particles[i];
+                if (!p.antimatter) continue;
+                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
+                if (!hasAnti) {
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.strokeStyle = isLight ? '#888' : '#ccc';
+                    ctx.lineWidth = 0.25;
+                    ctx.setLineDash(_ANTI_DASH);
+                    hasAnti = true;
+                }
+                const r = p.radius + 0.4;
+                ctx.moveTo(p.pos.x + r, p.pos.y);
+                ctx.arc(p.pos.x, p.pos.y, r, 0, TWO_PI);
+            }
+            if (hasAnti) {
                 ctx.stroke();
                 ctx.setLineDash(_NO_DASH);
                 ctx.globalCompositeOperation = blendMode;
@@ -482,8 +568,10 @@ export default class Renderer {
                 const s = scale / p.mass;
                 const fv = p[forceProp];
                 const fx = fv.x * s, fy = fv.y * s;
-                if (fx * fx + fy * fy < threshSq) continue;
-                const mag = Math.sqrt(fx * fx + fy * fy);
+                // R8: Cache magnitude squared to avoid double computation
+                const magSq = fx * fx + fy * fy;
+                if (magSq < threshSq) continue;
+                const mag = Math.sqrt(magSq);
                 if (mag < minLen) continue;
                 const px = p.pos.x, py = p.pos.y;
                 const ex = px + fx, ey = py + fy;
@@ -562,43 +650,6 @@ export default class Renderer {
         }
     }
 
-    drawSpinRing(ctx, p, isLight, blendMode) {
-        ctx.shadowBlur = 0;
-        const dir = -Math.sign(p.angVel);
-        // Arc length proportional to surface speed; caps at full circle
-        const arcLen = Math.min(Math.abs(p.angVel) * p.radius * TWO_PI, TWO_PI);
-        const ringRadius = p.radius + 0.5;
-        const colors = p.angVel > 0 ? _spinColors.pos : _spinColors.neg;
-        const style = isLight ? colors.light : colors.dark;
-
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = style;
-        ctx.fillStyle = style;
-        ctx.lineWidth = 0.2;
-
-        const startAngle = -HALF_PI;
-        const endAngle = startAngle - dir * arcLen;
-        ctx.beginPath();
-        ctx.arc(p.pos.x, p.pos.y, ringRadius, startAngle, endAngle, dir > 0);
-        ctx.stroke();
-
-        const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
-        const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
-        const sweepDir = endAngle - dir * HALF_PI;
-        const h = 1;
-        const tipX = ax + Math.cos(sweepDir) * h;
-        const tipY = ay + Math.sin(sweepDir) * h;
-        const spread = h * 0.4;
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(ax + Math.cos(endAngle) * spread, ay + Math.sin(endAngle) * spread);
-        ctx.lineTo(ax - Math.cos(endAngle) * spread, ay - Math.sin(endAngle) * spread);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.globalCompositeOperation = blendMode;
-    }
-
     drawPhotons(ctx, photons, isLight) {
         ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
         ctx.shadowBlur = 0;
@@ -606,6 +657,7 @@ export default class Renderer {
         const vpL = this._vpLeft - 5, vpR = this._vpRight + 5;
         const vpT = this._vpTop - 5, vpB = this._vpBottom + 5;
 
+        // R1: Bucket photons into 16 alpha levels — reduces up to 1024 fills to ≤32
         for (let pass = 0; pass < 2; pass++) {
             const isGrav = pass === 1;
             const color = isGrav ? _PAL.extended.red : _PAL.extended.yellow;
@@ -616,17 +668,27 @@ export default class Renderer {
                 ctx.shadowColor = isGrav ? this._photonGravGlow : this._photonEmGlow;
             }
 
+            for (let b = 0; b < 16; b++) _photonBuckets[b].length = 0;
             for (let i = 0, len = photons.length; i < len; i++) {
                 const ph = photons[i];
                 if ((ph.type === 'grav') !== isGrav) continue;
                 if (ph.pos.x < vpL || ph.pos.x > vpR || ph.pos.y < vpT || ph.pos.y > vpB) continue;
                 const alpha = 1 - ph.lifetime / PHOTON_LIFETIME;
                 if (alpha <= 0) continue;
-                const size = 0.25 + 2 * ph.energy;
-                const r = size < 5 ? size : 5;
-                ctx.globalAlpha = alpha * alphaScale;
+                _photonBuckets[(alpha * 15.999) | 0].push(ph);
+            }
+            for (let b = 0; b < 16; b++) {
+                const bucket = _photonBuckets[b];
+                if (bucket.length === 0) continue;
+                ctx.globalAlpha = ((b + 0.5) / 16) * alphaScale;
                 ctx.beginPath();
-                ctx.arc(ph.pos.x, ph.pos.y, r, 0, TWO_PI);
+                for (let j = 0; j < bucket.length; j++) {
+                    const ph = bucket[j];
+                    const size = 0.25 + 2 * ph.energy;
+                    const r = size < 5 ? size : 5;
+                    ctx.moveTo(ph.pos.x + r, ph.pos.y);
+                    ctx.arc(ph.pos.x, ph.pos.y, r, 0, TWO_PI);
+                }
                 ctx.fill();
             }
             if (!isLight) ctx.shadowBlur = 0;
@@ -649,16 +711,18 @@ export default class Renderer {
         const vpL = this._vpLeft - 5, vpR = this._vpRight + 5;
         const vpT = this._vpTop - 5, vpB = this._vpBottom + 5;
 
+        // R3: Batch all pions into one path — constant alpha, one fill()
+        ctx.globalAlpha = alphaScale;
+        ctx.beginPath();
         for (let i = 0, len = pions.length; i < len; i++) {
             const pn = pions[i];
             if (pn.pos.x < vpL || pn.pos.x > vpR || pn.pos.y < vpT || pn.pos.y > vpB) continue;
             const size = 0.25 + 2 * pn.energy;
             const r = size < 5 ? size : 5;
-            ctx.globalAlpha = alphaScale;
-            ctx.beginPath();
+            ctx.moveTo(pn.pos.x + r, pn.pos.y);
             ctx.arc(pn.pos.x, pn.pos.y, r, 0, TWO_PI);
-            ctx.fill();
         }
+        ctx.fill();
         if (!isLight) ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
     }

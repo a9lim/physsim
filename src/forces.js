@@ -14,6 +14,11 @@ const _miOut = { x: 0, y: 0 };
 let _peAccum = 0;
 let _accumulatePE = true;
 
+// P10: Precomputed per-frame flags (set in computeAllForces)
+let _needAxMod = false;
+// P2: Yukawa cutoff squared — pairs beyond this skip Math.exp
+let _yukawaCutoffSq = Infinity;
+
 /** Reset PE accumulator (call before computeAllForces). */
 export function resetPEAccum() { _peAccum = 0; }
 
@@ -69,6 +74,11 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
         p.magMoment = MAG_MOMENT_K * p.charge * p.angVel * rSq;
         p.angMomentum = INERTIA_K * p.mass * p.angVel * rSq;
     }
+
+    // P10: Precompute axion modulation flag (constant per frame)
+    _needAxMod = (toggles.coulombEnabled || toggles.magneticEnabled) && toggles.axionEnabled;
+    // P2: Yukawa cutoff distance: exp(-mu*r) < 0.002 when mu*r > 6
+    _yukawaCutoffSq = toggles.yukawaEnabled ? (6 / toggles.yukawaMu) ** 2 : Infinity;
 
     const useSignalDelay = relativityEnabled;
 
@@ -149,8 +159,14 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
  * and their gradients are accumulated for the Boris rotation step.
  */
 export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, sAxMod = 1, sYukMod = 1, signalDelayed = false) {
+    // M3: Inline torus minImage — avoids cross-module call in O(N²) loop
     let rx, ry;
-    if (periodic) {
+    if (periodic && topology === TORUS) {
+        rx = sx - p.pos.x;
+        if (rx > halfDomW) rx -= domW; else if (rx < -halfDomW) rx += domW;
+        ry = sy - p.pos.y;
+        if (ry > halfDomH) ry -= domH; else if (ry < -halfDomH) ry += domH;
+    } else if (periodic) {
         minImage(p.pos.x, p.pos.y, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
         rx = _miOut.x; ry = _miOut.y;
     } else {
@@ -166,12 +182,15 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     // Liénard-Wiechert aberration factor (1 - n̂·v_source)^{-3}
     // n̂ = unit vector from source to observer = (-rx, -ry) / r
     // nDotV = (-rx*svx - ry*svy) * invR
+    // P4: Pre-multiply aberration into invR3/invR5 to avoid per-force-type * aberr
     let aberr = 1;
     if (signalDelayed) {
         const nDotV = -(rx * svx + ry * svy) * invR;
         const denom = Math.max(1 - nDotV, 0.01);
         aberr = Math.min(1 / (denom * denom * denom), 100);
     }
+    const invR3a = signalDelayed ? invR3 * aberr : invR3;
+    const invR5a = signalDelayed ? invR5 * aberr : invR5;
 
     // (v_s × r)_z — enters Biot-Savart-like field expressions
     const crossSV = svx * ry - svy * rx;
@@ -180,40 +199,46 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     const pMagMoment = p.magMoment;
     const pAngMomentum = p.angMomentum;
 
-    // Relative velocity (source - particle) for analytical jerk
-    const vrx = svx - p.vel.x, vry = svy - p.vel.y;
-    const rDotVr = rx * vrx + ry * vry;
+    // P3: Relative velocity only needed for radiation jerk
+    let vrx, vry, rDotVr;
+    if (toggles.radiationEnabled) {
+        vrx = svx - p.vel.x; vry = svy - p.vel.y;
+        rDotVr = rx * vrx + ry * vry;
+    }
 
     if (toggles.gravityEnabled) {
         const k = p.mass * sMass;
-        const fDir = k * invR3 * aberr;
+        const fDir = k * invR3a;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceGravity.x += rx * fDir;
         p.forceGravity.y += ry * fDir;
-        // Analytical jerk: k·[v_rel/r³ − 3·r·(r·v_rel)/r⁵]
-        const jRadial = -3 * k * rDotVr * invR5 * aberr;
-        p.jerk.x += vrx * fDir + rx * jRadial;
-        p.jerk.y += vry * fDir + ry * jRadial;
+        // P3: Analytical jerk only when radiation enabled
+        if (toggles.radiationEnabled) {
+            const jRadial = -3 * k * rDotVr * invR5a;
+            p.jerk.x += vrx * fDir + rx * jRadial;
+            p.jerk.y += vry * fDir + ry * jRadial;
+        }
         // PE: -m₁m₂/r
         if (_accumulatePE) _peAccum -= k * invR;
     }
 
-    // Deferred computation: axMod/yukMod geometric means only when needed
-    const needAxMod = (toggles.coulombEnabled || toggles.magneticEnabled) && toggles.axionEnabled;
-    const axModPair = needAxMod ? Math.sqrt(p.axMod * sAxMod) : 1;
+    // P10: Use precomputed axion modulation flag (set in computeAllForces)
+    const axModPair = _needAxMod ? Math.sqrt(p.axMod * sAxMod) : 1;
 
     if (toggles.coulombEnabled) {
         const k = -(p.charge * sCharge) * axModPair;
-        const fDir = k * invR3 * aberr;
+        const fDir = k * invR3a;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceCoulomb.x += rx * fDir;
         p.forceCoulomb.y += ry * fDir;
-        // Analytical jerk for Coulomb (same form, different coupling)
-        const jRadial = -3 * k * rDotVr * invR5 * aberr;
-        p.jerk.x += vrx * fDir + rx * jRadial;
-        p.jerk.y += vry * fDir + ry * jRadial;
+        // P3: Analytical jerk only when radiation enabled
+        if (toggles.radiationEnabled) {
+            const jRadial = -3 * k * rDotVr * invR5a;
+            p.jerk.x += vrx * fDir + rx * jRadial;
+            p.jerk.y += vry * fDir + ry * jRadial;
+        }
         // PE: +q₁q₂/r * axMod
         if (_accumulatePE) _peAccum += p.charge * sCharge * invR * axModPair;
     }
@@ -283,7 +308,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         // Axion modulation: geometric mean of observer and source α_eff
         const axMod = axModPair;
         // Dipole-dipole radial: F = +3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
-        const fDir = 3 * (pMagMoment * sMagMoment) * invR5 * axMod * aberr;
+        const fDir = 3 * (pMagMoment * sMagMoment) * invR5a * axMod;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceMagnetic.x += rx * fDir;
@@ -307,7 +332,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 
     if (toggles.gravitomagEnabled) {
         // GM dipole: F = +3L₁L₂/r⁴ (GEM sign flip: co-rotating masses attract)
-        const fDir = 3 * (pAngMomentum * sAngMomentum) * invR5 * aberr;
+        const fDir = 3 * (pAngMomentum * sAngMomentum) * invR5a;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceGravitomag.x += rx * fDir;
@@ -333,20 +358,24 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         p._frameDragTorque += torque;
     }
 
-    if (toggles.yukawaEnabled) {
+    // P2: Yukawa cutoff — skip Math.exp for distant pairs where force is negligible
+    if (toggles.yukawaEnabled && rawRSq < _yukawaCutoffSq) {
         const mu = toggles.yukawaMu;
         const r = 1 / invR;
         const expMuR = Math.exp(-mu * r);
         const yukModPair = Math.sqrt(p.yukMod * sYukMod);
         const ym = yukModPair;
-        const fDir = YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * (invRSq + mu * invR) * invR * aberr;
+        const fDir = YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * (invRSq + mu * invR) * (signalDelayed ? invR * aberr : invR);
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceYukawa.x += rx * fDir;
         p.forceYukawa.y += ry * fDir;
-        const jRadial = -(3 * invRSq + 3 * mu * invR + mu * mu) * rDotVr * YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invRSq * invR * aberr;
-        p.jerk.x += vrx * fDir + rx * jRadial;
-        p.jerk.y += vry * fDir + ry * jRadial;
+        // P3: Analytical jerk only when radiation enabled
+        if (toggles.radiationEnabled) {
+            const jRadial = -(3 * invRSq + 3 * mu * invR + mu * mu) * rDotVr * YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invRSq * (signalDelayed ? invR * aberr : invR);
+            p.jerk.x += vrx * fDir + rx * jRadial;
+            p.jerk.y += vry * fDir + ry * jRadial;
+        }
         // PE: -g²m₁m₂·exp(-μr)/r
         if (_accumulatePE) _peAccum -= YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invR;
 
@@ -391,8 +420,14 @@ function _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
                    sx, sy, svx, svy, sMass, sCharge, sYukMod,
                    softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology,
                    gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu) {
+    // M3: Inline torus minImage
     let rx, ry;
-    if (periodic) {
+    if (periodic && topology === TORUS) {
+        rx = sx - px;
+        if (rx > halfDomW) rx -= domW; else if (rx < -halfDomW) rx += domW;
+        ry = sy - py;
+        if (ry > halfDomH) ry -= domH; else if (ry < -halfDomH) ry += domH;
+    } else if (periodic) {
         minImage(px, py, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
         rx = _miOut.x; ry = _miOut.y;
     } else {
@@ -465,8 +500,14 @@ function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, dom
         const nodeIdx = _1pnStack[--stackTop];
         if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
+        // M3: Inline torus minImage for 1PN tree walk
         let dx, dy;
-        if (periodic) {
+        if (periodic && topology === TORUS) {
+            dx = pool.comX[nodeIdx] - px;
+            if (dx > halfDomW) dx -= domW; else if (dx < -halfDomW) dx += domW;
+            dy = pool.comY[nodeIdx] - py;
+            if (dy > halfDomH) dy -= domH; else if (dy < -halfDomH) dy += domH;
+        } else if (periodic) {
             minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
             dx = _miOut.x; dy = _miOut.y;
         } else {
@@ -574,8 +615,14 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
         const nodeIdx = _bhStack[--stackTop];
         if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
+        // M3: Inline torus minImage for BH tree walk
         let dx, dy;
-        if (periodic) {
+        if (periodic && topology === TORUS) {
+            dx = pool.comX[nodeIdx] - px;
+            if (dx > halfDomW) dx -= domW; else if (dx < -halfDomW) dx += domW;
+            dy = pool.comY[nodeIdx] - py;
+            if (dy > halfDomH) dy -= domH; else if (dy < -halfDomH) dy += domH;
+        } else if (periodic) {
             minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
             dx = _miOut.x; dy = _miOut.y;
         } else {
@@ -650,9 +697,10 @@ export function computeBosonGravity(particles, photons, pions, softeningSq) {
             const dx = ph.pos.x - p.pos.x;
             const dy = ph.pos.y - p.pos.y;
             const rSq = dx * dx + dy * dy + softeningSq;
-            const invR = 1 / Math.sqrt(rSq);
-            const invR3 = invR * invR * invR;
-            const f = pm * ph.energy * invR3;
+            // P12: invR * invRSq instead of invR * invR * invR
+            const invRSq = 1 / rSq;
+            const invR = Math.sqrt(invRSq);
+            const f = pm * ph.energy * invR * invRSq;
             p.force.x += dx * f;
             p.force.y += dy * f;
             p.forceGravity.x += dx * f;
@@ -665,9 +713,10 @@ export function computeBosonGravity(particles, photons, pions, softeningSq) {
             const dx = pn.pos.x - p.pos.x;
             const dy = pn.pos.y - p.pos.y;
             const rSq = dx * dx + dy * dy + softeningSq;
-            const invR = 1 / Math.sqrt(rSq);
-            const invR3 = invR * invR * invR;
-            const f = pm * pn.gravMass * invR3;
+            // P12: invR * invRSq instead of invR * invR * invR
+            const invRSq = 1 / rSq;
+            const invR = Math.sqrt(invRSq);
+            const f = pm * pn.gravMass * invR * invRSq;
             p.force.x += dx * f;
             p.force.y += dy * f;
             p.forceGravity.x += dx * f;
@@ -695,8 +744,10 @@ export function applyBosonBosonGravity(photons, pions, dt) {
             const dx = b.pos.x - a.pos.x;
             const dy = b.pos.y - a.pos.y;
             const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            const invR = 1 / Math.sqrt(rSq);
-            const invR3dt = dt * invR * invR * invR;
+            // P12: invR * invRSq instead of invR³
+            const invRSq = 1 / rSq;
+            const invR = Math.sqrt(invRSq);
+            const invR3dt = dt * invR * invRSq;
             // Both on null geodesics: gravMass = 2·energy includes GR factor
             const fA = b.gravMass * invR3dt;
             const fB = a.gravMass * invR3dt;
@@ -715,8 +766,10 @@ export function applyBosonBosonGravity(photons, pions, dt) {
             const dx = pn.pos.x - ph.pos.x;
             const dy = pn.pos.y - ph.pos.y;
             const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            const invR = 1 / Math.sqrt(rSq);
-            const invR3dt = dt * invR * invR * invR;
+            // P12: invR * invRSq instead of invR³
+            const invRSq = 1 / rSq;
+            const invR = Math.sqrt(invRSq);
+            const invR3dt = dt * invR * invRSq;
             // Photon deflected by pion: GR factor 2, pion gravMass = m·γ
             const fPh = 2 * pn.gravMass * invR3dt;
             ph.vel.x += dx * fPh;
@@ -738,8 +791,10 @@ export function applyBosonBosonGravity(photons, pions, dt) {
             const dx = b.pos.x - a.pos.x;
             const dy = b.pos.y - a.pos.y;
             const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            const invR = 1 / Math.sqrt(rSq);
-            const invR3dt = dt * invR * invR * invR;
+            // P12: invR * invRSq instead of invR³
+            const invRSq = 1 / rSq;
+            const invR = Math.sqrt(invRSq);
+            const invR3dt = dt * invR * invRSq;
             const fA = (1 + vSqA) * b.gravMass * invR3dt;
             a.w.x += dx * fA;
             a.w.y += dy * fA;
@@ -749,13 +804,16 @@ export function applyBosonBosonGravity(photons, pions, dt) {
         }
     }
 
-    // Renormalize photon velocities to |v| = c = 1
+    // P11: Renormalize only when speed drifts from c=1
     for (let i = 0; i < nPh; i++) {
         const ph = photons[i];
-        const v = Math.sqrt(ph.vel.x * ph.vel.x + ph.vel.y * ph.vel.y);
-        if (v > EPSILON) {
-            ph.vel.x /= v;
-            ph.vel.y /= v;
+        const vSq = ph.vel.x * ph.vel.x + ph.vel.y * ph.vel.y;
+        if (Math.abs(vSq - 1) > 1e-6) {
+            const v = Math.sqrt(vSq);
+            if (v > EPSILON) {
+                ph.vel.x /= v;
+                ph.vel.y /= v;
+            }
         }
     }
 

@@ -145,6 +145,8 @@ export default class Heatmap {
         const doGravity = gravityEnabled && (this.mode === 'all' || this.mode === 'gravity');
         const doCoulomb = coulombEnabled && (this.mode === 'all' || this.mode === 'electric');
         const doYukawa = yukawaEnabled && (this.mode === 'all' || this.mode === 'yukawa');
+        // R10: Yukawa cutoff distance — skip Math.exp when force is negligible
+        const yukawaCutoffSq = doYukawa ? (6 / yukawaMu) * (6 / yukawaMu) : Infinity;
         const deadN = deadParticles ? deadParticles.length : 0;
 
         for (let gy = 0; gy < GRID_SIZE; gy++) {
@@ -186,7 +188,7 @@ export default class Heatmap {
                         const invR = 1 / Math.sqrt(rSq);
                         if (doGravity) gPhi -= p.mass * invR;
                         if (doCoulomb) ePhi += p.charge * invR;
-                        if (doYukawa) {
+                        if (doYukawa && rSq < yukawaCutoffSq) {
                             const r = 1 / invR;
                             yPhi -= YUKAWA_COUPLING * p.mass * Math.exp(-yukawaMu * r) * invR;
                         }
@@ -212,7 +214,7 @@ export default class Heatmap {
                         const invR = 1 / Math.sqrt(rSq);
                         if (doGravity) gPhi -= dp._deathMass * invR;
                         if (doCoulomb) ePhi += dp.charge * invR;
-                        if (doYukawa) {
+                        if (doYukawa && rSq < yukawaCutoffSq) {
                             const r = 1 / invR;
                             yPhi -= YUKAWA_COUPLING * dp._deathMass * Math.exp(-yukawaMu * r) * invR;
                         }

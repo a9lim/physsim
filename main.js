@@ -38,11 +38,9 @@ class Simulation {
         this.heatmap = new Heatmap();
         this.renderer.heatmap = this.heatmap;
 
-        this.higgsField = new HiggsField();
-        this.renderer.higgsField = this.higgsField;
-
-        this.axionField = new AxionField();
-        this.renderer.axionField = this.axionField;
+        // A11: Lazy field initialization — defer grid allocations until first toggle-on
+        this.higgsField = null;
+        this.axionField = null;
 
         this.phasePlot = new PhasePlot();
         this.effPotPlot = new EffectivePotentialPlot();
@@ -154,6 +152,22 @@ class Simulation {
         this.init();
     }
 
+    // A11: Lazy field initialization — create on first use
+    ensureHiggsField() {
+        if (!this.higgsField) {
+            this.higgsField = new HiggsField();
+            this.renderer.higgsField = this.higgsField;
+        }
+        return this.higgsField;
+    }
+    ensureAxionField() {
+        if (!this.axionField) {
+            this.axionField = new AxionField();
+            this.renderer.axionField = this.axionField;
+        }
+        return this.axionField;
+    }
+
     init() {
         this.resize();
         window.addEventListener('resize', () => this.resize());
@@ -198,6 +212,9 @@ class Simulation {
         this.renderer.domainW = this.domainW;
         this.renderer.domainH = this.domainH;
         this.input.updateRect();
+        // R11: Refresh cached layout dimensions for sidebar plots
+        this.phasePlot.cacheSize();
+        this.effPotPlot.cacheSize();
         // Preserve top-left world position across resize
         this.camera.x += (this.width - oldW) / (2 * this.camera.zoom);
         this.camera.y += (this.height - oldH) / (2 * this.camera.zoom);
@@ -344,7 +361,8 @@ class Simulation {
 
                 const { fragments: toFragment, transfers: rocheTransfers } = this.physics.checkDisintegration(this.particles, this.physics._lastRoot);
                 // Handle Roche lobe overflow mass transfers
-                for (const t of rocheTransfers) {
+                for (let ti = 0; ti < rocheTransfers.length; ti++) {
+                    const t = rocheTransfers[ti];
                     const origM = t.source.mass;
                     t.source.mass -= t.mass;
                     if (origM > 0) t.source.baseMass *= t.source.mass / origM;
@@ -406,20 +424,21 @@ class Simulation {
                     this.particles.length = writeIdx;
                 }
 
-                // Clean up dead particles whose light-cone can no longer reach any observer
-                if (this.deadParticles.length > 0) {
-                    const maxDist = this._domainDiagonal;
-                    let dw = 0;
-                    for (let i = 0; i < this.deadParticles.length; i++) {
-                        const dp = this.deadParticles[i];
-                        if (this.physics.simTime - dp.deathTime < maxDist) {
-                            this.deadParticles[dw++] = dp;
-                        }
-                    }
-                    this.deadParticles.length = dw;
-                }
-
                 this.accumulator -= PHYSICS_DT;
+            }
+
+            // P16: Dead-particle GC once per frame (not per substep) — particles need
+            // maxDist * 128 substeps to expire, so per-frame check is sufficient
+            if (this.deadParticles.length > 0) {
+                const maxDist = this._domainDiagonal;
+                let dw = 0;
+                for (let i = 0; i < this.deadParticles.length; i++) {
+                    const dp = this.deadParticles[i];
+                    if (this.physics.simTime - dp.deathTime < maxDist) {
+                        this.deadParticles[dw++] = dp;
+                    }
+                }
+                this.deadParticles.length = dw;
             }
         }
 
@@ -456,8 +475,20 @@ class Simulation {
             }
         }
 
-        requestAnimationFrame((t) => this.loop(t));
+        if (!this._hidden) requestAnimationFrame((t) => this.loop(t));
     }
 }
 
-window.sim = new Simulation();
+const sim = new Simulation();
+window.sim = sim;
+
+// A5: Halt rAF loop when tab is hidden, resume with reset lastTime on visible
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        sim._hidden = true;
+    } else {
+        sim._hidden = false;
+        sim.lastTime = 0;
+        requestAnimationFrame((t) => sim.loop(t));
+    }
+});

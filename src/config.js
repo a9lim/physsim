@@ -38,7 +38,7 @@ export const PHYSICS_DT = 1 / 128;
 export const MAX_SUBSTEPS = 32;
 export const DEFAULT_SPEED_SCALE = 32;
 export const MAX_FRAME_DT = 0.1;             // frame delta cap (100ms = 10fps floor)
-export const ACCUMULATOR_CAP = 4;            // max accumulator as multiple of PHYSICS_DT * MAX_SUBSTEPS
+export const ACCUMULATOR_CAP = 2;            // max accumulator as multiple of PHYSICS_DT * MAX_SUBSTEPS (A6: reduced from 4)
 
 // ── Softening ──
 export const SOFTENING = 8;

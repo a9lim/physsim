@@ -8,18 +8,20 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Noto+Sans+Mono:wght@300;400;500;600;700&family=Noto+Serif:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+    <!-- A2: Non-render-blocking KaTeX CSS — preloads in parallel, applies on download -->
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" as="style" crossorigin="anonymous" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous"></noscript>
     <link rel="stylesheet" href="/shared-base.css">
     <link rel="stylesheet" href="styles.css">
     <script src="/shared-tokens.js"></script>
-    <script src="/shared-touch.js"></script>
-    <script src="/shared-utils.js"></script>
-    <script src="/shared-camera.js"></script>
+    <script defer src="/shared-touch.js"></script>
+    <script defer src="/shared-utils.js"></script>
+    <script defer src="/shared-camera.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
-    <script src="/shared-info.js"></script>
-    <script src="/shared-shortcuts.js"></script>
-    <script src="colors.js"></script>
+    <script defer src="/shared-info.js"></script>
+    <script defer src="/shared-shortcuts.js"></script>
+    <script defer src="colors.js"></script>
 </head>
 
 <body>

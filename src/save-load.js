@@ -158,7 +158,8 @@ export function downloadState(sim) {
     a.href = URL.createObjectURL(blob);
     a.download = 'nohair-state.json';
     a.click();
-    URL.revokeObjectURL(a.href);
+    // A12: Defer revoke to next frame — immediate revoke may fire before download starts
+    requestAnimationFrame(() => URL.revokeObjectURL(a.href));
 }
 
 export function uploadState(sim, onComplete) {

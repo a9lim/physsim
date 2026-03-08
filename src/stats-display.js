@@ -3,6 +3,8 @@ import { DISPLAY_SCALE, STATS_THROTTLE_MASK, EPSILON } from './config.js';
 const fmt = (v) => { v *= DISPLAY_SCALE; return Math.abs(v) > 999 ? v.toExponential(2) : v.toFixed(2); };
 const fmtRaw = (v) => Math.abs(v) > 999 ? v.toExponential(2) : v.toFixed(2);
 const fmtDrift = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+// R15: Set textContent only when value changed (avoids DOM text node rebuild)
+function _set(el, val) { if (el.textContent !== val) el.textContent = val; }
 
 export default class StatsDisplay {
     constructor(dom, selDom) {
@@ -12,6 +14,20 @@ export default class StatsDisplay {
         this.initialMomentum = null;
         this.initialAngMom = null;
         this._frameCount = 0;
+        // R14: Pre-allocate force descriptor array (avoids 11 object allocations per updateSelected)
+        this._forceDescs = selDom ? [
+            { row: selDom.fbGravity, val: selDom.fbGravityVal, vec: null },
+            { row: selDom.fbCoulomb, val: selDom.fbCoulombVal, vec: null },
+            { row: selDom.fbMagnetic, val: selDom.fbMagneticVal, vec: null },
+            { row: selDom.fbGravitomag, val: selDom.fbGravitomagVal, vec: null },
+            { row: selDom.fb1pn, val: selDom.fb1pnVal, vec: null },
+            { row: selDom.fbSpincurv, val: selDom.fbSpincurvVal, vec: null },
+            { row: selDom.fbRadiation, val: selDom.fbRadiationVal, vec: null },
+            { row: selDom.fbYukawa, val: selDom.fbYukawaVal, vec: null },
+            { row: selDom.fbExternal, val: selDom.fbExternalVal, vec: null },
+            { row: selDom.fbHiggs, val: selDom.fbHiggsVal, vec: null },
+            { row: selDom.fbAxion, val: selDom.fbAxionVal, vec: null },
+        ] : [];
     }
 
     resetBaseline() {
@@ -45,22 +61,22 @@ export default class StatsDisplay {
         const aDrift = this.initialAngMom !== null && this.initialAngMom !== 0
             ? ((angMom - this.initialAngMom) / Math.abs(this.initialAngMom) * 100) : 0;
 
-        this.dom.linearKE.textContent = fmt(e.linearKE);
-        this.dom.spinKE.textContent = fmt(e.spinKE);
-        this.dom.potentialE.textContent = fmt(e.pe);
-        this.dom.totalE.textContent = fmt(total);
-        this.dom.energyDrift.textContent = fmtDrift(eDrift);
-        this.dom.fieldE.textContent = fmt(e.fieldEnergy + e.higgsFieldEnergy + e.axionFieldEnergy);
-        this.dom.radiatedE.textContent = fmt(sim.totalRadiated);
-        this.dom.momentum.textContent = fmt(pMag);
-        this.dom.particleMom.textContent = fmt(Math.sqrt(e.px * e.px + e.py * e.py));
-        this.dom.fieldMom.textContent = fmt(Math.sqrt(e.fieldPx * e.fieldPx + e.fieldPy * e.fieldPy));
-        this.dom.radiatedMom.textContent = fmt(Math.sqrt(sim.totalRadiatedPx * sim.totalRadiatedPx + sim.totalRadiatedPy * sim.totalRadiatedPy));
-        this.dom.momentumDrift.textContent = fmtDrift(pDrift);
-        this.dom.angularMomentum.textContent = fmt(angMom);
-        this.dom.orbitalAngMom.textContent = fmt(e.orbitalAngMom);
-        this.dom.spinAngMom.textContent = fmt(e.spinAngMom);
-        this.dom.angMomDrift.textContent = fmtDrift(aDrift);
+        _set(this.dom.linearKE, fmt(e.linearKE));
+        _set(this.dom.spinKE, fmt(e.spinKE));
+        _set(this.dom.potentialE, fmt(e.pe));
+        _set(this.dom.totalE, fmt(total));
+        _set(this.dom.energyDrift, fmtDrift(eDrift));
+        _set(this.dom.fieldE, fmt(e.fieldEnergy + e.higgsFieldEnergy + e.axionFieldEnergy));
+        _set(this.dom.radiatedE, fmt(sim.totalRadiated));
+        _set(this.dom.momentum, fmt(pMag));
+        _set(this.dom.particleMom, fmt(Math.sqrt(e.px * e.px + e.py * e.py)));
+        _set(this.dom.fieldMom, fmt(Math.sqrt(e.fieldPx * e.fieldPx + e.fieldPy * e.fieldPy)));
+        _set(this.dom.radiatedMom, fmt(Math.sqrt(sim.totalRadiatedPx * sim.totalRadiatedPx + sim.totalRadiatedPy * sim.totalRadiatedPy)));
+        _set(this.dom.momentumDrift, fmtDrift(pDrift));
+        _set(this.dom.angularMomentum, fmt(angMom));
+        _set(this.dom.orbitalAngMom, fmt(e.orbitalAngMom));
+        _set(this.dom.spinAngMom, fmt(e.spinAngMom));
+        _set(this.dom.angMomDrift, fmtDrift(aDrift));
     }
 
     updateSelected(particle, particles, physics) {
@@ -85,34 +101,33 @@ export default class StatsDisplay {
         const totalFy = p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.forceSpinCurv.y + p.forceRadiation.y + p.forceYukawa.y + p.forceExternal.y + p.forceHiggs.y + p.forceAxion.y;
         const forceMag = Math.sqrt(totalFx * totalFx + totalFy * totalFy);
 
-        dom.mass.textContent = fmtRaw(p.mass) + (p.antimatter ? ' (anti)' : '');
-        dom.charge.textContent = fmtRaw(p.charge);
+        _set(dom.mass, fmtRaw(p.mass) + (p.antimatter ? ' (anti)' : ''));
+        _set(dom.charge, fmtRaw(p.charge));
         const surfaceV = p.angVel * p.radius;
-        dom.spin.textContent = surfaceV.toFixed(4) + 'c';
-        dom.speed.textContent = speed.toFixed(4) + 'c';
-        dom.gamma.textContent = gamma.toFixed(3);
-        dom.force.textContent = fmt(forceMag);
+        _set(dom.spin, surfaceV.toFixed(4) + 'c');
+        _set(dom.speed, speed.toFixed(4) + 'c');
+        _set(dom.gamma, gamma.toFixed(3));
+        _set(dom.force, fmt(forceMag));
 
-        // Force breakdown by type
-        const forces = [
-            { row: dom.fbGravity, val: dom.fbGravityVal, vec: p.forceGravity },
-            { row: dom.fbCoulomb, val: dom.fbCoulombVal, vec: p.forceCoulomb },
-            { row: dom.fbMagnetic, val: dom.fbMagneticVal, vec: p.forceMagnetic },
-            { row: dom.fbGravitomag, val: dom.fbGravitomagVal, vec: p.forceGravitomag },
-            { row: dom.fb1pn, val: dom.fb1pnVal, vec: p.force1PN },
-            { row: dom.fbSpincurv, val: dom.fbSpincurvVal, vec: p.forceSpinCurv },
-            { row: dom.fbRadiation, val: dom.fbRadiationVal, vec: p.forceRadiation },
-            { row: dom.fbYukawa, val: dom.fbYukawaVal, vec: p.forceYukawa },
-            { row: dom.fbExternal, val: dom.fbExternalVal, vec: p.forceExternal },
-            { row: dom.fbHiggs, val: dom.fbHiggsVal, vec: p.forceHiggs },
-            { row: dom.fbAxion, val: dom.fbAxionVal, vec: p.forceAxion },
-        ];
+        // R14: Reuse pre-allocated force descriptor array
+        const forces = this._forceDescs;
+        forces[0].vec = p.forceGravity;
+        forces[1].vec = p.forceCoulomb;
+        forces[2].vec = p.forceMagnetic;
+        forces[3].vec = p.forceGravitomag;
+        forces[4].vec = p.force1PN;
+        forces[5].vec = p.forceSpinCurv;
+        forces[6].vec = p.forceRadiation;
+        forces[7].vec = p.forceYukawa;
+        forces[8].vec = p.forceExternal;
+        forces[9].vec = p.forceHiggs;
+        forces[10].vec = p.forceAxion;
         for (const f of forces) {
             if (!f.row) continue;
             const mag = Math.sqrt(f.vec.x * f.vec.x + f.vec.y * f.vec.y);
             if (mag > EPSILON) {
                 f.row.hidden = false;
-                f.val.textContent = fmt(mag);
+                _set(f.val, fmt(mag));
             } else {
                 f.row.hidden = true;
             }

@@ -3,7 +3,7 @@
 // Unlike MasslessBoson (|v|=c), pions travel at v<c with proper velocity w.
 
 import Vec2 from './vec2.js';
-import { BOSON_SOFTENING_SQ, ELECTRON_MASS, MAX_SPEED_RATIO, EPSILON, spawnOffset } from './config.js';
+import { BOSON_SOFTENING_SQ, ELECTRON_MASS, MAX_SPEED_RATIO, EPSILON, MAX_PIONS, spawnOffset } from './config.js';
 import { treeDeflectBoson } from './boson-utils.js';
 
 // ─── Object Pool ───
@@ -53,9 +53,9 @@ export default class Pion {
         return new Pion(x, y, wx, wy, mass, charge, energy, emitterId);
     }
 
-    /** Return a dead pion to the pool for later reuse. */
+    /** Return a dead pion to the pool for later reuse. M9: Cap to avoid unbounded GC tracing. */
     static release(p) {
-        _pool[_poolSize++] = p;
+        if (_poolSize < MAX_PIONS) _pool[_poolSize++] = p;
     }
 
     /** Drain all pooled instances (call on simulation reset). */

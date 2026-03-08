@@ -61,6 +61,8 @@ export default class ScalarField {
         this._fineXcx1 = new Uint8Array(gridSize);
         this._fineXwx = new Float32Array(gridSize);
         this._upsampleXBuilt = false;
+        // M10: Cached flag for applyGravForces early exit
+        this._hasEnergy = false;
 
         // Offscreen canvas for rendering
         this.canvas = document.createElement('canvas');
@@ -260,13 +262,25 @@ export default class ScalarField {
         const { ix, iy } = this._pqs;
         const wx = this._wx;
         const wy = this._wy;
-        const vacVal = this._vacValue;
+        const GRID = this._grid;
         let val = 0;
-        for (let jy = 0; jy < 4; jy++) {
-            const wyj = wy[jy];
-            for (let jx = 0; jx < 4; jx++) {
-                const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
-                val += (idx >= 0 ? this.field[idx] : vacVal) * wx[jx] * wyj;
+        // M4: Interior fast path — direct indexing avoids 16 _nb() calls
+        if (ix >= 1 && ix <= GRID - 3 && iy >= 1 && iy <= GRID - 3) {
+            for (let jy = 0; jy < 4; jy++) {
+                const wyj = wy[jy];
+                const row = (iy + jy - 1) * GRID + ix - 1;
+                for (let jx = 0; jx < 4; jx++) {
+                    val += this.field[row + jx] * wx[jx] * wyj;
+                }
+            }
+        } else {
+            const vacVal = this._vacValue;
+            for (let jy = 0; jy < 4; jy++) {
+                const wyj = wy[jy];
+                for (let jx = 0; jx < 4; jx++) {
+                    const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
+                    val += (idx >= 0 ? this.field[idx] : vacVal) * wx[jx] * wyj;
+                }
             }
         }
         return val;
@@ -284,15 +298,30 @@ export default class ScalarField {
         const wy = this._wy;
         const gxArr = this._gradX;
         const gyArr = this._gradY;
+        const GRID = this._grid;
 
         let gx = 0, gy = 0;
-        for (let jy = 0; jy < 4; jy++) {
-            const wyj = wy[jy];
-            for (let jx = 0; jx < 4; jx++) {
-                const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
-                const w = wx[jx] * wyj;
-                gx += (idx >= 0 ? gxArr[idx] : 0) * w;
-                gy += (idx >= 0 ? gyArr[idx] : 0) * w;
+        // M4: Interior fast path — direct indexing avoids 16 _nb() calls
+        if (ix >= 1 && ix <= GRID - 3 && iy >= 1 && iy <= GRID - 3) {
+            for (let jy = 0; jy < 4; jy++) {
+                const wyj = wy[jy];
+                const row = (iy + jy - 1) * GRID + ix - 1;
+                for (let jx = 0; jx < 4; jx++) {
+                    const idx = row + jx;
+                    const w = wx[jx] * wyj;
+                    gx += gxArr[idx] * w;
+                    gy += gyArr[idx] * w;
+                }
+            }
+        } else {
+            for (let jy = 0; jy < 4; jy++) {
+                const wyj = wy[jy];
+                for (let jx = 0; jx < 4; jx++) {
+                    const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
+                    const w = wx[jx] * wyj;
+                    gx += (idx >= 0 ? gxArr[idx] : 0) * w;
+                    gy += (idx >= 0 ? gyArr[idx] : 0) * w;
+                }
             }
         }
 
@@ -311,23 +340,39 @@ export default class ScalarField {
         const { ix, iy } = this._pqs;
         const wx = this._wx;
         const wy = this._wy;
-        const vacVal = this._vacValue;
         const gxArr = this._gradX;
         const gyArr = this._gradY;
         const field = this.field;
+        const GRID = this._grid;
 
         let val = 0, gx = 0, gy = 0;
-        for (let jy = 0; jy < 4; jy++) {
-            const wyj = wy[jy];
-            for (let jx = 0; jx < 4; jx++) {
-                const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
-                const w = wx[jx] * wyj;
-                if (idx >= 0) {
+        // M4: Interior fast path — direct indexing avoids 16 _nb() calls
+        if (ix >= 1 && ix <= GRID - 3 && iy >= 1 && iy <= GRID - 3) {
+            for (let jy = 0; jy < 4; jy++) {
+                const wyj = wy[jy];
+                const row = (iy + jy - 1) * GRID + ix - 1;
+                for (let jx = 0; jx < 4; jx++) {
+                    const idx = row + jx;
+                    const w = wx[jx] * wyj;
                     val += field[idx] * w;
                     gx += gxArr[idx] * w;
                     gy += gyArr[idx] * w;
-                } else {
-                    val += vacVal * w;
+                }
+            }
+        } else {
+            const vacVal = this._vacValue;
+            for (let jy = 0; jy < 4; jy++) {
+                const wyj = wy[jy];
+                for (let jx = 0; jx < 4; jx++) {
+                    const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
+                    const w = wx[jx] * wyj;
+                    if (idx >= 0) {
+                        val += field[idx] * w;
+                        gx += gxArr[idx] * w;
+                        gy += gyArr[idx] * w;
+                    } else {
+                        val += vacVal * w;
+                    }
                 }
             }
         }
@@ -501,7 +546,8 @@ export default class ScalarField {
     }
 
     /** Direct O(SG⁴) gravitational potential on coarse grid: Φ = -Σ ρ·dA/r.
-     *  Uses cached 1/sqrt table — sqrt-free inner loop during normal play. */
+     *  Uses cached 1/sqrt table — sqrt-free inner loop during normal play.
+     *  M8: Pre-builds sparse source list to skip empty cells in inner loop. */
     _computeCoarsePotential(domainW, domainH, softeningSq, periodic, topology) {
         this._buildSGInvRTable(domainW, domainH, softeningSq, periodic, topology);
         const SG = this._sgGrid;
@@ -511,13 +557,25 @@ export default class ScalarField {
         const phi = this._sgPhi;
         const table = this._sgInvR;
 
+        // M8: Build sparse source list (indices with nonzero rho)
+        if (!this._sgSparseIdx) this._sgSparseIdx = new Int32Array(SG2);
+        if (!this._sgSparseRho) this._sgSparseRho = new Float64Array(SG2);
+        let nSources = 0;
+        for (let j = 0; j < SG2; j++) {
+            if (rho[j] >= EPSILON) {
+                this._sgSparseIdx[nSources] = j;
+                this._sgSparseRho[nSources] = rho[j] * cellArea;
+                nSources++;
+            }
+        }
+        const sparseIdx = this._sgSparseIdx;
+        const sparseRho = this._sgSparseRho;
+
         for (let i = 0; i < SG2; i++) {
             let pot = 0;
             const rowBase = i * SG2;
-            for (let j = 0; j < SG2; j++) {
-                const rhoVal = rho[j];
-                if (rhoVal < EPSILON) continue;
-                pot -= rhoVal * cellArea * table[rowBase + j];
+            for (let s = 0; s < nSources; s++) {
+                pot -= sparseRho[s] * table[rowBase + sparseIdx[s]];
             }
             phi[i] = pot;
         }
@@ -603,6 +661,13 @@ export default class ScalarField {
      *  Coarse grid O(SG⁴) direct summation, bilinear upsampled to full grid. */
     computeSelfGravity(domainW, domainH, softeningSq, periodic, topology) {
         this._computeEnergyDensity(domainW, domainH);
+
+        // M10: Scan full grid for nonzero energy density — used by applyGravForces() to skip O(N×GRID²)
+        this._hasEnergy = false;
+        for (let i = 0, len = this._gridSq; i < len; i++) {
+            if (this._energyDensity[i] >= EPSILON) { this._hasEnergy = true; break; }
+        }
+
         this._downsampleRho();
         // Early exit: if coarse energy density is negligible, skip O(SG⁴) potential
         const rho = this._sgRho;
@@ -639,12 +704,9 @@ export default class ScalarField {
         // or bootstrap. Avoids redundant O(GRID²) recomputation per substep.
         const rho = this._energyDensity;
 
-        // Early exit: skip O(N×GRID²) if no energy density (field at vacuum)
-        let hasEnergy = false;
-        for (let i = 0, len = this._gridSq; i < len; i++) {
-            if (rho[i] >= EPSILON) { hasEnergy = true; break; }
-        }
-        if (!hasEnergy) return;
+        // M10: Use cached _hasEnergy flag (set by computeSelfGravity/bootstrap) to
+        // skip O(N×GRID²) without an O(GRID²) scan per substep
+        if (!this._hasEnergy) return;
 
         // Pre-compute cell centers (avoids (ix+0.5)*cellW per particle in inner loop)
         const ccx = this._cellCX;
@@ -782,12 +844,15 @@ export default class ScalarField {
 
     /** Draw field overlay in world space. */
     draw(ctx, domainW, domainH) {
-        ctx.save();
+        // R7: Explicit property set/restore instead of save()/restore() (~30 property snapshot)
+        const prevSmooth = ctx.imageSmoothingEnabled;
+        const prevQuality = ctx.imageSmoothingQuality;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.globalAlpha = 0.6;
         ctx.drawImage(this.canvas, 0, 0, domainW, domainH);
         ctx.globalAlpha = 1;
-        ctx.restore();
+        ctx.imageSmoothingEnabled = prevSmooth;
+        ctx.imageSmoothingQuality = prevQuality;
     }
 }

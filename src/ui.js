@@ -216,6 +216,9 @@ export function setupUI(sim) {
         tEl[id].addEventListener('change', () => {
             sim.physics[prop] = tEl[id].checked;
             tEl[id].setAttribute('aria-checked', tEl[id].checked);
+            // A11: Lazy field initialization on first toggle-on
+            if (id === 'higgs-toggle' && tEl[id].checked) sim.ensureHiggsField();
+            if (id === 'axion-toggle' && tEl[id].checked) sim.ensureAxionField();
             // Higgs: restore masses when toggled off
             if (id === 'higgs-toggle' && !tEl[id].checked) {
                 for (const p of sim.particles) { p.mass = p.baseMass; p.updateColor(); }
@@ -487,18 +490,26 @@ export function setupUI(sim) {
     const refBody = document.getElementById('reference-body');
     const refClose = document.getElementById('reference-close');
 
+    // A3: Cache KaTeX-rendered HTML per key — first open pays cost, subsequent are instant
+    // Note: REFERENCE values are hardcoded trusted content from reference.js (not user input)
+    const _katexCache = new Map();
     const openReference = (key) => {
         const ref = REFERENCE[key];
         if (!ref) return;
         refTitle.textContent = ref.title;
-        refBody.innerHTML = ref.body;
-        refOverlay.hidden = false;
-        if (typeof renderMathInElement === 'function') {
-            renderMathInElement(refBody, { delimiters: [
-                { left: '$$', right: '$$', display: true },
-                { left: '$', right: '$', display: false },
-            ]});
+        if (_katexCache.has(key)) {
+            refBody.innerHTML = _katexCache.get(key); // trusted cached content from reference.js
+        } else {
+            refBody.innerHTML = ref.body; // trusted content from reference.js
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(refBody, { delimiters: [
+                    { left: '$$', right: '$$', display: true },
+                    { left: '$', right: '$', display: false },
+                ]});
+            }
+            _katexCache.set(key, refBody.innerHTML);
         }
+        refOverlay.hidden = false;
     };
 
     if (refOverlay) {
