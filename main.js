@@ -54,6 +54,7 @@ class Simulation {
             zoom: WORLD_SCALE,
             minZoom: ZOOM_MIN, maxZoom: ZOOM_MAX,
             wheelFactor: WHEEL_ZOOM_IN,
+            onUpdate() { sim._dirty = true; },
             clamp(cam) {
                 const halfW = cam.viewportW / (2 * cam.zoom);
                 const halfH = cam.viewportH / (2 * cam.zoom);
@@ -73,6 +74,7 @@ class Simulation {
         this.accumulator = 0;
         this._hmFrame = 0; // heatmap throttle counter
         this._sbFrame = 0;
+        this._dirty = true; // render dirty flag — skip frames when nothing changed
 
         this.dom = {
             speedInput: document.getElementById('speedInput'),
@@ -159,7 +161,7 @@ class Simulation {
 
         // Save/Load buttons
         document.getElementById('saveBtn').addEventListener('click', () => quickSave(this));
-        document.getElementById('loadBtn').addEventListener('click', () => quickLoad(this));
+        document.getElementById('loadBtn').addEventListener('click', () => { quickLoad(this); this._dirty = true; });
 
         // Ctrl+S / Ctrl+L keyboard shortcuts for save/load
         window.addEventListener('keydown', (e) => {
@@ -169,12 +171,14 @@ class Simulation {
             } else if (e.ctrlKey && e.key === 'l') {
                 e.preventDefault();
                 quickLoad(this);
+                this._dirty = true;
             } else if (e.ctrlKey && e.shiftKey && e.key === 'S') {
                 e.preventDefault();
                 downloadState(this);
             } else if (e.ctrlKey && e.shiftKey && e.key === 'L') {
                 e.preventDefault();
                 uploadState(this);
+                this._dirty = true;
             }
         });
 
@@ -199,6 +203,7 @@ class Simulation {
         this.camera.y += (this.height - oldH) / (2 * this.camera.zoom);
         this.camera.viewportW = this.width;
         this.camera.viewportH = this.height;
+        this._dirty = true;
     }
 
     addParticle(x, y, vx, vy, options = {}) {
@@ -221,6 +226,15 @@ class Simulation {
         p.angVel = this.physics.relativityEnabled ? angwToAngVel(p.angw, p.radius) : p.angw;
         this.particles.push(p);
         if (!options.skipBaseline) this.stats.resetBaseline();
+        this._dirty = true;
+    }
+
+    /** Release all active photons/pions to their pools and clear the arrays. */
+    clearBosons() {
+        for (let i = 0; i < this.photons.length; i++) MasslessBoson.release(this.photons[i]);
+        for (let i = 0; i < this.pions.length; i++) Pion.release(this.pions[i]);
+        this.photons.length = 0;
+        this.pions.length = 0;
     }
 
     emitPhotonBurst(x, y, energy, radius, emitterId) {
@@ -231,7 +245,7 @@ class Simulation {
         for (let j = 0; j < n; j++) {
             const angle = Math.random() * TWO_PI;
             const cosA = Math.cos(angle), sinA = Math.sin(angle);
-            this.photons.push(new MasslessBoson(
+            this.photons.push(MasslessBoson.acquire(
                 x + cosA * offset, y + sinA * offset,
                 cosA, sinA, ePerPh, emitterId
             ));
@@ -241,11 +255,14 @@ class Simulation {
         this.totalRadiated += energy;
     }
 
+    markDirty() { this._dirty = true; }
+
     loop(timestamp) {
         const rawDt = Math.min((timestamp - this.lastTime) / 1000, MAX_FRAME_DT);
         this.lastTime = timestamp;
 
         if (this.running) {
+            this._dirty = true;
             this.accumulator += rawDt * this.speedScale;
             const maxAccum = PHYSICS_DT * MAX_SUBSTEPS * ACCUMULATOR_CAP;
             if (this.accumulator > maxAccum) this.accumulator = maxAccum;
@@ -253,7 +270,7 @@ class Simulation {
             while (this.accumulator >= PHYSICS_DT) {
                 this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
 
-                // Update photons, swap-and-pop dead ones (O(n) vs splice O(n²))
+                // Update photons, swap-and-pop dead ones, release to pool
                 // Gravitational lensing only when gravity is on
                 const _gravOn = this.physics.gravityEnabled;
                 const _pool = (_gravOn && this.physics.barnesHutEnabled) ? this.physics.pool : null;
@@ -264,6 +281,8 @@ class Simulation {
                     const ph = this.photons[i];
                     ph.update(PHYSICS_DT, _lensParticles, _pool, _root);
                     if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
+                        ph.alive = false;
+                        MasslessBoson.release(ph);
                         this.photons[i] = this.photons[--pLen];
                     }
                 }
@@ -297,21 +316,24 @@ class Simulation {
                     this.addParticle(ph.pos.x - px * offset, ph.pos.y - py * offset,
                         ph.vel.x * 0.1, ph.vel.y * 0.1,
                         { mass: pairMass, charge: 0, antimatter: true, skipBaseline: true });
-                    // Kill the photon
+                    // Kill the photon and release to pool
                     ph.alive = false;
+                    MasslessBoson.release(ph);
                     this.photons[i] = this.photons[--pLen];
                 }
                 this.photons.length = pLen;
 
-                // Update pions: move, decay, swap-and-pop dead
+                // Update pions: move, decay, swap-and-pop dead, release to pool
                 let piLen = this.pions.length;
                 for (let i = piLen - 1; i >= 0; i--) {
                     const pn = this.pions[i];
                     pn.update(PHYSICS_DT, _lensParticles, _pool, _root);
                     if (!pn.alive) {
+                        Pion.release(pn);
                         this.pions[i] = this.pions[--piLen];
                     } else if (Math.random() < (pn.charge === 0 ? PION_DECAY_PROB : CHARGED_PION_DECAY_PROB)) {
                         pn.decay(this);
+                        Pion.release(pn);
                         this.pions[i] = this.pions[--piLen];
                     }
                 }
@@ -401,31 +423,37 @@ class Simulation {
             }
         }
 
-        // Throttle heatmap to every HEATMAP_INTERVAL frames (default 4 = ~15fps)
-        if (++this._hmFrame >= HEATMAP_INTERVAL) {
-            this._hmFrame = 0;
-            this.heatmap.update(this.particles, this.camera, this.width, this.height,
-                this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
-                this.physics.relativityEnabled,
-                this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
-                this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
-                this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
-                this.physics.gravityEnabled, this.physics.coulombEnabled);
-        }
-        const sidebarFrame = !(++this._sbFrame & SIDEBAR_THROTTLE_MASK);
-        if (sidebarFrame) {
-            this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
-            this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
-        }
-        this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons, this.pions);
-        if (sidebarFrame) {
-            this.phasePlot.draw(this.renderer.isLight);
-            this.effPotPlot.draw(this.renderer.isLight);
-        }
-        if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);
-        if (sidebarFrame) {
-            const sel = this.stats.updateSelected(this.selectedParticle, this.particles, this.physics);
-            if (!sel && this.selectedParticle) this.selectedParticle = null;
+        // Skip render entirely when nothing has changed (paused, no interaction)
+        if (this._dirty) {
+            this._dirty = false;
+
+            // Throttle heatmap to every HEATMAP_INTERVAL frames (default 4 = ~15fps)
+            // Skip when paused — state hasn't changed (camera changes trigger re-render via renderer)
+            if (this.running && ++this._hmFrame >= HEATMAP_INTERVAL) {
+                this._hmFrame = 0;
+                this.heatmap.update(this.particles, this.camera, this.width, this.height,
+                    this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
+                    this.physics.relativityEnabled,
+                    this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
+                    this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
+                    this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
+                    this.physics.gravityEnabled, this.physics.coulombEnabled);
+            }
+            const sidebarFrame = !(++this._sbFrame & SIDEBAR_THROTTLE_MASK);
+            if (sidebarFrame) {
+                this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
+                this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
+            }
+            this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons, this.pions);
+            if (sidebarFrame) {
+                this.phasePlot.draw(this.renderer.isLight);
+                this.effPotPlot.draw(this.renderer.isLight);
+            }
+            if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);
+            if (sidebarFrame) {
+                const sel = this.stats.updateSelected(this.selectedParticle, this.particles, this.physics);
+                if (!sel && this.selectedParticle) this.selectedParticle = null;
+            }
         }
 
         requestAnimationFrame((t) => this.loop(t));

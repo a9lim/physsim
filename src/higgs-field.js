@@ -90,22 +90,27 @@ export default class HiggsField extends ScalarField {
         const halfDt = dt * 0.5;
 
         // ── First half-kick ──
-        for (let i = 0; i < GRID_SQ; i++) {
-            const phiVal = field[i];
-            const muSqEff = muSq - thermal[i];
-            let ddphi = lap[i]
-                      + muSqEff * phiVal
-                      - muSq * phiVal * phiVal * phiVal
-                      - damp * fieldDot[i]
-                      + src[i] * invCellArea;
-            if (sgOn) {
+        if (sgOn) {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const phiVal = field[i];
+                const muSqEff = muSq - thermal[i];
+                const lapI = lap[i];
                 const Phi = sgFull[i];
-                ddphi += 4 * Phi * lap[i]
-                       + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                       + 2 * Phi * muSqEff * phiVal
-                       - 2 * Phi * muSq * phiVal * phiVal * phiVal;
+                const ddphi = lapI + muSqEff * phiVal - muSq * phiVal * phiVal * phiVal
+                    - damp * fieldDot[i] + src[i] * invCellArea
+                    + 4 * Phi * lapI
+                    + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                    + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal;
+                fieldDot[i] += ddphi * halfDt;
             }
-            fieldDot[i] += ddphi * halfDt;
+        } else {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const phiVal = field[i];
+                const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
+                    - muSq * phiVal * phiVal * phiVal
+                    - damp * fieldDot[i] + src[i] * invCellArea;
+                fieldDot[i] += ddphi * halfDt;
+            }
         }
 
         // ── Full drift ──
@@ -117,27 +122,28 @@ export default class HiggsField extends ScalarField {
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 1);
 
         // ── Second half-kick (with updated field values) ──
-        for (let i = 0; i < GRID_SQ; i++) {
-            const phiVal = field[i];
-            const muSqEff = muSq - thermal[i];
-            let ddphi = lap[i]
-                      + muSqEff * phiVal
-                      - muSq * phiVal * phiVal * phiVal
-                      - damp * fieldDot[i]
-                      + src[i] * invCellArea;
-            if (sgOn) {
+        if (sgOn) {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const phiVal = field[i];
+                const muSqEff = muSq - thermal[i];
+                const lapI = lap[i];
                 const Phi = sgFull[i];
-                ddphi += 4 * Phi * lap[i]
-                       + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                       + 2 * Phi * muSqEff * phiVal
-                       - 2 * Phi * muSq * phiVal * phiVal * phiVal;
+                const ddphi = lapI + muSqEff * phiVal - muSq * phiVal * phiVal * phiVal
+                    - damp * fieldDot[i] + src[i] * invCellArea
+                    + 4 * Phi * lapI
+                    + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                    + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal;
+                fieldDot[i] += ddphi * halfDt;
+                if (phiVal !== phiVal) { field[i] = 1; fieldDot[i] = 0; }
             }
-            fieldDot[i] += ddphi * halfDt;
-
-            // NaN guard + clamp
-            if (phiVal !== phiVal) {
-                field[i] = 1;
-                fieldDot[i] = 0;
+        } else {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const phiVal = field[i];
+                const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
+                    - muSq * phiVal * phiVal * phiVal
+                    - damp * fieldDot[i] + src[i] * invCellArea;
+                fieldDot[i] += ddphi * halfDt;
+                if (phiVal !== phiVal) { field[i] = 1; fieldDot[i] = 0; }
             }
         }
 
@@ -198,10 +204,13 @@ export default class HiggsField extends ScalarField {
 
             p.mass = newMass;
 
+            const bodyR = Math.cbrt(p.mass);
+            const bodyRSq = bodyR * bodyR;
+            p.bodyRadiusSq = bodyRSq;
             if (blackHoleEnabled) {
-                p.radius = kerrNewmanRadius(p.mass, Math.cbrt(p.mass) ** 2, p.angVel, p.charge);
+                p.radius = kerrNewmanRadius(p.mass, bodyRSq, p.angVel, p.charge);
             } else {
-                p.radius = Math.cbrt(p.mass);
+                p.radius = bodyR;
             }
             p.radiusSq = p.radius * p.radius;
             p.invMass = 1 / p.mass;
@@ -231,11 +240,11 @@ export default class HiggsField extends ScalarField {
             const p = particles[i];
             if (p.baseMass < EPSILON) continue;
 
-            const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
-            const grad = this.gradient(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
+            const result = this.interpolateWithGradient(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
+            const grad = result.grad;
             if (!grad) continue;
 
-            const sign = phiLocal >= 0 ? 1 : -1;
+            const sign = result.value >= 0 ? 1 : -1;
             const forceX = HIGGS_COUPLING * p.baseMass * sign * grad.x;
             const forceY = HIGGS_COUPLING * p.baseMass * sign * grad.y;
 

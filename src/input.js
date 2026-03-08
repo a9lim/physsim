@@ -92,6 +92,7 @@ export default class InputHandler {
             this.isDragging = true;
             this.dragStart = this._getPosNew(t.clientX, t.clientY);
             this.currentPos = this.dragStart.clone();
+            this.sim._dirty = true;
         }
     }
 
@@ -120,6 +121,7 @@ export default class InputHandler {
         if (e.touches.length === 1 && this.isDragging && !this._pinching) {
             const t = e.touches[0];
             this.currentPos = this._getPosNew(t.clientX, t.clientY);
+            this.sim._dirty = true;
         }
     }
 
@@ -139,6 +141,7 @@ export default class InputHandler {
                 this.isDragging = false;
                 const t = e.changedTouches[0];
                 this.spawnParticle(this._getPosNew(t.clientX, t.clientY));
+                this.sim._dirty = true;
                 return;
             }
 
@@ -152,6 +155,7 @@ export default class InputHandler {
         this.sim.physics._retireParticle(p);
         this.sim.particles = this.sim.particles.filter(q => q !== p);
         if (this.sim.selectedParticle === p) this.sim.selectedParticle = null;
+        this.sim._dirty = true;
     }
 
     onMouseDown(e) {
@@ -166,7 +170,7 @@ export default class InputHandler {
         // BH mode: right-click always deletes (no antimatter distinction)
         if (isRight && hit) {
             if (bhOn) this._deleteParticle(hit);
-            else if (hit.antimatter) this.sim.selectedParticle = hit;
+            else if (hit.antimatter) { this.sim.selectedParticle = hit; this.sim._dirty = true; }
             else this._deleteParticle(hit);
             return;
         }
@@ -175,6 +179,7 @@ export default class InputHandler {
         this._rightButton = isRight;
         this.dragStart = pos;
         this.currentPos = pos.clone();
+        this.sim._dirty = true;
     }
 
     onMouseMove(e) {
@@ -182,6 +187,8 @@ export default class InputHandler {
         this.currentPos.set(pos.x, pos.y);
         this._screenX = e.clientX;
         this._screenY = e.clientY;
+
+        if (this.isDragging) this.sim._dirty = true;
 
         const hit = this.findParticleAt(this.currentPos);
         this.hoveredParticle = hit;
@@ -200,6 +207,7 @@ export default class InputHandler {
     onMouseUp(e) {
         if (!this.isDragging) return;
         this.isDragging = false;
+        this.sim._dirty = true;
 
         const endPos = this._getPosNew(e.clientX, e.clientY);
 

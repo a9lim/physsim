@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
 import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
@@ -154,7 +154,7 @@ export default class Physics {
         p.histVy[h] = p.vel.y;
         p.histAngW[h] = p.angw;
         p.histTime[h] = this.simTime;
-        p.histHead = (h + 1) % HISTORY_SIZE;
+        p.histHead = (h + 1) & HISTORY_MASK;
         if (p.histCount < HISTORY_SIZE) p.histCount++;
         // Cache dipole moments at death (won't be recached in computeAllForces)
         p.magMoment = MAG_MOMENT_K * p.charge * p.angVel * p.radiusSq;
@@ -595,7 +595,7 @@ export default class Physics {
                 p.w.y += fy * halfDtOverM;
 
                 // NaN guard: catch bad state before it propagates to all particles
-                if (p.w.x !== p.w.x || p.w.y !== p.w.y) { p.w.x = 0; p.w.y = 0; }
+                if (p.w.x !== p.w.x || p.w.y !== p.w.y) { p.w.x = 0; p.w.y = 0; p.vel.x = 0; p.vel.y = 0; }
             }
 
             // Spin-orbit energy transfer + Stern-Gerlach/Mathisson-Papapetrou kicks (fused)
@@ -745,14 +745,18 @@ export default class Physics {
 
                     if (dE > 0) {
                         const ax = p.force.x * p.invMass, ay = p.force.y * p.invMass;
-                        const accelAngle = Math.atan2(ay, ax);
-                        const radAngle = accelAngle + PI;
-                        this.sim.totalRadiatedPx += dE * Math.cos(radAngle);
-                        this.sim.totalRadiatedPy += dE * Math.sin(radAngle);
+                        // Radiated momentum direction = -acceleration (no atan2/cos/sin needed)
+                        const aMagSq = ax * ax + ay * ay;
+                        if (aMagSq > EPSILON_SQ) {
+                            const invAMag = 1 / Math.sqrt(aMagSq);
+                            this.sim.totalRadiatedPx -= dE * ax * invAMag;
+                            this.sim.totalRadiatedPy -= dE * ay * invAMag;
+                        }
 
                         p._radAccum += dE;
                         if (p._radAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
                             // sin²θ dipole pattern: peak emission ⊥ to acceleration
+                            const accelAngle = Math.atan2(ay, ax);
                             let theta, tries = 0;
                             do { theta = Math.random() * TWO_PI; }
                             while (Math.random() > Math.sin(theta) * Math.sin(theta) && ++tries < MAX_REJECTION_SAMPLES);
@@ -770,7 +774,7 @@ export default class Physics {
 
                             const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
                             const pOff = spawnOffset(p.radius);
-                            this.sim.photons.push(new MasslessBoson(
+                            this.sim.photons.push(MasslessBoson.acquire(
                                 p.pos.x + cosA * pOff,
                                 p.pos.y + sinA * pOff,
                                 cosA, sinA,
@@ -809,6 +813,7 @@ export default class Physics {
                     p.invMass = 1 / p.mass;
                     // Update Kerr-Newman radius (use body r² = cbrt(mass)², not horizon radiusSq)
                     const bodyRSq = Math.cbrt(p.mass) ** 2;
+                    p.bodyRadiusSq = bodyRSq;
                     p.radius = kerrNewmanRadius(p.mass, bodyRSq, p.angVel, p.charge);
                     p.radiusSq = p.radius * p.radius;
                     this.sim.totalRadiated += dE;
@@ -819,7 +824,7 @@ export default class Physics {
                         const emitAngle = Math.random() * TWO_PI;
                         const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);
                         const hOff = spawnOffset(p.radius);
-                        this.sim.photons.push(new MasslessBoson(
+                        this.sim.photons.push(MasslessBoson.acquire(
                             p.pos.x + cosA * hOff,
                             p.pos.y + sinA * hOff,
                             cosA, sinA,
@@ -874,7 +879,7 @@ export default class Physics {
                             p.charge -= charge;
                             if (charge !== 0) p.updateColor();
                             const offset = spawnOffset(p.radius);
-                            pions.push(new Pion(
+                            pions.push(Pion.acquire(
                                 p.pos.x + Math.cos(angle) * offset,
                                 p.pos.y + Math.sin(angle) * offset,
                                 wx, wy, pionMass, charge, p._yukawaRadAccum, p.id
@@ -958,7 +963,7 @@ export default class Physics {
                     const halfDtOverM = halfDt * p.invMass;
                     p.w.x += (p.force1PN.x - p._f1pnOld.x) * halfDtOverM;
                     p.w.y += (p.force1PN.y - p._f1pnOld.y) * halfDtOverM;
-                    if (p.w.x !== p.w.x || p.w.y !== p.w.y) { p.w.x = 0; p.w.y = 0; }
+                    if (p.w.x !== p.w.x || p.w.y !== p.w.y) { p.w.x = 0; p.w.y = 0; p.vel.x = 0; p.vel.y = 0; }
                 }
             }
 
@@ -995,7 +1000,8 @@ export default class Physics {
                 for (let ri = 0; ri < removed.length; ri++) this._retireParticle(removed[ri]);
                 // Annihilation: emit photon burst from matter-antimatter collisions
                 if (annihilations.length > 0 && this.sim) {
-                    for (const ann of annihilations) {
+                    for (let ai = 0; ai < annihilations.length; ai++) {
+                        const ann = annihilations[ai];
                         this.sim.emitPhotonBurst(ann.x, ann.y, ann.energy, 0, -1);
                     }
                 }
@@ -1133,7 +1139,7 @@ export default class Physics {
                 p.histVy[h] = p.vel.y;
                 p.histAngW[h] = p.angw;
                 p.histTime[h] = this.simTime;
-                p.histHead = (h + 1) % HISTORY_SIZE;
+                p.histHead = (h + 1) & HISTORY_MASK;
                 if (p.histCount < HISTORY_SIZE) p.histCount++;
             }
         }
@@ -1170,11 +1176,17 @@ export default class Physics {
                 comY /= totalMassQ;
             }
 
+            // totalKE computed inline to avoid separate O(N) pass
+            let totalKE = 0;
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 const x = p.pos.x - comX, y = p.pos.y - comY;
                 const vx = p.vel.x, vy = p.vel.y;
                 const Fx = p.force.x, Fy = p.force.y;
+
+                // Accumulate KE for quadrupole power clamping
+                const _wSq = p.w.x * p.w.x + p.w.y * p.w.y;
+                if (_wSq > EPSILON_SQ) totalKE += p.mass * _wSq / (Math.sqrt(1 + _wSq) + 1);
 
                 // Analytical jerk for grav + Coulomb + Yukawa (from pairForce)
                 let Jx = p.jerk.x, Jy = p.jerk.y;
@@ -1244,13 +1256,6 @@ export default class Physics {
                 const quadPower = gwPower + emPower;
 
                 if (quadPower > 0) {
-                    // Clamp to 1% of system KE to prevent instability
-                    let totalKE = 0;
-                    for (let i = 0; i < n; i++) {
-                        const p = particles[i];
-                        const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                        totalKE += wSq > EPSILON_SQ ? p.mass * wSq / (Math.sqrt(1 + wSq) + 1) : 0;
-                    }
                     let dE = quadPower * dt;
                     if (totalKE > EPSILON_SQ) dE = Math.min(dE, QUADRUPOLE_POWER_CLAMP * totalKE);
 
@@ -1294,7 +1299,7 @@ export default class Physics {
                             const angle = _quadSample(d3Ixx, d3Ixy);
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
                             const qOff = spawnOffset(p.radius);
-                            const gph = new MasslessBoson(
+                            const gph = MasslessBoson.acquire(
                                 p.pos.x + cosA * qOff,
                                 p.pos.y + sinA * qOff,
                                 cosA, sinA, p._quadAccum, p.id);
@@ -1309,7 +1314,7 @@ export default class Physics {
                             const angle = _quadSample(d3Qxx, d3Qxy);
                             const cosA = Math.cos(angle), sinA = Math.sin(angle);
                             const eOff = spawnOffset(p.radius);
-                            photons.push(new MasslessBoson(
+                            photons.push(MasslessBoson.acquire(
                                 p.pos.x + cosA * eOff,
                                 p.pos.y + sinA * eOff,
                                 cosA, sinA, p._emQuadAccum, p.id));
@@ -1453,18 +1458,7 @@ export default class Physics {
             let maxTidal = 0;
             let strongestOther = null;
             let strongestDx = 0, strongestDy = 0, strongestDist = 0;
-
-            const _checkNeighbor = (other, dx, dy) => {
-                const distSq = dx * dx + dy * dy + softeningSq;
-                const invDistSq = 1 / distSq;
-                const tidalAccel = TIDAL_STRENGTH * other.mass * p.radius * Math.sqrt(invDistSq) * invDistSq;
-                if (tidalAccel > maxTidal) {
-                    maxTidal = tidalAccel;
-                    strongestOther = other;
-                    strongestDx = dx; strongestDy = dy;
-                    strongestDist = Math.sqrt(distSq - softeningSq);
-                }
-            };
+            const pRadius = p.radius;
 
             if (useTree) {
                 const candidates = this.pool.queryReuse(lastRoot,
@@ -1477,7 +1471,15 @@ export default class Physics {
                         minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _disintMiOut);
                         dx = _disintMiOut.x; dy = _disintMiOut.y;
                     }
-                    _checkNeighbor(other, dx, dy);
+                    const distSq = dx * dx + dy * dy + softeningSq;
+                    const invDistSq = 1 / distSq;
+                    const tidalAccel = TIDAL_STRENGTH * other.mass * pRadius * Math.sqrt(invDistSq) * invDistSq;
+                    if (tidalAccel > maxTidal) {
+                        maxTidal = tidalAccel;
+                        strongestOther = other;
+                        strongestDx = dx; strongestDy = dy;
+                        strongestDist = Math.sqrt(distSq - softeningSq);
+                    }
                 }
             } else {
                 for (let oi = 0; oi < particles.length; oi++) {
@@ -1488,7 +1490,15 @@ export default class Physics {
                         minImage(p.pos.x, p.pos.y, other.pos.x, other.pos.y, _topo, _domW, _domH, _halfDomW, _halfDomH, _disintMiOut);
                         dx = _disintMiOut.x; dy = _disintMiOut.y;
                     }
-                    _checkNeighbor(other, dx, dy);
+                    const distSq = dx * dx + dy * dy + softeningSq;
+                    const invDistSq = 1 / distSq;
+                    const tidalAccel = TIDAL_STRENGTH * other.mass * pRadius * Math.sqrt(invDistSq) * invDistSq;
+                    if (tidalAccel > maxTidal) {
+                        maxTidal = tidalAccel;
+                        strongestOther = other;
+                        strongestDx = dx; strongestDy = dy;
+                        strongestDist = Math.sqrt(distSq - softeningSq);
+                    }
                 }
             }
 

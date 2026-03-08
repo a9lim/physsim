@@ -20,7 +20,9 @@ export function resetPEAccum() { _peAccum = 0; }
 /** Get accumulated PE (halved for double-counting since each pair is visited from both sides). */
 export function getPEAccum() { return _peAccum * 0.5; }
 
-/** Zero all per-particle force accumulators and field values before a new substep. */
+/**
+ * Zero per-particle force accumulators and field values before a new substep.
+ */
 export function resetForces(particles) {
     for (let i = 0, n = particles.length; i < n; i++) {
         const p = particles[i];
@@ -37,19 +39,12 @@ export function resetForces(particles) {
         p.forceExternal.x = p.forceExternal.y = 0;
         p.forceHiggs.x = p.forceHiggs.y = 0;
         p.forceAxion.x = p.forceAxion.y = 0;
+        p.Bz = 0; p.dBzdx = 0; p.dBzdy = 0;
+        p.Bgz = 0; p.dBgzdx = 0; p.dBgzdy = 0;
         p.torqueSpinOrbit = 0;
-        p.torqueFrameDrag = 0;
-        p.torqueTidal = 0;
-        p.torqueContact = 0;
-        p.Bz = 0;
-        p.Bgz = 0;
-        p.dBzdx = 0;
-        p.dBzdy = 0;
-        p.dBgzdx = 0;
-        p.dBgzdy = 0;
-        p._frameDragTorque = 0;
-        p._tidalTorque = 0;
-        p._contactTorque = 0;
+        p._frameDragTorque = 0; p.torqueFrameDrag = 0;
+        p._tidalTorque = 0; p.torqueTidal = 0;
+        p.torqueContact = 0; p._contactTorque = 0;
     }
 }
 
@@ -78,6 +73,8 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
     const useSignalDelay = relativityEnabled;
 
     if (barnesHutEnabled) {
+        // Pre-size stack once before per-particle tree walks
+        if (root >= 0 && _bhStack.length < pool.maxNodes) _bhStack = new Int32Array(pool.maxNodes * 2);
         if (root >= 0) for (let i = 0; i < n; i++) {
             calculateForce(particles[i], pool, root, BH_THETA, particles[i].force, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime);
         }
@@ -96,7 +93,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
                     sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
                     // Retarded angular velocity from history
                     const retAngwSq = ret.angw * ret.angw;
-                    const retRadiusSq = Math.cbrt(o.mass) ** 2;
+                    const retRadiusSq = o.bodyRadiusSq;
                     sAngVel = ret.angw / Math.sqrt(1 + retAngwSq * retRadiusSq);
                     sMagMoment = MAG_MOMENT_K * o.charge * sAngVel * retRadiusSq;
                     sAngMomentum = INERTIA_K * o.mass * sAngVel * retRadiusSq;
@@ -130,7 +127,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
                 if (!ret) continue;
                 // Retarded angular velocity from history (use _deathMass for radius)
                 const retAngwSq = ret.angw * ret.angw;
-                const retRadiusSq = Math.cbrt(o._deathMass) ** 2;
+                const retRadiusSq = o.bodyRadiusSq;
                 const retAngVel = ret.angw / Math.sqrt(1 + retAngwSq * retRadiusSq);
                 const retMagMoment = MAG_MOMENT_K * o.charge * retAngVel * retRadiusSq;
                 const retAngMomentum = INERTIA_K * o._deathMass * retAngVel * retRadiusSq;
@@ -203,7 +200,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 
     // Deferred computation: axMod/yukMod geometric means only when needed
-    const needAxMod = toggles.coulombEnabled || toggles.magneticEnabled;
+    const needAxMod = (toggles.coulombEnabled || toggles.magneticEnabled) && toggles.axionEnabled;
     const axModPair = needAxMod ? Math.sqrt(p.axMod * sAxMod) : 1;
 
     if (toggles.coulombEnabled) {
@@ -225,13 +222,13 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const r = 1 / invR;  // recover r from invR (cheaper than sqrt)
         const nx = rx * invR, ny = ry * invR;
         const pvx = p.vel.x, pvy = p.vel.y;
+        const v1DotV2 = pvx * svx + pvy * svy;
 
         if (toggles.gravitomagEnabled) {
             const v1Sq = pvx * pvx + pvy * pvy;
             const v2Sq = svx * svx + svy * svy;
             const nDotV1 = nx * pvx + ny * pvy;
             const nDotV2 = nx * svx + ny * svy;
-            const v1DotV2 = pvx * svx + pvy * svy;
             const radial = -v1Sq - 2 * v2Sq
                 + 1.5 * nDotV2 * nDotV2
                 + 5 * p.mass * invR + 4 * sMass * invR;
@@ -265,7 +262,6 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
             p.force1PN.y += symY;
             // Darwin PE: -0.5q₁q₂/r · [v₁·v₂ + (v₁·n̂)(v₂·n̂)]
             if (_accumulatePE) {
-                const v1DotV2 = pvx * svx + pvy * svy;
                 _peAccum -= 0.5 * p.charge * sCharge * invR * (v1DotV2 + v1DotN * v2DotN);
             }
         }
@@ -384,7 +380,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const dw = p.angVel - wOrbit;
         let coupling = sMass;
         if (toggles.coulombEnabled && p.mass > EPSILON) coupling += p.charge * sCharge / p.mass;
-        const ri5 = p.radiusSq * p.radiusSq * p.radius;
+        const ri5 = p.bodyRadiusSq * p.bodyRadiusSq * Math.cbrt(p.mass);
         const invR6 = invRSq * invRSq * invRSq;
         p._tidalTorque -= TIDAL_STRENGTH * coupling * coupling * ri5 * invR6 * dw;
     }
@@ -463,7 +459,6 @@ function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, dom
     const pvx = particle.vel.x, pvy = particle.vel.y;
     const pMass = particle.mass, pCharge = particle.charge;
     let stackTop = 0;
-    if (_1pnStack.length < pool.maxNodes) _1pnStack = new Int32Array(pool.maxNodes);
     _1pnStack[stackTop++] = rootIdx;
 
     while (stackTop > 0) {
@@ -532,6 +527,7 @@ export function compute1PN(particles, SOFTENING_SQ_VAL, periodic, domW, domH, ha
     }
 
     if (barnesHutEnabled && root >= 0) {
+        if (_1pnStack.length < pool.maxNodes) _1pnStack = new Int32Array(pool.maxNodes * 2);
         for (let i = 0; i < n; i++) {
             _compute1PNTreeWalk(particles[i], pool, root,
                 SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology,
@@ -572,7 +568,6 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
     const thetaSq = BH_THETA_SQ;
     const px = particle.pos.x, py = particle.pos.y;
     let stackTop = 0;
-    if (_bhStack.length < pool.maxNodes) _bhStack = new Int32Array(pool.maxNodes);
     _bhStack[stackTop++] = rootIdx;
 
     while (stackTop > 0) {
@@ -606,7 +601,7 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
                     sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
                     // Retarded angular velocity from history
                     const retAngwSq = ret.angw * ret.angw;
-                    const retRadiusSq = Math.cbrt(other.mass) ** 2;
+                    const retRadiusSq = real.bodyRadiusSq;
                     sAngVel = ret.angw / Math.sqrt(1 + retAngwSq * retRadiusSq);
                     sMagMom = MAG_MOMENT_K * other.charge * sAngVel * retRadiusSq;
                     sAngMom = INERTIA_K * other.mass * sAngVel * retRadiusSq;
@@ -637,7 +632,7 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
 /**
  * Gravitational force from photons and pions onto particles.
  * Photon gravitational mass = energy (E=mc², c=1).
- * Pion gravitational mass = total energy = m·γ = m·√(1+w²).
+ * Pion gravitational mass = m·γ (cached as pn.gravMass by _syncVel).
  */
 export function computeBosonGravity(particles, photons, pions, softeningSq) {
     const n = particles.length;
@@ -655,7 +650,8 @@ export function computeBosonGravity(particles, photons, pions, softeningSq) {
             const dx = ph.pos.x - p.pos.x;
             const dy = ph.pos.y - p.pos.y;
             const rSq = dx * dx + dy * dy + softeningSq;
-            const invR3 = 1 / (rSq * Math.sqrt(rSq));
+            const invR = 1 / Math.sqrt(rSq);
+            const invR3 = invR * invR * invR;
             const f = pm * ph.energy * invR3;
             p.force.x += dx * f;
             p.force.y += dy * f;
@@ -669,9 +665,9 @@ export function computeBosonGravity(particles, photons, pions, softeningSq) {
             const dx = pn.pos.x - p.pos.x;
             const dy = pn.pos.y - p.pos.y;
             const rSq = dx * dx + dy * dy + softeningSq;
-            const invR3 = 1 / (rSq * Math.sqrt(rSq));
-            const wSq = pn.w.x * pn.w.x + pn.w.y * pn.w.y;
-            const f = pm * pn.mass * Math.sqrt(1 + wSq) * invR3;
+            const invR = 1 / Math.sqrt(rSq);
+            const invR3 = invR * invR * invR;
+            const f = pm * pn.gravMass * invR3;
             p.force.x += dx * f;
             p.force.y += dy * f;
             p.forceGravity.x += dx * f;
@@ -683,6 +679,7 @@ export function computeBosonGravity(particles, photons, pions, softeningSq) {
 /**
  * Mutual gravitational interaction between bosons (photon-photon, photon-pion, pion-pion).
  * GR deflection factors: 2 for photons (null geodesic), 1+v² for pions (massive).
+ * Uses cached gravMass (= 2E for photons, m·γ for pions) and vSq from _syncVel().
  * Uses BOSON_SOFTENING_SQ for point-like boson interactions.
  */
 export function applyBosonBosonGravity(photons, pions, dt) {
@@ -698,10 +695,11 @@ export function applyBosonBosonGravity(photons, pions, dt) {
             const dx = b.pos.x - a.pos.x;
             const dy = b.pos.y - a.pos.y;
             const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            const invR3 = dt / (rSq * Math.sqrt(rSq));
-            // Both on null geodesics: GR factor 2
-            const fA = 2 * b.energy * invR3;
-            const fB = 2 * a.energy * invR3;
+            const invR = 1 / Math.sqrt(rSq);
+            const invR3dt = dt * invR * invR * invR;
+            // Both on null geodesics: gravMass = 2·energy includes GR factor
+            const fA = b.gravMass * invR3dt;
+            const fB = a.gravMass * invR3dt;
             a.vel.x += dx * fA;
             a.vel.y += dy * fA;
             b.vel.x -= dx * fB;
@@ -717,16 +715,14 @@ export function applyBosonBosonGravity(photons, pions, dt) {
             const dx = pn.pos.x - ph.pos.x;
             const dy = pn.pos.y - ph.pos.y;
             const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            const invR3 = dt / (rSq * Math.sqrt(rSq));
-            const wSq = pn.w.x * pn.w.x + pn.w.y * pn.w.y;
-            const pionGravMass = pn.mass * Math.sqrt(1 + wSq);
-            // Photon deflected by pion: GR factor 2
-            const fPh = 2 * pionGravMass * invR3;
+            const invR = 1 / Math.sqrt(rSq);
+            const invR3dt = dt * invR * invR * invR;
+            // Photon deflected by pion: GR factor 2, pion gravMass = m·γ
+            const fPh = 2 * pn.gravMass * invR3dt;
             ph.vel.x += dx * fPh;
             ph.vel.y += dy * fPh;
             // Pion deflected by photon: GR factor 1+v²
-            const vSq = pn.vel.x * pn.vel.x + pn.vel.y * pn.vel.y;
-            const fPn = (1 + vSq) * ph.energy * invR3;
+            const fPn = (1 + pn.vSq) * ph.energy * invR3dt;
             pn.w.x -= dx * fPn;
             pn.w.y -= dy * fPn;
         }
@@ -735,22 +731,19 @@ export function applyBosonBosonGravity(photons, pions, dt) {
     // Pion-pion (symmetric pairs)
     for (let i = 0; i < nPi; i++) {
         const a = pions[i];
-        const wSqA = a.w.x * a.w.x + a.w.y * a.w.y;
-        const gravMassA = a.mass * Math.sqrt(1 + wSqA);
-        const vSqA = a.vel.x * a.vel.x + a.vel.y * a.vel.y;
+        const gravMassA = a.gravMass;
+        const vSqA = a.vSq;
         for (let j = i + 1; j < nPi; j++) {
             const b = pions[j];
             const dx = b.pos.x - a.pos.x;
             const dy = b.pos.y - a.pos.y;
             const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            const invR3 = dt / (rSq * Math.sqrt(rSq));
-            const wSqB = b.w.x * b.w.x + b.w.y * b.w.y;
-            const gravMassB = b.mass * Math.sqrt(1 + wSqB);
-            const vSqB = b.vel.x * b.vel.x + b.vel.y * b.vel.y;
-            const fA = (1 + vSqA) * gravMassB * invR3;
+            const invR = 1 / Math.sqrt(rSq);
+            const invR3dt = dt * invR * invR * invR;
+            const fA = (1 + vSqA) * b.gravMass * invR3dt;
             a.w.x += dx * fA;
             a.w.y += dy * fA;
-            const fB = (1 + vSqB) * gravMassA * invR3;
+            const fB = (1 + b.vSq) * gravMassA * invR3dt;
             b.w.x -= dx * fB;
             b.w.y -= dy * fB;
         }
@@ -766,7 +759,7 @@ export function applyBosonBosonGravity(photons, pions, dt) {
         }
     }
 
-    // Sync pion coordinate velocities from proper velocity
+    // Sync pion coordinate velocities from proper velocity (also refreshes cached vSq/gravMass)
     for (let i = 0; i < nPi; i++) {
         pions[i]._syncVel();
     }

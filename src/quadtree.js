@@ -1,8 +1,6 @@
 // ─── Barnes-Hut Quadtree ───
 // SoA flat typed-array pool: pre-allocated, doubles on overflow, zero GC per frame.
 
-import { INERTIA_K, MAG_MOMENT_K } from './config.js';
-
 const NONE = -1;
 
 export default class QuadTreePool {
@@ -138,7 +136,6 @@ export default class QuadTreePool {
                     this.insert(this.ne[idx], p, depth + 1) ||
                     this.insert(this.sw[idx], p, depth + 1) ||
                     this.insert(this.se[idx], p, depth + 1);
-                this.points[base + i] = null;
             }
             this.pointCount[idx] = 0;
         }
@@ -192,8 +189,8 @@ export default class QuadTreePool {
                     const pm = p.mass;
                     mass += pm;
                     charge += p.charge;
-                    magMom += p.magMoment !== undefined ? p.magMoment : MAG_MOMENT_K * p.charge * p.angVel * rSq;
-                    angMom += p.angMomentum !== undefined ? p.angMomentum : INERTIA_K * pm * p.angVel * rSq;
+                    magMom += p.magMoment;
+                    angMom += p.angMomentum;
                     cx += p.pos.x * pm;
                     cy += p.pos.y * pm;
                     momX += pm * p.w.x;

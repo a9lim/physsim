@@ -22,11 +22,34 @@ const _forceCompColors = {
     axion:       _PAL.extended.indigo,
 };
 
+// Force component types for batched rendering: [propName, color, unused] triples
+// Third element pads to 3-stride for loop indexing
+const _forceCompTypes = [
+    'forceGravity',    _forceCompColors.gravity,    0,
+    'forceCoulomb',    _forceCompColors.coulomb,     0,
+    'forceMagnetic',   _forceCompColors.magnetic,    0,
+    'forceGravitomag', _forceCompColors.gravitomag,  0,
+    'force1PN',        _forceCompColors.onepn,       0,
+    'forceSpinCurv',   _forceCompColors.spinCurv,    0,
+    'forceRadiation',  _forceCompColors.radiation,   0,
+    'forceYukawa',     _forceCompColors.yukawa,      0,
+    'forceExternal',   _forceCompColors.external,    0,
+    'forceHiggs',      _forceCompColors.higgs,       0,
+    'forceAxion',      _forceCompColors.axion,       0,
+];
+
 // Spin ring colors by sign
 const _spinColors = {
     pos: { light: `hsla(${_PAL.spinPos},80%,60%,0.8)`, dark: `hsla(${_PAL.spinPos},80%,60%,0.9)` },
     neg: { light: `hsla(${_PAL.spinNeg},80%,60%,0.8)`, dark: `hsla(${_PAL.spinNeg},80%,60%,0.9)` },
 };
+
+// Pre-allocated dash patterns (avoid per-call array allocation)
+const _ERGO_DASH = [0.3, 0.3];
+const _ANTI_DASH = [0.5, 0.3];
+const _NO_DASH = [];
+const _DRAG_DASH = [5, 5];
+const _DRAG_DASH_AM = [3, 3];
 
 export default class Renderer {
     constructor(ctx, width, height) {
@@ -45,6 +68,11 @@ export default class Renderer {
         this.higgsField = null;
         this.axionField = null;
         this._fieldFrame = 0;
+        // Pre-allocated buffers for batched arrow rendering
+        // 4 floats per line (x1,y1,x2,y2), 6 floats per head (3 vertices × 2)
+        // Sized for 256 particles; _ensureArrowBuffers() grows if needed
+        this._arrowLines = new Float32Array(256 * 4);
+        this._arrowHeads = new Float32Array(256 * 6);
         // Viewport culling bounds (set per-frame in render())
         this._vpLeft = 0;
         this._vpRight = 0;
@@ -59,6 +87,14 @@ export default class Renderer {
 
     setTheme(isLight) {
         this.isLight = isLight;
+        // Cache theme-dependent RGBA strings to avoid per-frame allocation
+        this._ergoStyle = isLight ? _r(_PAL.light.text, 0.3) : _r(_PAL.dark.text, 0.4);
+        this._neutralGlow = isLight ? null : _r(_PAL.dark.text, 0.5);
+        this._photonEmGlow = _r(_PAL.extended.yellow, 0.5);
+        this._photonGravGlow = _r(_PAL.extended.red, 0.5);
+        this._pionGlow = _r(_PAL.extended.green, 0.5);
+        this._dragColor = isLight
+            ? _r(_PAL.light.text, 0.4) : _r(_PAL.dark.text, 0.5);
     }
 
     render(particles, dt = 0.016, camera, photons, pions) {
@@ -116,6 +152,9 @@ export default class Renderer {
         ctx.shadowBlur = 0;
 
         const invZoom = 1 / (camera ? camera.zoom : 1);
+        if (this.showVelocity || this.showForce || this.showForceComponents) {
+            this._ensureArrowBuffers(particles.length);
+        }
         if (this.showVelocity) this.drawVelocityVectors(ctx, particles, invZoom, isLight);
         if (this.showForce) {
             this.drawForceVectors(ctx, particles, invZoom, isLight);
@@ -134,11 +173,11 @@ export default class Renderer {
             ctx.lineTo(end.x, end.y);
             ctx.strokeStyle = this.input._rightButton
                 ? (isLight ? 'rgba(136,136,136,0.6)' : 'rgba(204,204,204,0.7)')
-                : (isLight ? _r(_PAL.light.text, 0.4) : _r(_PAL.dark.text, 0.5));
+                : this._dragColor;
             ctx.lineWidth = 1 / (camera ? camera.zoom : 1);
-            ctx.setLineDash(this.input._rightButton ? [3, 3] : [5, 5]);
+            ctx.setLineDash(this.input._rightButton ? _DRAG_DASH_AM : _DRAG_DASH);
             ctx.stroke();
-            ctx.setLineDash([]);
+            ctx.setLineDash(_NO_DASH);
         }
 
         ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -230,8 +269,8 @@ export default class Renderer {
         ctx.globalCompositeOperation = blendMode;
 
         const bhEnabled = window.sim && window.sim.physics.blackHoleEnabled;
-        const ergoStyle = isLight ? _r(_PAL.light.text, 0.3) : _r(_PAL.dark.text, 0.4);
-        const neutralGlow = !isLight ? _r(_PAL.dark.text, 0.5) : null;
+        const ergoStyle = this._ergoStyle;
+        const neutralGlow = this._neutralGlow;
 
         // Viewport culling bounds with margin for glow/ergosphere
         const vpL = this._vpLeft - 10, vpR = this._vpRight + 10;
@@ -283,7 +322,7 @@ export default class Renderer {
             }
             if (bhEnabled && p.mass > 0) {
                 const M = p.mass;
-                const a = INERTIA_K * Math.cbrt(p.mass) ** 2 * Math.abs(p.angVel);
+                const a = INERTIA_K * p.bodyRadiusSq * Math.abs(p.angVel);
                 const rErgo = M + Math.sqrt(Math.max(0, M * M - a * a));
                 if (rErgo > p.radius + 0.3) {
                     ctx.globalCompositeOperation = 'source-over';
@@ -291,9 +330,9 @@ export default class Renderer {
                     ctx.arc(p.pos.x, p.pos.y, rErgo, 0, TWO_PI);
                     ctx.strokeStyle = ergoStyle;
                     ctx.lineWidth = 0.15;
-                    ctx.setLineDash([0.3, 0.3]);
+                    ctx.setLineDash(_ERGO_DASH);
                     ctx.stroke();
-                    ctx.setLineDash([]);
+                    ctx.setLineDash(_NO_DASH);
                     ctx.globalCompositeOperation = blendMode;
                 }
             }
@@ -305,37 +344,45 @@ export default class Renderer {
                 ctx.arc(p.pos.x, p.pos.y, p.radius + 0.4, 0, TWO_PI);
                 ctx.strokeStyle = isLight ? '#888' : '#ccc';
                 ctx.lineWidth = 0.25;
-                ctx.setLineDash([0.5, 0.3]);
+                ctx.setLineDash(_ANTI_DASH);
                 ctx.stroke();
-                ctx.setLineDash([]);
+                ctx.setLineDash(_NO_DASH);
                 ctx.globalCompositeOperation = blendMode;
             }
         }
     }
 
-    drawArrow(ctx, x1, y1, x2, y2, invZoom, color) {
-        const dx = x2 - x1, dy = y2 - y1;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 0.5 * invZoom) return;
+    // Ensure arrow buffers can hold n arrows
+    _ensureArrowBuffers(n) {
+        if (n * 4 > this._arrowLines.length) {
+            this._arrowLines = new Float32Array(n * 4);
+            this._arrowHeads = new Float32Array(n * 6);
+        }
+    }
 
-        const nx = dx / len, ny = dy / len;
-        const hasHead = len >= 0.5;
-        const headLen = 0.5;
-
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(hasHead ? x2 - nx * headLen : x2, hasHead ? y2 - ny * headLen : y2);
+    // Batched arrow drawing: accumulates all line segments into one path and
+    // all arrowheads into another, then issues a single stroke + single fill.
+    // Reduces canvas API calls from O(arrows) to O(1) per color batch.
+    _batchArrowsDraw(ctx, color, invZoom, lines, heads) {
+        if (lines.length === 0) return;
         ctx.strokeStyle = color;
         ctx.lineWidth = 0.25;
+        ctx.beginPath();
+        for (let i = 0, len = lines.length; i < len; i += 4) {
+            ctx.moveTo(lines[i], lines[i + 1]);
+            ctx.lineTo(lines[i + 2], lines[i + 3]);
+        }
         ctx.stroke();
 
-        if (hasHead) {
-            ctx.beginPath();
-            ctx.moveTo(x2, y2);
-            ctx.lineTo(x2 - nx * headLen + ny * headLen * 0.5, y2 - ny * headLen - nx * headLen * 0.5);
-            ctx.lineTo(x2 - nx * headLen - ny * headLen * 0.5, y2 - ny * headLen + nx * headLen * 0.5);
-            ctx.closePath();
+        if (heads.length > 0) {
             ctx.fillStyle = color;
+            ctx.beginPath();
+            for (let i = 0, len = heads.length; i < len; i += 6) {
+                ctx.moveTo(heads[i], heads[i + 1]);
+                ctx.lineTo(heads[i + 2], heads[i + 3]);
+                ctx.lineTo(heads[i + 4], heads[i + 5]);
+                ctx.closePath();
+            }
             ctx.fill();
         }
     }
@@ -343,61 +390,120 @@ export default class Renderer {
     drawVelocityVectors(ctx, particles, invZoom, isLight) {
         const scale = VELOCITY_VECTOR_SCALE;
         const color = isLight ? _PAL.light.text : _PAL.dark.text;
-        for (const p of particles) {
+        const minMag = 1 * invZoom;
+        const headLen = 0.5;
+        const lines = this._arrowLines;
+        const heads = this._arrowHeads;
+        let lc = 0, hc = 0;
+
+        for (let i = 0, len = particles.length; i < len; i++) {
+            const p = particles[i];
             const vx = p.vel.x * scale, vy = p.vel.y * scale;
             const mag = Math.sqrt(vx * vx + vy * vy);
-            if (mag < 1 * invZoom) continue;
-            this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + vx, p.pos.y + vy, invZoom, color);
+            if (mag < minMag) continue;
+            const px = p.pos.x, py = p.pos.y;
+            const ex = px + vx, ey = py + vy;
+            const nx = vx / mag, ny = vy / mag;
+            const hasHead = mag >= 0.5;
+            lines[lc++] = px; lines[lc++] = py;
+            lines[lc++] = hasHead ? ex - nx * headLen : ex;
+            lines[lc++] = hasHead ? ey - ny * headLen : ey;
+            if (hasHead) {
+                heads[hc++] = ex; heads[hc++] = ey;
+                heads[hc++] = ex - nx * headLen + ny * headLen * 0.5;
+                heads[hc++] = ey - ny * headLen - nx * headLen * 0.5;
+                heads[hc++] = ex - nx * headLen - ny * headLen * 0.5;
+                heads[hc++] = ey - ny * headLen + nx * headLen * 0.5;
+            }
         }
+        this._batchArrowsDraw(ctx, color, invZoom,
+            lc < lines.length ? lines.subarray(0, lc) : lines,
+            hc < heads.length ? heads.subarray(0, hc) : heads);
     }
 
     drawForceVectors(ctx, particles, invZoom, isLight) {
         const scale = FORCE_VECTOR_SCALE;
         const color = isLight ? _PAL.accent : _PAL.accentLight;
-        for (const p of particles) {
-            // Sum all 8 component vectors (includes Boris display forces)
+        const minLen = 0.5 * invZoom;
+        const threshold = 0.1 * invZoom;
+        const headLen = 0.5;
+        const lines = this._arrowLines;
+        const heads = this._arrowHeads;
+        let lc = 0, hc = 0;
+
+        for (let i = 0, len = particles.length; i < len; i++) {
+            const p = particles[i];
             const s = scale / p.mass;
-            let fx = (p.forceGravity.x + p.forceCoulomb.x + p.forceMagnetic.x + p.forceGravitomag.x + p.force1PN.x + p.forceSpinCurv.x + p.forceRadiation.x + p.forceYukawa.x + p.forceExternal.x + p.forceHiggs.x + p.forceAxion.x) * s;
-            let fy = (p.forceGravity.y + p.forceCoulomb.y + p.forceMagnetic.y + p.forceGravitomag.y + p.force1PN.y + p.forceSpinCurv.y + p.forceRadiation.y + p.forceYukawa.y + p.forceExternal.y + p.forceHiggs.y + p.forceAxion.y) * s;
+            const fx = p.force.x * s;
+            const fy = p.force.y * s;
             const mag = Math.sqrt(fx * fx + fy * fy);
-            if (mag < 0.1 * invZoom) continue;
-            this.drawArrow(ctx, p.pos.x, p.pos.y, p.pos.x + fx, p.pos.y + fy, invZoom, color);
+            if (mag < threshold) continue;
+            const px = p.pos.x, py = p.pos.y;
+            const ex = px + fx, ey = py + fy;
+            if (mag < minLen) continue;
+            const nx = fx / mag, ny = fy / mag;
+            const hasHead = mag >= 0.5;
+            lines[lc++] = px; lines[lc++] = py;
+            lines[lc++] = hasHead ? ex - nx * headLen : ex;
+            lines[lc++] = hasHead ? ey - ny * headLen : ey;
+            if (hasHead) {
+                heads[hc++] = ex; heads[hc++] = ey;
+                heads[hc++] = ex - nx * headLen + ny * headLen * 0.5;
+                heads[hc++] = ey - ny * headLen - nx * headLen * 0.5;
+                heads[hc++] = ex - nx * headLen - ny * headLen * 0.5;
+                heads[hc++] = ey - ny * headLen + nx * headLen * 0.5;
+            }
         }
+        this._batchArrowsDraw(ctx, color, invZoom,
+            lc < lines.length ? lines.subarray(0, lc) : lines,
+            hc < heads.length ? heads.subarray(0, hc) : heads);
     }
 
     drawForceComponentVectors(ctx, particles, invZoom, isLight) {
         const scale = FORCE_VECTOR_SCALE;
         const threshold = 0.1 * invZoom;
         const threshSq = threshold * threshold;
-        // Iterate particles in outer loop to maximize cache locality
-        for (let i = 0, len = particles.length; i < len; i++) {
-            const p = particles[i];
-            const s = scale / p.mass;
-            const px = p.pos.x, py = p.pos.y;
-            // Inline each force to avoid dynamic property lookup
-            let fx, fy;
-            fx = p.forceGravity.x * s; fy = p.forceGravity.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.gravity);
-            fx = p.forceCoulomb.x * s; fy = p.forceCoulomb.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.coulomb);
-            fx = p.forceMagnetic.x * s; fy = p.forceMagnetic.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.magnetic);
-            fx = p.forceGravitomag.x * s; fy = p.forceGravitomag.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.gravitomag);
-            fx = p.force1PN.x * s; fy = p.force1PN.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.onepn);
-            fx = p.forceSpinCurv.x * s; fy = p.forceSpinCurv.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.spinCurv);
-            fx = p.forceRadiation.x * s; fy = p.forceRadiation.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.radiation);
-            fx = p.forceYukawa.x * s; fy = p.forceYukawa.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.yukawa);
-            fx = p.forceExternal.x * s; fy = p.forceExternal.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.external);
-            fx = p.forceHiggs.x * s; fy = p.forceHiggs.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.higgs);
-            fx = p.forceAxion.x * s; fy = p.forceAxion.y * s;
-            if (fx * fx + fy * fy >= threshSq) this.drawArrow(ctx, px, py, px + fx, py + fy, invZoom, _forceCompColors.axion);
+        const minLen = 0.5 * invZoom;
+        const headLen = 0.5;
+        const lines = this._arrowLines;
+        const heads = this._arrowHeads;
+
+        // Batch by force type: one stroke + one fill per force color
+        // Force field name, Vec2 property pairs
+        const forceTypes = _forceCompTypes;
+
+        for (let f = 0; f < forceTypes.length; f += 3) {
+            const forceProp = forceTypes[f];
+            const color = forceTypes[f + 1];
+            let lc = 0, hc = 0;
+
+            for (let i = 0, len = particles.length; i < len; i++) {
+                const p = particles[i];
+                const s = scale / p.mass;
+                const fv = p[forceProp];
+                const fx = fv.x * s, fy = fv.y * s;
+                if (fx * fx + fy * fy < threshSq) continue;
+                const mag = Math.sqrt(fx * fx + fy * fy);
+                if (mag < minLen) continue;
+                const px = p.pos.x, py = p.pos.y;
+                const ex = px + fx, ey = py + fy;
+                const nx = fx / mag, ny = fy / mag;
+                const hasHead = mag >= 0.5;
+                lines[lc++] = px; lines[lc++] = py;
+                lines[lc++] = hasHead ? ex - nx * headLen : ex;
+                lines[lc++] = hasHead ? ey - ny * headLen : ey;
+                if (hasHead) {
+                    heads[hc++] = ex; heads[hc++] = ey;
+                    heads[hc++] = ex - nx * headLen + ny * headLen * 0.5;
+                    heads[hc++] = ey - ny * headLen - nx * headLen * 0.5;
+                    heads[hc++] = ex - nx * headLen - ny * headLen * 0.5;
+                    heads[hc++] = ey - ny * headLen + nx * headLen * 0.5;
+                }
+            }
+            if (lc > 0) {
+                this._batchArrowsDraw(ctx, color, invZoom,
+                    lines.subarray(0, lc), heads.subarray(0, hc));
+            }
         }
     }
 
@@ -503,8 +609,12 @@ export default class Renderer {
         for (let pass = 0; pass < 2; pass++) {
             const isGrav = pass === 1;
             const color = isGrav ? _PAL.extended.red : _PAL.extended.yellow;
-            const glowColor = _r(color, 0.5);
             ctx.fillStyle = color;
+
+            if (!isLight) {
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = isGrav ? this._photonGravGlow : this._photonEmGlow;
+            }
 
             for (let i = 0, len = photons.length; i < len; i++) {
                 const ph = photons[i];
@@ -514,10 +624,6 @@ export default class Renderer {
                 if (alpha <= 0) continue;
                 const size = 0.25 + 2 * ph.energy;
                 const r = size < 5 ? size : 5;
-                if (!isLight) {
-                    ctx.shadowBlur = size * 3 < 15 ? size * 3 : 15;
-                    ctx.shadowColor = glowColor;
-                }
                 ctx.globalAlpha = alpha * alphaScale;
                 ctx.beginPath();
                 ctx.arc(ph.pos.x, ph.pos.y, r, 0, TWO_PI);
@@ -530,11 +636,15 @@ export default class Renderer {
 
     drawPions(ctx, pions, isLight) {
         ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
-        ctx.shadowBlur = 0;
         const alphaScale = isLight ? 0.7 : 0.9;
-        const color = _PAL.extended.green;
-        const glowColor = _r(color, 0.5);
-        ctx.fillStyle = color;
+        ctx.fillStyle = _PAL.extended.green;
+
+        if (!isLight) {
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = this._pionGlow;
+        } else {
+            ctx.shadowBlur = 0;
+        }
 
         const vpL = this._vpLeft - 5, vpR = this._vpRight + 5;
         const vpT = this._vpTop - 5, vpB = this._vpBottom + 5;
@@ -544,10 +654,6 @@ export default class Renderer {
             if (pn.pos.x < vpL || pn.pos.x > vpR || pn.pos.y < vpT || pn.pos.y > vpB) continue;
             const size = 0.25 + 2 * pn.energy;
             const r = size < 5 ? size : 5;
-            if (!isLight) {
-                ctx.shadowBlur = size * 3 < 15 ? size * 3 : 15;
-                ctx.shadowColor = glowColor;
-            }
             ctx.globalAlpha = alphaScale;
             ctx.beginPath();
             ctx.arc(pn.pos.x, pn.pos.y, r, 0, TWO_PI);

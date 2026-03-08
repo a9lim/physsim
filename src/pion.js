@@ -6,6 +6,12 @@ import Vec2 from './vec2.js';
 import { BOSON_SOFTENING_SQ, ELECTRON_MASS, MAX_SPEED_RATIO, EPSILON, spawnOffset } from './config.js';
 import { treeDeflectBoson } from './boson-utils.js';
 
+// ─── Object Pool ───
+// Recycles dead Pion instances to eliminate GC pressure from
+// frequent new/splice in the physics substep loop.
+const _pool = [];
+let _poolSize = 0;
+
 export default class Pion {
     constructor(x, y, wx, wy, mass, charge, energy, emitterId = -1) {
         this.pos = new Vec2(x, y);
@@ -14,6 +20,8 @@ export default class Pion {
         this.mass = mass;
         this.charge = charge;   // +1, -1, or 0
         this.energy = energy;
+        this.vSq = 0;       // cached coordinate velocity squared (set by _syncVel)
+        this.gravMass = 0;   // cached gravitational mass = m·γ (set by _syncVel)
         this.lifetime = 0;
         this.alive = true;
         this.emitterId = emitterId;
@@ -21,17 +29,54 @@ export default class Pion {
         this._syncVel();
     }
 
+    /** Reset all fields for pool reuse (avoids constructor allocation). */
+    _reset(x, y, wx, wy, mass, charge, energy, emitterId) {
+        this.pos.x = x; this.pos.y = y;
+        this.w.x = wx; this.w.y = wy;
+        this.mass = mass;
+        this.charge = charge;
+        this.energy = energy;
+        this.lifetime = 0;
+        this.alive = true;
+        this.emitterId = emitterId;
+        this.age = 0;
+        this._syncVel();
+    }
+
+    /** Acquire a Pion from the pool or create a new one. */
+    static acquire(x, y, wx, wy, mass, charge, energy, emitterId = -1) {
+        if (_poolSize > 0) {
+            const p = _pool[--_poolSize];
+            p._reset(x, y, wx, wy, mass, charge, energy, emitterId);
+            return p;
+        }
+        return new Pion(x, y, wx, wy, mass, charge, energy, emitterId);
+    }
+
+    /** Return a dead pion to the pool for later reuse. */
+    static release(p) {
+        _pool[_poolSize++] = p;
+    }
+
+    /** Drain all pooled instances (call on simulation reset). */
+    static clearPool() {
+        _poolSize = 0;
+        _pool.length = 0;
+    }
+
     _syncVel() {
         const wSq = this.w.x * this.w.x + this.w.y * this.w.y;
-        const invG = 1 / Math.sqrt(1 + wSq);
+        const gamma = Math.sqrt(1 + wSq);
+        const invG = 1 / gamma;
         this.vel.x = this.w.x * invG;
         this.vel.y = this.w.y * invG;
+        this.vSq = this.vel.x * this.vel.x + this.vel.y * this.vel.y;
+        this.gravMass = this.mass * gamma; // relativistic mass = m·γ
     }
 
     update(dt, particles, pool, root) {
         // Gravitational deflection: massive particle gets (1+v²) factor, not 2
-        const vSq = this.vel.x * this.vel.x + this.vel.y * this.vel.y;
-        const grFactor = 1 + vSq;
+        const grFactor = 1 + this.vSq;
         if (pool && root >= 0) {
             treeDeflectBoson(this.pos, this.w, grFactor, dt, pool, root);
         } else if (particles) {
@@ -93,7 +138,7 @@ export default class Pion {
                 if (pMag < EPSILON) continue; // degenerate kinematics
                 const eBoosted = pMag; // massless: E = |p|
                 const cosA = pxR / pMag, sinA = pyR / pMag;
-                const ph = new Boson(
+                const ph = Boson.acquire(
                     this.pos.x + cosA * offset,
                     this.pos.y + sinA * offset,
                     cosA, sinA, eBoosted, this.emitterId
@@ -112,7 +157,7 @@ export default class Pion {
                 // Not enough rest energy for electron — emit photon only
                 const angle = Math.atan2(this.vel.y, this.vel.x);
                 const cosA = Math.cos(angle), sinA = Math.sin(angle);
-                const ph = new Boson(
+                const ph = Boson.acquire(
                     this.pos.x + cosA * offset,
                     this.pos.y + sinA * offset,
                     cosA, sinA, this.energy, this.emitterId
@@ -165,7 +210,7 @@ export default class Pion {
             const phMag = Math.sqrt(phPx * phPx + phPy * phPy);
             if (phMag < EPSILON) { this.alive = false; return; } // degenerate kinematics
             const phCos = phPx / phMag, phSin = phPy / phMag;
-            const ph = new Boson(
+            const ph = Boson.acquire(
                 this.pos.x + phCos * offset,
                 this.pos.y + phSin * offset,
                 phCos, phSin, phMag, this.emitterId

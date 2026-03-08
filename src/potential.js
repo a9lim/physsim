@@ -33,7 +33,7 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
                     if (!ret) continue;
                     sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
                     const retAngwSq = ret.angw * ret.angw;
-                    const retRadiusSq = Math.cbrt(o.mass) ** 2;
+                    const retRadiusSq = o.bodyRadiusSq;
                     sAngVel = ret.angw / Math.sqrt(1 + retAngwSq * retRadiusSq);
                     sMagMoment = MAG_MOMENT_K * o.charge * sAngVel * retRadiusSq;
                     sAngMomentum = INERTIA_K * o.mass * sAngVel * retRadiusSq;
@@ -102,7 +102,7 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
                     if (!ret) continue;
                     sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
                     const retAngwSq = ret.angw * ret.angw;
-                    const retRadiusSq = Math.cbrt(other.mass) ** 2;
+                    const retRadiusSq = other.bodyRadiusSq;
                     sAngVel = ret.angw / Math.sqrt(1 + retAngwSq * retRadiusSq);
                     sMagMom = MAG_MOMENT_K * other.charge * sAngVel * retRadiusSq;
                     sAngMom = INERTIA_K * other.mass * sAngVel * retRadiusSq;

@@ -38,7 +38,7 @@ export default class Particle {
         this.torqueFrameDrag = 0;
         this.torqueTidal = 0;
         this.torqueContact = 0;
-        this._f1pnOld = { x: 0, y: 0 };
+        this._f1pnOld = new Vec2(0, 0);
 
         this.mass = mass;
         this.baseMass = mass;
@@ -91,6 +91,7 @@ export default class Particle {
 
         this.radius = Math.cbrt(this.mass);
         this.radiusSq = this.radius * this.radius;
+        this.bodyRadiusSq = this.radiusSq; // body radius² (always ∛(mass)², never horizon)
         this.invMass = 1 / this.mass;
         this.color = this.getColor();
     }
@@ -107,11 +108,13 @@ export default class Particle {
     }
 
     updateColor() {
+        const bodyR = Math.cbrt(this.mass);
+        this.bodyRadiusSq = bodyR * bodyR;
         const bh = window.sim && window.sim.physics.blackHoleEnabled;
         if (bh) {
-            this.radius = kerrNewmanRadius(this.mass, Math.cbrt(this.mass) ** 2, this.angVel, this.charge);
+            this.radius = kerrNewmanRadius(this.mass, this.bodyRadiusSq, this.angVel, this.charge);
         } else {
-            this.radius = Math.cbrt(this.mass);
+            this.radius = bodyR;
         }
         this.radiusSq = this.radius * this.radius;
         this.invMass = 1 / this.mass;

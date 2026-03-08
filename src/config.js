@@ -110,6 +110,7 @@ export const PAIR_PROD_MIN_AGE = 64;         // photon age before eligible
 
 // ── Signal Delay ──
 export const HISTORY_SIZE = 256;
+export const HISTORY_MASK = HISTORY_SIZE - 1; // bitmask for modulo (power-of-2)
 export const HISTORY_STRIDE = 64;            // ~120 snapshots/second
 
 // ── Cosmological Expansion ──
@@ -152,5 +153,5 @@ export function spawnOffset(radius) {
 export function kerrNewmanRadius(M, radiusSq, angVel, charge) {
     const a = INERTIA_K * radiusSq * Math.abs(angVel);
     const disc = M * M - a * a - charge * charge;
-    return disc > 0 ? M + Math.sqrt(disc) : M * BH_NAKED_FLOOR;
+    return disc >= 0 ? M + Math.sqrt(Math.max(0, disc)) : M * BH_NAKED_FLOOR;
 }
