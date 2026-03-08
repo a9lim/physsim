@@ -8,7 +8,7 @@ import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
 
-import { resetForces, computeAllForces, compute1PNPairwise } from './forces.js';
+import { resetForces, computeAllForces, compute1PN } from './forces.js';
 import { handleCollisions } from './collisions.js';
 import { computePE } from './potential.js';
 import { minImage, wrapPosition } from './topology.js';
@@ -931,7 +931,9 @@ export default class Physics {
                         p.vel.y = p.w.y * invG;
                     }
                 }
-                compute1PNPairwise(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled, this.yukawaEnabled, this.yukawaMu, this.simTime);
+                const bhOn = this.barnesHutEnabled;
+                const vvRoot = bhOn ? this._buildTree(particles) : -1;
+                compute1PN(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled, this.yukawaEnabled, this.yukawaMu, this.simTime, bhOn ? this.pool : null, vvRoot, bhOn);
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const halfDtOverM = halfDt * p.invMass;

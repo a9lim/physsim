@@ -353,92 +353,169 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     }
 }
 
+/** Accumulate 1PN force from one resolved source onto particle p. */
+function _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
+                   sx, sy, svx, svy, sMass, sCharge, sYukMod,
+                   softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology,
+                   gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu) {
+    let rx, ry;
+    if (periodic) {
+        minImage(px, py, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
+        rx = _miOut.x; ry = _miOut.y;
+    } else {
+        rx = sx - px; ry = sy - py;
+    }
+    const rSq = rx * rx + ry * ry + softeningSq;
+    const invRSq = 1 / rSq;
+    const invR = Math.sqrt(invRSq);
+    const r = 1 / invR;
+    const nx = rx * invR, ny = ry * invR;
+
+    if (gravitomagEnabled) {
+        const v1Sq = pvx * pvx + pvy * pvy;
+        const v2Sq = svx * svx + svy * svy;
+        const nDotV1 = nx * pvx + ny * pvy;
+        const nDotV2 = nx * svx + ny * svy;
+        const radial = -v1Sq - 2 * v2Sq
+            + 1.5 * nDotV2 * nDotV2
+            + 5 * pMass * invR + 4 * sMass * invR;
+        const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
+        const v2Coeff = 3 * nDotV2;
+        const base = sMass * invRSq * invR;
+        p.force1PN.x += base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
+        p.force1PN.y += base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
+    }
+
+    if (magneticEnabled) {
+        const v2DotN = svx * nx + svy * ny;
+        const v1DotN = pvx * nx + pvy * ny;
+        const coeff = 0.5 * pCharge * sCharge * invRSq;
+        p.force1PN.x += coeff * (pvx * v2DotN - 3 * nx * v1DotN * v2DotN);
+        p.force1PN.y += coeff * (pvy * v2DotN - 3 * ny * v1DotN * v2DotN);
+    }
+
+    if (gravitomagEnabled && magneticEnabled) {
+        const crossCoeff = pCharge * sCharge * (pMass + sMass)
+            - (pCharge * pCharge * sMass + sCharge * sCharge * pMass);
+        const fDir = crossCoeff * invRSq * invRSq;
+        p.force1PN.x += rx * fDir;
+        p.force1PN.y += ry * fDir;
+    }
+
+    if (yukawaEnabled) {
+        const mu = yukawaMu;
+        const expMuR = Math.exp(-mu * r);
+        const nDotV1 = nx * pvx + ny * pvy;
+        const nDotV2 = nx * svx + ny * svy;
+        const v1DotV2 = pvx * svx + pvy * svy;
+        const alpha = 1 + mu * r;
+        const beta = 0.5 * YUKAWA_COUPLING * Math.sqrt(p.yukMod * sYukMod) * pMass * sMass * expMuR * invRSq;
+        const radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1) * nDotV1 * nDotV2);
+        p.force1PN.x += beta * (radial * nx + alpha * (nDotV2 * pvx + nDotV1 * svx));
+        p.force1PN.y += beta * (radial * ny + alpha * (nDotV2 * pvy + nDotV1 * svy));
+    }
+}
+
+// Pre-allocated stack for 1PN tree walk
+let _1pnStack = new Int32Array(256);
+
+/** BH tree walk for 1PN velocity-Verlet correction. Signal delay at leaf level. */
+function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology, gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, simTime) {
+    const thetaSq = BH_THETA * BH_THETA;
+    const px = particle.pos.x, py = particle.pos.y;
+    const pvx = particle.vel.x, pvy = particle.vel.y;
+    const pMass = particle.mass, pCharge = particle.charge;
+    let stackTop = 0;
+    if (_1pnStack.length < pool.maxNodes) _1pnStack = new Int32Array(pool.maxNodes);
+    _1pnStack[stackTop++] = rootIdx;
+
+    while (stackTop > 0) {
+        const nodeIdx = _1pnStack[--stackTop];
+        if (pool.totalMass[nodeIdx] === 0) continue;
+
+        let dx, dy;
+        if (periodic) {
+            minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
+            dx = _miOut.x; dy = _miOut.y;
+        } else {
+            dx = pool.comX[nodeIdx] - px;
+            dy = pool.comY[nodeIdx] - py;
+        }
+        const dSq = dx * dx + dy * dy;
+        const size = pool.bw[nodeIdx] * 2;
+
+        if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
+            const base = nodeIdx * pool.nodeCapacity;
+            for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
+                const other = pool.points[base + i];
+                if (other === particle) continue;
+                if (other.isGhost && other.original === particle) continue;
+                const real = other.isGhost ? other.original : other;
+                let sx, sy, svx, svy;
+                if (!other.isGhost) {
+                    if (real.histCount < 2) continue;
+                    const ret = getDelayedState(real, particle, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                    if (!ret) continue;
+                    sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
+                } else {
+                    sx = other.pos.x; sy = other.pos.y; svx = other.vel.x; svy = other.vel.y;
+                }
+                _accum1PN(particle, px, py, pvx, pvy, pMass, pCharge,
+                    sx, sy, svx, svy, other.mass, other.charge, real.yukMod,
+                    softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology,
+                    gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu);
+            }
+        } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
+            const nodeMass = pool.totalMass[nodeIdx];
+            const avgVx = pool.totalMomentumX[nodeIdx] / nodeMass;
+            const avgVy = pool.totalMomentumY[nodeIdx] / nodeMass;
+            _accum1PN(particle, px, py, pvx, pvy, pMass, pCharge,
+                pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy,
+                nodeMass, pool.totalCharge[nodeIdx], 1,
+                softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology,
+                gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu);
+        } else if (pool.divided[nodeIdx]) {
+            _1pnStack[stackTop++] = pool.nw[nodeIdx];
+            _1pnStack[stackTop++] = pool.ne[nodeIdx];
+            _1pnStack[stackTop++] = pool.sw[nodeIdx];
+            _1pnStack[stackTop++] = pool.se[nodeIdx];
+        }
+    }
+}
+
 /**
- * Recompute 1PN forces pairwise O(N²) for velocity-Verlet correction.
- * Called after drift to get F_1PN(new) for the correction kick.
- * When signal delay is active, uses retarded source positions/velocities.
+ * Recompute 1PN forces for velocity-Verlet correction.
+ * O(N log N) BH tree walk when enabled, O(N²) pairwise fallback.
+ * Signal delay at leaf level (1PN requires relativity).
  */
-export function compute1PNPairwise(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false, yukawaEnabled = false, yukawaMu = 0.05, simTime = 0) {
+export function compute1PN(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false, yukawaEnabled = false, yukawaMu = 0.05, simTime = 0, pool = null, root = -1, barnesHutEnabled = false) {
     const n = particles.length;
     for (let i = 0; i < n; i++) {
         particles[i].force1PN.x = particles[i].force1PN.y = 0;
     }
-    for (let i = 0; i < n; i++) {
-        const p = particles[i];
-        const px = p.pos.x, py = p.pos.y;
-        const pvx = p.vel.x, pvy = p.vel.y;
-        const pMass = p.mass, pCharge = p.charge;
-        for (let j = 0; j < n; j++) {
-            if (i === j) continue;
-            const o = particles[j];
 
-            // 1PN requires relativity, so signal delay is always active
-            if (o.histCount < 2) continue;
-            const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
-            if (!ret) continue;
-            const sx = ret.x, sy = ret.y, svx = ret.vx, svy = ret.vy;
-
-            let rx, ry;
-            if (periodic) {
-                minImage(px, py, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
-                rx = _miOut.x; ry = _miOut.y;
-            } else {
-                rx = sx - px; ry = sy - py;
-            }
-            const rSq = rx * rx + ry * ry + SOFTENING_SQ_VAL;
-            const invRSq = 1 / rSq;
-            const invR = Math.sqrt(invRSq);
-            const r = 1 / invR;
-            const nx = rx * invR, ny = ry * invR;
-
-            // EIH gravity 1PN symmetric remainder
-            if (gravitomagEnabled) {
-                const v1Sq = pvx * pvx + pvy * pvy;
-                const v2Sq = svx * svx + svy * svy;
-                const nDotV1 = nx * pvx + ny * pvy;
-                const nDotV2 = nx * svx + ny * svy;
-                const radial = -v1Sq - 2 * v2Sq
-                    + 1.5 * nDotV2 * nDotV2
-                    + 5 * pMass * invR + 4 * o.mass * invR;
-                const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
-                const v2Coeff = 3 * nDotV2;
-                const base = o.mass * invRSq * invR;
-                p.force1PN.x += base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
-                p.force1PN.y += base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
-            }
-
-            // Darwin EM 1PN
-            if (magneticEnabled) {
-                const v2DotN = svx * nx + svy * ny;
-                const v1DotN = pvx * nx + pvy * ny;
-                const coeff = 0.5 * pCharge * o.charge * invRSq;
-                const symX = coeff * (pvx * v2DotN - 3 * nx * v1DotN * v2DotN);
-                const symY = coeff * (pvy * v2DotN - 3 * ny * v1DotN * v2DotN);
-                p.force1PN.x += symX;
-                p.force1PN.y += symY;
-            }
-
-            // Bazanski cross-term (position-dependent)
-            if (gravitomagEnabled && magneticEnabled) {
-                const crossCoeff = pCharge * o.charge * (pMass + o.mass)
-                    - (pCharge * pCharge * o.mass + o.charge * o.charge * pMass);
-                const fDir = crossCoeff * invRSq * invRSq;
-                p.force1PN.x += rx * fDir;
-                p.force1PN.y += ry * fDir;
-            }
-
-            // Yukawa scalar Breit correction (with PQ modulation)
-            if (yukawaEnabled) {
-                const mu = yukawaMu;
-                const expMuR = Math.exp(-mu * r);
-                const nDotV1 = nx * pvx + ny * pvy;
-                const nDotV2 = nx * svx + ny * svy;
-                const v1DotV2 = pvx * svx + pvy * svy;
-                const alpha = 1 + mu * r;
-                const beta = 0.5 * YUKAWA_COUPLING * Math.sqrt(p.yukMod * o.yukMod) * pMass * o.mass * expMuR * invRSq;
-                const radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1) * nDotV1 * nDotV2);
-                p.force1PN.x += beta * (radial * nx + alpha * (nDotV2 * pvx + nDotV1 * svx));
-                p.force1PN.y += beta * (radial * ny + alpha * (nDotV2 * pvy + nDotV1 * svy));
+    if (barnesHutEnabled && root >= 0) {
+        for (let i = 0; i < n; i++) {
+            _compute1PNTreeWalk(particles[i], pool, root,
+                SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology,
+                gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, simTime);
+        }
+    } else {
+        for (let i = 0; i < n; i++) {
+            const p = particles[i];
+            const px = p.pos.x, py = p.pos.y;
+            const pvx = p.vel.x, pvy = p.vel.y;
+            const pMass = p.mass, pCharge = p.charge;
+            for (let j = 0; j < n; j++) {
+                if (i === j) continue;
+                const o = particles[j];
+                if (o.histCount < 2) continue;
+                const ret = getDelayedState(o, p, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
+                if (!ret) continue;
+                _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
+                    ret.x, ret.y, ret.vx, ret.vy, o.mass, o.charge, o.yukMod,
+                    SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology,
+                    gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu);
             }
         }
     }

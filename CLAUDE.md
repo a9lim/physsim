@@ -25,7 +25,7 @@ src/
   integrator.js         1463 lines  Physics class: Boris substep loop, radiation, pion emission/absorption, field excitations, tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields, _retireParticle
   ui.js                  517 lines  setupUI(), declarative dependency graph, info tips, reference overlay, keyboard shortcuts
   renderer.js            532 lines  Canvas 2D: particles, trails, spin rings, ergosphere, antimatter rings, vectors, torque arcs, photons, pions, delay ghosts, field overlays
-  forces.js              514 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PNPairwise(), Yukawa, dead particle forces
+  forces.js              598 lines  pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN() (BH walk + pairwise), Yukawa, dead particle forces
   presets.js             688 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   reference.js           690 lines  REFERENCE object: physics reference content (KaTeX math)
   scalar-field.js        381 lines  ScalarField base class: PQS grid, topology-aware deposition, Laplacian, interpolation, gradient, field energy, field excitations
@@ -58,8 +58,7 @@ src/
 main.js <- Physics (integrator), Renderer, InputHandler, Particle, HiggsField, AxionField,
            Heatmap, PhasePlot, EffectivePotentialPlot, StatsDisplay, setupUI, config, MasslessBoson, Pion, save-load
 
-integrator.js <- QuadTreePool, config, MasslessBoson, Pion, angwToAngVel, forces (resetForces/computeAllForces/compute1PNPairwise),
-                 handleCollisions, computePE, topology (accesses sim.higgsField/axionField via this.sim backref)
+integrator.js <- QuadTreePool, config, MasslessBoson, Pion, angwToAngVel, forces (resetForces/computeAllForces/compute1PN),                 handleCollisions, computePE, topology (accesses sim.higgsField/axionField via this.sim backref)
 
 boson-utils.js <- config (BH_THETA, BOSON_SOFTENING_SQ)
 massless-boson.js <- Vec2, config (EPSILON), boson-utils (treeDeflectBoson)
@@ -119,7 +118,7 @@ Per substep (inside `Physics.update()` while loop):
 7. Pion emission (scalar Larmor, when Yukawa enabled) + radiation reaction on emitter
 8. **Drift**: `vel = w / sqrt(1 + w^2)`, `pos += vel * dt`
 9. Cosmological expansion (if enabled)
-10. **1PN velocity-Verlet correction**: recompute 1PN at new positions (always pairwise via `compute1PNPairwise()`), kick `w += (F_new - F_old) * dt / (2m)`
+10. **1PN velocity-Verlet correction**: rebuild tree (if BH on), recompute 1PN at new positions via `compute1PN()` (BH tree walk or pairwise), kick `w += (F_new - F_old) * dt / (2m)`
 11. **Scalar fields**: evolve Higgs (Störmer-Verlet), modulate masses (momentum-conserving); evolve axion (Störmer-Verlet), interpolate axMod
 12. Rebuild quadtree, handle collisions (with annihilation + merge KE tracking), repel contact forces, photon absorption, pion absorption
 13. Deposit field excitations from merge KE into active scalar fields
@@ -164,7 +163,7 @@ Always active when Gravity is on (no separate toggle). `coupling = m_other + q1*
 
 ### Yukawa Potential
 
-Independent toggle. `F = -g^2 * m1*m2 * exp(-mu*r)/r^2 * (1+mu*r)`. Parameters: `yukawaCoupling` (default 14), `yukawaMu` (default 0.15, slider 0.05-0.25). Includes analytical jerk for radiation. Emits pions as massive force carriers (see Pion section). **Scalar Breit correction** (requires 1PN): O(v^2/c^2) velocity-dependent correction from massive scalar boson exchange Hamiltonian `δH = g²m₁m₂e^{-μr}/(2r) * [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Force into `force1PN`. Velocity-Verlet corrected via `compute1PNPairwise()`.
+Independent toggle. `F = -g^2 * m1*m2 * exp(-mu*r)/r^2 * (1+mu*r)`. Parameters: `yukawaCoupling` (default 14), `yukawaMu` (default 0.15, slider 0.05-0.25). Includes analytical jerk for radiation. Emits pions as massive force carriers (see Pion section). **Scalar Breit correction** (requires 1PN): O(v^2/c^2) velocity-dependent correction from massive scalar boson exchange Hamiltonian `δH = g²m₁m₂e^{-μr}/(2r) * [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Force into `force1PN`. Velocity-Verlet corrected via `compute1PN()`.
 
 ### External Background Fields
 
@@ -219,7 +218,7 @@ Independent toggle; requires Coulomb or Yukawa. Quadratic potential `V(a) = 1/2 
 
 **Pseudoscalar PQ coupling (aGG~ analog, active when Yukawa on)**: Peccei-Quinn mechanism. Flips sign under CP (matter vs antimatter).
 - **Source**: `±g * m` (positive for matter, negative for antimatter).
-- **Yukawa modulation**: `g^2_eff = g^2 * yukMod`. Per-particle `p.yukMod`: `1 + g*a` for matter, `1 - g*a` for antimatter. Clamped >= 0. Set to 1 when Yukawa off. Pairwise interactions use geometric mean `sqrt(yukMod_i * yukMod_j)`. Used in `pairForce()`, `pairPE()`, `compute1PNPairwise()` (Scalar Breit), `_vEff()`.
+- **Yukawa modulation**: `g^2_eff = g^2 * yukMod`. Per-particle `p.yukMod`: `1 + g*a` for matter, `1 - g*a` for antimatter. Clamped >= 0. Set to 1 when Yukawa off. Pairwise interactions use geometric mean `sqrt(yukMod_i * yukMod_j)`. Used in `pairForce()`, `pairPE()`, `compute1PN()` (Scalar Breit), `_vEff()`.
 - **Gradient force**: `F = ±g * m * grad(a)`. Into `forceAxion`.
 - At vacuum (a=0): `yukMod = 1` for both → CP conserved (PQ solution).
 - **Field equation**: `d^2 a/dt^2 = laplacian(a) - m_a^2 * a - g*m_a * d(a)/dt + source/cellArea`. Störmer-Verlet (KDK, O(dt²)). Damping: zeta = g/2, Q = 1/g, so g*Q = 1 (resonant buildup matches coupling strength).
@@ -282,7 +281,7 @@ Requires Relativity. Four O(v^2/c^2) sectors, all into `force1PN`:
 - **Bazanski** (GM + Magnetic + 1PN): Mixed 1/r^3 force. Vanishes for identical particles.
 - **Scalar Breit** (Yukawa + 1PN): Full Breit correction for massive scalar exchange. No subtracted piece (scalar exchange has no magnetic analog).
 
-NOT Newton's 3rd law. Velocity-Verlet: stores `_f1pnOld` before drift, recomputes after via `compute1PNPairwise()` (always pairwise, even when BH on).
+NOT Newton's 3rd law. Velocity-Verlet: stores `_f1pnOld` before drift, rebuilds tree at post-drift positions (if BH on), recomputes via `compute1PN()` (BH tree walk O(N log N) or pairwise O(N²)).
 
 ### Radiation
 
@@ -314,7 +313,7 @@ Auto-activates with Relativity. Three-phase solver on per-particle circular hist
 
 **Light-cone causality**: Both particle creation and deletion respect finite propagation speed. Newly placed particles have `creationTime = simTime`; the solver rejects extrapolation past creation (particle didn't exist yet). Deleted particles are moved to `sim.deadParticles[]` via `Physics._retireParticle()`, which records a final history snapshot, saves `_deathMass`/`deathTime`, and caches dipole moments. Dead particles continue to exert forces/potential via signal delay until their light-cone fades past all observers, then are garbage-collected (`simTime - deathTime > 2 * domain_diagonal`). The solver skips backward extrapolation for dead particles to prevent spurious solutions.
 
-**Dead particle force path**: `computeAllForces()` and `Heatmap.update()` iterate `deadParticles` as additional sources (always pairwise with signal delay, even when Barnes-Hut is on for live particles). `_deathMass` is used instead of `mass` (which may be zeroed by merge). Dead particles are excluded from `compute1PNPairwise()` (their contribution is constant across drift, so the velocity-Verlet correction is zero).
+**Dead particle force path**: `computeAllForces()` and `Heatmap.update()` iterate `deadParticles` as additional sources (always pairwise with signal delay, even when Barnes-Hut is on for live particles). `_deathMass` is used instead of `mass` (which may be zeroed by merge). Dead particles are excluded from `compute1PN()` (their contribution is constant across drift, so the velocity-Verlet correction is zero).
 
 **Retirement points**: boundary despawn (integrator), collision merge/annihilation (collisions.js returns `removed`), disintegration (main.js), Hawking evaporation (main.js), right-click delete (input.js). All reset paths (preset load, clear, save-load) clear `deadParticles`.
 
@@ -427,8 +426,8 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 ## Gotchas
 
 - Serve from `a9lim.github.io/` parent -- absolute paths for shared files
-- `compute1PNPairwise()` zeroes `force1PN` before accumulating -- do not mix with `pairForce()` 1PN output in same step
-- 1PN velocity-Verlet correction is always pairwise, even when BH is on
+- `compute1PN()` zeroes `force1PN` before accumulating -- do not mix with `pairForce()` 1PN output in same step
+- 1PN velocity-Verlet correction rebuilds tree at post-drift positions when BH is on (extra O(N log N) build per substep)
 - Adaptive substepping uses Bz/Bgz from previous substep's force computation -- no preliminary force pass
 - History recording is strided (HISTORY_STRIDE=64) after the substep loop, counting `update()` calls not substeps
 - After merge collisions, `particles.length` changes -- update loop variable `n`
