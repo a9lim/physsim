@@ -18,7 +18,7 @@
 //    yukMod = 1 + g·a for matter, 1 - g·a for antimatter.
 //    At vacuum (a=0): yukMod = 1 for both → CP conserved (PQ solution).
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, EPSILON } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, EPSILON, BOUND_LOOP } from './config.js';
 import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -50,7 +50,7 @@ export default class AxionField extends ScalarField {
     }
 
     /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
-    update(dt, particles, boundaryMode, topoConst, domainW, domainH, coulombEnabled = false, yukawaEnabled = false) {
+    update(dt, particles, boundaryMode, topoConst, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, gravityEnabled = false, softeningSq = 64) {
         if (dt <= 0) return;
         const field = this.field;
         const fieldDot = this.fieldDot;
@@ -74,6 +74,17 @@ export default class AxionField extends ScalarField {
         const cellArea = cellW * cellH;
         const invCellArea = cellArea > EPSILON ? 1 / cellArea : 0;
 
+        // Self-gravity: weak-field GR correction to Klein-Gordon equation
+        // ä = (1+4Φ)∇²a + 2∇Φ·∇a - (1+2Φ)V'(a)
+        // Correction: 4Φ·∇²a + 2∇Φ·∇a - 2Φ·m_a²·a
+        const sgOn = gravityEnabled;
+        if (sgOn) this.computeSelfGravity(domainW, domainH, softeningSq, bcMode === BOUND_LOOP, topoConst);
+        const sgFull = this._sgPhiFull;
+        const sgGx = this._sgGradX;
+        const sgGy = this._sgGradY;
+        const fGx = this._gradX;
+        const fGy = this._gradY;
+
         // Compute Laplacian (Dirichlet a=0)
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 0);
 
@@ -87,10 +98,17 @@ export default class AxionField extends ScalarField {
 
         // ── First half-kick ──
         for (let i = 0; i < GRID_SQ; i++) {
-            const ddA = lap[i]
-                      - mASq * field[i]
-                      - damp * fieldDot[i]
-                      + src[i] * invCellArea;
+            const aVal = field[i];
+            let ddA = lap[i]
+                    - mASq * aVal
+                    - damp * fieldDot[i]
+                    + src[i] * invCellArea;
+            if (sgOn) {
+                const Phi = sgFull[i];
+                ddA += 4 * Phi * lap[i]
+                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                     - 2 * Phi * mASq * aVal;
+            }
             fieldDot[i] += ddA * halfDt;
         }
 
@@ -104,10 +122,17 @@ export default class AxionField extends ScalarField {
 
         // ── Second half-kick (with updated field values) ──
         for (let i = 0; i < GRID_SQ; i++) {
-            const ddA = lap[i]
-                      - mASq * field[i]
-                      - damp * fieldDot[i]
-                      + src[i] * invCellArea;
+            const aVal = field[i];
+            let ddA = lap[i]
+                    - mASq * aVal
+                    - damp * fieldDot[i]
+                    + src[i] * invCellArea;
+            if (sgOn) {
+                const Phi = sgFull[i];
+                ddA += 4 * Phi * lap[i]
+                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                     - 2 * Phi * mASq * aVal;
+            }
             fieldDot[i] += ddA * halfDt;
 
             // NaN guard

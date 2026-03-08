@@ -4,7 +4,7 @@
 // m_H is the free parameter (slider 0.25-1, default 0.5)
 // Extends ScalarField for shared PQS infrastructure.
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, EPSILON, kerrNewmanRadius } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, EPSILON, BOUND_LOOP, kerrNewmanRadius } from './config.js';
 import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -38,7 +38,7 @@ export default class HiggsField extends ScalarField {
     }
 
     /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
-    update(dt, particles, boundaryMode, topoConst, domainW, domainH, relativityEnabled) {
+    update(dt, particles, boundaryMode, topoConst, domainW, domainH, relativityEnabled, gravityEnabled = false, softeningSq = 64) {
         if (dt <= 0) return;
         const field = this.field;
         const fieldDot = this.fieldDot;
@@ -67,6 +67,17 @@ export default class HiggsField extends ScalarField {
         thermal.fill(0);
         this._depositThermal(particles, invCellW, invCellH, bcMode, topoConst, relativityEnabled);
 
+        // Self-gravity: weak-field GR correction to Klein-Gordon equation
+        // φ̈ = (1+4Φ)∇²φ + 2∇Φ·∇φ - (1+2Φ)V'(φ)
+        // Correction: 4Φ·∇²φ + 2∇Φ·∇φ + 2Φ·(μ²_eff·φ - μ²·φ³)
+        const sgOn = gravityEnabled;
+        if (sgOn) this.computeSelfGravity(domainW, domainH, softeningSq, bcMode === BOUND_LOOP, topoConst);
+        const sgFull = this._sgPhiFull;
+        const sgGx = this._sgGradX;
+        const sgGy = this._sgGradY;
+        const fGx = this._gradX;
+        const fGy = this._gradY;
+
         // Compute Laplacian (Dirichlet VEV=1)
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 1);
 
@@ -82,11 +93,18 @@ export default class HiggsField extends ScalarField {
         for (let i = 0; i < GRID_SQ; i++) {
             const phiVal = field[i];
             const muSqEff = muSq - thermal[i];
-            const ddphi = lap[i]
-                        + muSqEff * phiVal
-                        - muSq * phiVal * phiVal * phiVal
-                        - damp * fieldDot[i]
-                        + src[i] * invCellArea;
+            let ddphi = lap[i]
+                      + muSqEff * phiVal
+                      - muSq * phiVal * phiVal * phiVal
+                      - damp * fieldDot[i]
+                      + src[i] * invCellArea;
+            if (sgOn) {
+                const Phi = sgFull[i];
+                ddphi += 4 * Phi * lap[i]
+                       + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                       + 2 * Phi * muSqEff * phiVal
+                       - 2 * Phi * muSq * phiVal * phiVal * phiVal;
+            }
             fieldDot[i] += ddphi * halfDt;
         }
 
@@ -102,11 +120,18 @@ export default class HiggsField extends ScalarField {
         for (let i = 0; i < GRID_SQ; i++) {
             const phiVal = field[i];
             const muSqEff = muSq - thermal[i];
-            const ddphi = lap[i]
-                        + muSqEff * phiVal
-                        - muSq * phiVal * phiVal * phiVal
-                        - damp * fieldDot[i]
-                        + src[i] * invCellArea;
+            let ddphi = lap[i]
+                      + muSqEff * phiVal
+                      - muSq * phiVal * phiVal * phiVal
+                      - damp * fieldDot[i]
+                      + src[i] * invCellArea;
+            if (sgOn) {
+                const Phi = sgFull[i];
+                ddphi += 4 * Phi * lap[i]
+                       + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                       + 2 * Phi * muSqEff * phiVal
+                       - 2 * Phi * muSq * phiVal * phiVal * phiVal;
+            }
             fieldDot[i] += ddphi * halfDt;
 
             // NaN guard + clamp
