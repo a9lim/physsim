@@ -288,22 +288,26 @@ export default class Heatmap {
                 t[row + x] = (l + arr[row + x] + r) * (1 / 3);
             }
         }
-        // Vertical pass → arr
-        for (let x = 0; x < G; x++) {
-            for (let y = 0; y < G; y++) {
-                const above = y > 0 ? t[(y - 1) * G + x] : t[x];
-                const below = y < G - 1 ? t[(y + 1) * G + x] : t[(G - 1) * G + x];
-                arr[y * G + x] = (above + t[y * G + x] + below) * (1 / 3);
+        // Vertical pass → arr (row-major access for cache locality)
+        const lastRow = (G - 1) * G;
+        for (let y = 0; y < G; y++) {
+            const rA = y > 0 ? (y - 1) * G : 0;
+            const rC = y * G;
+            const rB = y < G - 1 ? (y + 1) * G : lastRow;
+            for (let x = 0; x < G; x++) {
+                arr[rC + x] = (t[rA + x] + t[rC + x] + t[rB + x]) * (1 / 3);
             }
         }
     }
 
     draw(ctx, width, height) {
         if (!this.enabled) return;
-        ctx.save();
+        const prevSmooth = ctx.imageSmoothingEnabled;
+        const prevQuality = ctx.imageSmoothingQuality;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(this.canvas, 0, 0, width, height);
-        ctx.restore();
+        ctx.imageSmoothingEnabled = prevSmooth;
+        ctx.imageSmoothingQuality = prevQuality;
     }
 }

@@ -98,8 +98,7 @@ export function loadState(state, sim) {
 
     sim.particles = [];
     sim.deadParticles = [];
-    sim.photons = [];
-    sim.pions = [];
+    sim.clearBosons();
     sim.totalRadiated = 0;
     sim.totalRadiatedPx = 0;
     sim.totalRadiatedPy = 0;

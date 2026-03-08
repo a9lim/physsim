@@ -43,9 +43,24 @@ export default class ScalarField {
         this._wx = new Float64Array(4);
         this._wy = new Float64Array(4);
 
-        // Pre-allocated gradient and momentum outputs
+        // Pre-allocated gradient, momentum, and fused interpolate+gradient outputs
         this._gradOut = { x: 0, y: 0 };
         this._momOut = { x: 0, y: 0 };
+        this._iwgResult = { value: 0, grad: null };
+
+        // Cached 1/sqrt(r²+ε) table for coarse self-gravity potential (SG⁴ entries)
+        this._sgInvR = new Float32Array(sgGrid * sgGrid * sgGrid * sgGrid);
+        this._sgLastCellW = 0;
+        this._sgLastCellH = 0;
+        this._sgLastSoftSq = 0;
+        this._sgLastPeriodic = false;
+        this._sgLastTopology = 0;
+
+        // Pre-computed upsample x-mapping tables (GRID entries)
+        this._fineXcx0 = new Uint8Array(gridSize);
+        this._fineXcx1 = new Uint8Array(gridSize);
+        this._fineXwx = new Float32Array(gridSize);
+        this._upsampleXBuilt = false;
 
         // Offscreen canvas for rendering
         this.canvas = document.createElement('canvas');
@@ -190,24 +205,19 @@ export default class ScalarField {
             }
         }
 
-        // Border cells: use _nb for boundary-aware wrapping
-        for (let iy = 0; iy < GRID; iy++) {
-            for (let ix = 0; ix < GRID; ix++) {
-                if (ix > 0 && ix < last && iy > 0 && iy < last) continue;
-                const idx = iy * GRID + ix;
-                const fC = field[idx];
-                const iL = this._nb(ix - 1, iy, bcMode, topoConst);
-                const iR = this._nb(ix + 1, iy, bcMode, topoConst);
-                const iT = this._nb(ix, iy - 1, bcMode, topoConst);
-                const iB = this._nb(ix, iy + 1, bcMode, topoConst);
-                const fL = iL >= 0 ? field[iL] : vacValue;
-                const fR = iR >= 0 ? field[iR] : vacValue;
-                const fT = iT >= 0 ? field[iT] : vacValue;
-                const fB = iB >= 0 ? field[iB] : vacValue;
-                lap[idx] = (fL + fR - 2 * fC) * invCellWSq
-                         + (fT + fB - 2 * fC) * invCellHSq;
-            }
-        }
+        // Border cells: explicit edge traversal (~248 cells vs 4096)
+        const _lapBorder = (ix, iy) => {
+            const idx = iy * GRID + ix;
+            const fC = field[idx];
+            const iL = this._nb(ix - 1, iy, bcMode, topoConst);
+            const iR = this._nb(ix + 1, iy, bcMode, topoConst);
+            const iT = this._nb(ix, iy - 1, bcMode, topoConst);
+            const iB = this._nb(ix, iy + 1, bcMode, topoConst);
+            lap[idx] = ((iL >= 0 ? field[iL] : vacValue) + (iR >= 0 ? field[iR] : vacValue) - 2 * fC) * invCellWSq
+                     + ((iT >= 0 ? field[iT] : vacValue) + (iB >= 0 ? field[iB] : vacValue) - 2 * fC) * invCellHSq;
+        };
+        for (let ix = 0; ix < GRID; ix++) { _lapBorder(ix, 0); _lapBorder(ix, last); }
+        for (let iy = 1; iy < last; iy++) { _lapBorder(0, iy); _lapBorder(last, iy); }
     }
 
     /** Compute central-difference gradients at each grid point (grid units).
@@ -229,19 +239,18 @@ export default class ScalarField {
             }
         }
 
-        // Border cells: use _nb for boundary-aware wrapping
-        for (let iy = 0; iy < GRID; iy++) {
-            for (let ix = 0; ix < GRID; ix++) {
-                if (ix > 0 && ix < last && iy > 0 && iy < last) continue;
-                const idx = iy * GRID + ix;
-                const iL = this._nb(ix - 1, iy, bcMode, topoConst);
-                const iR = this._nb(ix + 1, iy, bcMode, topoConst);
-                const iT = this._nb(ix, iy - 1, bcMode, topoConst);
-                const iB = this._nb(ix, iy + 1, bcMode, topoConst);
-                gx[idx] = ((iR >= 0 ? field[iR] : vacValue) - (iL >= 0 ? field[iL] : vacValue)) * 0.5;
-                gy[idx] = ((iB >= 0 ? field[iB] : vacValue) - (iT >= 0 ? field[iT] : vacValue)) * 0.5;
-            }
-        }
+        // Border cells: explicit edge traversal (~248 cells vs 4096)
+        const _gradBorder = (ix, iy) => {
+            const idx = iy * GRID + ix;
+            const iL = this._nb(ix - 1, iy, bcMode, topoConst);
+            const iR = this._nb(ix + 1, iy, bcMode, topoConst);
+            const iT = this._nb(ix, iy - 1, bcMode, topoConst);
+            const iB = this._nb(ix, iy + 1, bcMode, topoConst);
+            gx[idx] = ((iR >= 0 ? field[iR] : vacValue) - (iL >= 0 ? field[iL] : vacValue)) * 0.5;
+            gy[idx] = ((iB >= 0 ? field[iB] : vacValue) - (iT >= 0 ? field[iT] : vacValue)) * 0.5;
+        };
+        for (let ix = 0; ix < GRID; ix++) { _gradBorder(ix, 0); _gradBorder(ix, last); }
+        for (let iy = 1; iy < last; iy++) { _gradBorder(0, iy); _gradBorder(last, iy); }
     }
 
     /** PQS interpolation of field value at (x, y).
@@ -292,6 +301,48 @@ export default class ScalarField {
         out.y = gy * invCellH;
         if (out.x !== out.x || out.y !== out.y) return null;
         return out;
+    }
+
+    /** Fused PQS interpolation of field value + gradient in one stencil walk.
+     *  Avoids redundant _pqsCoords() and _nb() calls when both are needed.
+     *  Returns { value, grad } where grad is pre-allocated {x, y} or null on NaN. */
+    interpolateWithGradient(x, y, invCellW, invCellH, bcMode, topoConst) {
+        this._pqsCoords(x, y, invCellW, invCellH);
+        const { ix, iy } = this._pqs;
+        const wx = this._wx;
+        const wy = this._wy;
+        const vacVal = this._vacValue;
+        const gxArr = this._gradX;
+        const gyArr = this._gradY;
+        const field = this.field;
+
+        let val = 0, gx = 0, gy = 0;
+        for (let jy = 0; jy < 4; jy++) {
+            const wyj = wy[jy];
+            for (let jx = 0; jx < 4; jx++) {
+                const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
+                const w = wx[jx] * wyj;
+                if (idx >= 0) {
+                    val += field[idx] * w;
+                    gx += gxArr[idx] * w;
+                    gy += gyArr[idx] * w;
+                } else {
+                    val += vacVal * w;
+                }
+            }
+        }
+
+        const out = this._gradOut;
+        out.x = gx * invCellW;
+        out.y = gy * invCellH;
+        if (out.x !== out.x || out.y !== out.y) {
+            this._iwgResult.value = val;
+            this._iwgResult.grad = null;
+            return this._iwgResult;
+        }
+        this._iwgResult.value = val;
+        this._iwgResult.grad = out;
+        return this._iwgResult;
     }
 
     /** Deposit a Gaussian wave packet (field excitation / boson) at world (x,y).
@@ -409,27 +460,31 @@ export default class ScalarField {
         }
     }
 
-    /** Direct O(SG⁴) gravitational potential on coarse grid: Φ = -Σ ρ·dA/r. */
-    _computeCoarsePotential(domainW, domainH, softeningSq, periodic, topology) {
+    /** Rebuild the SG⁴ 1/sqrt table when geometry changes. */
+    _buildSGInvRTable(domainW, domainH, softeningSq, periodic, topology) {
         const SG = this._sgGrid;
         const cellW = domainW / SG;
         const cellH = domainH / SG;
-        const cellArea = cellW * cellH;
+        if (cellW === this._sgLastCellW && cellH === this._sgLastCellH &&
+            softeningSq === this._sgLastSoftSq && periodic === this._sgLastPeriodic &&
+            topology === this._sgLastTopology) return;
+        this._sgLastCellW = cellW;
+        this._sgLastCellH = cellH;
+        this._sgLastSoftSq = softeningSq;
+        this._sgLastPeriodic = periodic;
+        this._sgLastTopology = topology;
         const halfDomW = domainW * 0.5;
         const halfDomH = domainH * 0.5;
-        const rho = this._sgRho;
-        const phi = this._sgPhi;
-
+        const table = this._sgInvR;
+        const SG2 = SG * SG;
         for (let iy = 0; iy < SG; iy++) {
             const cy = (iy + 0.5) * cellH;
             for (let ix = 0; ix < SG; ix++) {
                 const cx = (ix + 0.5) * cellW;
-                let pot = 0;
+                const rowBase = (iy * SG + ix) * SG2;
                 for (let jy = 0; jy < SG; jy++) {
                     const sy = (jy + 0.5) * cellH;
                     for (let jx = 0; jx < SG; jx++) {
-                        const rhoVal = rho[jy * SG + jx];
-                        if (rhoVal < EPSILON) continue;
                         let dx, dy;
                         if (periodic) {
                             minImage(cx, cy, (jx + 0.5) * cellW, sy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);
@@ -438,39 +493,81 @@ export default class ScalarField {
                             dx = (jx + 0.5) * cellW - cx;
                             dy = sy - cy;
                         }
-                        const rSq = dx * dx + dy * dy + softeningSq;
-                        pot -= rhoVal * cellArea / Math.sqrt(rSq);
+                        table[rowBase + jy * SG + jx] = 1 / Math.sqrt(dx * dx + dy * dy + softeningSq);
                     }
                 }
-                phi[iy * SG + ix] = pot;
             }
         }
     }
 
+    /** Direct O(SG⁴) gravitational potential on coarse grid: Φ = -Σ ρ·dA/r.
+     *  Uses cached 1/sqrt table — sqrt-free inner loop during normal play. */
+    _computeCoarsePotential(domainW, domainH, softeningSq, periodic, topology) {
+        this._buildSGInvRTable(domainW, domainH, softeningSq, periodic, topology);
+        const SG = this._sgGrid;
+        const SG2 = SG * SG;
+        const cellArea = (domainW / SG) * (domainH / SG);
+        const rho = this._sgRho;
+        const phi = this._sgPhi;
+        const table = this._sgInvR;
+
+        for (let i = 0; i < SG2; i++) {
+            let pot = 0;
+            const rowBase = i * SG2;
+            for (let j = 0; j < SG2; j++) {
+                const rhoVal = rho[j];
+                if (rhoVal < EPSILON) continue;
+                pot -= rhoVal * cellArea * table[rowBase + j];
+            }
+            phi[i] = pot;
+        }
+    }
+
+    /** Build pre-computed x-axis upsample mapping (only when ratio changes). */
+    _buildUpsampleXTable() {
+        const SG = this._sgGrid;
+        const GRID = this._grid;
+        const invRatio = 1 / this._sgRatio;
+        const sgLast = SG - 1;
+        for (let ix = 0; ix < GRID; ix++) {
+            const fx = (ix + 0.5) * invRatio - 0.5;
+            const cx0 = Math.max(0, Math.min(sgLast - 1, Math.floor(fx)));
+            this._fineXcx0[ix] = cx0;
+            this._fineXcx1[ix] = Math.min(sgLast, cx0 + 1);
+            this._fineXwx[ix] = Math.max(0, fx - cx0);
+        }
+        this._upsampleXBuilt = true;
+    }
+
     /** Bilinear upsample gravitational potential from coarse to full grid. */
     _upsamplePhi() {
+        if (!this._upsampleXBuilt) this._buildUpsampleXTable();
         const SG = this._sgGrid;
         const GRID = this._grid;
         const invRatio = 1 / this._sgRatio;
         const coarse = this._sgPhi;
         const full = this._sgPhiFull;
         const sgLast = SG - 1;
+        const cx0arr = this._fineXcx0;
+        const cx1arr = this._fineXcx1;
+        const wxArr = this._fineXwx;
 
         for (let iy = 0; iy < GRID; iy++) {
             const fy = (iy + 0.5) * invRatio - 0.5;
-            const cy0 = Math.max(0, Math.floor(fy));
+            const cy0 = Math.max(0, Math.min(sgLast - 1, Math.floor(fy)));
             const cy1 = Math.min(sgLast, cy0 + 1);
-            const wy = fy - cy0;
+            const wy = Math.max(0, fy - cy0);
             const wy0 = 1 - wy;
+            const rowBase = iy * GRID;
+            const row0 = cy0 * SG;
+            const row1 = cy1 * SG;
 
             for (let ix = 0; ix < GRID; ix++) {
-                const fx = (ix + 0.5) * invRatio - 0.5;
-                const cx0 = Math.max(0, Math.floor(fx));
-                const cx1 = Math.min(sgLast, cx0 + 1);
-                const wx = fx - cx0;
-
-                full[iy * GRID + ix] = wy0 * ((1 - wx) * coarse[cy0 * SG + cx0] + wx * coarse[cy0 * SG + cx1])
-                                     + wy  * ((1 - wx) * coarse[cy1 * SG + cx0] + wx * coarse[cy1 * SG + cx1]);
+                const cx0 = cx0arr[ix];
+                const cx1 = cx1arr[ix];
+                const wx = wxArr[ix];
+                full[rowBase + ix] = wy0 * ((1 - wx) * coarse[row0 + cx0] + wx * coarse[row0 + cx1])
+                                   + wy  * ((1 - wx) * coarse[row1 + cx0] + wx * coarse[row1 + cx1]);
             }
         }
     }
@@ -492,14 +589,14 @@ export default class ScalarField {
             }
         }
 
-        for (let iy = 0; iy < GRID; iy++) {
-            for (let ix = 0; ix < GRID; ix++) {
-                if (ix > 0 && ix < last && iy > 0 && iy < last) continue;
-                const idx = iy * GRID + ix;
-                gx[idx] = ((ix < last ? phi[idx + 1] : phi[idx]) - (ix > 0 ? phi[idx - 1] : phi[idx])) * 0.5;
-                gy[idx] = ((iy < last ? phi[idx + GRID] : phi[idx]) - (iy > 0 ? phi[idx - GRID] : phi[idx])) * 0.5;
-            }
-        }
+        // Border cells only (explicit edge traversal, ~248 cells vs 4096)
+        const _sgBorderCell = (ix, iy) => {
+            const idx = iy * GRID + ix;
+            gx[idx] = ((ix < last ? phi[idx + 1] : phi[idx]) - (ix > 0 ? phi[idx - 1] : phi[idx])) * 0.5;
+            gy[idx] = ((iy < last ? phi[idx + GRID] : phi[idx]) - (iy > 0 ? phi[idx - GRID] : phi[idx])) * 0.5;
+        };
+        for (let ix = 0; ix < GRID; ix++) { _sgBorderCell(ix, 0); _sgBorderCell(ix, last); }
+        for (let iy = 1; iy < last; iy++) { _sgBorderCell(0, iy); _sgBorderCell(last, iy); }
     }
 
     /** Compute self-gravity potential and gradient from field energy density.
@@ -507,6 +604,20 @@ export default class ScalarField {
     computeSelfGravity(domainW, domainH, softeningSq, periodic, topology) {
         this._computeEnergyDensity(domainW, domainH);
         this._downsampleRho();
+        // Early exit: if coarse energy density is negligible, skip O(SG⁴) potential
+        const rho = this._sgRho;
+        const SG2 = this._sgGridSq;
+        let maxRho = 0;
+        for (let i = 0; i < SG2; i++) {
+            const v = rho[i];
+            if (v > maxRho) maxRho = v;
+        }
+        if (maxRho < EPSILON) {
+            this._sgPhiFull.fill(0);
+            this._sgGradX.fill(0);
+            this._sgGradY.fill(0);
+            return;
+        }
         this._computeCoarsePotential(domainW, domainH, softeningSq, periodic, topology);
         this._upsamplePhi();
         this._computeSelfGravGradients();
@@ -527,6 +638,13 @@ export default class ScalarField {
         // Use cached energy density — already computed in update() → computeSelfGravity()
         // or bootstrap. Avoids redundant O(GRID²) recomputation per substep.
         const rho = this._energyDensity;
+
+        // Early exit: skip O(N×GRID²) if no energy density (field at vacuum)
+        let hasEnergy = false;
+        for (let i = 0, len = this._gridSq; i < len; i++) {
+            if (rho[i] >= EPSILON) { hasEnergy = true; break; }
+        }
+        if (!hasEnergy) return;
 
         // Pre-compute cell centers (avoids (ix+0.5)*cellW per particle in inner loop)
         const ccx = this._cellCX;
@@ -645,17 +763,16 @@ export default class ScalarField {
             }
         }
 
-        // Border: centered differences with clamping
-        for (let iy = 0; iy < GRID; iy++) {
-            for (let ix = 0; ix < GRID; ix++) {
-                if (ix > 0 && ix < last && iy > 0 && iy < last) continue;
-                const idx = iy * GRID + ix;
-                const fd = fieldDot[idx];
-                const f = field[idx];
-                px -= fd * ((ix < last ? field[idx + 1] : f) - (ix > 0 ? field[idx - 1] : f));
-                py -= fd * ((iy < last ? field[idx + GRID] : f) - (iy > 0 ? field[idx - GRID] : f));
-            }
-        }
+        // Border: centered differences with clamping (explicit edge traversal)
+        const _momBorder = (ix, iy) => {
+            const idx = iy * GRID + ix;
+            const fd = fieldDot[idx];
+            const f = field[idx];
+            px -= fd * ((ix < last ? field[idx + 1] : f) - (ix > 0 ? field[idx - 1] : f));
+            py -= fd * ((iy < last ? field[idx + GRID] : f) - (iy > 0 ? field[idx - GRID] : f));
+        };
+        for (let ix = 0; ix < GRID; ix++) { _momBorder(ix, 0); _momBorder(ix, last); }
+        for (let iy = 1; iy < last; iy++) { _momBorder(0, iy); _momBorder(last, iy); }
 
         out.x = px * scaleX;
         out.y = py * scaleY;

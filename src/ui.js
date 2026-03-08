@@ -52,6 +52,7 @@ export function setupUI(sim) {
             document.getElementById('clearBtn').click();
         } else if (key) {
             loadPreset(key, sim);
+            sim._dirty = true;
         }
     });
 
@@ -62,14 +63,14 @@ export function setupUI(sim) {
         sim.stats.resetBaseline();
         sim.selectedParticle = null;
         sim.physics._forcesInit = false;
-        sim.photons = [];
-        sim.pions = [];
+        sim.clearBosons();
         sim.totalRadiated = 0;
         sim.totalRadiatedPx = 0;
         sim.totalRadiatedPy = 0;
         if (sim.higgsField) sim.higgsField.reset();
         if (sim.axionField) sim.axionField.reset();
         sim.camera.reset(sim.domainW / 2, sim.domainH / 2, WORLD_SCALE);
+        sim._dirty = true;
         showToast('Simulation cleared');
     });
 
@@ -233,6 +234,7 @@ export function setupUI(sim) {
                 }
             }
             updateAllDeps();
+            sim._dirty = true;
         });
     });
 
@@ -241,21 +243,26 @@ export function setupUI(sim) {
     // ─── Visual toggles ───
     document.getElementById('trailsToggle').addEventListener('change', (e) => {
         sim.renderer.trails = e.target.checked;
+        sim._dirty = true;
     });
     document.getElementById('velocityToggle').addEventListener('change', (e) => {
         sim.renderer.showVelocity = e.target.checked;
+        sim._dirty = true;
     });
     document.getElementById('forceToggle').addEventListener('change', (e) => {
         sim.renderer.showForce = e.target.checked;
+        sim._dirty = true;
     });
     document.getElementById('forceComponentsToggle').addEventListener('change', (e) => {
         sim.renderer.showForceComponents = e.target.checked;
+        sim._dirty = true;
     });
     const potentialToggle = document.getElementById('potentialToggle');
     const potentialModeBar = document.getElementById('potential-mode-toggles');
     potentialToggle?.addEventListener('change', (e) => {
         sim.heatmap.enabled = e.target.checked;
         potentialModeBar.style.display = e.target.checked ? '' : 'none';
+        sim._dirty = true;
     });
     potentialModeBar?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-potential]');
@@ -263,6 +270,7 @@ export function setupUI(sim) {
         potentialModeBar.querySelector('.active')?.classList.remove('active');
         btn.classList.add('active');
         sim.heatmap.mode = btn.dataset.potential;
+        sim._dirty = true;
     });
 
     // ─── Slider value displays ───
@@ -374,7 +382,7 @@ export function setupUI(sim) {
     const stepSim = () => {
         if (!sim.running) {
             sim.physics.update(sim.particles, PHYSICS_DT, sim.collisionMode, sim.boundaryMode, sim.topology, sim.domainW, sim.domainH, 0, 0);
-            sim.renderer.render(sim.particles, 0, sim.camera, sim.photons);
+            sim._dirty = true;
         }
     };
     document.getElementById('stepBtn').addEventListener('click', stepSim);
@@ -394,6 +402,7 @@ export function setupUI(sim) {
         const html = document.documentElement;
         html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
         sim.renderer.setTheme(html.dataset.theme !== 'dark');
+        sim._dirty = true;
     };
     document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
 
@@ -406,22 +415,25 @@ export function setupUI(sim) {
             key: String(i + 1),
             label: PRESETS[key].name,
             group: 'Presets',
-            action: () => { loadPreset(key, sim); document.getElementById('preset-select').value = key; },
+            action: () => { loadPreset(key, sim); document.getElementById('preset-select').value = key; sim._dirty = true; },
         })),
         { key: 'V', label: 'Toggle velocity vectors', group: 'View', action: () => {
             const el = document.getElementById('velocityToggle');
             el.checked = !el.checked;
             sim.renderer.showVelocity = el.checked;
+            sim._dirty = true;
         }},
         { key: 'F', label: 'Toggle acceleration vectors', group: 'View', action: () => {
             const el = document.getElementById('forceToggle');
             el.checked = !el.checked;
             sim.renderer.showForce = el.checked;
+            sim._dirty = true;
         }},
         { key: 'C', label: 'Toggle acceleration components', group: 'View', action: () => {
             const el = document.getElementById('forceComponentsToggle');
             el.checked = !el.checked;
             sim.renderer.showForceComponents = el.checked;
+            sim._dirty = true;
         }},
         { key: 'T', label: 'Toggle theme', group: 'View', action: toggleTheme },
         { key: 'S', label: 'Toggle sidebar', group: 'View', action: togglePanel },

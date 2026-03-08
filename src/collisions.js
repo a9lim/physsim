@@ -49,10 +49,11 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
             } else {
                 dx = p2.pos.x - p1.pos.x; dy = p2.pos.y - p1.pos.y;
             }
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            const distSq = dx * dx + dy * dy;
             const minDist = p1.radius + real2.radius;
 
-            if (dist < minDist) {
+            if (distSq < minDist * minDist) {
+                const dist = Math.sqrt(distSq);
                 // Annihilation: matter + antimatter -> energy
                 if (p1.antimatter !== real2.antimatter && mode === COL_MERGE) {
                     const annihilated = Math.min(p1.mass, real2.mass);

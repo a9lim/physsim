@@ -3,7 +3,7 @@
 // via NR convergence to segment, exact quadratic on that segment, and
 // constant-velocity extrapolation past the buffer.
 
-import { HISTORY_SIZE, NR_TOLERANCE, NR_MAX_ITER, EPSILON, TORUS } from './config.js';
+import { HISTORY_SIZE, HISTORY_MASK, NR_TOLERANCE, NR_MAX_ITER, EPSILON, TORUS } from './config.js';
 import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -17,10 +17,9 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     if (source.histCount < 2) return null;
 
     const ox = observer.pos.x, oy = observer.pos.y;
-    const N = HISTORY_SIZE;
     const count = source.histCount;
-    const start = (source.histHead - count + N) % N;
-    const newest = (source.histHead - 1 + N) % N;
+    const start = (source.histHead - count + HISTORY_SIZE) & HISTORY_MASK;
+    const newest = (source.histHead - 1 + HISTORY_SIZE) & HISTORY_MASK;
 
     // Time bounds
     const tOldest = source.histTime[start];
@@ -63,16 +62,16 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         : 0;
     if (segK > count - 2) segK = count - 2;
     if (segK < 0) segK = 0;
-    while (segK < count - 2 && histTime[(start + segK + 1) % N] <= t) segK++;
-    while (segK > 0 && histTime[(start + segK) % N] > t) segK--;
+    while (segK < count - 2 && histTime[(start + segK + 1) & HISTORY_MASK] <= t) segK++;
+    while (segK > 0 && histTime[(start + segK) & HISTORY_MASK] > t) segK--;
 
     let prevSegK = -1;
     for (let iter = 0; iter < NR_MAX_ITER; iter++) {
         if (segK === prevSegK) break;   // segment stabilized → go to analytical phase
         prevSegK = segK;
 
-        const loIdx = (start + segK) % N;
-        const hiIdx = (loIdx + 1) % N;
+        const loIdx = (start + segK) & HISTORY_MASK;
+        const hiIdx = (loIdx + 1) & HISTORY_MASK;
         const tLo = histTime[loIdx];
         const segDt = histTime[hiIdx] - tLo;
         if (segDt < NR_TOLERANCE) {
@@ -104,8 +103,9 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             dx = sx - ox; dy = sy - oy;
         }
 
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < NR_TOLERANCE) break;               // source ≈ observer, skip to quadratic
+        const distSq = dx * dx + dy * dy;
+        if (distSq < NR_TOLERANCE * NR_TOLERANCE) break; // source ≈ observer, skip to quadratic
+        const dist = Math.sqrt(distSq);
 
         const g  = dist - (simTime - t);
         const gp = (dx * vxEff + dy * vyEff) / dist + 1;
@@ -116,8 +116,8 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         if (t < tOldest) t = tOldest;
         if (t > tNewest) t = tNewest;
 
-        while (segK < count - 2 && histTime[(start + segK + 1) % N] <= t) segK++;
-        while (segK > 0 && histTime[(start + segK) % N] > t) segK--;
+        while (segK < count - 2 && histTime[(start + segK + 1) & HISTORY_MASK] <= t) segK++;
+        while (segK > 0 && histTime[(start + segK) & HISTORY_MASK] > t) segK--;
     }
 
     // ─── Phase 2: Exact quadratic on converged segment (and +/- 1 neighbor) ───
@@ -128,8 +128,8 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             const k = center + offset * dir;
             if (k < 0 || k > count - 2) continue;
 
-            const loIdx = (start + k) % N;
-            const hiIdx = (loIdx + 1) % N;
+            const loIdx = (start + k) & HISTORY_MASK;
+            const hiIdx = (loIdx + 1) & HISTORY_MASK;
             const tLo = histTime[loIdx];
             const segDt = histTime[hiIdx] - tLo;
             if (segDt < NR_TOLERANCE) continue;
@@ -164,7 +164,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             const c = rSq - T * T;
 
             const disc = h * h - a * c;
-            if (disc < 0) continue;
+            if (!(disc >= 0)) continue; // catches both negative and NaN
 
             const sqrtDisc = Math.sqrt(disc);
             let s;
@@ -226,7 +226,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
         const c = rSq - T * T;
 
         const disc = h * h - a * c;
-        if (disc < 0) return null;
+        if (!(disc >= 0)) return null; // catches both negative and NaN
 
         const sqrtDisc = Math.sqrt(disc);
         let s;

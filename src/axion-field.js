@@ -97,19 +97,22 @@ export default class AxionField extends ScalarField {
         const halfDt = dt * 0.5;
 
         // ── First half-kick ──
-        for (let i = 0; i < GRID_SQ; i++) {
-            const aVal = field[i];
-            let ddA = lap[i]
-                    - mASq * aVal
-                    - damp * fieldDot[i]
-                    + src[i] * invCellArea;
-            if (sgOn) {
+        if (sgOn) {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const aVal = field[i];
+                const lapI = lap[i];
                 const Phi = sgFull[i];
-                ddA += 4 * Phi * lap[i]
-                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                     - 2 * Phi * mASq * aVal;
+                const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea
+                    + 4 * Phi * lapI
+                    + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                    - 2 * Phi * mASq * aVal;
+                fieldDot[i] += ddA * halfDt;
             }
-            fieldDot[i] += ddA * halfDt;
+        } else {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea;
+                fieldDot[i] += ddA * halfDt;
+            }
         }
 
         // ── Full drift ──
@@ -121,24 +124,23 @@ export default class AxionField extends ScalarField {
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 0);
 
         // ── Second half-kick (with updated field values) ──
-        for (let i = 0; i < GRID_SQ; i++) {
-            const aVal = field[i];
-            let ddA = lap[i]
-                    - mASq * aVal
-                    - damp * fieldDot[i]
-                    + src[i] * invCellArea;
-            if (sgOn) {
+        if (sgOn) {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const aVal = field[i];
+                const lapI = lap[i];
                 const Phi = sgFull[i];
-                ddA += 4 * Phi * lap[i]
-                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                     - 2 * Phi * mASq * aVal;
+                const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea
+                    + 4 * Phi * lapI
+                    + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                    - 2 * Phi * mASq * aVal;
+                fieldDot[i] += ddA * halfDt;
+                if (aVal !== aVal) { field[i] = 0; fieldDot[i] = 0; }
             }
-            fieldDot[i] += ddA * halfDt;
-
-            // NaN guard
-            if (field[i] !== field[i]) {
-                field[i] = 0;
-                fieldDot[i] = 0;
+        } else {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea;
+                fieldDot[i] += ddA * halfDt;
+                if (field[i] !== field[i]) { field[i] = 0; fieldDot[i] = 0; }
             }
         }
 

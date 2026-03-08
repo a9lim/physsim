@@ -2,7 +2,7 @@
 // Barnes-Hut tree walk for gravitational lensing of massless (photon) and
 // massive (pion) bosons. Shared to avoid code duplication.
 
-import { BH_THETA_SQ, BOSON_SOFTENING_SQ } from './config.js';
+import { BH_THETA_SQ, BOSON_SOFTENING_SQ, EPSILON } from './config.js';
 
 let _bStack = new Int32Array(256);
 
@@ -25,7 +25,7 @@ export function treeDeflectBoson(pos, targetVec, grFactor, dt, pool, rootIdx) {
 
     while (stackTop > 0) {
         const nodeIdx = _bStack[--stackTop];
-        if (pool.totalMass[nodeIdx] === 0) continue;
+        if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
         const dx = pool.comX[nodeIdx] - px;
         const dy = pool.comY[nodeIdx] - py;
@@ -39,13 +39,15 @@ export function treeDeflectBoson(pos, targetVec, grFactor, dt, pool, rootIdx) {
                 const pdx = p.pos.x - px;
                 const pdy = p.pos.y - py;
                 const rSq = pdx * pdx + pdy * pdy + BOSON_SOFTENING_SQ;
-                const invR3 = 1 / (rSq * Math.sqrt(rSq));
+                const invR = 1 / Math.sqrt(rSq);
+                const invR3 = invR * invR * invR;
                 targetVec.x += grFactor * p.mass * pdx * invR3 * dt;
                 targetVec.y += grFactor * p.mass * pdy * invR3 * dt;
             }
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             const rSq = dSq + BOSON_SOFTENING_SQ;
-            const invR3 = 1 / (rSq * Math.sqrt(rSq));
+            const invR = 1 / Math.sqrt(rSq);
+            const invR3 = invR * invR * invR;
             targetVec.x += grFactor * pool.totalMass[nodeIdx] * dx * invR3 * dt;
             targetVec.y += grFactor * pool.totalMass[nodeIdx] * dy * invR3 * dt;
         } else if (pool.divided[nodeIdx]) {
