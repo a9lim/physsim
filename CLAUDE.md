@@ -187,9 +187,11 @@ Collision mode `'bounce'` and boundary mode `'bounce'`: `F = K * delta^1.5` (K=1
 
 Shared PQS (cubic B-spline, order 3) grid infrastructure for Higgs and Axion. 4x4 = 16 node stencil per particle. C^2 interpolation, C^2 gradients (PQS-interpolated central-difference grid gradients). Pre-allocated weight arrays for zero-alloc hot path.
 
-Key methods: `_nb()` (boundary-aware neighbor), `_depositPQS()` (topology-aware deposition), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()` (central differences, interior fast path + border path), `interpolate()`, `gradient()` (PQS-interpolates pre-computed grid gradients), `_fieldEnergy(domainW, domainH, potentialFn)` (shared KE+gradient+potential grid integration), `draw()`, `depositExcitation()` (Gaussian wave packet into `fieldDot`), `_computeEnergyDensity()` (per-cell ρ = ½φ̇² + ½|∇φ|² + V(φ)), `applyGravForces()` (field energy density gravitates particles), `gravPE()` (particle-field gravitational PE).
+Key methods: `_nb()` (boundary-aware neighbor), `_depositPQS()` (topology-aware deposition), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()` (central differences, interior fast path + border path), `interpolate()`, `gradient()` (PQS-interpolates pre-computed grid gradients), `_fieldEnergy(domainW, domainH, potentialFn)` (shared KE+gradient+potential grid integration), `draw()`, `depositExcitation()` (Gaussian wave packet into `fieldDot`), `_computeEnergyDensity()` (per-cell ρ = ½φ̇² + ½|∇φ|² + V(φ)), `applyGravForces()` (field energy density gravitates particles), `gravPE()` (particle-field gravitational PE), `computeSelfGravity()` (coarse-grid gravitational potential for field self-gravity).
 
-**Field gravity** (requires `gravityEnabled`): Field energy density gravitates particles via direct summation over all 64×64 grid cells. Each cell acts as a point mass `ρ·dA` at cell center. Force: `F = m · Σ ρ_j · dA · r̂/r²`. Only field excitations gravitate (ρ=0 at vacuum). No field self-gravity (field doesn't attract itself). Subclasses override `_addPotentialEnergy()` to add V(φ) to the KE+gradient base. PE tracked via `gravPE()` and included in `physics.potentialEnergy`.
+**Particle-field gravity** (requires `gravityEnabled`): Field energy density gravitates particles via direct summation over all 64×64 grid cells. Each cell acts as a point mass `ρ·dA` at cell center. Force: `F = m · Σ ρ_j · dA · r̂/r²`. Only field excitations gravitate (ρ=0 at vacuum). Subclasses override `_addPotentialEnergy()` to add V(φ) to the KE+gradient base. PE tracked via `gravPE()` and included in `physics.potentialEnergy`.
+
+**Field self-gravity** (requires `gravityEnabled`): Weak-field GR correction to the Klein-Gordon equation: `φ̈ = (1+4Φ)∇²φ + 2∇Φ·∇φ - (1+2Φ)V'(φ)`. The gravitational potential Φ is computed from the field's own energy density ρ via coarse-grid (16×16) direct summation O(SG⁴≈65K), bilinear-upsampled to the full 64×64 grid. Φ computed once per `update()` call, used in both Störmer-Verlet half-kicks. At vacuum (ρ=0), correction vanishes. The `∇Φ·∇φ` cross-term uses `_gradX/_gradY` from the previous step (stale by one drift, but error is O(dt²×Φ)).
 
 Boundary mode integers (BOUND_DESPAWN=0 / BOUND_BOUNCE=1 / BOUND_LOOP=2) defined in config.js, passed directly from integrator.
 
@@ -463,7 +465,10 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 - `_yukawaRadAccum` on Particle accumulates pion emission energy -- reset to 0 after each emission
 - Field excitation `depositExcitation()` writes to `fieldDot` (not `field`) -- wave equation propagates naturally
 - `applyGravForces()` must be called AFTER field `update()` (needs current `_gradX`/`_gradY`); `gravPE()` uses cached `_energyDensity` from last `applyGravForces()` call
-- Field gravity uses direct O(N×GRID²) summation -- no tree acceleration. Cost is negligible for typical particle counts (<50) but scales linearly with particles
+- Particle-field gravity uses direct O(N×GRID²) summation -- no tree acceleration. Cost is negligible for typical particle counts (<50) but scales linearly with particles
+- Field self-gravity `computeSelfGravity()` is called at the start of each field `update()` when `gravityEnabled` is true; uses `_gradX`/`_gradY` from the previous step for energy density (correct for first Störmer-Verlet kick)
+- Self-gravity coarse grid is SG = GRID >> 2 = 16; O(SG⁴) ≈ 65K ops per field per substep. Bilinear upsample + clamp-to-edge gradients (no topology wrapping on coarse grid borders)
+- Self-gravity `∇Φ·∇φ` cross-term in second half-kick uses stale field gradients (not recomputed after drift) -- error is O(dt²×Φ), negligible
 - `sim.pions` array must be cleared on preset load and reset (in main.js, save-load.js, ui.js)
 - `sim.deadParticles` must be cleared on preset load, clear, and save-load (same locations as pions)
 - Dead particles use `_deathMass` (not `mass`) in force/heatmap code -- merged particles have mass=0 but `_deathMass` preserves the pre-merge value

@@ -953,13 +953,13 @@ export default class Physics {
 
             // Higgs field evolution + mass modulation
             if (this.higgsEnabled && this.sim && this.sim.higgsField) {
-                this.sim.higgsField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.relativityEnabled);
+                this.sim.higgsField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.relativityEnabled, this.gravityEnabled, toggles.softeningSq);
                 this.sim.higgsField.modulateMasses(particles, width, height, this.blackHoleEnabled, boundaryMode, this._topologyConst);
             }
 
             // Axion field evolution (axMod/yukMod interpolation deferred to step 7)
             if (this.axionEnabled && this.sim && this.sim.axionField) {
-                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.coulombEnabled, this.yukawaEnabled);
+                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.coulombEnabled, this.yukawaEnabled, this.gravityEnabled, toggles.softeningSq);
             }
 
             // Step 5: Rebuild quadtree at new positions

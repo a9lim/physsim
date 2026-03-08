@@ -457,7 +457,7 @@ export function setupUI(sim) {
         higgs: { title: 'Higgs Field', body: 'Scalar field with Mexican hat potential. Particles acquire mass from local field value ($m = m_0|\\phi|$). High temperature restores symmetry \u2014 particles become massless.' },
         external: { title: 'External Fields', body: '<b>Gravity</b> \u2014 uniform $\\mathbf{F}=m\\mathbf{g}$. <b>Electric</b> \u2014 uniform $\\mathbf{F}=q\\mathbf{E}$. <b>Magnetic $B_z$</b> \u2014 cyclotron motion via Boris rotation.' },
         pion: { title: 'Pions', body: 'Massive Yukawa force carriers ($m_\\pi = \\mu$). Emitted via scalar Larmor radiation ($P = g^2 m^2 a^2/3$). Travel at $v < c$, experience gravitational deflection with factor $(1+v^2)$, and decay into photons.' },
-        fieldExcitation: { title: 'Field Excitations', body: 'Merge collisions deposit Gaussian wave packets into active scalar fields. Higgs excitations ripple around VEV (Higgs boson analog); axion excitations ripple around vacuum $a=0$.' },
+        fieldExcitation: { title: 'Scalar Field Dynamics', body: 'Merge collisions deposit Gaussian wave packets into active scalar fields. When gravity is on, field energy density gravitates particles and curves its own wave equation (weak-field GR).' },
     };
 
     if (typeof createInfoTip === 'function') {

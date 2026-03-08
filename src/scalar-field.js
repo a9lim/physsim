@@ -27,6 +27,17 @@ export default class ScalarField {
         this._gradX = new Float64Array(gsq);
         this._gradY = new Float64Array(gsq);
 
+        // Self-gravity: coarse grid (SG×SG) for O(SG⁴) potential, upsampled to full grid
+        const sgGrid = gridSize >> 2; // 16 for SCALAR_GRID=64
+        this._sgGrid = sgGrid;
+        this._sgGridSq = sgGrid * sgGrid;
+        this._sgRatio = gridSize / sgGrid;
+        this._sgRho = new Float64Array(sgGrid * sgGrid);
+        this._sgPhi = new Float64Array(sgGrid * sgGrid);
+        this._sgPhiFull = new Float64Array(gsq);
+        this._sgGradX = new Float64Array(gsq);
+        this._sgGradY = new Float64Array(gsq);
+
         // PQS pre-allocated weight arrays (4 weights per axis)
         this._pqs = { ix: 0, iy: 0 };
         this._wx = new Float64Array(4);
@@ -355,6 +366,134 @@ export default class ScalarField {
                    + 0.5 * (gxi * gxi * invCellWSq + gyi * gyi * invCellHSq);
         }
         this._addPotentialEnergy();
+    }
+
+    /** Downsample energy density from full grid to coarse self-gravity grid. */
+    _downsampleRho() {
+        const GRID = this._grid;
+        const SG = this._sgGrid;
+        const ratio = this._sgRatio;
+        const invBlock = 1 / (ratio * ratio);
+        const rho = this._energyDensity;
+        const coarse = this._sgRho;
+
+        for (let cy = 0; cy < SG; cy++) {
+            const baseY = cy * ratio;
+            for (let cx = 0; cx < SG; cx++) {
+                const baseX = cx * ratio;
+                let sum = 0;
+                for (let dy = 0; dy < ratio; dy++) {
+                    const row = (baseY + dy) * GRID + baseX;
+                    for (let dx = 0; dx < ratio; dx++) {
+                        sum += rho[row + dx];
+                    }
+                }
+                coarse[cy * SG + cx] = sum * invBlock;
+            }
+        }
+    }
+
+    /** Direct O(SG⁴) gravitational potential on coarse grid: Φ = -Σ ρ·dA/r. */
+    _computeCoarsePotential(domainW, domainH, softeningSq, periodic, topology) {
+        const SG = this._sgGrid;
+        const cellW = domainW / SG;
+        const cellH = domainH / SG;
+        const cellArea = cellW * cellH;
+        const halfDomW = domainW * 0.5;
+        const halfDomH = domainH * 0.5;
+        const rho = this._sgRho;
+        const phi = this._sgPhi;
+
+        for (let iy = 0; iy < SG; iy++) {
+            const cy = (iy + 0.5) * cellH;
+            for (let ix = 0; ix < SG; ix++) {
+                const cx = (ix + 0.5) * cellW;
+                let pot = 0;
+                for (let jy = 0; jy < SG; jy++) {
+                    const sy = (jy + 0.5) * cellH;
+                    for (let jx = 0; jx < SG; jx++) {
+                        const rhoVal = rho[jy * SG + jx];
+                        if (rhoVal < EPSILON) continue;
+                        let dx, dy;
+                        if (periodic) {
+                            minImage(cx, cy, (jx + 0.5) * cellW, sy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);
+                            dx = _miOut.x; dy = _miOut.y;
+                        } else {
+                            dx = (jx + 0.5) * cellW - cx;
+                            dy = sy - cy;
+                        }
+                        const rSq = dx * dx + dy * dy + softeningSq;
+                        pot -= rhoVal * cellArea / Math.sqrt(rSq);
+                    }
+                }
+                phi[iy * SG + ix] = pot;
+            }
+        }
+    }
+
+    /** Bilinear upsample gravitational potential from coarse to full grid. */
+    _upsamplePhi() {
+        const SG = this._sgGrid;
+        const GRID = this._grid;
+        const invRatio = 1 / this._sgRatio;
+        const coarse = this._sgPhi;
+        const full = this._sgPhiFull;
+        const sgLast = SG - 1;
+
+        for (let iy = 0; iy < GRID; iy++) {
+            const fy = (iy + 0.5) * invRatio - 0.5;
+            const cy0 = Math.max(0, Math.floor(fy));
+            const cy1 = Math.min(sgLast, cy0 + 1);
+            const wy = fy - cy0;
+            const wy0 = 1 - wy;
+
+            for (let ix = 0; ix < GRID; ix++) {
+                const fx = (ix + 0.5) * invRatio - 0.5;
+                const cx0 = Math.max(0, Math.floor(fx));
+                const cx1 = Math.min(sgLast, cx0 + 1);
+                const wx = fx - cx0;
+
+                full[iy * GRID + ix] = wy0 * ((1 - wx) * coarse[cy0 * SG + cx0] + wx * coarse[cy0 * SG + cx1])
+                                     + wy  * ((1 - wx) * coarse[cy1 * SG + cx0] + wx * coarse[cy1 * SG + cx1]);
+            }
+        }
+    }
+
+    /** Central-difference gradient of upsampled gravitational potential (clamp-to-edge). */
+    _computeSelfGravGradients() {
+        const GRID = this._grid;
+        const phi = this._sgPhiFull;
+        const gx = this._sgGradX;
+        const gy = this._sgGradY;
+        const last = GRID - 1;
+
+        for (let iy = 1; iy < last; iy++) {
+            const row = iy * GRID;
+            for (let ix = 1; ix < last; ix++) {
+                const idx = row + ix;
+                gx[idx] = (phi[idx + 1] - phi[idx - 1]) * 0.5;
+                gy[idx] = (phi[idx + GRID] - phi[idx - GRID]) * 0.5;
+            }
+        }
+
+        for (let iy = 0; iy < GRID; iy++) {
+            for (let ix = 0; ix < GRID; ix++) {
+                if (ix > 0 && ix < last && iy > 0 && iy < last) continue;
+                const idx = iy * GRID + ix;
+                gx[idx] = ((ix < last ? phi[idx + 1] : phi[idx]) - (ix > 0 ? phi[idx - 1] : phi[idx])) * 0.5;
+                gy[idx] = ((iy < last ? phi[idx + GRID] : phi[idx]) - (iy > 0 ? phi[idx - GRID] : phi[idx])) * 0.5;
+            }
+        }
+    }
+
+    /** Compute self-gravity potential and gradient from field energy density.
+     *  Coarse grid O(SG⁴) direct summation, bilinear upsampled to full grid. */
+    computeSelfGravity(domainW, domainH, softeningSq, periodic, topology) {
+        this._computeEnergyDensity(domainW, domainH);
+        this._downsampleRho();
+        this._computeCoarsePotential(domainW, domainH, softeningSq, periodic, topology);
+        this._upsamplePhi();
+        this._computeSelfGravGradients();
     }
 
     /** Apply gravitational force from field energy density onto particles.

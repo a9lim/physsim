@@ -646,7 +646,7 @@ export const REFERENCE = {
     },
 
     fieldExcitation: {
-        title: 'Field Excitations (Higgs Boson & Axion Particle)',
+        title: 'Scalar Field Dynamics',
         body: `
 <p>When particles merge, kinetic energy lost in the inelastic collision excites the active scalar fields (Higgs and/or Axion). These excitations propagate as wave packets — the simulation's analog of <b>Higgs bosons</b> and <b>axion particles</b>.</p>
 
@@ -669,6 +669,30 @@ export const REFERENCE = {
 
 <h3>Physical Motivation</h3>
 <p>In quantum field theory, particles <em>are</em> field excitations. The Higgs boson discovered at the LHC in 2012 is a quantum of the Higgs field; axions (if they exist) would be quanta of an axion-like field. This simulation captures the classical wave analog: localized disturbances that propagate, disperse, and interact with particles through the same coupling that governs the background field.</p>
+
+<h3>Field Gravity</h3>
+<p>When gravity is enabled, the scalar field's energy density gravitates — just as all forms of energy curve spacetime in general relativity.</p>
+
+<h4>Energy Density</h4>
+<p>Each grid cell carries energy density from kinetic, gradient, and potential contributions:</p>
+<p>$$\\rho = \\frac{1}{2}\\dot{\\phi}^2 + \\frac{1}{2}|\\nabla\\phi|^2 + V(\\phi)$$</p>
+<p>At vacuum ($\\phi = v$), all three terms vanish — only field excitations gravitate.</p>
+
+<h4>Particle–Field Gravity</h4>
+<p>Each grid cell acts as a point mass $\\rho\\,dA$ that attracts particles via Newtonian gravity:</p>
+<p>$$\\mathbf{F} = m\\sum_j \\frac{\\rho_j\\,dA}{r_j^2}\\,\\hat{r}_j$$</p>
+<p>This is a direct $O(N \\times 64^2)$ summation over all grid cells, using the same Plummer softening as particle–particle gravity. Topology-aware for periodic boundaries.</p>
+
+<h4>Field Self-Gravity</h4>
+<p>The field's own energy density curves the local geometry, modifying its wave equation. In the weak-field limit ($|\\Phi| \\ll 1$), the Klein-Gordon equation gains GR corrections:</p>
+<p>$$\\ddot{\\phi} = (1 + 4\\Phi)\\,\\nabla^2\\phi + 2\\,\\nabla\\Phi \\cdot \\nabla\\phi - (1 + 2\\Phi)\\,V'(\\phi)$$</p>
+<p>where $\\Phi$ is the Newtonian gravitational potential sourced by $\\rho$. The three correction terms represent:</p>
+<ul>
+<li>$4\\Phi\\,\\nabla^2\\phi$ — spatial curvature modifying wave propagation speed</li>
+<li>$2\\,\\nabla\\Phi \\cdot \\nabla\\phi$ — gravitational lensing of the field gradient</li>
+<li>$2\\Phi\\,V'(\\phi)$ — redshift of the potential's restoring force</li>
+</ul>
+<p>The potential $\\Phi$ is computed on a coarse $16 \\times 16$ grid via $O(16^4)$ direct summation, then bilinearly upsampled to the full $64 \\times 64$ field grid — exploiting the smoothness of the gravitational potential to keep the cost low.</p>
 `,
     },
 
