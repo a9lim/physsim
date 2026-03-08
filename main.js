@@ -9,7 +9,7 @@ import PhasePlot from './src/phase-plot.js';
 import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS, HEATMAP_INTERVAL, SIDEBAR_THROTTLE_MASK } from './src/config.js';
 import MasslessBoson from './src/massless-boson.js';
 import Pion from './src/pion.js';
 
@@ -71,6 +71,8 @@ class Simulation {
         this.lastTime = 0;
         this.running = true;
         this.accumulator = 0;
+        this._hmFrame = 0; // heatmap throttle counter
+        this._sbFrame = 0;
 
         this.dom = {
             speedInput: document.getElementById('speedInput'),
@@ -332,7 +334,10 @@ class Simulation {
                 }
                 if (toFragment.length > 0) {
                     // Build set for O(1) lookup, spawn fragments, then compact
-                    const fragSet = new Set(toFragment);
+                    if (!this._fragSet) this._fragSet = new Set();
+                    const fragSet = this._fragSet;
+                    fragSet.clear();
+                    for (let fi = 0; fi < toFragment.length; fi++) fragSet.add(toFragment[fi]);
                     for (const p of toFragment) {
                         const nf = SPAWN_COUNT;
                         const fragMass = p.mass / nf;
@@ -396,21 +401,32 @@ class Simulation {
             }
         }
 
-        this.heatmap.update(this.particles, this.camera, this.width, this.height,
-            this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
-            this.physics.relativityEnabled,
-            this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
-            this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
-            this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
-            this.physics.gravityEnabled, this.physics.coulombEnabled);
-        this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
-        this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
+        // Throttle heatmap to every HEATMAP_INTERVAL frames (default 4 = ~15fps)
+        if (++this._hmFrame >= HEATMAP_INTERVAL) {
+            this._hmFrame = 0;
+            this.heatmap.update(this.particles, this.camera, this.width, this.height,
+                this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
+                this.physics.relativityEnabled,
+                this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
+                this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
+                this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
+                this.physics.gravityEnabled, this.physics.coulombEnabled);
+        }
+        const sidebarFrame = !(++this._sbFrame & SIDEBAR_THROTTLE_MASK);
+        if (sidebarFrame) {
+            this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
+            this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
+        }
         this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons, this.pions);
-        this.phasePlot.draw(this.renderer.isLight);
-        this.effPotPlot.draw(this.renderer.isLight);
+        if (sidebarFrame) {
+            this.phasePlot.draw(this.renderer.isLight);
+            this.effPotPlot.draw(this.renderer.isLight);
+        }
         if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);
-        const sel = this.stats.updateSelected(this.selectedParticle, this.particles, this.physics);
-        if (!sel && this.selectedParticle) this.selectedParticle = null;
+        if (sidebarFrame) {
+            const sel = this.stats.updateSelected(this.selectedParticle, this.particles, this.physics);
+            if (!sel && this.selectedParticle) this.selectedParticle = null;
+        }
 
         requestAnimationFrame((t) => this.loop(t));
     }

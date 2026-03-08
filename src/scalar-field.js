@@ -28,7 +28,7 @@ export default class ScalarField {
         this._gradY = new Float64Array(gsq);
 
         // Self-gravity: coarse grid (SG×SG) for O(SG⁴) potential, upsampled to full grid
-        const sgGrid = gridSize >> 2; // 16 for SCALAR_GRID=64
+        const sgGrid = gridSize >> 3; // 8 for SCALAR_GRID=64 (O(SG⁴)=4096 vs 65536)
         this._sgGrid = sgGrid;
         this._sgGridSq = sgGrid * sgGrid;
         this._sgRatio = gridSize / sgGrid;
@@ -146,6 +146,22 @@ export default class ScalarField {
         const { ix, iy } = this._pqs;
         const wx = this._wx;
         const wy = this._wy;
+        const GRID = this._grid;
+
+        // Interior fast path: stencil [ix-1..ix+2]×[iy-1..iy+2] fully inside grid
+        if (ix >= 1 && ix + 2 < GRID && iy >= 1 && iy + 2 < GRID) {
+            for (let jy = 0; jy < 4; jy++) {
+                const row = (iy + jy - 1) * GRID + (ix - 1);
+                const vwy = value * wy[jy];
+                out[row]     += vwy * wx[0];
+                out[row + 1] += vwy * wx[1];
+                out[row + 2] += vwy * wx[2];
+                out[row + 3] += vwy * wx[3];
+            }
+            return;
+        }
+
+        // Border path: use _nb for boundary-aware wrapping
         for (let jy = 0; jy < 4; jy++) {
             const wyj = wy[jy];
             for (let jx = 0; jx < 4; jx++) {
@@ -497,7 +513,8 @@ export default class ScalarField {
     }
 
     /** Apply gravitational force from field energy density onto particles.
-     *  Direct summation: F = m · Σ ρ(x_j) · dA · (x_j - x_i) / |x_j - x_i|³. */
+     *  Direct summation: F = m · Σ ρ(x_j) · dA · (x_j - x_i) / |x_j - x_i|³.
+     *  Uses cached _energyDensity from prior computeSelfGravity() or update() call. */
     applyGravForces(particles, domainW, domainH, softeningSq, periodic, topology) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
@@ -507,19 +524,40 @@ export default class ScalarField {
         const halfDomW = domainW * 0.5;
         const halfDomH = domainH * 0.5;
 
-        this._computeEnergyDensity(domainW, domainH);
+        // Use cached energy density — already computed in update() → computeSelfGravity()
+        // or bootstrap. Avoids redundant O(GRID²) recomputation per substep.
         const rho = this._energyDensity;
+
+        // Pre-compute cell centers (avoids (ix+0.5)*cellW per particle in inner loop)
+        const ccx = this._cellCX;
+        const ccy = this._cellCY;
+        if (!ccx || ccx.length !== GRID) {
+            this._cellCX = new Float64Array(GRID);
+            this._cellCY = new Float64Array(GRID);
+            for (let i = 0; i < GRID; i++) {
+                this._cellCX[i] = (i + 0.5) * cellW;
+                this._cellCY[i] = (i + 0.5) * cellH;
+            }
+        } else if (Math.abs(ccx[0] - 0.5 * cellW) > EPSILON) {
+            // Recompute if domain changed
+            for (let i = 0; i < GRID; i++) {
+                this._cellCX[i] = (i + 0.5) * cellW;
+                this._cellCY[i] = (i + 0.5) * cellH;
+            }
+        }
+        const cx_arr = this._cellCX;
+        const cy_arr = this._cellCY;
 
         for (let pi = 0; pi < particles.length; pi++) {
             const p = particles[pi];
             if (p.mass < EPSILON) continue;
             let fx = 0, fy = 0;
             for (let iy = 0; iy < GRID; iy++) {
-                const cy = (iy + 0.5) * cellH;
+                const cy = cy_arr[iy];
                 for (let ix = 0; ix < GRID; ix++) {
                     const rhoVal = rho[iy * GRID + ix];
                     if (rhoVal < EPSILON) continue;
-                    const cx = (ix + 0.5) * cellW;
+                    const cx = cx_arr[ix];
                     let dx, dy;
                     if (periodic) {
                         minImage(p.pos.x, p.pos.y, cx, cy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);

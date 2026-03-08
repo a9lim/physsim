@@ -1,4 +1,4 @@
-import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, PI, TWO_PI, HALF_PI, VELOCITY_VECTOR_SCALE, FORCE_VECTOR_SCALE } from './config.js';
+import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, PI, TWO_PI, HALF_PI, VELOCITY_VECTOR_SCALE, FORCE_VECTOR_SCALE, FIELD_RENDER_INTERVAL } from './config.js';
 const _PAL = window._PALETTE;
 const _r = window._r;
 
@@ -44,6 +44,12 @@ export default class Renderer {
         this.heatmap = null;
         this.higgsField = null;
         this.axionField = null;
+        this._fieldFrame = 0;
+        // Viewport culling bounds (set per-frame in render())
+        this._vpLeft = 0;
+        this._vpRight = 0;
+        this._vpTop = 0;
+        this._vpBottom = 0;
     }
 
     resize(width, height) {
@@ -64,21 +70,34 @@ export default class Renderer {
 
         if (this.heatmap) this.heatmap.draw(ctx, this.width, this.height);
 
-        // Camera transform: all subsequent drawing is in world space
+        // Compute viewport bounds in world space (for culling)
         if (camera) {
             const z = camera.zoom;
+            const halfW = this.width / (2 * z);
+            const halfH = this.height / (2 * z);
+            this._vpLeft = camera.x - halfW;
+            this._vpRight = camera.x + halfW;
+            this._vpTop = camera.y - halfH;
+            this._vpBottom = camera.y + halfH;
             ctx.setTransform(z, 0, 0, z, this.width / 2 - camera.x * z, this.height / 2 - camera.y * z);
+        } else {
+            this._vpLeft = 0;
+            this._vpRight = this.domainW;
+            this._vpTop = 0;
+            this._vpBottom = this.domainH;
         }
 
-        // Higgs field overlay (world space, behind trails)
+        // Field overlays: throttle render() to every FIELD_RENDER_INTERVAL frames
+        const fieldRender = (++this._fieldFrame >= FIELD_RENDER_INTERVAL);
+        if (fieldRender) this._fieldFrame = 0;
+
         if (this.higgsField && window.sim && window.sim.physics.higgsEnabled) {
-            this.higgsField.render(this.isLight);
+            if (fieldRender) this.higgsField.render(this.isLight);
             this.higgsField.draw(ctx, this.domainW, this.domainH);
         }
 
-        // Axion field overlay (world space, behind trails)
         if (this.axionField && window.sim && window.sim.physics.axionEnabled) {
-            this.axionField.render(this.isLight);
+            if (fieldRender) this.axionField.render(this.isLight);
             this.axionField.draw(ctx, this.domainW, this.domainH);
         }
 
@@ -210,38 +229,40 @@ export default class Renderer {
         const blendMode = isLight ? 'source-over' : 'lighter';
         ctx.globalCompositeOperation = blendMode;
 
-        // Cache BH state once instead of window.sim lookup per particle
         const bhEnabled = window.sim && window.sim.physics.blackHoleEnabled;
         const ergoStyle = isLight ? _r(_PAL.light.text, 0.3) : _r(_PAL.dark.text, 0.4);
         const neutralGlow = !isLight ? _r(_PAL.dark.text, 0.5) : null;
 
-        // Batch all particle fills with same shadow state to minimize state changes
+        // Viewport culling bounds with margin for glow/ergosphere
+        const vpL = this._vpLeft - 10, vpR = this._vpRight + 10;
+        const vpT = this._vpTop - 10, vpB = this._vpBottom + 10;
+
         if (isLight) {
             ctx.shadowBlur = 0;
             for (let i = 0, len = particles.length; i < len; i++) {
                 const p = particles[i];
+                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
                 ctx.fillStyle = p.color;
                 ctx.beginPath();
                 ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
                 ctx.fill();
             }
         } else {
-            // Dark mode: group by shadow state to reduce changes
-            // First pass: uncharged particles (uniform shadow)
             ctx.shadowBlur = 5;
             ctx.shadowColor = neutralGlow;
             for (let i = 0, len = particles.length; i < len; i++) {
                 const p = particles[i];
                 if (p.charge !== 0) continue;
+                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
                 ctx.fillStyle = p.color;
                 ctx.beginPath();
                 ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
                 ctx.fill();
             }
-            // Second pass: charged particles (per-particle shadow)
             for (let i = 0, len = particles.length; i < len; i++) {
                 const p = particles[i];
                 if (p.charge === 0) continue;
+                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
                 const absQ = p.charge > 0 ? p.charge : -p.charge;
                 ctx.shadowBlur = absQ * 3 + 10 < 50 ? absQ * 3 + 10 : 50;
                 ctx.shadowColor = p.color;
@@ -252,10 +273,11 @@ export default class Renderer {
             }
         }
 
-        // Spin rings + ergospheres (less frequent, ok to iterate once)
+        // Spin rings + ergospheres (viewport-culled)
         ctx.shadowBlur = 0;
         for (let i = 0, len = particles.length; i < len; i++) {
             const p = particles[i];
+            if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
             if (p.angVel !== 0) {
                 this.drawSpinRing(ctx, p, isLight, blendMode);
             }
@@ -472,12 +494,12 @@ export default class Renderer {
     }
 
     drawPhotons(ctx, photons, isLight) {
-        // Caller already guards photons && photons.length
         ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
         ctx.shadowBlur = 0;
         const alphaScale = isLight ? 0.6 : 0.8;
+        const vpL = this._vpLeft - 5, vpR = this._vpRight + 5;
+        const vpT = this._vpTop - 5, vpB = this._vpBottom + 5;
 
-        // Batch by type to minimize fillStyle/shadowColor changes
         for (let pass = 0; pass < 2; pass++) {
             const isGrav = pass === 1;
             const color = isGrav ? _PAL.extended.red : _PAL.extended.yellow;
@@ -487,6 +509,7 @@ export default class Renderer {
             for (let i = 0, len = photons.length; i < len; i++) {
                 const ph = photons[i];
                 if ((ph.type === 'grav') !== isGrav) continue;
+                if (ph.pos.x < vpL || ph.pos.x > vpR || ph.pos.y < vpT || ph.pos.y > vpB) continue;
                 const alpha = 1 - ph.lifetime / PHOTON_LIFETIME;
                 if (alpha <= 0) continue;
                 const size = 0.25 + 2 * ph.energy;
@@ -513,8 +536,12 @@ export default class Renderer {
         const glowColor = _r(color, 0.5);
         ctx.fillStyle = color;
 
+        const vpL = this._vpLeft - 5, vpR = this._vpRight + 5;
+        const vpT = this._vpTop - 5, vpB = this._vpBottom + 5;
+
         for (let i = 0, len = pions.length; i < len; i++) {
             const pn = pions[i];
+            if (pn.pos.x < vpL || pn.pos.x > vpR || pn.pos.y < vpT || pn.pos.y > vpB) continue;
             const size = 0.25 + 2 * pn.energy;
             const r = size < 5 ? size : 5;
             if (!isLight) {

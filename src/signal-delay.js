@@ -57,7 +57,10 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     if (t > tNewest) t = tNewest;
 
     // O(1) proportional estimate + short walk for non-uniform spacing
-    let segK = Math.floor((t - tOldest) / (tNewest - tOldest) * (count - 1));
+    const histSpan = tNewest - tOldest;
+    let segK = histSpan > NR_TOLERANCE
+        ? Math.floor((t - tOldest) / histSpan * (count - 1))
+        : 0;
     if (segK > count - 2) segK = count - 2;
     if (segK < 0) segK = 0;
     while (segK < count - 2 && histTime[(start + segK + 1) % N] <= t) segK++;

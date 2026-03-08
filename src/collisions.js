@@ -1,11 +1,17 @@
 // ─── Collision Detection & Resolution ───
 // Quadtree-accelerated overlap detection with merge resolution.
 
-import { INERTIA_K, COL_MERGE, TORUS } from './config.js';
+import { INERTIA_K, COL_MERGE, EPSILON, TORUS } from './config.js';
 import { angwToAngVel } from './relativity.js';
 import { minImage, wrapPosition } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
+
+// Pre-allocated return arrays — cleared each call, avoids GC
+const _annihilations = [];
+const _merges = [];
+const _removed = [];
+const _collisionResult = { annihilations: _annihilations, merges: _merges, removed: _removed };
 
 /** Relativistic KE: wSq / (gamma + 1) * m. Avoids catastrophic cancellation at low v. */
 function _particleKE(p) {
@@ -18,8 +24,11 @@ function _particleKE(p) {
 export function handleCollisions(particles, pool, root, mode, bounceFriction, relativityEnabled, periodic, domW, domH, topology = TORUS) {
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
-    const annihilations = [];
-    const merges = [];
+    _annihilations.length = 0;
+    _merges.length = 0;
+    _removed.length = 0;
+    const annihilations = _annihilations;
+    const merges = _merges;
 
     for (let ci = 0; ci < particles.length; ci++) {
         const p1 = particles[ci];
@@ -86,8 +95,8 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
         }
     }
 
-    const removed = [];
-    if (mode === COL_MERGE) {
+    const removed = _removed;
+    if (mode === COL_MERGE && (annihilations.length > 0 || merges.length > 0)) {
         let write = 0;
         for (let read = 0; read < particles.length; read++) {
             if (particles[read].mass !== 0) {
@@ -99,7 +108,7 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
         particles.length = write;
     }
 
-    return { annihilations, merges, removed };
+    return _collisionResult;
 }
 
 /** Merge p2 into p1, conserving mass, charge, linear and angular momentum. */
@@ -130,7 +139,7 @@ export function resolveMerge(p1, p2, relativityEnabled, periodic, miDx, miDy) {
     p1.updateColor();
 
     const newI = INERTIA_K * totalMass * p1.radius * p1.radius;
-    p1.angw = (Lorb + Lspin) / newI;
+    p1.angw = newI > EPSILON ? (Lorb + Lspin) / newI : 0;
     p1.angVel = relativityEnabled ? angwToAngVel(p1.angw, p1.radius) : p1.angw;
 
     const invG = relativityEnabled ? 1 / Math.sqrt(1 + p1.w.x * p1.w.x + p1.w.y * p1.w.y) : 1;

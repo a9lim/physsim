@@ -2,12 +2,23 @@
 // Pairwise and Barnes-Hut force accumulation. Separates E-like (position-dependent)
 // from B-like (velocity-dependent) forces for the Boris integrator.
 
-import { BH_THETA, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_COUPLING, EPSILON, TORUS, BOSON_SOFTENING_SQ } from './config.js';
+import { BH_THETA, BH_THETA_SQ, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_COUPLING, EPSILON, TORUS, BOSON_SOFTENING_SQ } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { minImage } from './topology.js';
 
 // Reused by minImage() to avoid per-call allocation
 const _miOut = { x: 0, y: 0 };
+
+// Module-level PE accumulator: populated during force computation, read by integrator.
+// Avoids a separate O(N log N) / O(N²) tree walk for PE.
+let _peAccum = 0;
+let _accumulatePE = true;
+
+/** Reset PE accumulator (call before computeAllForces). */
+export function resetPEAccum() { _peAccum = 0; }
+
+/** Get accumulated PE (halved for double-counting since each pair is visited from both sides). */
+export function getPEAccum() { return _peAccum * 0.5; }
 
 /** Zero all per-particle force accumulators and field values before a new substep. */
 export function resetForces(particles) {
@@ -51,6 +62,10 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
     const halfDomW = domW * 0.5;
     const halfDomH = domH * 0.5;
     const n = particles.length;
+
+    // Reset PE accumulator for this force computation pass
+    _peAccum = 0;
+    _accumulatePE = true;
 
     // Cache dipole moments once per particle (valid for all pairForce/pairPE calls this substep)
     for (let i = 0; i < n; i++) {
@@ -102,6 +117,8 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
     }
 
     // Forces from dead particles (signal delay fade-out)
+    // Dead particles don't contribute to PE (consistent with computePE behavior)
+    _accumulatePE = false;
     const deadN = deadParticles ? deadParticles.length : 0;
     if (deadN > 0 && useSignalDelay) {
         for (let i = 0; i < n; i++) {
@@ -147,7 +164,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     const invRSq = 1 / rSq;
     const invR = Math.sqrt(invRSq);       // 1/r via sqrt(1/r²) — one sqrt instead of sqrt + division
     const invR3 = invR * invRSq;          // 1 / r_eff³
-    const invR5 = invR3 * invRSq;         // 1 / r_eff⁵
+    const invR5 = invR3 * invRSq;          // 1 / r_eff⁵ (needed by gravity jerk + dipole forces)
 
     // Liénard-Wiechert aberration factor (1 - n̂·v_source)^{-3}
     // n̂ = unit vector from source to observer = (-rx, -ry) / r
@@ -170,9 +187,6 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     const vrx = svx - p.vel.x, vry = svy - p.vel.y;
     const rDotVr = rx * vrx + ry * vry;
 
-    const axModPair = Math.sqrt(p.axMod * sAxMod);
-    const yukModPair = Math.sqrt(p.yukMod * sYukMod);
-
     if (toggles.gravityEnabled) {
         const k = p.mass * sMass;
         const fDir = k * invR3 * aberr;
@@ -184,7 +198,13 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const jRadial = -3 * k * rDotVr * invR5 * aberr;
         p.jerk.x += vrx * fDir + rx * jRadial;
         p.jerk.y += vry * fDir + ry * jRadial;
+        // PE: -m₁m₂/r
+        if (_accumulatePE) _peAccum -= k * invR;
     }
+
+    // Deferred computation: axMod/yukMod geometric means only when needed
+    const needAxMod = toggles.coulombEnabled || toggles.magneticEnabled;
+    const axModPair = needAxMod ? Math.sqrt(p.axMod * sAxMod) : 1;
 
     if (toggles.coulombEnabled) {
         const k = -(p.charge * sCharge) * axModPair;
@@ -197,6 +217,8 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const jRadial = -3 * k * rDotVr * invR5 * aberr;
         p.jerk.x += vrx * fDir + rx * jRadial;
         p.jerk.y += vry * fDir + ry * jRadial;
+        // PE: +q₁q₂/r * axMod
+        if (_accumulatePE) _peAccum += p.charge * sCharge * invR * axModPair;
     }
 
     if (toggles.onePNEnabled && (toggles.gravitomagEnabled || toggles.magneticEnabled)) {
@@ -205,12 +227,11 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const pvx = p.vel.x, pvy = p.vel.y;
 
         if (toggles.gravitomagEnabled) {
-            // 1PN EIH symmetric remainder: O(v²/c²) gravity after subtracting the
-            // GM Lorentz piece (handled by Boris when GM is on, absent when GM is off).
             const v1Sq = pvx * pvx + pvy * pvy;
             const v2Sq = svx * svx + svy * svy;
             const nDotV1 = nx * pvx + ny * pvy;
             const nDotV2 = nx * svx + ny * svy;
+            const v1DotV2 = pvx * svx + pvy * svy;
             const radial = -v1Sq - 2 * v2Sq
                 + 1.5 * nDotV2 * nDotV2
                 + 5 * p.mass * invR + 4 * sMass * invR;
@@ -223,10 +244,16 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
             out.y += fy;
             p.force1PN.x += fx;
             p.force1PN.y += fy;
+            // 1PN EIH PE: -m₁m₂/r · [1.5(v₁²+v₂²) - 3.5v₁·v₂ - 0.5(v₁·n̂)(v₂·n̂) + m₁/r + m₂/r]
+            if (_accumulatePE) {
+                _peAccum -= p.mass * sMass * invR * (
+                    1.5 * (v1Sq + v2Sq) - 3.5 * v1DotV2 - 0.5 * nDotV1 * nDotV2
+                    + p.mass * invR + sMass * invR
+                );
+            }
         }
 
         if (toggles.magneticEnabled) {
-            // Darwin EM symmetric correction: O(v²/c²) from Darwin Lagrangian.
             const v2DotN = svx * nx + svy * ny;
             const v1DotN = pvx * nx + pvy * ny;
             const coeff = 0.5 * p.charge * sCharge * invRSq;
@@ -236,12 +263,15 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
             out.y += symY;
             p.force1PN.x += symX;
             p.force1PN.y += symY;
+            // Darwin PE: -0.5q₁q₂/r · [v₁·v₂ + (v₁·n̂)(v₂·n̂)]
+            if (_accumulatePE) {
+                const v1DotV2 = pvx * svx + pvy * svy;
+                _peAccum -= 0.5 * p.charge * sCharge * invR * (v1DotV2 + v1DotN * v2DotN);
+            }
         }
     }
 
     if (toggles.onePNEnabled && toggles.gravitomagEnabled && toggles.magneticEnabled) {
-        // Bazanski cross-term: gravity-EM 1PN mixed interaction (position-dependent only).
-        // F = [q₁q₂(m₁+m₂) − (q₁²m₂ + q₂²m₁)] / r³ along r̂
         const crossCoeff = p.charge * sCharge * (p.mass + sMass)
             - (p.charge * p.charge * sMass + sCharge * sCharge * p.mass);
         const fDir = crossCoeff * invRSq * invRSq;
@@ -249,6 +279,8 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         out.y += ry * fDir;
         p.force1PN.x += rx * fDir;
         p.force1PN.y += ry * fDir;
+        // Bazanski PE: +0.5·crossCoeff/r²
+        if (_accumulatePE) _peAccum += 0.5 * crossCoeff * invRSq;
     }
 
     if (toggles.magneticEnabled) {
@@ -260,6 +292,8 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         out.y += ry * fDir;
         p.forceMagnetic.x += rx * fDir;
         p.forceMagnetic.y += ry * fDir;
+        // PE: +μ₁μ₂/r³ * axMod
+        if (_accumulatePE) _peAccum += (pMagMoment * sMagMoment) * invR3 * axMod;
 
         // Bz from moving charge (Biot-Savart): B_z = q_s(v_s × r̂)_z / r²
         const BzMoving = sCharge * crossSV * invR3 * axMod;
@@ -282,6 +316,8 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         out.y += ry * fDir;
         p.forceGravitomag.x += rx * fDir;
         p.forceGravitomag.y += ry * fDir;
+        // PE: -L₁L₂/r³
+        if (_accumulatePE) _peAccum -= (pAngMomentum * sAngMomentum) * invR3;
 
         // Bgz from moving mass: −m_s(v_s × r̂)_z / r² (negative: GEM convention)
         const BgzMoving = -sMass * crossSV * invR3;
@@ -305,21 +341,20 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const mu = toggles.yukawaMu;
         const r = 1 / invR;
         const expMuR = Math.exp(-mu * r);
-        const ym = yukModPair; // PQ modulation (geometric mean of observer and source)
-        // F = g² · exp(-μr) · (1/r² + μ/r) · r̂  (attractive, like gravity)
+        const yukModPair = Math.sqrt(p.yukMod * sYukMod);
+        const ym = yukModPair;
         const fDir = YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * (invRSq + mu * invR) * invR * aberr;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceYukawa.x += rx * fDir;
         p.forceYukawa.y += ry * fDir;
-        // Analytical jerk for radiation reaction (jBase * term1 == fDir)
         const jRadial = -(3 * invRSq + 3 * mu * invR + mu * mu) * rDotVr * YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invRSq * invR * aberr;
         p.jerk.x += vrx * fDir + rx * jRadial;
         p.jerk.y += vry * fDir + ry * jRadial;
+        // PE: -g²m₁m₂·exp(-μr)/r
+        if (_accumulatePE) _peAccum -= YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invR;
 
-        // Scalar Breit O(v²/c²) correction from massive scalar boson exchange.
-        // δH = g²m₁m₂e^{-μr}/(2r) · [v₁·v₂ + (n̂·v₁)(n̂·v₂)(1+μr)]
-        // F₁ = β{-[α·v₁₂ + (α²+α+1)·nv₁·nv₂]n̂ + α(nv₂·v₁ + nv₁·v₂)}
+        // Scalar Breit O(v²/c²) correction
         if (toggles.onePNEnabled) {
             const pvx = p.vel.x, pvy = p.vel.y;
             const nx = rx * invR, ny = ry * invR;
@@ -335,6 +370,8 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
             out.y += fy;
             p.force1PN.x += fx;
             p.force1PN.y += fy;
+            // Scalar Breit PE: +g²m₁m₂e^{-μr}/(2r)·[v₁·v₂ + (n̂·v₁)(n̂·v₂)(1+μr)]
+            if (_accumulatePE) _peAccum += 0.5 * YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invR * (v1DotV2 + nDotV1 * nDotV2 * alpha);
         }
     }
 
@@ -421,7 +458,7 @@ let _1pnStack = new Int32Array(256);
 
 /** BH tree walk for 1PN velocity-Verlet correction. Signal delay at leaf level. */
 function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology, gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, simTime) {
-    const thetaSq = BH_THETA * BH_THETA;
+    const thetaSq = BH_THETA_SQ;
     const px = particle.pos.x, py = particle.pos.y;
     const pvx = particle.vel.x, pvy = particle.vel.y;
     const pMass = particle.mass, pCharge = particle.charge;
@@ -431,7 +468,7 @@ function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, dom
 
     while (stackTop > 0) {
         const nodeIdx = _1pnStack[--stackTop];
-        if (pool.totalMass[nodeIdx] === 0) continue;
+        if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
         let dx, dy;
         if (periodic) {
@@ -532,7 +569,7 @@ export function compute1PN(particles, SOFTENING_SQ_VAL, periodic, domW, domH, ha
 let _bhStack = new Int32Array(256);
 
 export function calculateForce(particle, pool, rootIdx, theta, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, useSignalDelay, simTime) {
-    const thetaSq = theta * theta;
+    const thetaSq = BH_THETA_SQ;
     const px = particle.pos.x, py = particle.pos.y;
     let stackTop = 0;
     if (_bhStack.length < pool.maxNodes) _bhStack = new Int32Array(pool.maxNodes);
@@ -540,7 +577,7 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
 
     while (stackTop > 0) {
         const nodeIdx = _bhStack[--stackTop];
-        if (pool.totalMass[nodeIdx] === 0) continue;
+        if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
         let dx, dy;
         if (periodic) {
@@ -614,6 +651,7 @@ export function computeBosonGravity(particles, photons, pions, softeningSq) {
 
         for (let j = 0; j < nPh; j++) {
             const ph = photons[j];
+            if (!ph.alive) continue;
             const dx = ph.pos.x - p.pos.x;
             const dy = ph.pos.y - p.pos.y;
             const rSq = dx * dx + dy * dy + softeningSq;
@@ -627,6 +665,7 @@ export function computeBosonGravity(particles, photons, pions, softeningSq) {
 
         for (let j = 0; j < nPi; j++) {
             const pn = pions[j];
+            if (!pn.alive) continue;
             const dx = pn.pos.x - p.pos.x;
             const dy = pn.pos.y - p.pos.y;
             const rSq = dx * dx + dy * dy + softeningSq;

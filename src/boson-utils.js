@@ -2,7 +2,7 @@
 // Barnes-Hut tree walk for gravitational lensing of massless (photon) and
 // massive (pion) bosons. Shared to avoid code duplication.
 
-import { BH_THETA, BOSON_SOFTENING_SQ } from './config.js';
+import { BH_THETA_SQ, BOSON_SOFTENING_SQ } from './config.js';
 
 let _bStack = new Int32Array(256);
 
@@ -17,7 +17,7 @@ let _bStack = new Int32Array(256);
  * @param {number} rootIdx  - tree root index
  */
 export function treeDeflectBoson(pos, targetVec, grFactor, dt, pool, rootIdx) {
-    const thetaSq = BH_THETA * BH_THETA;
+    const thetaSq = BH_THETA_SQ;
     const px = pos.x, py = pos.y;
     let stackTop = 0;
     if (_bStack.length < pool.maxNodes) _bStack = new Int32Array(pool.maxNodes);
