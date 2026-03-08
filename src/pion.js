@@ -3,7 +3,7 @@
 // Unlike MasslessBoson (|v|=c), pions travel at v<c with proper velocity w.
 
 import Vec2 from './vec2.js';
-import { BOSON_SOFTENING_SQ, ELECTRON_MASS, spawnOffset } from './config.js';
+import { BOSON_SOFTENING_SQ, ELECTRON_MASS, MAX_SPEED_RATIO, EPSILON, spawnOffset } from './config.js';
 import { treeDeflectBoson } from './boson-utils.js';
 
 export default class Pion {
@@ -69,8 +69,8 @@ export default class Pion {
             const restAngle = Math.random() * Math.PI * 2;
             const cosR = Math.cos(restAngle), sinR = Math.sin(restAngle);
             const vx = this.vel.x, vy = this.vel.y;
-            const vSq = vx * vx + vy * vy;
-            const gamma = 1 / Math.sqrt(1 - vSq + 1e-30);
+            const vSq = Math.min(vx * vx + vy * vy, MAX_SPEED_RATIO * MAX_SPEED_RATIO);
+            const gamma = 1 / Math.sqrt(1 - vSq);
             const eRest = this.mass * 0.5; // each photon in rest frame
             for (let i = 0; i < 2; i++) {
                 const sign = i === 0 ? 1 : -1;
@@ -90,6 +90,7 @@ export default class Pion {
                     pyR = pParBoosted * ny + pPerpY;
                 }
                 const pMag = Math.sqrt(pxR * pxR + pyR * pyR);
+                if (pMag < EPSILON) continue; // degenerate kinematics
                 const eBoosted = pMag; // massless: E = |p|
                 const cosA = pxR / pMag, sinA = pyR / pMag;
                 const ph = new Boson(
@@ -142,7 +143,8 @@ export default class Pion {
             const vSq = vx * vx + vy * vy;
             if (vSq > 1e-12) {
                 const v = Math.sqrt(vSq);
-                const gamma = 1 / Math.sqrt(1 - vSq + 1e-30);
+                const clampedVSq = Math.min(vSq, MAX_SPEED_RATIO * MAX_SPEED_RATIO);
+                const gamma = 1 / Math.sqrt(1 - clampedVSq);
                 const nx = vx / v, ny = vy / v;
                 // Boost photon
                 const phPar = phPx * nx + phPy * ny;
@@ -161,6 +163,7 @@ export default class Pion {
 
             // Photon (neutrino)
             const phMag = Math.sqrt(phPx * phPx + phPy * phPy);
+            if (phMag < EPSILON) { this.alive = false; return; } // degenerate kinematics
             const phCos = phPx / phMag, phSin = phPy / phMag;
             const ph = new Boson(
                 this.pos.x + phCos * offset,

@@ -2,7 +2,7 @@
 // Mirrors force calculation structure (BH tree or pairwise) for consistent PE.
 // When signal delay is active, uses retarded source positions at leaf/pairwise level.
 
-import { INERTIA_K, MAG_MOMENT_K, YUKAWA_COUPLING, TORUS } from './config.js';
+import { INERTIA_K, MAG_MOMENT_K, YUKAWA_COUPLING, EPSILON, TORUS } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { minImage } from './topology.js';
 
@@ -73,7 +73,7 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
 
     while (stackTop > 0) {
         const nodeIdx = _peStack[--stackTop];
-        if (pool.totalMass[nodeIdx] === 0) continue;
+        if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
         let dx, dy;
         if (periodic) {

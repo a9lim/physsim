@@ -56,6 +56,7 @@ export const TIDAL_STRENGTH = 0.3;
 
 // ── Barnes-Hut ──
 export const BH_THETA = 0.5;
+export const BH_THETA_SQ = BH_THETA * BH_THETA;
 export const QUADTREE_CAPACITY = 4;
 
 // ── Radiation & Bosons ──
@@ -129,9 +130,12 @@ export const SHOOT_VELOCITY_SCALE = 0.02;
 // ── Display ──
 export const MAX_TRAIL_LENGTH = 256;
 export const DISPLAY_SCALE = 100;
-export const STATS_THROTTLE_MASK = 3;
+export const STATS_THROTTLE_MASK = 7;           // stats update every 8th frame
+export const FIELD_RENDER_INTERVAL = 2;          // field overlay render every 2nd frame
+export const SIDEBAR_THROTTLE_MASK = 1;           // phase/effpot/selected update every 2nd frame
 export const PHASE_BUFFER_LEN = 512;
 export const HEATMAP_GRID = 64;
+export const HEATMAP_INTERVAL = 4;           // heatmap update every Nth render frame
 export const HEATMAP_SENSITIVITY = 2;
 export const HEATMAP_MAX_ALPHA = 100;
 export const VELOCITY_VECTOR_SCALE = 32;

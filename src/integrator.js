@@ -3,14 +3,14 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
 import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
 
-import { resetForces, computeAllForces, compute1PN, computeBosonGravity } from './forces.js';
+import { resetForces, computeAllForces, compute1PN, computeBosonGravity, getPEAccum } from './forces.js';
 import { handleCollisions } from './collisions.js';
-import { computePE } from './potential.js';
+import { computePE } from './potential.js'; // kept for preset-load recomputation
 import { minImage, wrapPosition } from './topology.js';
 
 // Reused by disintegration to avoid per-call allocation
@@ -118,6 +118,11 @@ export default class Physics {
         this._ghostCount = 0;
         this._treeParticles = [];
         this._lastRoot = -1;
+
+        // Pre-allocated return arrays for checkDisintegration (avoids GC)
+        this._disintFragments = [];
+        this._disintTransfers = [];
+        this._disintResult = { fragments: this._disintFragments, transfers: this._disintTransfers };
     }
 
     /** Copy current toggle booleans into reusable object (once per frame). */
@@ -396,8 +401,10 @@ export default class Physics {
     _repelPair(p1, p2x, p2y, p2, friction) {
         const dx = p2x - p1.pos.x;
         const dy = p2y - p1.pos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const distSq = dx * dx + dy * dy;
         const minDist = p1.radius + p2.radius;
+        if (distSq >= minDist * minDist) return; // squared comparison avoids sqrt
+        const dist = Math.sqrt(distSq);
         const delta = minDist - dist;
         if (delta <= 0) return;
         // Hertz contact: F = delta^1.5
@@ -531,7 +538,8 @@ export default class Physics {
                     }
                 }
             }
-            const aMax = Math.sqrt(maxAccelSq);
+            let aMax = Math.sqrt(maxAccelSq);
+            if (aMax !== aMax) aMax = 0; // NaN guard: prevents NaN from propagating to dtSafe
             let dtSafe = aMax > EPSILON_SQ ? Math.sqrt((this.blackHoleEnabled ? BH_SOFTENING : SOFTENING) / aMax) : dtRemain;
             if (maxCyclotron > 0) {
                 const dtCyclotron = 0.7853981633974483 / maxCyclotron; // (2π/8) = π/4
@@ -631,6 +639,7 @@ export default class Physics {
                     torque += p._contactTorque;
                     if (torque === 0) continue;
                     const I = INERTIA_K * p.mass * p.radiusSq;
+                    if (I < EPSILON) continue; // avoid division by near-zero moment of inertia
                     p.angw += torque * dtSub / I;
                     if (p.angw !== p.angw) p.angw = 0; // NaN guard
                     const sr = p.angw * p.radius;
@@ -804,7 +813,7 @@ export default class Physics {
                     p.radiusSq = p.radius * p.radius;
                     this.sim.totalRadiated += dE;
 
-                    p.baseMass *= p.mass / (p.mass + dE);
+                    p.baseMass *= 1 - dE / (p.mass + dE);
                     p._hawkAccum += dE;
                     if (p._hawkAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
                         const emitAngle = Math.random() * TWO_PI;
@@ -837,7 +846,7 @@ export default class Physics {
                     // LL clamp: radiated power ≤ LL_FORCE_CLAMP × work done by Yukawa force
                     const fYukMag = Math.sqrt(fYukSq);
                     const wSqCl = p.w.x * p.w.x + p.w.y * p.w.y;
-                    const vMag = Math.sqrt(wSqCl) / Math.sqrt(1 + wSqCl);
+                    const vMag = Math.sqrt(wSqCl / (1 + wSqCl));
                     const maxDE = LL_FORCE_CLAMP * fYukMag * vMag * dtSub;
                     if (dE > maxDE) dE = maxDE;
                     p._yukawaRadAccum += dE;
@@ -849,7 +858,7 @@ export default class Physics {
                             let angle = _scalarDipoleSample(Math.atan2(p.forceYukawa.y, p.forceYukawa.x));
 
                             // Relativistic aberration: boost from particle rest frame to lab frame
-                            const betaP = Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
+                            const betaP = Math.min(Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y), MAX_SPEED_RATIO);
                             if (betaP > EPSILON) {
                                 const gammaP = 1 / Math.sqrt(1 - betaP * betaP);
                                 const boostAngle = Math.atan2(p.vel.y, p.vel.x);
@@ -857,7 +866,7 @@ export default class Physics {
                                 const labRel = Math.atan2(Math.sin(phiRel), gammaP * (Math.cos(phiRel) + betaP));
                                 angle = labRel + boostAngle;
                             }
-                            const speed = Math.sqrt(ke * (ke + 2 * pionMass)) / (ke + pionMass);
+                            const speed = Math.min(Math.sqrt(ke * (ke + 2 * pionMass)) / (ke + pionMass), MAX_SPEED_RATIO);
                             const gamma = 1 / Math.sqrt(1 - speed * speed);
                             const wx = gamma * speed * Math.cos(angle);
                             const wy = gamma * speed * Math.sin(angle);
@@ -930,6 +939,7 @@ export default class Physics {
             this.simTime += dtSub;
 
             // 1PN velocity-Verlet correction: w += (F_new − F_old)·dt/(2m)
+            let vvRoot = -1;
             if (has1PN) {
                 // Resync vel from w only if expansion modified w after drift
                 if (relOn && this.expansionEnabled) {
@@ -941,7 +951,7 @@ export default class Physics {
                     }
                 }
                 const bhOn = this.barnesHutEnabled;
-                const vvRoot = bhOn ? this._buildTree(particles) : -1;
+                vvRoot = bhOn ? this._buildTree(particles) : -1;
                 compute1PN(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled, this.yukawaEnabled, this.yukawaMu, this.simTime, bhOn ? this.pool : null, vvRoot, bhOn);
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
@@ -964,7 +974,17 @@ export default class Physics {
             }
 
             // Step 5: Rebuild quadtree at new positions
-            const root = this._buildTree(particles);
+            // When 1PN+BH are both on, the VV correction already built the tree at these
+            // exact positions. Reuse it for collisions/absorption (spatial queries only).
+            // Mass distribution must be recalculated if Higgs changed masses.
+            let root;
+            if (has1PN && this.barnesHutEnabled && vvRoot >= 0) {
+                root = vvRoot;
+                // Higgs may have changed particle masses → stale aggregate masses
+                if (this.higgsEnabled) this.pool.calculateMassDistribution(root);
+            } else {
+                root = this._buildTree(particles);
+            }
             lastRoot = root;
 
             // Step 6: Collisions (bounce uses force-based Hertz repulsion; only merge goes here)
@@ -989,12 +1009,16 @@ export default class Physics {
                         const g2A = AXION_COUPLING * AXION_COUPLING;
                         const fracH = (hasHiggs && hasAxion) ? g2H / (g2H + g2A) : 1;
                         const fracA = (hasHiggs && hasAxion) ? g2A / (g2H + g2A) : 1;
-                        const deposit = (x, y, energy) => {
-                            if (hasHiggs) this.sim.higgsField.depositExcitation(x, y, energy * fracH, width, height);
-                            if (hasAxion) this.sim.axionField.depositExcitation(x, y, energy * fracA, width, height);
-                        };
-                        for (const m of merges) deposit(m.x, m.y, m.energy);
-                        for (const a of annihilations) deposit(a.x, a.y, a.energy);
+                        for (let ei = 0; ei < merges.length; ei++) {
+                            const ev = merges[ei];
+                            if (hasHiggs) this.sim.higgsField.depositExcitation(ev.x, ev.y, ev.energy * fracH, width, height);
+                            if (hasAxion) this.sim.axionField.depositExcitation(ev.x, ev.y, ev.energy * fracA, width, height);
+                        }
+                        for (let ei = 0; ei < annihilations.length; ei++) {
+                            const ev = annihilations[ei];
+                            if (hasHiggs) this.sim.higgsField.depositExcitation(ev.x, ev.y, ev.energy * fracH, width, height);
+                            if (hasAxion) this.sim.axionField.depositExcitation(ev.x, ev.y, ev.energy * fracA, width, height);
+                        }
                     }
                 }
             }
@@ -1019,8 +1043,9 @@ export default class Physics {
                         const absR = target.radius * BOSON_ABSORB_FRACTION;
                         if (dx * dx + dy * dy < absR * absR) {
                             const impulse = ph.energy;
-                            target.w.x += impulse * ph.vel.x / target.mass;
-                            target.w.y += impulse * ph.vel.y / target.mass;
+                            const invTM = target.mass > EPSILON ? 1 / target.mass : 0;
+                            target.w.x += impulse * ph.vel.x * invTM;
+                            target.w.y += impulse * ph.vel.y * invTM;
                             this.sim.totalRadiated -= ph.energy;
                             this.sim.totalRadiatedPx -= ph.energy * ph.vel.x;
                             this.sim.totalRadiatedPy -= ph.energy * ph.vel.y;
@@ -1049,8 +1074,9 @@ export default class Physics {
                         const dy = pn.pos.y - target.pos.y;
                         const absR = target.radius * BOSON_ABSORB_FRACTION;
                         if (dx * dx + dy * dy < absR * absR) {
-                            target.w.x += pn.energy * pn.vel.x / target.mass;
-                            target.w.y += pn.energy * pn.vel.y / target.mass;
+                            const invTM = target.mass > EPSILON ? 1 / target.mass : 0;
+                            target.w.x += pn.energy * pn.vel.x * invTM;
+                            target.w.y += pn.energy * pn.vel.y * invTM;
                             target.charge += pn.charge;
                             if (pn.charge !== 0) target.updateColor();
                             this.sim.totalRadiated -= pn.energy;
@@ -1296,9 +1322,9 @@ export default class Physics {
             }
         }
 
-        // PE once per frame, reusing last substep's tree
+        // PE cached from the last substep's force computation (eliminates separate tree walk)
         this._lastRoot = lastRoot;
-        this.potentialEnergy = computePE(particles, toggles, this.pool, lastRoot, this.barnesHutEnabled, BH_THETA, this.periodic, this.domainW, this.domainH, this._topologyConst, relOn, this.simTime);
+        this.potentialEnergy = getPEAccum();
         if (this.gravityEnabled && this.sim) {
             if (this.higgsEnabled && this.sim.higgsField)
                 this.potentialEnergy += this.sim.higgsField.gravPE(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
@@ -1397,9 +1423,11 @@ export default class Physics {
     }
 
     checkDisintegration(particles, lastRoot) {
-        if (!this.disintegrationEnabled) return { fragments: [], transfers: [] };
-        const fragments = [];
-        const transfers = [];
+        if (!this.disintegrationEnabled) return this._disintResult;
+        this._disintFragments.length = 0;
+        this._disintTransfers.length = 0;
+        const fragments = this._disintFragments;
+        const transfers = this._disintTransfers;
         const _periodic = this.periodic;
         const _halfDomW = this.domainW * 0.5, _halfDomH = this.domainH * 0.5;
         const _domW = this.domainW, _domH = this.domainH;
@@ -1495,6 +1523,6 @@ export default class Physics {
             }
         }
 
-        return { fragments, transfers };
+        return this._disintResult;
     }
 }

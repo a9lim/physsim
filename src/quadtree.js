@@ -192,8 +192,8 @@ export default class QuadTreePool {
                     const pm = p.mass;
                     mass += pm;
                     charge += p.charge;
-                    magMom += MAG_MOMENT_K * p.charge * p.angVel * rSq;
-                    angMom += INERTIA_K * pm * p.angVel * rSq;
+                    magMom += p.magMoment !== undefined ? p.magMoment : MAG_MOMENT_K * p.charge * p.angVel * rSq;
+                    angMom += p.angMomentum !== undefined ? p.angMomentum : INERTIA_K * pm * p.angVel * rSq;
                     cx += p.pos.x * pm;
                     cy += p.pos.y * pm;
                     momX += pm * p.w.x;
