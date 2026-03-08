@@ -11,13 +11,11 @@ let _bStack = new Int32Array(256);
  * Accumulates impulse into targetVec (boson.vel or pion.w).
  * @param {Vec2} pos        - boson position
  * @param {Vec2} targetVec  - velocity/proper-velocity vector to accumulate into
- * @param {number} grFactor - GR deflection factor (2 for photons, 1+v² for pions)
- * @param {number} dt       - timestep
- * @param {Object} pool     - quadtree pool
+ * @param {number} scale    - pre-multiplied factor: grFactor * dt
+ * @param {Object} pool     - quadtree pool (particle tree)
  * @param {number} rootIdx  - tree root index
  */
-export function treeDeflectBoson(pos, targetVec, grFactor, dt, pool, rootIdx) {
-    const thetaSq = BH_THETA_SQ;
+export function treeDeflectBoson(pos, targetVec, scale, pool, rootIdx) {
     const px = pos.x, py = pos.y;
     let stackTop = 0;
     if (_bStack.length < pool.maxNodes) _bStack = new Int32Array(pool.maxNodes);
@@ -32,24 +30,25 @@ export function treeDeflectBoson(pos, targetVec, grFactor, dt, pool, rootIdx) {
         const dSq = dx * dx + dy * dy;
         const size = pool.bw[nodeIdx] * 2;
 
-        if (!pool.divided[nodeIdx] && pool.pointCount[nodeIdx] > 0) {
+        const cnt = pool.pointCount[nodeIdx];
+        if (!pool.divided[nodeIdx] && cnt > 0) {
             const base = nodeIdx * pool.nodeCapacity;
-            for (let i = 0; i < pool.pointCount[nodeIdx]; i++) {
+            for (let i = 0; i < cnt; i++) {
                 const p = pool.points[base + i];
                 const pdx = p.pos.x - px;
                 const pdy = p.pos.y - py;
                 const rSq = pdx * pdx + pdy * pdy + BOSON_SOFTENING_SQ;
-                const invR = 1 / Math.sqrt(rSq);
-                const invR3 = invR * invR * invR;
-                targetVec.x += grFactor * p.mass * pdx * invR3 * dt;
-                targetVec.y += grFactor * p.mass * pdy * invR3 * dt;
+                const invRSq = 1 / rSq;
+                const f = scale * p.mass * Math.sqrt(invRSq) * invRSq;
+                targetVec.x += pdx * f;
+                targetVec.y += pdy * f;
             }
-        } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
+        } else if (pool.divided[nodeIdx] && (size * size < BH_THETA_SQ * dSq)) {
             const rSq = dSq + BOSON_SOFTENING_SQ;
-            const invR = 1 / Math.sqrt(rSq);
-            const invR3 = invR * invR * invR;
-            targetVec.x += grFactor * pool.totalMass[nodeIdx] * dx * invR3 * dt;
-            targetVec.y += grFactor * pool.totalMass[nodeIdx] * dy * invR3 * dt;
+            const invRSq = 1 / rSq;
+            const f = scale * pool.totalMass[nodeIdx] * Math.sqrt(invRSq) * invRSq;
+            targetVec.x += dx * f;
+            targetVec.y += dy * f;
         } else if (pool.divided[nodeIdx]) {
             _bStack[stackTop++] = pool.nw[nodeIdx];
             _bStack[stackTop++] = pool.ne[nodeIdx];

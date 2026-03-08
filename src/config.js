@@ -86,6 +86,7 @@ export const MERGE_EXCITATION_SCALE = 0.5;   // amplitude = scale * sqrt(keLost)
 export const DEFAULT_HIGGS_MASS = 0.50;      // m_H (oscillation frequency), ~m_H/v_EW
 export const HIGGS_COUPLING = 1;             // g (source = g·baseMass, force = g·baseMass·∇φ)
 export const HIGGS_MASS_FLOOR = 0.05;        // min |φ| for mass: m ≥ 0.05·baseMass (caps accel at 20×)
+export const HIGGS_MASS_RATE = 8;            // exponential mass smoothing rate (prevents resonant throb)
 
 export const DEFAULT_AXION_MASS = 0.05;      // m_a (oscillation frequency)
 export const AXION_COUPLING = 0.05;          // g in L = -(1+g·a)F²/4

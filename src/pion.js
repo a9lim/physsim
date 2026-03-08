@@ -72,13 +72,14 @@ export default class Pion {
         this.vel.y = this.w.y * invG;
         this.vSq = this.vel.x * this.vel.x + this.vel.y * this.vel.y;
         this.gravMass = this.mass * gamma; // relativistic mass = m·γ
+        this._srcMass = this.gravMass;     // source gravitational mass for BH tree
     }
 
     update(dt, particles, pool, root) {
         // Gravitational deflection: massive particle gets (1+v²) factor, not 2
         const grFactor = 1 + this.vSq;
         if (pool && root >= 0) {
-            treeDeflectBoson(this.pos, this.w, grFactor, dt, pool, root);
+            treeDeflectBoson(this.pos, this.w, grFactor * dt, pool, root);
         } else if (particles) {
             for (let i = 0; i < particles.length; i++) {
                 const p = particles[i];

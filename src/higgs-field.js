@@ -4,7 +4,7 @@
 // m_H is the free parameter (slider 0.25-1, default 0.5)
 // Extends ScalarField for shared PQS infrastructure.
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, EPSILON, BOUND_LOOP, kerrNewmanRadius } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, HIGGS_MASS_RATE, EPSILON, BOUND_LOOP, kerrNewmanRadius } from './config.js';
 import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -176,11 +176,12 @@ export default class HiggsField extends ScalarField {
         }
     }
 
-    /** Set particle effective masses: m = baseMass * |phi| (VEV=1).
+    /** Set particle effective masses: m → baseMass * |phi| (VEV=1).
      *  PQS interpolation is C² smooth — no self-force subtraction needed.
+     *  Exponential smoothing prevents resonant oscillation for massive particles.
      *  Conserves momentum: scales proper velocity w by old_mass/new_mass.
      */
-    modulateMasses(particles, domainW, domainH, blackHoleEnabled, boundaryMode, topoConst) {
+    modulateMasses(particles, dt, domainW, domainH, blackHoleEnabled, boundaryMode, topoConst) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
@@ -188,14 +189,16 @@ export default class HiggsField extends ScalarField {
         const invCellW = 1 / cellW;
         const invCellH = 1 / cellH;
         const bcMode = boundaryMode;
+        const alpha = 1 - Math.exp(-HIGGS_MASS_RATE * dt);
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             if (p.baseMass < EPSILON) continue;
 
             const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
-            const newMass = Math.max(p.baseMass * Math.abs(phiLocal), HIGGS_MASS_FLOOR * p.baseMass);
-            if (newMass !== newMass) continue; // NaN guard
+            const targetMass = Math.max(p.baseMass * Math.abs(phiLocal), HIGGS_MASS_FLOOR * p.baseMass);
+            if (targetMass !== targetMass) continue; // NaN guard
+            const newMass = p.mass + (targetMass - p.mass) * alpha;
 
             // Conserve momentum by adjusting proper velocity
             const massRatio = p.mass / newMass;

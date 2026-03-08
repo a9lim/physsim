@@ -229,7 +229,8 @@ export default class QuadTreePool {
                 if (mass > 0) { this.comX[idx] = cx / mass; this.comY[idx] = cy / mass; }
             } else {
                 const c0 = this.nw[idx], c1 = this.ne[idx], c2 = this.sw[idx], c3 = this.se[idx];
-                const mass = this.totalMass[c0] + this.totalMass[c1] + this.totalMass[c2] + this.totalMass[c3];
+                const m0 = this.totalMass[c0], m1 = this.totalMass[c1], m2 = this.totalMass[c2], m3 = this.totalMass[c3];
+                const mass = m0 + m1 + m2 + m3;
                 this.totalMass[idx] = mass;
                 this.totalCharge[idx] = this.totalCharge[c0] + this.totalCharge[c1] + this.totalCharge[c2] + this.totalCharge[c3];
                 this.totalMagneticMoment[idx] = this.totalMagneticMoment[c0] + this.totalMagneticMoment[c1] + this.totalMagneticMoment[c2] + this.totalMagneticMoment[c3];
@@ -237,8 +238,61 @@ export default class QuadTreePool {
                 this.totalMomentumX[idx] = this.totalMomentumX[c0] + this.totalMomentumX[c1] + this.totalMomentumX[c2] + this.totalMomentumX[c3];
                 this.totalMomentumY[idx] = this.totalMomentumY[c0] + this.totalMomentumY[c1] + this.totalMomentumY[c2] + this.totalMomentumY[c3];
                 if (mass > 0) {
-                    this.comX[idx] = (this.comX[c0] * this.totalMass[c0] + this.comX[c1] * this.totalMass[c1] + this.comX[c2] * this.totalMass[c2] + this.comX[c3] * this.totalMass[c3]) / mass;
-                    this.comY[idx] = (this.comY[c0] * this.totalMass[c0] + this.comY[c1] * this.totalMass[c1] + this.comY[c2] * this.totalMass[c2] + this.comY[c3] * this.totalMass[c3]) / mass;
+                    this.comX[idx] = (this.comX[c0] * m0 + this.comX[c1] * m1 + this.comX[c2] * m2 + this.comX[c3] * m3) / mass;
+                    this.comY[idx] = (this.comY[c0] * m0 + this.comY[c1] * m1 + this.comY[c2] * m2 + this.comY[c3] * m3) / mass;
+                }
+            }
+        }
+    }
+
+    /** Lightweight mass distribution for boson trees — only totalMass + CoM.
+     *  Reads p._srcMass (source gravitational mass) from stored points. */
+    calculateBosonDistribution(rootIdx) {
+        const stack = this._massStack || (this._massStack = new Int32Array(512));
+        const order = this._massOrder || (this._massOrder = new Int32Array(512));
+        let stackTop = 0, orderLen = 0;
+        if (stack.length < this.maxNodes) {
+            this._massStack = new Int32Array(this.maxNodes);
+            this._massOrder = new Int32Array(this.maxNodes);
+        }
+        const s = this._massStack, o = this._massOrder;
+
+        s[stackTop++] = rootIdx;
+        while (stackTop > 0) {
+            const idx = s[--stackTop];
+            o[orderLen++] = idx;
+            if (this.divided[idx]) {
+                s[stackTop++] = this.nw[idx];
+                s[stackTop++] = this.ne[idx];
+                s[stackTop++] = this.sw[idx];
+                s[stackTop++] = this.se[idx];
+            }
+        }
+
+        for (let k = orderLen - 1; k >= 0; k--) {
+            const idx = o[k];
+            if (!this.divided[idx]) {
+                const cnt = this.pointCount[idx];
+                if (cnt === 0) continue;
+                let mass = 0, cx = 0, cy = 0;
+                const base = idx * this.nodeCapacity;
+                for (let i = 0; i < cnt; i++) {
+                    const p = this.points[base + i];
+                    const gm = p._srcMass;
+                    mass += gm;
+                    cx += p.pos.x * gm;
+                    cy += p.pos.y * gm;
+                }
+                this.totalMass[idx] = mass;
+                if (mass > 0) { this.comX[idx] = cx / mass; this.comY[idx] = cy / mass; }
+            } else {
+                const c0 = this.nw[idx], c1 = this.ne[idx], c2 = this.sw[idx], c3 = this.se[idx];
+                const m0 = this.totalMass[c0], m1 = this.totalMass[c1], m2 = this.totalMass[c2], m3 = this.totalMass[c3];
+                const mass = m0 + m1 + m2 + m3;
+                this.totalMass[idx] = mass;
+                if (mass > 0) {
+                    this.comX[idx] = (this.comX[c0] * m0 + this.comX[c1] * m1 + this.comX[c2] * m2 + this.comX[c3] * m3) / mass;
+                    this.comY[idx] = (this.comY[c0] * m0 + this.comY[c1] * m1 + this.comY[c2] * m2 + this.comY[c3] * m3) / mass;
                 }
             }
         }

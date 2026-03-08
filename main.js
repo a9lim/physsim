@@ -14,7 +14,6 @@ import MasslessBoson from './src/massless-boson.js';
 import Pion from './src/pion.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
-import { applyBosonBosonGravity } from './src/forces.js';
 import { quickSave, quickLoad, downloadState, uploadState } from './src/save-load.js';
 
 class Simulation {
@@ -355,9 +354,6 @@ class Simulation {
                     }
                 }
                 this.pions.length = piLen;
-
-                // Mutual boson-boson gravitational interaction
-                if (_bosonGrav) applyBosonBosonGravity(this.photons, this.pions, PHYSICS_DT);
 
                 const { fragments: toFragment, transfers: rocheTransfers } = this.physics.checkDisintegration(this.particles, this.physics._lastRoot);
                 // Handle Roche lobe overflow mass transfers

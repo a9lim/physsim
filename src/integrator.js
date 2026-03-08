@@ -8,7 +8,7 @@ import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
 
-import { resetForces, computeAllForces, compute1PN, computeBosonGravity, getPEAccum } from './forces.js';
+import { resetForces, computeAllForces, compute1PN, computeBosonGravity, applyBosonBosonGravity, getPEAccum } from './forces.js';
 import { handleCollisions } from './collisions.js';
 import { computePE } from './potential.js'; // kept for preset-load recomputation
 import { minImage, wrapPosition } from './topology.js';
@@ -55,6 +55,7 @@ export default class Physics {
     constructor() {
         this.boundary = { x: 0, y: 0, w: 0, h: 0 };
         this.pool = new QuadTreePool(QUADTREE_CAPACITY);
+        this._bosonPool = new QuadTreePool(QUADTREE_CAPACITY, 128);
 
         this.gravityEnabled = true;
         this.bosonGravEnabled = false;
@@ -249,6 +250,21 @@ export default class Physics {
             return this.pool.build(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h, tp);
         }
         return this.pool.build(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h, particles);
+    }
+
+    /** Build Barnes-Hut tree for alive bosons (photons + pions). Returns root index or -1. */
+    _buildBosonTree() {
+        const photons = this.sim.photons;
+        const pions = this.sim.pions;
+        const nPh = photons.length, nPi = pions.length;
+        if (nPh === 0 && nPi === 0) return -1;
+        const bp = this._bosonPool;
+        bp.reset();
+        const root = bp.alloc(this.boundary.x, this.boundary.y, this.boundary.w, this.boundary.h);
+        for (let i = 0; i < nPh; i++) if (photons[i].alive) bp.insert(root, photons[i]);
+        for (let i = 0; i < nPi; i++) if (pions[i].alive) bp.insert(root, pions[i]);
+        bp.calculateBosonDistribution(root);
+        return root;
     }
 
     /** Cache external field direction vectors (call once per frame, not per substep). */
@@ -487,7 +503,10 @@ export default class Physics {
                     this.sim.axionField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
                 }
             }
-            if (this.bosonGravEnabled && this.sim) computeBosonGravity(particles, this.sim.photons, this.sim.pions, toggles.softeningSq);
+            if (this.bosonGravEnabled && this.sim) {
+                const bRoot = this._buildBosonTree();
+                if (bRoot >= 0) computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq);
+            }
             if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, initRoot);
             if (boundaryMode === BOUND_BOUNCE) this._applyBoundaryForces(particles, width, height, offX, offY);
             this._forcesInit = true;
@@ -972,7 +991,7 @@ export default class Physics {
             // Higgs field evolution + mass modulation
             if (this.higgsEnabled && this.sim && this.sim.higgsField) {
                 this.sim.higgsField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.relativityEnabled, this.fieldGravEnabled, toggles.softeningSq);
-                this.sim.higgsField.modulateMasses(particles, width, height, this.blackHoleEnabled, boundaryMode, this._topologyConst);
+                this.sim.higgsField.modulateMasses(particles, dtSub, width, height, this.blackHoleEnabled, boundaryMode, this._topologyConst);
             }
 
             // Axion field evolution (axMod/yukMod interpolation deferred to step 7)
@@ -1123,7 +1142,13 @@ export default class Physics {
                     this.sim.axionField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
                 }
             }
-            if (this.bosonGravEnabled && this.sim) computeBosonGravity(particles, this.sim.photons, this.sim.pions, toggles.softeningSq);
+            if (this.bosonGravEnabled && this.sim) {
+                const bRoot = this._buildBosonTree();
+                if (bRoot >= 0) {
+                    computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq);
+                    applyBosonBosonGravity(this.sim.photons, this.sim.pions, dtSub, this._bosonPool, bRoot);
+                }
+            }
             if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, root);
             if (boundaryMode === BOUND_BOUNCE) this._applyBoundaryForces(particles, width, height, offX, offY);
         }

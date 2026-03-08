@@ -14,6 +14,7 @@ export default class MasslessBoson {
         this.vel = new Vec2(vx, vy);
         this.energy = energy;
         this.gravMass = 2 * energy; // E·(1+v²) = E·2 since |v|=c=1
+        this._srcMass = energy;     // source gravitational mass (no receiver GR factor)
         this.lifetime = 0;
         this.alive = true;
         this.emitterId = emitterId;
@@ -27,6 +28,7 @@ export default class MasslessBoson {
         this.vel.x = vx; this.vel.y = vy;
         this.energy = energy;
         this.gravMass = 2 * energy;
+        this._srcMass = energy;
         this.lifetime = 0;
         this.alive = true;
         this.emitterId = emitterId;
@@ -58,7 +60,7 @@ export default class MasslessBoson {
     update(dt, particles, pool, root) {
         // Gravitational deflection: GR gives 2× Newtonian (null geodesic)
         if (pool && root >= 0) {
-            treeDeflectBoson(this.pos, this.vel, 2, dt, pool, root);
+            treeDeflectBoson(this.pos, this.vel, 2 * dt, pool, root);
         } else if (particles) {
             for (let i = 0; i < particles.length; i++) {
                 const p = particles[i];

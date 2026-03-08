@@ -676,149 +676,119 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
     }
 }
 
+// Separate stack for boson BH tree walks (avoids conflict with particle _bhStack)
+let _bosonBHStack = new Int32Array(256);
+
+// Module-level output for _walkBosonTree — avoids per-call allocation
+const _bwOut = { x: 0, y: 0 };
+
 /**
- * Gravitational force from photons and pions onto particles.
- * Photon gravitational mass = energy (E=mc², c=1).
- * Pion gravitational mass = m·γ (cached as pn.gravMass by _syncVel).
+ * Shared BH tree walk for boson gravity. Accumulates gravitational impulse into _bwOut.
+ * Reads _srcMass from leaf points, totalMass from aggregate nodes.
+ * @param {number} px, py      - query position
+ * @param {number} scale       - pre-multiplied factor (e.g. 1 for force, grFactor*dt for kick)
+ * @param {number} softeningSq - gravitational softening squared
+ * @param {Object} pool        - boson QuadTreePool
+ * @param {number} root        - tree root index
  */
-export function computeBosonGravity(particles, photons, pions, softeningSq) {
+function _walkBosonTree(px, py, scale, softeningSq, pool, root) {
+    let kx = 0, ky = 0;
+    let stackTop = 0;
+    _bosonBHStack[stackTop++] = root;
+
+    while (stackTop > 0) {
+        const nodeIdx = _bosonBHStack[--stackTop];
+        if (pool.totalMass[nodeIdx] < EPSILON) continue;
+
+        const dx = pool.comX[nodeIdx] - px;
+        const dy = pool.comY[nodeIdx] - py;
+        const dSq = dx * dx + dy * dy;
+        const size = pool.bw[nodeIdx] * 2;
+        const cnt = pool.pointCount[nodeIdx];
+
+        if (!pool.divided[nodeIdx] && cnt > 0) {
+            const base = nodeIdx * pool.nodeCapacity;
+            for (let k = 0; k < cnt; k++) {
+                const b = pool.points[base + k];
+                const bdx = b.pos.x - px;
+                const bdy = b.pos.y - py;
+                const rSq = bdx * bdx + bdy * bdy + softeningSq;
+                const invRSq = 1 / rSq;
+                const f = scale * b._srcMass * Math.sqrt(invRSq) * invRSq;
+                kx += bdx * f;
+                ky += bdy * f;
+            }
+        } else if (pool.divided[nodeIdx] && size * size < BH_THETA_SQ * dSq) {
+            const rSq = dSq + softeningSq;
+            const invRSq = 1 / rSq;
+            const f = scale * pool.totalMass[nodeIdx] * Math.sqrt(invRSq) * invRSq;
+            kx += dx * f;
+            ky += dy * f;
+        } else if (pool.divided[nodeIdx]) {
+            _bosonBHStack[stackTop++] = pool.nw[nodeIdx];
+            _bosonBHStack[stackTop++] = pool.ne[nodeIdx];
+            _bosonBHStack[stackTop++] = pool.sw[nodeIdx];
+            _bosonBHStack[stackTop++] = pool.se[nodeIdx];
+        }
+    }
+
+    _bwOut.x = kx;
+    _bwOut.y = ky;
+}
+
+/**
+ * Gravitational force from bosons onto particles via Barnes-Hut tree walk.
+ * O(N_particles × log(N_bosons)).
+ */
+export function computeBosonGravity(particles, bosonPool, bosonRoot, softeningSq) {
     const n = particles.length;
-    const nPh = photons ? photons.length : 0;
-    const nPi = pions ? pions.length : 0;
-    if (n === 0 || (nPh === 0 && nPi === 0)) return;
+    if (n === 0 || bosonRoot < 0 || bosonPool.totalMass[bosonRoot] < EPSILON) return;
+    if (_bosonBHStack.length < bosonPool.maxNodes) _bosonBHStack = new Int32Array(bosonPool.maxNodes);
 
     for (let i = 0; i < n; i++) {
         const p = particles[i];
-        const pm = p.mass;
-
-        for (let j = 0; j < nPh; j++) {
-            const ph = photons[j];
-            if (!ph.alive) continue;
-            const dx = ph.pos.x - p.pos.x;
-            const dy = ph.pos.y - p.pos.y;
-            const rSq = dx * dx + dy * dy + softeningSq;
-            // P12: invR * invRSq instead of invR * invR * invR
-            const invRSq = 1 / rSq;
-            const invR = Math.sqrt(invRSq);
-            const f = pm * ph.energy * invR * invRSq;
-            p.force.x += dx * f;
-            p.force.y += dy * f;
-            p.forceGravity.x += dx * f;
-            p.forceGravity.y += dy * f;
-        }
-
-        for (let j = 0; j < nPi; j++) {
-            const pn = pions[j];
-            if (!pn.alive) continue;
-            const dx = pn.pos.x - p.pos.x;
-            const dy = pn.pos.y - p.pos.y;
-            const rSq = dx * dx + dy * dy + softeningSq;
-            // P12: invR * invRSq instead of invR * invR * invR
-            const invRSq = 1 / rSq;
-            const invR = Math.sqrt(invRSq);
-            const f = pm * pn.gravMass * invR * invRSq;
-            p.force.x += dx * f;
-            p.force.y += dy * f;
-            p.forceGravity.x += dx * f;
-            p.forceGravity.y += dy * f;
-        }
+        // Pass p.mass as scale — avoids multiply-by-1 per node + 2 post-multiplies
+        _walkBosonTree(p.pos.x, p.pos.y, p.mass, softeningSq, bosonPool, bosonRoot);
+        p.force.x += _bwOut.x;
+        p.force.y += _bwOut.y;
+        p.forceGravity.x += _bwOut.x;
+        p.forceGravity.y += _bwOut.y;
     }
 }
 
 /**
- * Mutual gravitational interaction between bosons (photon-photon, photon-pion, pion-pion).
- * GR deflection factors: 2 for photons (null geodesic), 1+v² for pions (massive).
- * Uses cached gravMass (= 2E for photons, m·γ for pions) and vSq from _syncVel().
- * Uses BOSON_SOFTENING_SQ for point-like boson interactions.
+ * Mutual gravitational interaction between bosons via Barnes-Hut tree walk.
+ * GR receiver factors: 2 for photons (null geodesic), 1+v² for pions (massive).
+ * O(N_bosons × log(N_bosons)).
  */
-export function applyBosonBosonGravity(photons, pions, dt) {
+export function applyBosonBosonGravity(photons, pions, dt, bosonPool, bosonRoot) {
     const nPh = photons ? photons.length : 0;
     const nPi = pions ? pions.length : 0;
-    if (nPh + nPi < 2) return;
+    if (nPh + nPi < 2 || bosonRoot < 0 || bosonPool.totalMass[bosonRoot] < EPSILON) return;
+    if (_bosonBHStack.length < bosonPool.maxNodes) _bosonBHStack = new Int32Array(bosonPool.maxNodes);
 
-    // Photon-photon (symmetric pairs)
-    for (let i = 0; i < nPh; i++) {
-        const a = photons[i];
-        for (let j = i + 1; j < nPh; j++) {
-            const b = photons[j];
-            const dx = b.pos.x - a.pos.x;
-            const dy = b.pos.y - a.pos.y;
-            const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            // P12: invR * invRSq instead of invR³
-            const invRSq = 1 / rSq;
-            const invR = Math.sqrt(invRSq);
-            const invR3dt = dt * invR * invRSq;
-            // Both on null geodesics: gravMass = 2·energy includes GR factor
-            const fA = b.gravMass * invR3dt;
-            const fB = a.gravMass * invR3dt;
-            a.vel.x += dx * fA;
-            a.vel.y += dy * fA;
-            b.vel.x -= dx * fB;
-            b.vel.y -= dy * fB;
-        }
-    }
-
-    // Photon-pion
+    // Photons: receiver GR factor = 2, kick into vel, renormalize to c=1
+    const twoDt = 2 * dt;
     for (let i = 0; i < nPh; i++) {
         const ph = photons[i];
-        for (let j = 0; j < nPi; j++) {
-            const pn = pions[j];
-            const dx = pn.pos.x - ph.pos.x;
-            const dy = pn.pos.y - ph.pos.y;
-            const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            // P12: invR * invRSq instead of invR³
-            const invRSq = 1 / rSq;
-            const invR = Math.sqrt(invRSq);
-            const invR3dt = dt * invR * invRSq;
-            // Photon deflected by pion: GR factor 2, pion gravMass = m·γ
-            const fPh = 2 * pn.gravMass * invR3dt;
-            ph.vel.x += dx * fPh;
-            ph.vel.y += dy * fPh;
-            // Pion deflected by photon: GR factor 1+v²
-            const fPn = (1 + pn.vSq) * ph.energy * invR3dt;
-            pn.w.x -= dx * fPn;
-            pn.w.y -= dy * fPn;
-        }
-    }
-
-    // Pion-pion (symmetric pairs)
-    for (let i = 0; i < nPi; i++) {
-        const a = pions[i];
-        const gravMassA = a.gravMass;
-        const vSqA = a.vSq;
-        for (let j = i + 1; j < nPi; j++) {
-            const b = pions[j];
-            const dx = b.pos.x - a.pos.x;
-            const dy = b.pos.y - a.pos.y;
-            const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-            // P12: invR * invRSq instead of invR³
-            const invRSq = 1 / rSq;
-            const invR = Math.sqrt(invRSq);
-            const invR3dt = dt * invR * invRSq;
-            const fA = (1 + vSqA) * b.gravMass * invR3dt;
-            a.w.x += dx * fA;
-            a.w.y += dy * fA;
-            const fB = (1 + b.vSq) * gravMassA * invR3dt;
-            b.w.x -= dx * fB;
-            b.w.y -= dy * fB;
-        }
-    }
-
-    // P11: Renormalize only when speed drifts from c=1
-    for (let i = 0; i < nPh; i++) {
-        const ph = photons[i];
+        if (!ph.alive) continue;
+        _walkBosonTree(ph.pos.x, ph.pos.y, twoDt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot);
+        ph.vel.x += _bwOut.x;
+        ph.vel.y += _bwOut.y;
         const vSq = ph.vel.x * ph.vel.x + ph.vel.y * ph.vel.y;
         if (Math.abs(vSq - 1) > 1e-6) {
             const v = Math.sqrt(vSq);
-            if (v > EPSILON) {
-                ph.vel.x /= v;
-                ph.vel.y /= v;
-            }
+            if (v > EPSILON) { ph.vel.x /= v; ph.vel.y /= v; }
         }
     }
 
-    // Sync pion coordinate velocities from proper velocity (also refreshes cached vSq/gravMass)
+    // Pions: receiver GR factor = 1+v², kick into w, sync derived state
     for (let i = 0; i < nPi; i++) {
-        pions[i]._syncVel();
+        const pn = pions[i];
+        if (!pn.alive) continue;
+        _walkBosonTree(pn.pos.x, pn.pos.y, (1 + pn.vSq) * dt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot);
+        pn.w.x += _bwOut.x;
+        pn.w.y += _bwOut.y;
+        pn._syncVel();
     }
 }
