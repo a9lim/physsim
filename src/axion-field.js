@@ -38,6 +38,17 @@ export default class AxionField extends ScalarField {
         super.reset(0); // vacuum = 0
     }
 
+    /** Add quadratic potential energy to _energyDensity: V(a) = ½m_a²a². */
+    _addPotentialEnergy() {
+        const rho = this._energyDensity;
+        const field = this.field;
+        const halfMaSq = 0.5 * this.mass * this.mass;
+        for (let i = 0; i < this._gridSq; i++) {
+            const a = field[i];
+            rho[i] += halfMaSq * a * a;
+        }
+    }
+
     /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
     update(dt, particles, boundaryMode, topoConst, domainW, domainH, coulombEnabled = false, yukawaEnabled = false) {
         if (dt <= 0) return;

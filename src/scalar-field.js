@@ -4,6 +4,10 @@
 // C² interpolation, C² continuous gradients (PQS-interpolated grid gradients).
 
 import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE, BOUND_BOUNCE, BOUND_LOOP, TORUS, KLEIN, RP2 } from './config.js';
+import { minImage } from './topology.js';
+
+// Zero-alloc output for minImage()
+const _miOut = { x: 0, y: 0 };
 
 export default class ScalarField {
     constructor(gridSize, clampMax) {
@@ -17,6 +21,7 @@ export default class ScalarField {
         this.fieldDot = new Float64Array(gsq);
         this._laplacian = new Float64Array(gsq);
         this._source = new Float64Array(gsq);
+        this._energyDensity = new Float64Array(gsq);
 
         // Pre-computed grid-point gradients (central differences, grid units)
         this._gradX = new Float64Array(gsq);
@@ -323,6 +328,119 @@ export default class ScalarField {
         }
 
         return total === total ? total : 0;
+    }
+
+    /** Subclasses override to add V(field) per cell to _energyDensity. */
+    _addPotentialEnergy() {}
+
+    /** Compute energy density per grid cell: ρ = ½φ̇² + ½|∇φ|² + V(φ).
+     *  Stores result in _energyDensity. Requires _gradX/_gradY to be current
+     *  (called at end of subclass update()). */
+    _computeEnergyDensity(domainW, domainH) {
+        const GRID = this._grid;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return;
+        const invCellWSq = 1 / (cellW * cellW);
+        const invCellHSq = 1 / (cellH * cellH);
+        const rho = this._energyDensity;
+        const fieldDot = this.fieldDot;
+        const gx = this._gradX;
+        const gy = this._gradY;
+
+        for (let i = 0; i < this._gridSq; i++) {
+            const fd = fieldDot[i];
+            const gxi = gx[i], gyi = gy[i];
+            rho[i] = 0.5 * fd * fd
+                   + 0.5 * (gxi * gxi * invCellWSq + gyi * gyi * invCellHSq);
+        }
+        this._addPotentialEnergy();
+    }
+
+    /** Apply gravitational force from field energy density onto particles.
+     *  Direct summation: F = m · Σ ρ(x_j) · dA · (x_j - x_i) / |x_j - x_i|³. */
+    applyGravForces(particles, domainW, domainH, softeningSq, periodic, topology) {
+        const GRID = this._grid;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return;
+        const cellArea = cellW * cellH;
+        const halfDomW = domainW * 0.5;
+        const halfDomH = domainH * 0.5;
+
+        this._computeEnergyDensity(domainW, domainH);
+        const rho = this._energyDensity;
+
+        for (let pi = 0; pi < particles.length; pi++) {
+            const p = particles[pi];
+            if (p.mass < EPSILON) continue;
+            let fx = 0, fy = 0;
+            for (let iy = 0; iy < GRID; iy++) {
+                const cy = (iy + 0.5) * cellH;
+                for (let ix = 0; ix < GRID; ix++) {
+                    const rhoVal = rho[iy * GRID + ix];
+                    if (rhoVal < EPSILON) continue;
+                    const cx = (ix + 0.5) * cellW;
+                    let dx, dy;
+                    if (periodic) {
+                        minImage(p.pos.x, p.pos.y, cx, cy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);
+                        dx = _miOut.x; dy = _miOut.y;
+                    } else {
+                        dx = cx - p.pos.x;
+                        dy = cy - p.pos.y;
+                    }
+                    const rSq = dx * dx + dy * dy + softeningSq;
+                    const invR = 1 / Math.sqrt(rSq);
+                    const fMag = rhoVal * cellArea * invR * invR * invR;
+                    fx += dx * fMag;
+                    fy += dy * fMag;
+                }
+            }
+            const gfx = p.mass * fx;
+            const gfy = p.mass * fy;
+            p.forceGravity.x += gfx;
+            p.forceGravity.y += gfy;
+            p.force.x += gfx;
+            p.force.y += gfy;
+        }
+    }
+
+    /** Gravitational PE between particles and field energy density.
+     *  PE = Σ_particles Σ_cells -m · ρ · dA / r. */
+    gravPE(particles, domainW, domainH, softeningSq, periodic, topology) {
+        const GRID = this._grid;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return 0;
+        const cellArea = cellW * cellH;
+        const halfDomW = domainW * 0.5;
+        const halfDomH = domainH * 0.5;
+        const rho = this._energyDensity; // uses cached from last applyGravForces()
+        let pe = 0;
+
+        for (let pi = 0; pi < particles.length; pi++) {
+            const p = particles[pi];
+            if (p.mass < EPSILON) continue;
+            for (let iy = 0; iy < GRID; iy++) {
+                const cy = (iy + 0.5) * cellH;
+                for (let ix = 0; ix < GRID; ix++) {
+                    const rhoVal = rho[iy * GRID + ix];
+                    if (rhoVal < EPSILON) continue;
+                    const cx = (ix + 0.5) * cellW;
+                    let dx, dy;
+                    if (periodic) {
+                        minImage(p.pos.x, p.pos.y, cx, cy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);
+                        dx = _miOut.x; dy = _miOut.y;
+                    } else {
+                        dx = cx - p.pos.x;
+                        dy = cy - p.pos.y;
+                    }
+                    const rSq = dx * dx + dy * dy + softeningSq;
+                    pe -= p.mass * rhoVal * cellArea / Math.sqrt(rSq);
+                }
+            }
+        }
+        return pe;
     }
 
     /** Field momentum: P_i = -∫ φ̇ ∂_i φ dA (stress-energy T^{0i}). */

@@ -25,6 +25,18 @@ export default class HiggsField extends ScalarField {
         super.reset(1); // VEV = 1
     }
 
+    /** Add Mexican hat potential energy to _energyDensity: V(φ) = μ²/4·(φ²−1)². */
+    _addPotentialEnergy() {
+        const rho = this._energyDensity;
+        const field = this.field;
+        const muSq = 0.5 * this.mass * this.mass;
+        const vacOffset = 0.25 * muSq;
+        for (let i = 0; i < this._gridSq; i++) {
+            const phi = field[i];
+            rho[i] += muSq * (-0.5 * phi * phi + 0.25 * phi * phi * phi * phi) + vacOffset;
+        }
+    }
+
     /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
     update(dt, particles, boundaryMode, topoConst, domainW, domainH, relativityEnabled) {
         if (dt <= 0) return;

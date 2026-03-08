@@ -71,7 +71,7 @@ renderer.js   <- config (higgsField/axionField set by main.js)
 heatmap.js    <- config, getDelayedState, topology
 effective-potential.js <- config, topology
 phase-plot.js  <- config, topology
-scalar-field.js <- config, topology
+scalar-field.js <- config, topology (applyGravForces/gravPE use minImage)
 higgs-field.js  <- config, ScalarField
 axion-field.js  <- config, ScalarField
 ```
@@ -187,7 +187,9 @@ Collision mode `'bounce'` and boundary mode `'bounce'`: `F = K * delta^1.5` (K=1
 
 Shared PQS (cubic B-spline, order 3) grid infrastructure for Higgs and Axion. 4x4 = 16 node stencil per particle. C^2 interpolation, C^2 gradients (PQS-interpolated central-difference grid gradients). Pre-allocated weight arrays for zero-alloc hot path.
 
-Key methods: `_nb()` (boundary-aware neighbor), `_depositPQS()` (topology-aware deposition), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()` (central differences, interior fast path + border path), `interpolate()`, `gradient()` (PQS-interpolates pre-computed grid gradients), `_fieldEnergy(domainW, domainH, potentialFn)` (shared KE+gradient+potential grid integration), `draw()`, `depositExcitation()` (Gaussian wave packet into `fieldDot`).
+Key methods: `_nb()` (boundary-aware neighbor), `_depositPQS()` (topology-aware deposition), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()` (central differences, interior fast path + border path), `interpolate()`, `gradient()` (PQS-interpolates pre-computed grid gradients), `_fieldEnergy(domainW, domainH, potentialFn)` (shared KE+gradient+potential grid integration), `draw()`, `depositExcitation()` (Gaussian wave packet into `fieldDot`), `_computeEnergyDensity()` (per-cell ρ = ½φ̇² + ½|∇φ|² + V(φ)), `applyGravForces()` (field energy density gravitates particles), `gravPE()` (particle-field gravitational PE).
+
+**Field gravity** (requires `gravityEnabled`): Field energy density gravitates particles via direct summation over all 64×64 grid cells. Each cell acts as a point mass `ρ·dA` at cell center. Force: `F = m · Σ ρ_j · dA · r̂/r²`. Only field excitations gravitate (ρ=0 at vacuum). No field self-gravity (field doesn't attract itself). Subclasses override `_addPotentialEnergy()` to add V(φ) to the KE+gradient base. PE tracked via `gravPE()` and included in `physics.potentialEnergy`.
 
 Boundary mode integers (BOUND_DESPAWN=0 / BOUND_BOUNCE=1 / BOUND_LOOP=2) defined in config.js, passed directly from integrator.
 
@@ -460,6 +462,8 @@ Canvas 2D. Dark mode: additive blending (`lighter`). WORLD_SCALE = 16 (domain = 
 - Self-absorption is permanently blocked for both photons and pions: `emitterId` match always skips absorption
 - `_yukawaRadAccum` on Particle accumulates pion emission energy -- reset to 0 after each emission
 - Field excitation `depositExcitation()` writes to `fieldDot` (not `field`) -- wave equation propagates naturally
+- `applyGravForces()` must be called AFTER field `update()` (needs current `_gradX`/`_gradY`); `gravPE()` uses cached `_energyDensity` from last `applyGravForces()` call
+- Field gravity uses direct O(N×GRID²) summation -- no tree acceleration. Cost is negligible for typical particle counts (<50) but scales linearly with particles
 - `sim.pions` array must be cleared on preset load and reset (in main.js, save-load.js, ui.js)
 - `sim.deadParticles` must be cleared on preset load, clear, and save-load (same locations as pions)
 - Dead particles use `_deathMass` (not `mass`) in force/heatmap code -- merged particles have mass=0 but `_deathMass` preserves the pre-merge value
