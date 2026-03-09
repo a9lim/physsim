@@ -30,7 +30,7 @@ export const EPSILON = 1e-9;
 export const EPSILON_SQ = EPSILON * EPSILON;
 export const NR_TOLERANCE = EPSILON / 1000; // Newton-Raphson convergence (signal delay)
 export const NR_MAX_ITER = 8;
-export const MIN_MASS = 0.01;               // emission threshold, evaporation floor
+export const MIN_MASS = 0.05;               // emission threshold, evaporation floor
 export const MAX_SPEED_RATIO = 0.99;
 
 // ── Integrator ──
@@ -46,7 +46,6 @@ export const SOFTENING_SQ = SOFTENING * SOFTENING;
 export const BH_SOFTENING = 4;               // reduced softening for black hole mode
 export const BH_SOFTENING_SQ = BH_SOFTENING * BH_SOFTENING;
 export const BOSON_SOFTENING_SQ = 4;         // photon/pion gravitational lensing
-export const BOSON_ABSORB_FRACTION = 1;      // absorption cross-section = fraction of target radius
 export const BOSON_MIN_AGE = 4;              // minimum age (substeps) before any absorption
 
 // ── Particle Properties ──
@@ -68,7 +67,7 @@ export const CHARGED_PION_HALF_LIFE = 128;        // pi+/- half-life (slower wea
 export const PION_DECAY_PROB = 1 - Math.exp(-Math.LN2 / PION_HALF_LIFE * PHYSICS_DT);
 export const CHARGED_PION_DECAY_PROB = 1 - Math.exp(-Math.LN2 / CHARGED_PION_HALF_LIFE * PHYSICS_DT);
 export const MAX_PIONS = 256;
-export const ELECTRON_MASS = 0.01;                // decay product mass for pi+/- -> e+/- + photon
+export const ELECTRON_MASS = 0.05;                // decay product mass for pi+/- -> e+/- + photon
 export const MAX_REJECTION_SAMPLES = 32;     // quadrupole rejection sampling cap
 export const QUADRUPOLE_POWER_CLAMP = 0.01;  // max quadrupole dE as fraction of system KE
 export const ABERRATION_THRESHOLD = 1.01;    // min gamma for relativistic aberration
@@ -86,7 +85,7 @@ export const MERGE_EXCITATION_SCALE = 0.5;   // amplitude = scale * sqrt(keLost)
 export const DEFAULT_HIGGS_MASS = 0.50;      // m_H (oscillation frequency), ~m_H/v_EW
 export const HIGGS_COUPLING = 1;             // g (source = g·baseMass, force = g·baseMass·∇φ)
 export const HIGGS_MASS_FLOOR = 0.05;        // min |φ| for mass: m ≥ 0.05·baseMass (caps accel at 20×)
-export const HIGGS_MASS_RATE = 8;            // exponential mass smoothing rate (prevents resonant throb)
+export const HIGGS_MASS_MAX_DELTA = 8;       // max mass change per unit time (prevents resonant throb)
 
 export const DEFAULT_AXION_MASS = 0.05;      // m_a (oscillation frequency)
 export const AXION_COUPLING = 0.05;          // g in L = -(1+g·a)F²/4

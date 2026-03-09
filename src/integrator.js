@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_ABSORB_FRACTION, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
 import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
@@ -1067,8 +1067,7 @@ export default class Physics {
                         if (target.id === ph.emitterId) continue;
                         const dx = ph.pos.x - target.pos.x;
                         const dy = ph.pos.y - target.pos.y;
-                        const absR = target.radius * BOSON_ABSORB_FRACTION;
-                        if (dx * dx + dy * dy < absR * absR) {
+                        if (dx * dx + dy * dy < target.radiusSq) {
                             const impulse = ph.energy;
                             const invTM = target.mass > EPSILON ? 1 / target.mass : 0;
                             target.w.x += impulse * ph.vel.x * invTM;
@@ -1099,8 +1098,7 @@ export default class Physics {
                         if (target.id === pn.emitterId) continue;
                         const dx = pn.pos.x - target.pos.x;
                         const dy = pn.pos.y - target.pos.y;
-                        const absR = target.radius * BOSON_ABSORB_FRACTION;
-                        if (dx * dx + dy * dy < absR * absR) {
+                        if (dx * dx + dy * dy < target.radiusSq) {
                             const invTM = target.mass > EPSILON ? 1 / target.mass : 0;
                             target.w.x += pn.energy * pn.vel.x * invTM;
                             target.w.y += pn.energy * pn.vel.y * invTM;
