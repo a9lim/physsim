@@ -16,6 +16,7 @@ export function setupUI(sim) {
     if (introStart && introScreen) {
         introStart.addEventListener('click', () => {
             introScreen.classList.add('hidden');
+            _haptics.trigger('medium');
             document.body.classList.add('app-ready');
             requestAnimationFrame(() => requestAnimationFrame(() => {
                 panel.classList.add('open');
@@ -53,6 +54,7 @@ export function setupUI(sim) {
         } else if (key) {
             loadPreset(key, sim);
             sim._dirty = true;
+            _haptics.trigger('medium');
         }
     });
 
@@ -72,6 +74,7 @@ export function setupUI(sim) {
         sim.camera.reset(sim.domainW / 2, sim.domainH / 2, WORLD_SCALE);
         sim._dirty = true;
         showToast('Simulation cleared');
+        _haptics.trigger('warning');
     });
 
     // ─── Pause / Resume ───
@@ -81,6 +84,7 @@ export function setupUI(sim) {
 
     const togglePause = () => {
         sim.running = !sim.running;
+        _haptics.trigger('medium');
         pauseIcon.hidden = !sim.running;
         playIcon.hidden = sim.running;
         pauseBtn.title = sim.running ? 'Pause' : 'Resume';
@@ -104,6 +108,7 @@ export function setupUI(sim) {
             group.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             setter(btn.dataset[attr]);
+            _haptics.trigger('selection');
         });
     };
 
@@ -242,6 +247,7 @@ export function setupUI(sim) {
             }
             updateAllDeps();
             sim._dirty = true;
+            _haptics.trigger('light');
         });
     });
 
@@ -251,18 +257,22 @@ export function setupUI(sim) {
     document.getElementById('trailsToggle').addEventListener('change', (e) => {
         sim.renderer.trails = e.target.checked;
         sim._dirty = true;
+        _haptics.trigger('light');
     });
     document.getElementById('velocityToggle').addEventListener('change', (e) => {
         sim.renderer.showVelocity = e.target.checked;
         sim._dirty = true;
+        _haptics.trigger('light');
     });
     document.getElementById('forceToggle').addEventListener('change', (e) => {
         sim.renderer.showForce = e.target.checked;
         sim._dirty = true;
+        _haptics.trigger('light');
     });
     document.getElementById('forceComponentsToggle').addEventListener('change', (e) => {
         sim.renderer.showForceComponents = e.target.checked;
         sim._dirty = true;
+        _haptics.trigger('light');
     });
     const potentialToggle = document.getElementById('potentialToggle');
     const potentialModeBar = document.getElementById('potential-mode-toggles');
@@ -270,6 +280,7 @@ export function setupUI(sim) {
         sim.heatmap.enabled = e.target.checked;
         potentialModeBar.style.display = e.target.checked ? '' : 'none';
         sim._dirty = true;
+        _haptics.trigger('light');
     });
     potentialModeBar?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-potential]');
@@ -278,6 +289,7 @@ export function setupUI(sim) {
         btn.classList.add('active');
         sim.heatmap.mode = btn.dataset.potential;
         sim._dirty = true;
+        _haptics.trigger('light');
     });
 
     // ─── Slider value displays ───
@@ -290,12 +302,13 @@ export function setupUI(sim) {
     const frictionSlider = document.getElementById('frictionInput');
     const frictionLabel = document.getElementById('frictionValue');
 
-    massSlider.addEventListener('input', () => { massLabel.textContent = parseFloat(massSlider.value).toFixed(2); });
-    chargeSlider.addEventListener('input', () => { chargeLabel.textContent = parseFloat(chargeSlider.value).toFixed(2); });
-    spinSlider.addEventListener('input', () => { spinLabel.textContent = parseFloat(spinSlider.value).toFixed(2) + 'c'; });
+    massSlider.addEventListener('input', () => { massLabel.textContent = parseFloat(massSlider.value).toFixed(2); _haptics.trigger('selection'); });
+    chargeSlider.addEventListener('input', () => { chargeLabel.textContent = parseFloat(chargeSlider.value).toFixed(2); _haptics.trigger('selection'); });
+    spinSlider.addEventListener('input', () => { spinLabel.textContent = parseFloat(spinSlider.value).toFixed(2) + 'c'; _haptics.trigger('selection'); });
     frictionSlider.addEventListener('input', () => {
         sim.physics.bounceFriction = parseFloat(frictionSlider.value);
         frictionLabel.textContent = parseFloat(frictionSlider.value).toFixed(2);
+        _haptics.trigger('selection');
     });
 
     // ─── Yukawa slider ───
@@ -305,6 +318,7 @@ export function setupUI(sim) {
         const mu = parseFloat(yukawaMuSlider.value);
         sim.physics.yukawaMu = mu;
         yukawaMuLabel.textContent = mu.toFixed(2);
+        _haptics.trigger('selection');
     });
 
     // ─── Axion slider ───
@@ -315,6 +329,7 @@ export function setupUI(sim) {
         sim.physics.axionMass = m;
         if (sim.axionField) sim.axionField.mass = m;
         axionMassLabel.textContent = m.toFixed(2);
+        _haptics.trigger('selection');
     });
 
     // ─── Hubble slider ───
@@ -323,6 +338,7 @@ export function setupUI(sim) {
     hubbleSlider.addEventListener('input', () => {
         sim.physics.hubbleParam = parseFloat(hubbleSlider.value);
         hubbleLabel.textContent = parseFloat(hubbleSlider.value).toFixed(4);
+        _haptics.trigger('selection');
     });
 
     // ─── Higgs mass slider ───
@@ -333,6 +349,7 @@ export function setupUI(sim) {
             const m = parseFloat(higgsMassSlider.value);
             sim.higgsField.mass = m;
             higgsMassLabel.textContent = m.toFixed(2);
+            _haptics.trigger('selection');
         });
     }
 
@@ -347,11 +364,13 @@ export function setupUI(sim) {
         sim.physics.extGravity = v;
         extGravityLabel.textContent = v.toFixed(2);
         extGravityAngleGroup.style.display = v > 0 ? '' : 'none';
+        _haptics.trigger('selection');
     });
     extGravityAngleSlider.addEventListener('input', () => {
         const deg = parseFloat(extGravityAngleSlider.value);
         sim.physics.extGravityAngle = deg * Math.PI / 180;
         extGravityAngleLabel.textContent = deg + '°';
+        _haptics.trigger('selection');
     });
 
     const extElectricSlider = document.getElementById('extElectricInput');
@@ -364,11 +383,13 @@ export function setupUI(sim) {
         sim.physics.extElectric = v;
         extElectricLabel.textContent = v.toFixed(2);
         extElectricAngleGroup.style.display = v > 0 ? '' : 'none';
+        _haptics.trigger('selection');
     });
     extElectricAngleSlider.addEventListener('input', () => {
         const deg = parseFloat(extElectricAngleSlider.value);
         sim.physics.extElectricAngle = deg * Math.PI / 180;
         extElectricAngleLabel.textContent = deg + '°';
+        _haptics.trigger('selection');
     });
 
     const extBzSlider = document.getElementById('extBzInput');
@@ -377,12 +398,14 @@ export function setupUI(sim) {
         const v = parseFloat(extBzSlider.value);
         sim.physics.extBz = v;
         extBzLabel.textContent = v.toFixed(2);
+        _haptics.trigger('selection');
     });
 
     sim.dom.speedInput.addEventListener('input', () => {
         const val = parseFloat(sim.dom.speedInput.value);
         sim.speedScale = val;
         document.getElementById('speedValue').textContent = val;
+        _haptics.trigger('selection');
     });
 
     // ─── Step button ───

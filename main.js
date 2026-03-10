@@ -283,6 +283,7 @@ class Simulation {
             const maxAccum = PHYSICS_DT * MAX_SUBSTEPS * ACCUMULATOR_CAP;
             if (this.accumulator > maxAccum) this.accumulator = maxAccum;
 
+            this.physics._collisionCount = 0;
             while (this.accumulator >= PHYSICS_DT) {
                 this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
 
@@ -422,6 +423,7 @@ class Simulation {
 
                 this.accumulator -= PHYSICS_DT;
             }
+            if (this.physics._collisionCount > 0) _haptics.trigger('buzz');
 
             // P16: Dead-particle GC once per frame (not per substep) — particles need
             // maxDist * 128 substeps to expire, so per-frame check is sufficient

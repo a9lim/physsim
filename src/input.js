@@ -165,6 +165,7 @@ export default class InputHandler {
         }
         if (this.sim.selectedParticle === p) this.sim.selectedParticle = null;
         this.sim._dirty = true;
+        _haptics.trigger('light');
     }
 
     onMouseDown(e) {
@@ -272,5 +273,6 @@ export default class InputHandler {
         const vx = (this.dragStart.x - endPos.x) * SHOOT_VELOCITY_SCALE;
         const vy = (this.dragStart.y - endPos.y) * SHOOT_VELOCITY_SCALE;
         this.sim.addParticle(this.dragStart.x, this.dragStart.y, vx, vy, { mass, charge, spin, antimatter });
+        _haptics.trigger('light');
     }
 }
