@@ -38,6 +38,33 @@ export function createParticleBuffers(device, maxParticles) {
     const radius = storageBuffer('radius', FLOAT_SIZE, maxParticles);
     const gamma = storageBuffer('gamma', FLOAT_SIZE, maxParticles);
 
+    // Derived/cached (Phase 2)
+    const magMoment = storageBuffer('magMoment', FLOAT_SIZE, maxParticles);
+    const angMomentum = storageBuffer('angMomentum', FLOAT_SIZE, maxParticles);
+    const axMod = storageBuffer('axMod', FLOAT_SIZE, maxParticles);
+    const yukMod = storageBuffer('yukMod', FLOAT_SIZE, maxParticles);
+    const velX = storageBuffer('velX', FLOAT_SIZE, maxParticles);  // coordinate velocity
+    const velY = storageBuffer('velY', FLOAT_SIZE, maxParticles);
+    const angVel = storageBuffer('angVel', FLOAT_SIZE, maxParticles);
+    const invMass = storageBuffer('invMass', FLOAT_SIZE, maxParticles);
+    const radiusSq = storageBuffer('radiusSq', FLOAT_SIZE, maxParticles);
+
+    // Force accumulators (vec4 = 16 bytes each, packed pairs)
+    const VEC4_SIZE = 16;
+    const forces0 = storageBuffer('forces0', VEC4_SIZE, maxParticles); // gravity.xy, coulomb.xy
+    const forces1 = storageBuffer('forces1', VEC4_SIZE, maxParticles); // magnetic.xy, gravitomag.xy
+    const forces2 = storageBuffer('forces2', VEC4_SIZE, maxParticles); // f1pn.xy, spinCurv.xy
+    const forces3 = storageBuffer('forces3', VEC4_SIZE, maxParticles); // radiation.xy, yukawa.xy
+    const forces4 = storageBuffer('forces4', VEC4_SIZE, maxParticles); // external.xy, higgs.xy
+    const forces5 = storageBuffer('forces5', VEC4_SIZE, maxParticles); // axion.xy, pad, pad
+    const torques = storageBuffer('torques', VEC4_SIZE, maxParticles); // spinOrbit, frameDrag, tidal, contact
+    const bFields = storageBuffer('bFields', VEC4_SIZE, maxParticles); // Bz, Bgz, extBz, pad
+    const bFieldGrads = storageBuffer('bFieldGrads', VEC4_SIZE, maxParticles); // dBzdx, dBzdy, dBgzdx, dBgzdy
+
+    // Total force accumulator (sum of all force types)
+    const totalForceX = storageBuffer('totalForceX', FLOAT_SIZE, maxParticles);
+    const totalForceY = storageBuffer('totalForceY', FLOAT_SIZE, maxParticles);
+
     // Particle metadata
     const flags = storageBuffer('flags', UINT_SIZE, maxParticles);
     const color = storageBuffer('color', UINT_SIZE, maxParticles);
@@ -70,9 +97,14 @@ export function createParticleBuffers(device, maxParticles) {
         // Core state
         posX, posY, velWX, velWY, angW, mass, baseMass, charge,
         // Derived
-        radius, gamma,
+        radius, gamma, magMoment, angMomentum, axMod, yukMod,
+        velX, velY, angVel, invMass, radiusSq,
         // Metadata
         flags, color,
+        // Forces
+        forces0, forces1, forces2, forces3, forces4, forces5,
+        torques, bFields, bFieldGrads,
+        totalForceX, totalForceY,
         // Pool
         poolMgmt,
         // Stats
@@ -132,6 +164,21 @@ export function writeUniforms(device, buffer, params) {
     u[15] = params.collisionMode || 0;
     u[16] = params.maxParticles || 4096;
     u[17] = params.aliveCount || 0;
+    // External fields (Phase 2)
+    f[18] = params.extGravity || 0;
+    f[19] = params.extGravityAngle || 0;
+    f[20] = params.extElectric || 0;
+    f[21] = params.extElectricAngle || 0;
+    f[22] = params.extBz || 0;
+    f[23] = params.bounceFriction || 0.4;
+    // Precomputed external field directions
+    f[24] = (params.extGravity || 0) * Math.cos(params.extGravityAngle || 0); // extGx
+    f[25] = (params.extGravity || 0) * Math.sin(params.extGravityAngle || 0); // extGy
+    f[26] = (params.extElectric || 0) * Math.cos(params.extElectricAngle || 0); // extEx
+    f[27] = (params.extElectric || 0) * Math.sin(params.extElectricAngle || 0); // extEy
+    f[28] = params.axionCoupling || 0.05;
+    f[29] = params.higgsCoupling || 1.0;
+    u[30] = params.particleCount || 0;  // actual alive particle count for dispatch sizing
 
     device.queue.writeBuffer(buffer, 0, data);
 }
