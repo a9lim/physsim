@@ -19,6 +19,8 @@ import { quickSave, quickLoad, downloadState, uploadState } from './src/save-loa
 import { BACKEND_CPU, BACKEND_GPU } from './src/backend-interface.js';
 import CPUPhysics from './src/cpu-physics.js';
 import CanvasRenderer from './src/canvas-renderer.js';
+import GPUPhysics from './src/gpu/gpu-physics.js';
+import GPURenderer from './src/gpu/gpu-renderer.js';
 
 /**
  * Detect WebGPU support and return the best available backend.
@@ -184,10 +186,52 @@ class Simulation {
 
         this.stats = new StatsDisplay(this.dom, this.selDom);
 
-        selectBackend().then(({ backend, device }) => {
+        selectBackend().then(async ({ backend, device }) => {
             this.backend = backend;
             this._gpuDevice = device || null;
             console.log(`[physsim] Backend: ${backend}${device ? ' (WebGPU available)' : ''}`);
+
+            if (backend === BACKEND_GPU && device) {
+                try {
+                    // Create a separate canvas for GPU rendering (overlaid on CPU canvas).
+                    // Cannot reuse simCanvas — it already has a '2d' context.
+                    const gpuCanvas = document.createElement('canvas');
+                    gpuCanvas.id = 'gpuCanvas';
+                    gpuCanvas.width = this.width;
+                    gpuCanvas.height = this.height;
+                    gpuCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1;';
+                    this.canvas.parentElement.appendChild(gpuCanvas);
+
+                    this._gpuPhysics = new GPUPhysics(device, this.domainW, this.domainH);
+                    this._gpuRenderer = new GPURenderer(gpuCanvas, device, this._gpuPhysics.buffers);
+                    await this._gpuPhysics.init();
+                    await this._gpuRenderer.init();
+                    this._gpuReady = true;
+                    console.log('[physsim] GPU backend initialized');
+
+                    // Register device.lost handler for error recovery
+                    device.lost.then((info) => {
+                        console.error('[physsim] GPU device lost:', info.message);
+                        this._gpuReady = false;
+                        gpuCanvas.remove();
+                        // Full CPU fallback with state restore deferred to Phase 6
+                    });
+
+                    // Test: spawn a few particles with random velocities
+                    for (let i = 0; i < 8; i++) {
+                        this._gpuPhysics.addParticle({
+                            x: this.domainW * (0.2 + 0.6 * Math.random()),
+                            y: this.domainH * (0.2 + 0.6 * Math.random()),
+                            vx: (Math.random() - 0.5) * 2,
+                            vy: (Math.random() - 0.5) * 2,
+                            mass: 0.5 + Math.random() * 2,
+                        });
+                    }
+                } catch (e) {
+                    console.error('[physsim] GPU init failed, falling back to CPU:', e);
+                    this._gpuReady = false;
+                }
+            }
         });
 
         this.init();
@@ -253,6 +297,15 @@ class Simulation {
         this.renderer.domainW = this.domainW;
         this.renderer.domainH = this.domainH;
         this.input.updateRect();
+        // Sync GPU canvas size
+        if (this._gpuRenderer) {
+            const gpuCanvas = document.getElementById('gpuCanvas');
+            if (gpuCanvas) {
+                gpuCanvas.width = this.width;
+                gpuCanvas.height = this.height;
+            }
+            this._gpuRenderer.resize(this.width, this.height);
+        }
         // R11: Refresh cached layout dimensions for sidebar plots
         this.phasePlot.cacheSize();
         this.effPotPlot.cacheSize();
@@ -480,6 +533,13 @@ class Simulation {
                 }
                 this.deadParticles.length = dw;
             }
+        }
+
+        // GPU path: run compute + render independently of CPU path (Phase 1 test)
+        if (this._gpuReady && this.running) {
+            this._gpuPhysics.update(PHYSICS_DT * this.speedScale);
+            this._gpuRenderer.updateCamera(this.camera);
+            this._gpuRenderer.render(this._gpuPhysics.aliveCount);
         }
 
         // Skip render entirely when nothing has changed (paused, no interaction)
