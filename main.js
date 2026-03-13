@@ -16,6 +16,36 @@ import Pion from './src/pion.js';
 import { setVelocity, angwToAngVel } from './src/relativity.js';
 import { quickSave, quickLoad, downloadState, uploadState } from './src/save-load.js';
 
+import { BACKEND_CPU, BACKEND_GPU } from './src/backend-interface.js';
+import CPUPhysics from './src/cpu-physics.js';
+import CanvasRenderer from './src/canvas-renderer.js';
+
+/**
+ * Detect WebGPU support and return the best available backend.
+ * @returns {Promise<{backend: string, device?: GPUDevice}>}
+ */
+async function selectBackend() {
+    if (typeof navigator === 'undefined' || !navigator.gpu) {
+        return { backend: BACKEND_CPU };
+    }
+    try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) return { backend: BACKEND_CPU };
+
+        const device = await adapter.requestDevice({
+            // Only request the WebGPU-guaranteed minimums for detection.
+            // Phase 1 shaders need ≤8 storage buffers per stage.
+            // Actual limits will be validated when pipelines are created.
+        });
+        if (!device) return { backend: BACKEND_CPU };
+
+        return { backend: BACKEND_GPU, device };
+    } catch (e) {
+        console.warn('WebGPU detection failed:', e);
+        return { backend: BACKEND_CPU };
+    }
+}
+
 class Simulation {
     constructor() {
         this.canvas = document.getElementById('simCanvas');
@@ -106,6 +136,12 @@ class Simulation {
         this.totalRadiatedPy = 0;
         this.physics.sim = this;
 
+        // Backend detection (async, completes after first frame)
+        this.backend = BACKEND_CPU;
+        this._cpuPhysics = new CPUPhysics(this.physics);
+        this._canvasRenderer = new CanvasRenderer(this.ctx, this.width, this.height);
+        // GPU backend will be initialized in Phase 1
+
         // Selected particle DOM refs
         this.selDom = {
             details: document.getElementById('particle-details'),
@@ -147,6 +183,12 @@ class Simulation {
         document.getElementById('eff-pot-container').appendChild(this.effPotPlot.canvas);
 
         this.stats = new StatsDisplay(this.dom, this.selDom);
+
+        selectBackend().then(({ backend, device }) => {
+            this.backend = backend;
+            this._gpuDevice = device || null;
+            console.log(`[physsim] Backend: ${backend}${device ? ' (WebGPU available)' : ''}`);
+        });
 
         this.init();
     }
