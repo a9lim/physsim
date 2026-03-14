@@ -277,11 +277,15 @@ export default class GPURenderer {
         pass.draw(6, aliveCount);
         pass.end();
 
+        // Submit particle render immediately (isolate from optional passes that may fail)
+        this.device.queue.submit([encoder.finish()]);
+
         // Pass 2: Field + heatmap overlays (load to preserve particles)
         const hasOverlays = (this._fieldRenderReady && (opts.higgsField || opts.axionField)) ||
             (this._heatmapRenderReady && opts.heatmapBuffers);
         if (hasOverlays) {
-            const overlayPass = encoder.beginRenderPass({
+            const overlayEncoder = this.device.createCommandEncoder({ label: 'overlay' });
+            const overlayPass = overlayEncoder.beginRenderPass({
                 label: 'overlay render',
                 colorAttachments: [{
                     view: textureView,
@@ -290,7 +294,6 @@ export default class GPURenderer {
                 }],
             });
 
-            // Field overlays (rendered before heatmap)
             if (this._fieldRenderReady) {
                 if (opts.higgsField) {
                     this.drawFieldOverlay(overlayPass, 'higgs', opts.higgsField);
@@ -300,45 +303,48 @@ export default class GPURenderer {
                 }
             }
 
-            // Heatmap overlay
             if (this._heatmapRenderReady && opts.heatmapBuffers) {
                 this.drawHeatmapOverlay(overlayPass, opts.heatmapBuffers, opts.heatmapOpts || {});
             }
 
             overlayPass.end();
+            this.device.queue.submit([overlayEncoder.finish()]);
         }
 
-        // Pass 3: Boson rendering (Phase 4) — same texture, load to preserve
+        // Pass 3: Boson rendering — isolated encoder so failures don't affect particles
         if (this._bosonReady) {
-            const bosonPass = encoder.beginRenderPass({
-                label: 'boson render',
-                colorAttachments: [{
-                    view: textureView,
-                    loadOp: 'load',  // preserve particle + overlay rendering
-                    storeOp: 'store',
-                }],
-            });
+            try {
+                const bosonEncoder = this.device.createCommandEncoder({ label: 'boson-render' });
+                const bosonPass = bosonEncoder.beginRenderPass({
+                    label: 'boson render',
+                    colorAttachments: [{
+                        view: textureView,
+                        loadOp: 'load',
+                        storeOp: 'store',
+                    }],
+                });
 
-            const bgs = this._bosonBindGroups;
+                const bgs = this._bosonBindGroups;
 
-            // Draw photons: 4 vertices per quad (triangle strip), MAX_PHOTONS instances
-            bosonPass.setPipeline(this._photonPipeline);
-            bosonPass.setBindGroup(0, bgs[0]);
-            bosonPass.setBindGroup(1, bgs[1]);
-            bosonPass.setBindGroup(2, bgs[2]);
-            bosonPass.draw(4, 512); // MAX_PHOTONS, shader culls inactive
+                bosonPass.setPipeline(this._photonPipeline);
+                bosonPass.setBindGroup(0, bgs[0]);
+                bosonPass.setBindGroup(1, bgs[1]);
+                bosonPass.setBindGroup(2, bgs[2]);
+                bosonPass.draw(4, 512);
 
-            // Draw pions: 4 vertices per quad (triangle strip), MAX_PIONS instances
-            bosonPass.setPipeline(this._pionPipeline);
-            bosonPass.setBindGroup(0, bgs[0]);
-            bosonPass.setBindGroup(1, bgs[1]);
-            bosonPass.setBindGroup(2, bgs[2]);
-            bosonPass.draw(4, 256); // MAX_PIONS, shader culls inactive
+                bosonPass.setPipeline(this._pionPipeline);
+                bosonPass.setBindGroup(0, bgs[0]);
+                bosonPass.setBindGroup(1, bgs[1]);
+                bosonPass.setBindGroup(2, bgs[2]);
+                bosonPass.draw(4, 256);
 
-            bosonPass.end();
+                bosonPass.end();
+                this.device.queue.submit([bosonEncoder.finish()]);
+            } catch (e) {
+                console.warn('[physsim] Boson render failed, disabling:', e.message);
+                this._bosonReady = false;
+            }
         }
-
-        this.device.queue.submit([encoder.finish()]);
     }
 
     /** Initialize field overlay render pipeline. Call after GPUPhysics has field buffers. */
