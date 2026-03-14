@@ -12,12 +12,13 @@
  *   Pion           (48 bytes) — pos,w,mass,charge,energy,emitterId,age,flags,pad
  */
 
-// Signal delay history constants
-const HISTORY_LEN = 256;
+import {
+    HISTORY_SIZE, MAX_PHOTONS, MAX_PIONS, MAX_TRAIL_LENGTH,
+    GPU_SCALAR_GRID, GPU_SELFGRAV_GRID,
+} from '../config.js';
 
-// Boson pool constants
-const MAX_PHOTONS = 1024;
-const MAX_PIONS = 256;
+// Signal delay history constants
+const HISTORY_LEN = HISTORY_SIZE;
 
 // Quadtree node size in bytes (20 u32 words = 80 bytes, must match tree-build.wgsl)
 const QTNODE_SIZE_BYTES = 80;
@@ -366,9 +367,9 @@ export function createParticleBuffers(device, maxParticles) {
 
 // ── Scalar Field Grid Buffers ──
 // Default GRID_RES = 64 (matches CPU SCALAR_GRID), configurable as power-of-2
-const FIELD_GRID_RES = 64;
+const FIELD_GRID_RES = GPU_SCALAR_GRID;
 const FIELD_GRID_SQ = FIELD_GRID_RES * FIELD_GRID_RES;
-const COARSE_RES = 8; // Self-gravity coarse grid (GRID_RES >> 3)
+const COARSE_RES = GPU_SELFGRAV_GRID;
 const COARSE_SQ = COARSE_RES * COARSE_RES;
 const PQS_STENCIL_SIZE = 16; // 4x4 stencil per particle
 
@@ -496,7 +497,7 @@ export function createPairProductionBuffers(device, maxEvents = 32) {
 }
 
 // Trail rendering constants
-const TRAIL_LEN = 256;
+const TRAIL_LEN = MAX_TRAIL_LENGTH;
 
 /**
  * Allocate trail ring buffer storage for GPU trail rendering.
