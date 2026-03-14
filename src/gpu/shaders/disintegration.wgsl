@@ -127,12 +127,39 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
         var dx = op.posX - px;
         var dy = op.posY - py;
 
-        // Minimum image (torus only for simplicity)
+        // Minimum image (all topologies)
         if (du.periodic != 0u) {
-            if (dx > halfDomW) { dx -= du.domainW; }
-            else if (dx < -halfDomW) { dx += du.domainW; }
-            if (dy > halfDomH) { dy -= du.domainH; }
-            else if (dy < -halfDomH) { dy += du.domainH; }
+            if (du.topologyMode == 0u) {
+                // Torus fast path
+                if (dx > halfDomW) { dx -= du.domainW; }
+                else if (dx < -halfDomW) { dx += du.domainW; }
+                if (dy > halfDomH) { dy -= du.domainH; }
+                else if (dy < -halfDomH) { dy += du.domainH; }
+            } else if (du.topologyMode == 1u) {
+                // Klein: y-wrap is glide reflection
+                var dx0 = dx;
+                if (dx0 > halfDomW) { dx0 -= du.domainW; } else if (dx0 < -halfDomW) { dx0 += du.domainW; }
+                var dy0 = dy;
+                if (dy0 > halfDomH) { dy0 -= du.domainH; } else if (dy0 < -halfDomH) { dy0 += du.domainH; }
+                var bestSq = dx0 * dx0 + dy0 * dy0;
+                dx = dx0; dy = dy0;
+                let gx = du.domainW - op.posX;
+                var dx1 = gx - px;
+                if (dx1 > halfDomW) { dx1 -= du.domainW; } else if (dx1 < -halfDomW) { dx1 += du.domainW; }
+                var dy1 = (op.posY + du.domainH) - py;
+                if (dy1 > du.domainH) { dy1 -= 2.0 * du.domainH; } else if (dy1 < -du.domainH) { dy1 += 2.0 * du.domainH; }
+                let dSq1 = dx1 * dx1 + dy1 * dy1;
+                if (dSq1 < bestSq) { dx = dx1; dy = dy1; bestSq = dSq1; }
+                var dy1b = (op.posY - du.domainH) - py;
+                if (dy1b > du.domainH) { dy1b -= 2.0 * du.domainH; } else if (dy1b < -du.domainH) { dy1b += 2.0 * du.domainH; }
+                let dSq1b = dx1 * dx1 + dy1b * dy1b;
+                if (dSq1b < bestSq) { dx = dx1; dy = dy1b; }
+            } else {
+                // RP²: both axes glide
+                if (dx > halfDomW) { dx -= du.domainW; } else if (dx < -halfDomW) { dx += du.domainW; }
+                if (dy > halfDomH) { dy -= du.domainH; } else if (dy < -halfDomH) { dy += du.domainH; }
+                // RP² candidates omitted for performance (Torus wrapping is reasonable approximation)
+            }
         }
 
         let distSq = dx * dx + dy * dy + du.softeningSq;

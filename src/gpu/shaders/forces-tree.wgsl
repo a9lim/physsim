@@ -24,6 +24,73 @@ const MAG_MOMENT_K: f32 = 0.2;
 const INERTIA_K: f32 = 0.4;
 const TIDAL_STRENGTH: f32 = 0.3;
 
+// Topology modes
+const TOPO_TORUS: u32 = 0u;
+const TOPO_KLEIN: u32 = 1u;
+const TOPO_RP2: u32   = 2u;
+const BOUND_LOOP: u32 = 2u;
+
+// Minimum-image displacement (inlined from common.wgsl since standalone shader)
+fn torusMinImage(ox: f32, oy: f32, sx: f32, sy: f32, w: f32, h: f32) -> vec2<f32> {
+    let halfW = w * 0.5;
+    let halfH = h * 0.5;
+    var rx = sx - ox;
+    if (rx > halfW) { rx -= w; } else if (rx < -halfW) { rx += w; }
+    var ry = sy - oy;
+    if (ry > halfH) { ry -= h; } else if (ry < -halfH) { ry += h; }
+    return vec2(rx, ry);
+}
+
+fn fullMinImage(ox: f32, oy: f32, sx: f32, sy: f32, w: f32, h: f32, topo: u32) -> vec2<f32> {
+    if (topo == TOPO_TORUS) {
+        return torusMinImage(ox, oy, sx, sy, w, h);
+    }
+    let halfW = w * 0.5;
+    let halfH = h * 0.5;
+    var dx0 = sx - ox;
+    if (dx0 > halfW) { dx0 -= w; } else if (dx0 < -halfW) { dx0 += w; }
+    var dy0 = sy - oy;
+    if (dy0 > halfH) { dy0 -= h; } else if (dy0 < -halfH) { dy0 += h; }
+    var bestSq = dx0 * dx0 + dy0 * dy0;
+    var bestDx = dx0;
+    var bestDy = dy0;
+    if (topo == TOPO_KLEIN) {
+        let gx = w - sx;
+        var dx1 = gx - ox;
+        if (dx1 > halfW) { dx1 -= w; } else if (dx1 < -halfW) { dx1 += w; }
+        var dy1 = (sy + h) - oy;
+        if (dy1 > h) { dy1 -= 2.0 * h; } else if (dy1 < -h) { dy1 += 2.0 * h; }
+        let dSq1 = dx1 * dx1 + dy1 * dy1;
+        if (dSq1 < bestSq) { bestDx = dx1; bestDy = dy1; bestSq = dSq1; }
+        var dy1b = (sy - h) - oy;
+        if (dy1b > h) { dy1b -= 2.0 * h; } else if (dy1b < -h) { dy1b += 2.0 * h; }
+        let dSq1b = dx1 * dx1 + dy1b * dy1b;
+        if (dSq1b < bestSq) { bestDx = dx1; bestDy = dy1b; }
+    } else {
+        let gx = w - sx;
+        var dxG = gx - ox;
+        if (dxG > halfW) { dxG -= w; } else if (dxG < -halfW) { dxG += w; }
+        var dyG = (sy + h) - oy;
+        if (dyG > h) { dyG -= 2.0 * h; } else if (dyG < -h) { dyG += 2.0 * h; }
+        let dSqG = dxG * dxG + dyG * dyG;
+        if (dSqG < bestSq) { bestDx = dxG; bestDy = dyG; bestSq = dSqG; }
+        let gy = h - sy;
+        var dxH = (sx + w) - ox;
+        if (dxH > w) { dxH -= 2.0 * w; } else if (dxH < -w) { dxH += 2.0 * w; }
+        var dyH = gy - oy;
+        if (dyH > halfH) { dyH -= h; } else if (dyH < -halfH) { dyH += h; }
+        let dSqH = dxH * dxH + dyH * dyH;
+        if (dSqH < bestSq) { bestDx = dxH; bestDy = dyH; bestSq = dSqH; }
+        var dxC = (w - sx + w) - ox;
+        if (dxC > w) { dxC -= 2.0 * w; } else if (dxC < -w) { dxC += 2.0 * w; }
+        var dyC = (h - sy + h) - oy;
+        if (dyC > h) { dyC -= 2.0 * h; } else if (dyC < -h) { dyC += 2.0 * h; }
+        let dSqC = dxC * dxC + dyC * dyC;
+        if (dSqC < bestSq) { bestDx = dxC; bestDy = dyC; }
+    }
+    return vec2(bestDx, bestDy);
+}
+
 // Node layout accessors (same as tree-build.wgsl)
 const NODE_STRIDE: u32 = 20u;
 fn nodeOffset(idx: u32) -> u32 { return idx * NODE_STRIDE; }
@@ -179,9 +246,14 @@ fn accumulateForce(
     let toggles = uniforms.toggles0;
     let softeningSq = uniforms.softeningSq;
 
-    // Displacement
-    let rx = sx - px;
-    let ry = sy - py;
+    // Displacement (with minimum-image for periodic boundaries)
+    let periodic = uniforms.boundaryMode == BOUND_LOOP;
+    var disp = vec2<f32>(sx - px, sy - py);
+    if (periodic) {
+        disp = fullMinImage(px, py, sx, sy, uniforms.domainW, uniforms.domainH, uniforms.topologyMode);
+    }
+    let rx = disp.x;
+    let ry = disp.y;
     let rawRSq = rx * rx + ry * ry;
     let rSq = rawRSq + softeningSq;
     let invRSq = 1.0 / rSq;
@@ -476,8 +548,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let comX = getComX(nodeIdx);
         let comY = getComY(nodeIdx);
-        let dx = comX - px;
-        let dy = comY - py;
+        let periodic = uniforms.boundaryMode == BOUND_LOOP;
+        var comDisp = vec2<f32>(comX - px, comY - py);
+        if (periodic) {
+            comDisp = fullMinImage(px, py, comX, comY, uniforms.domainW, uniforms.domainH, uniforms.topologyMode);
+        }
+        let dx = comDisp.x;
+        let dy = comDisp.y;
         let dSq = dx * dx + dy * dy;
         let size = getMaxX(nodeIdx) - getMinX(nodeIdx); // node width
 

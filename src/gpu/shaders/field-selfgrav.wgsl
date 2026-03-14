@@ -107,13 +107,24 @@ fn computeCoarsePotential(@builtin(global_invocation_id) gid: vec3<u32>) {
     let cellArea = cellW * cellH;
     var pot: f32 = 0.0;
 
+    let periodic = uniforms.boundaryMode == 2u; // BOUND_LOOP
+    let halfDomW = uniforms.domainW * 0.5;
+    let halfDomH = uniforms.domainH * 0.5;
+
     for (var jy = 0u; jy < COARSE; jy++) {
         for (var jx = 0u; jx < COARSE; jx++) {
             let j = jy * COARSE + jx;
             let rhoJ = coarseRho[j];
             if (rhoJ < EPSILON) { continue; }
-            let dx = (f32(ix) - f32(jx)) * cellW;
-            let dy = (f32(iy) - f32(jy)) * cellH;
+            var dx = (f32(ix) + 0.5 - f32(jx) - 0.5) * cellW;
+            var dy = (f32(iy) + 0.5 - f32(jy) - 0.5) * cellH;
+            // Periodic minimum-image wrapping (Torus fast path)
+            if (periodic) {
+                if (dx > halfDomW) { dx -= uniforms.domainW; }
+                else if (dx < -halfDomW) { dx += uniforms.domainW; }
+                if (dy > halfDomH) { dy -= uniforms.domainH; }
+                else if (dy < -halfDomH) { dy += uniforms.domainH; }
+            }
             // Use softening for self-cell (matches CPU: 1/sqrt(dx²+dy²+softeningSq))
             let rSq = dx * dx + dy * dy + uniforms.softeningSq;
             pot -= rhoJ * cellArea / sqrt(rSq);

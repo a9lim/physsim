@@ -170,10 +170,35 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     p.mass = newMass;
     particles[pid] = p;
 
-    // Update radius in particleAux (read-only here, but update derived)
+    // Update derived quantities after mass change
     let bodyR = pow(newMass, 1.0 / 3.0);  // cbrt
+    let bodyRSq = bodyR * bodyR;
     var d = derived[pid];
     d.invMass = 1.0 / newMass;
+    d.radiusSq = bodyRSq;
+
+    // Recompute coordinate velocity from scaled proper velocity
+    let wSq = p.velWX * p.velWX + p.velWY * p.velWY;
+    if (uniforms.relativityEnabled != 0u) {
+        let gamma = sqrt(1.0 + wSq);
+        d.velX = p.velWX / gamma;
+        d.velY = p.velWY / gamma;
+    } else {
+        d.velX = p.velWX;
+        d.velY = p.velWY;
+    }
+
+    // Recompute angular velocity from angW
+    let sr = p.angW * bodyR;
+    if (uniforms.relativityEnabled != 0u) {
+        d.angVel = p.angW / sqrt(1.0 + sr * sr);
+    } else {
+        d.angVel = p.angW;
+    }
+
+    // Recompute cached dipole moments
+    d.magMoment = 0.2 * p.charge * d.angVel * bodyRSq;
+    d.angMomentum = 0.4 * newMass * bodyRSq * d.angVel;
     derived[pid] = d;
 
     // ── Gradient force: F = +g * baseMass * sign(phi) * grad(phi) ──

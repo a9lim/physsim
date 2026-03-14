@@ -9,7 +9,7 @@ struct CameraUniforms {
     zoom: f32,
     canvasWidth: f32,
     canvasHeight: f32,
-    _pad: f32,
+    isDarkMode: f32,
 };
 
 // Packed photon struct (matches common.wgsl Photon)
@@ -74,10 +74,11 @@ fn vertexPhoton(
     let px = ph.posX;
     let py = ph.posY;
     let age = f32(ph.age);
-    let maxAge = 256.0 * 128.0; // PHOTON_LIFETIME * PHYSICS_DT_INV approx
+    let maxAge = 256.0 * 128.0; // PHOTON_LIFETIME * PHYSICS_DT_INV
     let rawAlpha = max(0.0, 1.0 - age / maxAge);
     // Alpha scale: 0.6 for light, 0.8 for dark (matches CPU renderer bucket alpha)
-    let alpha = rawAlpha * 0.7;
+    let alphaScale = select(0.6, 0.8, camera.isDarkMode > 0.5);
+    let alpha = rawAlpha * alphaScale;
 
     // Point sprite quad — energy-proportional size (matches CPU: min(0.25 + 2*energy, 5))
     let qOff = quadOffset(vertexIdx);
@@ -127,8 +128,9 @@ fn vertexPion(
 
     out.position = clipPos + vec4f(qOff * spriteSize / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
 
-    // Pion: green, constant alpha
-    out.color = vec4f(0.31, 0.6, 0.47, 0.9); // ~_PALETTE.extended.green
+    // Pion: green, theme-dependent alpha (0.7 light / 0.9 dark)
+    let pionAlpha = select(0.7, 0.9, camera.isDarkMode > 0.5);
+    out.color = vec4f(0.31, 0.6, 0.47, pionAlpha); // ~_PALETTE.extended.green
     out.uv = qOff * 0.5 + 0.5;
     return out;
 }
