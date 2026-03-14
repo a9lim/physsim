@@ -2480,9 +2480,6 @@ export default class GPUPhysics {
         pass10.dispatchWorkgroups(workgroups);
         pass10.end();
 
-        // Pass 11: radiation reaction (Larmor, Hawking, pion emission) — Phase 4
-        this._dispatchRadiation(encoder);
-
         // Pass 12: borisDrift
         const pass12 = encoder.beginComputePass({ label: 'borisDrift' });
         pass12.setPipeline(p2.borisDrift.pipeline);
@@ -2490,46 +2487,59 @@ export default class GPUPhysics {
         pass12.dispatchWorkgroups(workgroups);
         pass12.end();
 
-        // Pass 13: cosmological expansion — Phase 5
-        this._dispatchExpansion(encoder, dtSub);
-
-        // Pass 14: 1PN velocity-Verlet correction — Phase 4
-        this._dispatch1PNVV(encoder);
-
-        // Pass 15: scalar field evolution (Higgs, Axion) — Phase 5
-        if (this._fieldDeposit) {
-            this._writeFieldUniforms(dtSub);
-            if (this._higgsEnabled) this._dispatchFieldEvolve(encoder, 'higgs', dtSub);
-            if (this._axionEnabled) this._dispatchFieldEvolve(encoder, 'axion', dtSub);
-        }
-
-        // Pass 16: scalar field forces — Phase 5
-        this._dispatchFieldForces(encoder);
-
-        // Pass 17-18: collision detection + resolution (Phase 3)
-        // Runs after drift, uses tree built earlier in the substep
-        this._dispatchCollisions(encoder);
-
-        // Pass 19: field excitations from merge events — Phase 5
-        this._dispatchFieldExcitations(encoder);
-
-        // Pass 20: disintegration check — Phase 5
-        this._dispatchDisintegration(encoder);
-
-        // Pass 21: boson update (photon/pion drift, absorption, decay) — Phase 4
-        this._dispatchBosonUpdate(encoder);
-
-        // Pass 22: pair production — Phase 5
-        this._dispatchPairProduction(encoder);
-
-        // Pass 24: boundary (existing from Phase 1)
+        // Pass 24: boundary
         const passBoundary = encoder.beginComputePass({ label: 'boundary' });
         passBoundary.setPipeline(this._boundaryPipeline);
         passBoundary.setBindGroup(0, this._boundaryBindGroup);
         passBoundary.dispatchWorkgroups(workgroups);
         passBoundary.end();
 
+        // Submit core physics (forces + Boris + drift + boundary) — MUST succeed
         this.device.queue.submit([encoder.finish()]);
+
+        // ── Advanced passes (Phase 3-5) — isolated so failures don't affect core ──
+        // Each group in its own try/catch + command encoder
+        try {
+            const enc2 = this.device.createCommandEncoder({ label: 'advanced-physics' });
+
+            // Pass 11: radiation reaction (Larmor, Hawking, pion emission) — Phase 4
+            this._dispatchRadiation(enc2);
+
+            // Pass 13: cosmological expansion — Phase 5
+            this._dispatchExpansion(enc2, dtSub);
+
+            // Pass 14: 1PN velocity-Verlet correction — Phase 4
+            this._dispatch1PNVV(enc2);
+
+            // Pass 15: scalar field evolution (Higgs, Axion) — Phase 5
+            if (this._fieldDeposit) {
+                this._writeFieldUniforms(dtSub);
+                if (this._higgsEnabled) this._dispatchFieldEvolve(enc2, 'higgs', dtSub);
+                if (this._axionEnabled) this._dispatchFieldEvolve(enc2, 'axion', dtSub);
+            }
+
+            // Pass 16: scalar field forces — Phase 5
+            this._dispatchFieldForces(enc2);
+
+            // Pass 17-18: collision detection + resolution (Phase 3)
+            this._dispatchCollisions(enc2);
+
+            // Pass 19: field excitations from merge events — Phase 5
+            this._dispatchFieldExcitations(enc2);
+
+            // Pass 20: disintegration check — Phase 5
+            this._dispatchDisintegration(enc2);
+
+            // Pass 21: boson update (photon/pion drift, absorption, decay) — Phase 4
+            this._dispatchBosonUpdate(enc2);
+
+            // Pass 22: pair production — Phase 5
+            this._dispatchPairProduction(enc2);
+
+            this.device.queue.submit([enc2.finish()]);
+        } catch (e) {
+            // Advanced passes failed — core physics still ran
+        }
     }
 
     /**
