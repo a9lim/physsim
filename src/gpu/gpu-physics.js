@@ -2307,9 +2307,11 @@ export default class GPUPhysics {
 
     /**
      * Run one frame: adaptive substepping with full Phase 2 force computation + Boris integrator.
+     * When paused, the caller does not call update() — no compute dispatches are issued.
+     * @param {number} dt - Total simulation time to advance this frame
      */
     update(dt) {
-        if (!this._ready || this.aliveCount === 0) return;
+        if (!this._ready || this.aliveCount === 0 || dt <= 0) return;
 
         // Adaptive substepping: use maxAccel from previous frame
         const softening = this._blackHoleEnabled ? 4 : 8;

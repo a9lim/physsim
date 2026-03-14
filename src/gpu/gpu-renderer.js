@@ -226,7 +226,11 @@ export default class GPURenderer {
         this.device.queue.writeBuffer(this.cameraBuffer, 0, data);
     }
 
-    /** Render one frame. */
+    /**
+     * Render one frame.
+     * The caller (main.js loop) only calls render() when _dirty is true,
+     * so no additional dirty-flag gating is needed here.
+     */
     render(aliveCount, opts = {}) {
         if (!this._ready || aliveCount === 0) return;
 
