@@ -195,3 +195,68 @@ fn torusMinImage(ox: f32, oy: f32, sx: f32, sy: f32) -> vec2<f32> {
     if (ry > halfH) { ry -= h; } else if (ry < -halfH) { ry += h; }
     return vec2(rx, ry);
 }
+
+// Full topology-aware minimum image displacement (Torus, Klein, RP²).
+// For Klein/RP², evaluates multiple glide-reflection candidates and returns the closest.
+fn fullMinImage(ox: f32, oy: f32, sx: f32, sy: f32) -> vec2<f32> {
+    let w = uniforms.domainW;
+    let h = uniforms.domainH;
+    let halfW = w * 0.5;
+    let halfH = h * 0.5;
+    let topo = uniforms.topologyMode;
+
+    if (topo == TOPO_TORUS) {
+        return torusMinImage(ox, oy, sx, sy);
+    }
+
+    // Candidate 0: direct displacement (with torus wrap)
+    var dx0 = sx - ox;
+    if (dx0 > halfW) { dx0 -= w; } else if (dx0 < -halfW) { dx0 += w; }
+    var dy0 = sy - oy;
+    if (dy0 > halfH) { dy0 -= h; } else if (dy0 < -halfH) { dy0 += h; }
+    var bestSq = dx0 * dx0 + dy0 * dy0;
+    var bestDx = dx0;
+    var bestDy = dy0;
+
+    if (topo == TOPO_KLEIN) {
+        // Klein: y-wrap is glide reflection (x,y) ~ (W-x, y+H)
+        let gx = w - sx;
+        var dx1 = gx - ox;
+        if (dx1 > halfW) { dx1 -= w; } else if (dx1 < -halfW) { dx1 += w; }
+        var dy1 = (sy + h) - oy;
+        if (dy1 > h) { dy1 -= 2.0 * h; } else if (dy1 < -h) { dy1 += 2.0 * h; }
+        let dSq1 = dx1 * dx1 + dy1 * dy1;
+        if (dSq1 < bestSq) { bestDx = dx1; bestDy = dy1; bestSq = dSq1; }
+
+        var dy1b = (sy - h) - oy;
+        if (dy1b > h) { dy1b -= 2.0 * h; } else if (dy1b < -h) { dy1b += 2.0 * h; }
+        let dSq1b = dx1 * dx1 + dy1b * dy1b;
+        if (dSq1b < bestSq) { bestDx = dx1; bestDy = dy1b; }
+    } else {
+        // RP²: both axes carry glide reflections
+        let gx = w - sx;
+        var dxG = gx - ox;
+        if (dxG > halfW) { dxG -= w; } else if (dxG < -halfW) { dxG += w; }
+        var dyG = (sy + h) - oy;
+        if (dyG > h) { dyG -= 2.0 * h; } else if (dyG < -h) { dyG += 2.0 * h; }
+        let dSqG = dxG * dxG + dyG * dyG;
+        if (dSqG < bestSq) { bestDx = dxG; bestDy = dyG; bestSq = dSqG; }
+
+        let gy = h - sy;
+        var dxH = (sx + w) - ox;
+        if (dxH > w) { dxH -= 2.0 * w; } else if (dxH < -w) { dxH += 2.0 * w; }
+        var dyH = gy - oy;
+        if (dyH > halfH) { dyH -= h; } else if (dyH < -halfH) { dyH += h; }
+        let dSqH = dxH * dxH + dyH * dyH;
+        if (dSqH < bestSq) { bestDx = dxH; bestDy = dyH; bestSq = dSqH; }
+
+        var dxC = (w - sx + w) - ox;
+        if (dxC > w) { dxC -= 2.0 * w; } else if (dxC < -w) { dxC += 2.0 * w; }
+        var dyC = (h - sy + h) - oy;
+        if (dyC > h) { dyC -= 2.0 * h; } else if (dyC < -h) { dyC += 2.0 * h; }
+        let dSqC = dxC * dxC + dyC * dyC;
+        if (dSqC < bestSq) { bestDx = dxC; bestDy = dyC; }
+    }
+
+    return vec2(bestDx, bestDy);
+}

@@ -10,8 +10,8 @@
 @group(0) @binding(5) var<storage, read> sgPhiFull: array<f32>;  // self-gravity potential
 @group(0) @binding(6) var<storage, read> sgGradX: array<f32>;
 @group(0) @binding(7) var<storage, read> sgGradY: array<f32>;
-@group(0) @binding(8) var<storage, read> fieldGradX: array<f32>;  // field gradients (stale from prev step)
-@group(0) @binding(9) var<storage, read> fieldGradY: array<f32>;
+@group(0) @binding(8) var<storage, read_write> fieldGradX: array<f32>;  // field gradients (rw for computeGridGradients)
+@group(0) @binding(9) var<storage, read_write> fieldGradY: array<f32>;
 @group(0) @binding(10) var<uniform> uniforms: FieldUniforms;
 
 // ─── Laplacian (5-point stencil) ───

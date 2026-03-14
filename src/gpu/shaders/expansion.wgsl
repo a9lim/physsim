@@ -1,8 +1,8 @@
 // ─── Cosmological Expansion ───
 // Hubble flow: pos += H*(pos - center)*dt
 // Momentum drag: w *= (1 - H*dt)
+// Standalone shader — NOT prepended with common.wgsl.
 
-// Packed particle state struct (matches common.wgsl ParticleState)
 struct ParticleState {
     posX: f32, posY: f32,
     velWX: f32, velWY: f32,
