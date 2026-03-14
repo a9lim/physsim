@@ -253,6 +253,15 @@ export default class InputHandler {
     }
 
     findParticleAt(worldPos) {
+        // GPU backend: delegate to compute dispatch
+        if (this.sim.backend === 'gpu') {
+            // Queue async hit test — result read on next frame
+            this.sim.physics.hitTest(worldPos.x, worldPos.y);
+            // For immediate response, fall back to CPU scan of readback cache
+            // (GPU readback gives us pos/radius for alive particles)
+            return this._cpuFallbackHitTest(worldPos);
+        }
+        // CPU backend: existing O(N) scan
         let best = null;
         let bestDist = Infinity;
         for (const p of this.sim.particles) {
@@ -263,6 +272,29 @@ export default class InputHandler {
             }
         }
         return best;
+    }
+
+    /**
+     * CPU-side fallback for immediate hit testing when GPU path active.
+     * Uses the particle state array (which is periodically synced from GPU
+     * readback for selected-particle display).
+     */
+    _cpuFallbackHitTest(worldPos) {
+        const count = this.sim.physics.getParticleCount();
+        let bestIdx = -1;
+        let bestDist = Infinity;
+        for (let i = 0; i < count; i++) {
+            const state = this.sim.physics.getParticleState(i);
+            if (!state) continue;
+            const dx = worldPos.x - state.x;
+            const dy = worldPos.y - state.y;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < state.radius && d < bestDist) {
+                bestDist = d;
+                bestIdx = i;
+            }
+        }
+        return bestIdx >= 0 ? { _gpuIndex: bestIdx, ...this.sim.physics.getParticleState(bestIdx) } : null;
     }
 
     spawnParticle(endPos, antimatter = false) {

@@ -1185,10 +1185,6 @@ export default class GPUPhysics {
         // TODO: Reallocate field buffers at new resolution once field compute is fully wired.
         // this._reallocFieldBuffers(res);
 
-        // Reset field state (resolution change invalidates field data)
-        if (this._sim && this._sim.higgsField) this._sim.higgsField.reset();
-        if (this._sim && this._sim.axionField) this._sim.axionField.reset();
-
         if (typeof showToast === 'function') showToast(`Field grid: ${res}\u00D7${res}`);
     }
 
