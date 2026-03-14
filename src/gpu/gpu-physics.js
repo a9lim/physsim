@@ -1396,7 +1396,7 @@ export default class GPUPhysics {
         u[17] = this._blackHoleEnabled ? 1 : 0;   // blackHoleEnabled
         u[18] = this.aliveCount;                  // particleCount
         f[19] = this._blackHoleEnabled ? 16 : 64;  // softeningSq
-        f[20] = 0;                                // _pad0
+        u[20] = 0;                                // currentFieldType (0=higgs default, set per-dispatch)
         this.device.queue.writeBuffer(this._fieldUniformBuffer, 0, data);
     }
 
@@ -2495,8 +2495,16 @@ export default class GPUPhysics {
         // Pass 15: scalar field evolution (Higgs, Axion)
         if (this._fieldDeposit) {
             this._writeFieldUniforms(dtSub);
-            if (this._higgsEnabled) this._dispatchFieldEvolve(encoder, 'higgs', dtSub);
-            if (this._axionEnabled) this._dispatchFieldEvolve(encoder, 'axion', dtSub);
+            if (this._higgsEnabled) {
+                // Set currentFieldType=0 (Higgs) for Laplacian/gradient vacuum value
+                this.device.queue.writeBuffer(this._fieldUniformBuffer, 20 * 4, new Uint32Array([0]));
+                this._dispatchFieldEvolve(encoder, 'higgs', dtSub);
+            }
+            if (this._axionEnabled) {
+                // Set currentFieldType=1 (Axion) for Laplacian/gradient vacuum value
+                this.device.queue.writeBuffer(this._fieldUniformBuffer, 20 * 4, new Uint32Array([1]));
+                this._dispatchFieldEvolve(encoder, 'axion', dtSub);
+            }
         }
 
         // (Field forces already dispatched at Pass 5c, before Boris)

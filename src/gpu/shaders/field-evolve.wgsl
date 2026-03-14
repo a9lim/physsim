@@ -30,10 +30,9 @@ fn computeLaplacian(@builtin(global_invocation_id) gid: vec3<u32>) {
     let bcMode = uniforms.boundaryMode;
     let topoMode = uniforms.topologyMode;
 
-    // Determine vacuum value based on which field this is
-    // Higgs: vacValue=1, Axion: vacValue=0
-    // Encoded in uniforms (higgsEnabled selects vac=1, else vac=0)
-    let vacValue = select(0.0, 1.0, uniforms.higgsEnabled != 0u);
+    // Determine vacuum value based on which field is being processed
+    // Higgs: vacValue=1 (VEV), Axion: vacValue=0
+    let vacValue = select(0.0, 1.0, uniforms.currentFieldType == 0u);
 
     // Interior fast path
     if (ix > 0u && ix < GRID_LAST && iy > 0u && iy < GRID_LAST) {
@@ -180,7 +179,7 @@ fn computeGridGradients(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = iy * GRID + ix;
     let bcMode = uniforms.boundaryMode;
     let topoMode = uniforms.topologyMode;
-    let vacValue = select(0.0, 1.0, uniforms.higgsEnabled != 0u);
+    let vacValue = select(0.0, 1.0, uniforms.currentFieldType == 0u);
 
     // Note: gradX/gradY are bound as read_write via separate bind group for output
     // Interior fast path
