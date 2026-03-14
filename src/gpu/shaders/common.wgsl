@@ -132,6 +132,22 @@ struct ParticleDerived {
     _pad: f32,
 };
 
+// Packed force accumulators (160 bytes per particle).
+// Replaces: forces0-5, torques, bFields, bFieldGrads, totalForce (10 buffers → 1).
+struct AllForces {
+    f0: vec4<f32>,          // gravity.xy, coulomb.xy
+    f1: vec4<f32>,          // magnetic.xy, gravitomag.xy
+    f2: vec4<f32>,          // f1pn.xy, spinCurv.xy
+    f3: vec4<f32>,          // radiation.xy, yukawa.xy
+    f4: vec4<f32>,          // external.xy, higgs.xy
+    f5: vec4<f32>,          // axion.xy, pad, pad
+    torques: vec4<f32>,     // spinOrbit, frameDrag, tidal, contact
+    bFields: vec4<f32>,     // Bz, Bgz, extBz, pad
+    bFieldGrads: vec4<f32>, // dBzdx, dBzdy, dBgzdx, dBgzdy
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
 // Minimum image displacement for torus topology (most common case).
 // Returns displacement vector from observer at (ox, oy) to source at (sx, sy).
 fn torusMinImage(ox: f32, oy: f32, sx: f32, sy: f32) -> vec2<f32> {
