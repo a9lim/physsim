@@ -27,6 +27,13 @@ import GPURenderer from './src/gpu/gpu-renderer.js';
  * @returns {Promise<{backend: string, device?: GPUDevice}>}
  */
 async function selectBackend() {
+    // Allow ?cpu=1 URL param to force CPU backend
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('cpu') === '1') {
+        console.log('[physsim] CPU backend forced via ?cpu=1');
+        return { backend: BACKEND_CPU };
+    }
+
     if (typeof navigator === 'undefined' || !navigator.gpu) {
         return { backend: BACKEND_CPU };
     }
@@ -35,9 +42,11 @@ async function selectBackend() {
         if (!adapter) return { backend: BACKEND_CPU };
 
         const device = await adapter.requestDevice({
-            // Only request the WebGPU-guaranteed minimums for detection.
-            // Phase 1 shaders need ≤8 storage buffers per stage.
-            // Actual limits will be validated when pipelines are created.
+            requiredLimits: {
+                maxStorageBufferBindingSize: 256 * 1024 * 1024,
+                maxBufferSize: 256 * 1024 * 1024,
+                maxComputeWorkgroupsPerDimension: 65535,
+            },
         });
         if (!device) return { backend: BACKEND_CPU };
 
