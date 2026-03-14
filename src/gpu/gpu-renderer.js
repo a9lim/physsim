@@ -104,16 +104,13 @@ export default class GPURenderer {
                 entryPoint: 'fs_main',
                 targets: [{
                     format: this.format,
-                    blend: this.isLight
-                        ? {
-                            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                        }
-                        : {
-                            // Additive blending for dark mode
-                            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
-                            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-                        },
+                    // Use standard alpha-over blend for both themes. The clear color
+                    // handles light/dark background; glow effects can be added in the
+                    // fragment shader via premultiplied alpha output.
+                    blend: {
+                        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                    },
                 }],
             },
             primitive: {

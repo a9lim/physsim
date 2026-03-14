@@ -143,6 +143,8 @@ class Simulation {
         this.lastTime = 0;
         this.running = true;
         this.accumulator = 0;
+        this._hidden = false;
+        this._loopScheduled = false; // prevent duplicate rAF chains
         this._hmFrame = 0; // heatmap throttle counter
         this._sbFrame = 0;
         this._dirty = true; // render dirty flag — skip frames when nothing changed
@@ -341,7 +343,7 @@ class Simulation {
             }
         });
 
-        requestAnimationFrame((t) => this.loop(t));
+        this._scheduleLoop();
     }
 
     resize() {
@@ -455,6 +457,19 @@ class Simulation {
     markDirty() { this._dirty = true; }
 
     loop(timestamp) {
+      this._loopScheduled = false;
+      try { this._loopBody(timestamp); }
+      catch (e) { console.error('[physsim] loop error:', e); }
+      if (!this._hidden) this._scheduleLoop();
+    }
+
+    _scheduleLoop() {
+        if (this._loopScheduled) return; // prevent duplicate rAF chains
+        this._loopScheduled = true;
+        requestAnimationFrame((t) => this.loop(t));
+    }
+
+    _loopBody(timestamp) {
         const rawDt = Math.min((timestamp - this.lastTime) / 1000, MAX_FRAME_DT);
         this.lastTime = timestamp;
 
@@ -697,7 +712,6 @@ class Simulation {
             }
         }
 
-        if (!this._hidden) requestAnimationFrame((t) => this.loop(t));
     }
 }
 
@@ -711,6 +725,6 @@ document.addEventListener('visibilitychange', () => {
     } else {
         sim._hidden = false;
         sim.lastTime = 0;
-        requestAnimationFrame((t) => sim.loop(t));
+        sim._scheduleLoop(); // safe: prevents duplicate rAF chains
     }
 });

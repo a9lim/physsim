@@ -444,7 +444,9 @@ export function setupUI(sim) {
     const toggleTheme = () => {
         const html = document.documentElement;
         html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
-        sim.renderer.setTheme(html.dataset.theme !== 'dark');
+        const isLight = html.dataset.theme !== 'dark';
+        sim.renderer.setTheme(isLight);
+        if (sim._gpuRenderer) sim._gpuRenderer.setTheme(isLight);
         sim._dirty = true;
     };
     document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
