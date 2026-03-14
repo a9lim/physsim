@@ -28,7 +28,7 @@
  *  - deadParticleGC           (Phase 3)
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
-import { createParticleBuffers, createUniformBuffer, writeUniforms } from './gpu-buffers.js';
+import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createPQSScratchBuffer, createPQSIndexBuffer, createHeatmapBuffers } from './gpu-buffers.js';
 import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines } from './gpu-pipelines.js';
 
 const MAX_PARTICLES = 4096;
@@ -122,6 +122,16 @@ export default class GPUPhysics {
         this._collisionMode = 0;
         this._axionCoupling = 0.05;
         this._higgsCoupling = 1.0;
+
+        // Phase 5: Scalar field buffers (lazy-allocated on first toggle-on)
+        this._higgsBuffers = null;
+        this._axionBuffers = null;
+        this._pqsScratch = null;
+        this._pqsIndices = null;
+        this._heatmapBuffers = null;
+        this._higgsEnabled = false;
+        this._axionEnabled = false;
+        this._fieldGravEnabled = false;
 
         // Adaptive substepping state
         this._maxAccel = 0;
@@ -1196,6 +1206,35 @@ export default class GPUPhysics {
         this._collisionMode = physics.collisionMode || 0;
         this._axionCoupling = 0.05;
         this._higgsCoupling = 1.0;
+
+        // Lazily allocate scalar field buffers on first toggle-on (matching CPU pattern)
+        this._higgsEnabled = physics.higgsEnabled;
+        this._axionEnabled = physics.axionEnabled;
+        this._fieldGravEnabled = physics.fieldGravEnabled;
+        if (physics.higgsEnabled && !this._higgsBuffers) {
+            this._ensureFieldBuffers('higgs');
+        }
+        if (physics.axionEnabled && !this._axionBuffers) {
+            this._ensureFieldBuffers('axion');
+        }
+    }
+
+    /**
+     * Lazily allocate GPU buffers for a scalar field.
+     * Also ensures shared PQS scratch/index buffers are allocated.
+     * @param {'higgs'|'axion'} which
+     */
+    _ensureFieldBuffers(which) {
+        if (!this._pqsScratch) {
+            this._pqsScratch = createPQSScratchBuffer(this.device, MAX_PARTICLES);
+            this._pqsIndices = createPQSIndexBuffer(this.device, MAX_PARTICLES);
+        }
+        if (which === 'higgs' && !this._higgsBuffers) {
+            this._higgsBuffers = createFieldBuffers(this.device, 'higgs', MAX_PARTICLES);
+        }
+        if (which === 'axion' && !this._axionBuffers) {
+            this._axionBuffers = createFieldBuffers(this.device, 'axion', MAX_PARTICLES);
+        }
     }
 
     /**

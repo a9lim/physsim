@@ -417,6 +417,92 @@ export function createParticleBuffers(device, maxParticles) {
     };
 }
 
+// ── Scalar Field Grid Buffers ──
+// Default GRID_RES = 64 (matches CPU SCALAR_GRID), configurable as power-of-2
+const FIELD_GRID_RES = 64;
+const FIELD_GRID_SQ = FIELD_GRID_RES * FIELD_GRID_RES;
+const COARSE_RES = 8; // Self-gravity coarse grid (GRID_RES >> 3)
+const COARSE_SQ = COARSE_RES * COARSE_RES;
+const PQS_STENCIL_SIZE = 16; // 4x4 stencil per particle
+
+/**
+ * Allocate GPU buffers for one scalar field instance.
+ * @param {GPUDevice} device
+ * @param {string} label - 'higgs' or 'axion'
+ * @param {number} maxParticles
+ * @returns {Object} Buffer set for one field
+ */
+export function createFieldBuffers(device, label, maxParticles) {
+    const gridBytes = FIELD_GRID_SQ * 4; // f32
+    const coarseBytes = COARSE_SQ * 4;
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+
+    return {
+        field:         device.createBuffer({ label: `${label}-field`,         size: gridBytes, usage }),
+        fieldDot:      device.createBuffer({ label: `${label}-fieldDot`,      size: gridBytes, usage }),
+        laplacian:     device.createBuffer({ label: `${label}-laplacian`,     size: gridBytes, usage }),
+        source:        device.createBuffer({ label: `${label}-source`,        size: gridBytes, usage }),
+        gradX:         device.createBuffer({ label: `${label}-gradX`,         size: gridBytes, usage }),
+        gradY:         device.createBuffer({ label: `${label}-gradY`,         size: gridBytes, usage }),
+        energyDensity: device.createBuffer({ label: `${label}-energyDensity`, size: gridBytes, usage }),
+        // Thermal grid (Higgs only, but allocated for both to keep layout uniform)
+        thermal:       device.createBuffer({ label: `${label}-thermal`,       size: gridBytes, usage }),
+        // Self-gravity coarse grid
+        coarseRho:     device.createBuffer({ label: `${label}-sgRho`,         size: coarseBytes, usage }),
+        coarsePhi:     device.createBuffer({ label: `${label}-sgPhi`,         size: coarseBytes, usage }),
+        sgPhiFull:     device.createBuffer({ label: `${label}-sgPhiFull`,     size: gridBytes, usage }),
+        sgGradX:       device.createBuffer({ label: `${label}-sgGradX`,       size: gridBytes, usage }),
+        sgGradY:       device.createBuffer({ label: `${label}-sgGradY`,       size: gridBytes, usage }),
+        // Cached 1/sqrt table for coarse potential (SG^4 = 4096 entries)
+        sgInvR:        device.createBuffer({ label: `${label}-sgInvR`,        size: COARSE_SQ * COARSE_SQ * 4, usage }),
+    };
+}
+
+/**
+ * Allocate shared PQS scratch buffer for two-pass scatter/gather deposition.
+ * Layout: f32[maxParticles * PQS_STENCIL_SIZE] — each particle writes 16 weights.
+ * @param {GPUDevice} device
+ * @param {number} maxParticles
+ */
+export function createPQSScratchBuffer(device, maxParticles) {
+    return device.createBuffer({
+        label: 'pqs-scratch',
+        size: maxParticles * PQS_STENCIL_SIZE * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+}
+
+/**
+ * Allocate shared PQS index buffer: stores (baseIx, baseIy) per particle for gather pass.
+ * Layout: u32[maxParticles * 2]
+ */
+export function createPQSIndexBuffer(device, maxParticles) {
+    return device.createBuffer({
+        label: 'pqs-indices',
+        size: maxParticles * 2 * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+}
+
+/**
+ * Allocate heatmap buffers.
+ * @param {GPUDevice} device
+ * @param {number} gridSize - default 64 (HEATMAP_GRID)
+ */
+export function createHeatmapBuffers(device, gridSize = 64) {
+    const bytes = gridSize * gridSize * 4;
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+    return {
+        gravPotential:   device.createBuffer({ label: 'heatmap-grav',   size: bytes, usage }),
+        elecPotential:   device.createBuffer({ label: 'heatmap-elec',   size: bytes, usage }),
+        yukawaPotential: device.createBuffer({ label: 'heatmap-yukawa', size: bytes, usage }),
+        blurTemp:        device.createBuffer({ label: 'heatmap-blur',   size: bytes, usage }),
+        output:          device.createBuffer({ label: 'heatmap-output', size: gridSize * gridSize * 4 * 4, usage }), // RGBA u8 packed as u32
+    };
+}
+
+export { FIELD_GRID_RES, FIELD_GRID_SQ, COARSE_RES, COARSE_SQ, PQS_STENCIL_SIZE };
+
 /**
  * Create the uniform buffer for simulation parameters.
  * Layout matches SimUniforms struct in common.wgsl.
