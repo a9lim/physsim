@@ -253,13 +253,9 @@ export default class InputHandler {
     }
 
     findParticleAt(worldPos) {
-        // GPU backend: delegate to compute dispatch
-        if (this.sim.backend === 'gpu' && this.sim._gpuPhysics) {
-            // Queue async hit test — result read on next frame
-            if (this.sim._gpuPhysics.hitTest) {
-                this.sim._gpuPhysics.hitTest(worldPos.x, worldPos.y);
-            }
-            // For immediate response, fall back to CPU scan of particle array
+        // GPU backend: fall back to CPU particle array scan
+        // (GPU hit test dispatch is deferred — not needed for spawn/select)
+        if (this.sim.backend === 'gpu') {
             return this._cpuFallbackHitTest(worldPos);
         }
         // CPU backend: existing O(N) scan
