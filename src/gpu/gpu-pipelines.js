@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 5;
+const SHADER_VERSION = 6;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename) {
@@ -856,8 +856,7 @@ export async function createFieldForcesPipelines(device) {
         label: 'fieldForces_group0',
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // particleState (rw)
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // particleAux (rw for encoder compat)
-            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // derived (rw)
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // derived (rw)
         ],
     });
 
@@ -926,7 +925,7 @@ export async function createFieldSelfGravPipelines(device) {
             { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },   // FieldUniforms
         ],
     });
-    // Group 1: self-gravity arrays (5 storage)
+    // Group 1: self-gravity arrays (4 storage — sgInvR removed, computed inline)
     const group1Layout = device.createBindGroupLayout({
         label: 'fieldSelfGrav_group1',
         entries: [
@@ -934,7 +933,6 @@ export async function createFieldSelfGravPipelines(device) {
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgPhiFull
             { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgGradX
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgGradY
-            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgInvR
         ],
     });
 

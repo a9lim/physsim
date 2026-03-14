@@ -1457,7 +1457,7 @@ export default class GPUPhysics {
                 { binding: 6, resource: { buffer: this._fieldUniformBuffer } },
             ],
         });
-        // Group 1: self-gravity arrays (5 storage)
+        // Group 1: self-gravity arrays (4 storage — sgInvR computed inline)
         this._fieldSelfGravBGs[which + '_g1'] = this.device.createBindGroup({
             label: `fieldSelfGrav_${which}_g1`,
             layout: this._fieldSelfGrav.bindGroupLayouts[1],
@@ -1466,7 +1466,6 @@ export default class GPUPhysics {
                 { binding: 1, resource: { buffer: fb.sgPhiFull } },
                 { binding: 2, resource: { buffer: fb.sgGradX } },
                 { binding: 3, resource: { buffer: fb.sgGradY } },
-                { binding: 4, resource: { buffer: fb.sgInvR } },
             ],
         });
     }
@@ -1491,8 +1490,7 @@ export default class GPUPhysics {
             layout: ff.bindGroupLayouts[0],
             entries: [
                 { binding: 0, resource: { buffer: b.particleState } },
-                { binding: 1, resource: { buffer: b.particleAux } },
-                { binding: 2, resource: { buffer: b.derived } },
+                { binding: 1, resource: { buffer: b.derived } },
             ],
         });
 
@@ -1615,9 +1613,6 @@ export default class GPUPhysics {
         // Step 5: Self-gravity (if field gravity enabled)
         if (this._fieldGravEnabled) {
             this._ensureSelfGravBindGroups(which);
-            if (!this._sgInvRUploaded[which]) {
-                this._buildSgInvRTable(which);
-            }
             const sgBG0 = this._fieldSelfGravBGs[which];
             const sgBG1 = this._fieldSelfGravBGs[which + '_g1'];
             const sg = this._fieldSelfGrav;

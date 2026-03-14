@@ -10,12 +10,11 @@
 @group(0) @binding(5) var<storage, read_write> coarseRho: array<f32>;
 @group(0) @binding(6) var<uniform> uniforms: FieldUniforms;
 
-// Group 1: self-gravity arrays (5 storage)
+// Group 1: self-gravity arrays (4 storage — sgInvR removed, computed inline)
 @group(1) @binding(0) var<storage, read_write> coarsePhi: array<f32>;
 @group(1) @binding(1) var<storage, read_write> sgPhiFull: array<f32>;
 @group(1) @binding(2) var<storage, read_write> sgGradX: array<f32>;
 @group(1) @binding(3) var<storage, read_write> sgGradY: array<f32>;
-@group(1) @binding(4) var<storage, read_write> sgInvR: array<f32>;
 
 // ─── Energy Density: ρ = ½φ̇² + ½|∇φ|² + V(φ) ───
 // V(φ) added by field-specific variant
@@ -96,26 +95,32 @@ fn downsampleRho(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 // ─── Coarse Potential: Φ = -Σ ρ·dA/r ───
 // One thread per coarse cell. O(SG^2) sum per cell = O(SG^4) total.
-// Uses pre-computed 1/sqrt table.
+// Computes 1/r inline (avoids needing a pre-computed sgInvR lookup table buffer).
 @compute @workgroup_size(8, 8)
 fn computeCoarsePotential(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ix = gid.x;
     let iy = gid.y;
     if (ix >= COARSE || iy >= COARSE) { return; }
 
-    let i = iy * COARSE + ix;
-    let cellArea = (uniforms.domainW / f32(COARSE)) * (uniforms.domainH / f32(COARSE));
+    let cellW = uniforms.domainW / f32(COARSE);
+    let cellH = uniforms.domainH / f32(COARSE);
+    let cellArea = cellW * cellH;
     var pot: f32 = 0.0;
-    let rowBase = i * COARSE_SQ;
 
-    for (var j = 0u; j < COARSE_SQ; j++) {
-        let rhoJ = coarseRho[j];
-        if (rhoJ >= EPSILON) {
-            pot -= rhoJ * cellArea * sgInvR[rowBase + j];
+    for (var jy = 0u; jy < COARSE; jy++) {
+        for (var jx = 0u; jx < COARSE; jx++) {
+            let j = jy * COARSE + jx;
+            let rhoJ = coarseRho[j];
+            if (rhoJ < EPSILON) { continue; }
+            let dx = (f32(ix) - f32(jx)) * cellW;
+            let dy = (f32(iy) - f32(jy)) * cellH;
+            let rSq = dx * dx + dy * dy;
+            if (rSq < EPSILON) { continue; } // skip self
+            pot -= rhoJ * cellArea / sqrt(rSq);
         }
     }
 
-    coarsePhi[i] = pot;
+    coarsePhi[iy * COARSE + ix] = pot;
 }
 
 // ─── Bilinear Upsample: Coarse → Full Grid ───
