@@ -39,6 +39,7 @@ struct VertexOut {
     @location(1) particleColor: vec4<f32>,
     @location(2) softness: f32,       // for edge falloff (= 1/pixelRadius)
     @location(3) isDark: f32,         // 0 or 1, passed through from camera uniform
+    @location(4) glowIntensity: f32,  // charge-dependent glow: 0.1 (neutral) to 1.0 (high charge)
 };
 
 // Quad vertices: 2 triangles forming a [-1,1] square
@@ -101,6 +102,8 @@ fn vs_main(
 
     out.softness = 1.0 / max(pixelRadius, 1.0);
     out.isDark = isDark;
+    // Charge-dependent glow: neutral=0.1, scales up to 1.0 at |charge|=5
+    out.glowIntensity = clamp(abs(p.charge) / 5.0, 0.1, 1.0);
 
     return out;
 }
@@ -120,8 +123,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // glowDist = how far past the edge we are (0 at edge, 1 at DARK_QUAD_SCALE).
     let glowRange = DARK_QUAD_SCALE - 1.0;
     let glowDist = clamp((dist - 1.0) / glowRange, 0.0, 1.0);
-    // Exponential decay: bright at edge, fades to ~0 at glowDist==1.
-    let glowAlpha = exp(-glowDist * 4.0) * (1.0 - glowDist) * in.particleColor.a * in.isDark;
+    // Charge-dependent glow: higher charge = slower decay = wider glow (matches CPU shadowBlur buckets)
+    let decayRate = 6.0 - 4.0 * in.glowIntensity;  // neutral: 5.6, high charge: 2.0
+    let glowAlpha = exp(-glowDist * decayRate) * (1.0 - glowDist) * in.particleColor.a * in.isDark * in.glowIntensity;
 
     let totalAlpha = clamp(circleAlpha + glowAlpha * 0.55, 0.0, 1.0);
 

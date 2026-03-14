@@ -270,11 +270,13 @@ export default class GPURenderer {
             this._arrowPipeline = pipeline;
 
             // ArrowUniforms: forceType(u32) + colorR/G/B(f32) + arrowScale(f32) + minMag(f32) + pad0 + pad1 = 32 bytes
-            this._arrowUniformBuffer = this.device.createBuffer({
-                label: 'arrowUniforms',
-                size: 32,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            });
+            if (!this._arrowUniformBuffer) {
+                this._arrowUniformBuffer = this.device.createBuffer({
+                    label: 'arrowUniforms',
+                    size: 32,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+            }
 
             const b = this.buffers;
             this._arrowBindGroup = this.device.createBindGroup({
@@ -286,6 +288,7 @@ export default class GPURenderer {
                     { binding: 2, resource: { buffer: b.particleState } },
                     { binding: 3, resource: { buffer: b.particleAux } },
                     { binding: 4, resource: { buffer: b.allForces } },
+                    { binding: 5, resource: { buffer: b.derived } },
                 ],
             });
 
@@ -330,10 +333,15 @@ export default class GPURenderer {
                 await createTrailRenderPipeline(this.device, this.format, this.isLight);
             this._trailPipeline = pipeline;
 
-            this._trailUniformBuffer = this.device.createBuffer({
-                label: 'trailUniforms', size: 16,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            });
+            // Store trail buffer reference for theme-change rebuild
+            this._trailBuffersRef = trailBuffers;
+
+            if (!this._trailUniformBuffer) {
+                this._trailUniformBuffer = this.device.createBuffer({
+                    label: 'trailUniforms', size: 16,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+            }
 
             const b = this.buffers;
             this._trailBindGroup = this.device.createBindGroup({
@@ -412,34 +420,10 @@ export default class GPURenderer {
 
         const textureView = this.context.getCurrentTexture().createView();
 
-        const encoder = this.device.createCommandEncoder({ label: 'render' });
-
-        // Pass 1: Clear + particle rendering
-        const pass = encoder.beginRenderPass({
-            label: 'particle render',
-            colorAttachments: [{
-                view: textureView,
-                clearValue: this.isLight
-                    ? { r: 0.941, g: 0.922, b: 0.894, a: 1 }  // --bg-canvas light: #F0EBE4
-                    : { r: 0.047, g: 0.043, b: 0.035, a: 1 },  // --bg-canvas dark: #0C0B09
-                loadOp: 'clear',
-                storeOp: 'store',
-            }],
-        });
-
-        if (aliveCount > 0) {
-            pass.setPipeline(this._pipeline);
-            pass.setBindGroup(0, this._bindGroup);
-            // 6 vertices per quad (2 triangles), aliveCount instances
-            pass.draw(6, aliveCount);
-        }
-        pass.end();
-
-        // Submit particle render immediately (isolate from optional passes that may fail)
-        this.device.queue.submit([encoder.finish()]);
-
-        // Pass 1b: Trail rendering (behind particles, but after clear)
-        if (this._trailReady && this.showTrails && aliveCount > 0) {
+        // Pass 0: Trail rendering (behind particles — drawn first, like CPU renderer)
+        // Trails clear the canvas; particles load on top.
+        const trailsDrawn = this._trailReady && this.showTrails && aliveCount > 0;
+        if (trailsDrawn) {
             try {
                 // Write trail uniforms
                 const trailData = new ArrayBuffer(16);
@@ -456,7 +440,10 @@ export default class GPURenderer {
                     label: 'trail render',
                     colorAttachments: [{
                         view: textureView,
-                        loadOp: 'load',
+                        clearValue: this.isLight
+                            ? { r: 0.941, g: 0.922, b: 0.894, a: 1 }  // --bg-canvas light: #F0EBE4
+                            : { r: 0.047, g: 0.043, b: 0.035, a: 1 },  // --bg-canvas dark: #0C0B09
+                        loadOp: 'clear',
                         storeOp: 'store',
                     }],
                 });
@@ -470,6 +457,33 @@ export default class GPURenderer {
                 this._trailReady = false;
             }
         }
+
+        // Pass 1: Particle rendering (load if trails already cleared, otherwise clear here)
+        const encoder = this.device.createCommandEncoder({ label: 'render' });
+        const pass = encoder.beginRenderPass({
+            label: 'particle render',
+            colorAttachments: [{
+                view: textureView,
+                ...(!trailsDrawn ? {
+                    clearValue: this.isLight
+                        ? { r: 0.941, g: 0.922, b: 0.894, a: 1 }  // --bg-canvas light: #F0EBE4
+                        : { r: 0.047, g: 0.043, b: 0.035, a: 1 },  // --bg-canvas dark: #0C0B09
+                } : {}),
+                loadOp: trailsDrawn ? 'load' : 'clear',
+                storeOp: 'store',
+            }],
+        });
+
+        if (aliveCount > 0) {
+            pass.setPipeline(this._pipeline);
+            pass.setBindGroup(0, this._bindGroup);
+            // 6 vertices per quad (2 triangles), aliveCount instances
+            pass.draw(6, aliveCount);
+        }
+        pass.end();
+
+        // Submit particle render immediately (isolate from optional passes that may fail)
+        this.device.queue.submit([encoder.finish()]);
 
         // Pass 2: Field + heatmap overlays (load to preserve particles)
         const hasOverlays = (this._fieldRenderReady && (opts.higgsField || opts.axionField)) ||
@@ -562,7 +576,9 @@ export default class GPURenderer {
         }
 
         // Pass 4: Force/velocity arrows — isolated encoder
-        if (this._arrowReady && (this.showForce || this.showForceComponents) && aliveCount > 0) {
+        const wantsArrows = this._arrowReady && aliveCount > 0 &&
+            (this.showForce || this.showForceComponents || this.showVelocity);
+        if (wantsArrows) {
             try {
                 const arrowEncoder = this.device.createCommandEncoder({ label: 'arrow-render' });
                 const arrowPass = arrowEncoder.beginRenderPass({
@@ -578,22 +594,33 @@ export default class GPURenderer {
                 const arrowScale = 256.0 / (this.zoom || 16);
                 const minMag = 0.001;
 
-                // Collect enabled force type indices
-                const forceTypes = [];
-                if (enabledForces.gravity) forceTypes.push(0);
-                if (enabledForces.coulomb) forceTypes.push(1);
-                if (enabledForces.magnetic) forceTypes.push(2);
-                if (enabledForces.gravitomag) forceTypes.push(3);
-                if (enabledForces.onePN) forceTypes.push(4);
-                if (enabledForces.spinOrbit) forceTypes.push(5);
-                if (enabledForces.radiation) forceTypes.push(6);
-                if (enabledForces.yukawa) forceTypes.push(7);
-                if (enabledForces.external) forceTypes.push(8);
-                if (enabledForces.higgs) forceTypes.push(9);
-                if (enabledForces.axion) forceTypes.push(10);
+                if (this.showForceComponents) {
+                    // Per-component force arrows (11 types)
+                    const forceTypes = [];
+                    if (enabledForces.gravity) forceTypes.push(0);
+                    if (enabledForces.coulomb) forceTypes.push(1);
+                    if (enabledForces.magnetic) forceTypes.push(2);
+                    if (enabledForces.gravitomag) forceTypes.push(3);
+                    if (enabledForces.onePN) forceTypes.push(4);
+                    if (enabledForces.spinOrbit) forceTypes.push(5);
+                    if (enabledForces.radiation) forceTypes.push(6);
+                    if (enabledForces.yukawa) forceTypes.push(7);
+                    if (enabledForces.external) forceTypes.push(8);
+                    if (enabledForces.higgs) forceTypes.push(9);
+                    if (enabledForces.axion) forceTypes.push(10);
+                    if (forceTypes.length > 0) {
+                        this._drawArrows(arrowPass, aliveCount, forceTypes, arrowScale, minMag);
+                    }
+                } else if (this.showForce) {
+                    // Total force arrow (accent color: #FE3B01 light / #FF7642 dark)
+                    const accentColor = this.isLight ? [0.996, 0.231, 0.004] : [1.0, 0.463, 0.259];
+                    this._drawArrowsCustomColor(arrowPass, aliveCount, 11, accentColor, arrowScale, minMag);
+                }
 
-                if (forceTypes.length > 0) {
-                    this._drawArrows(arrowPass, aliveCount, forceTypes, arrowScale, minMag);
+                if (this.showVelocity) {
+                    // Velocity arrows (text color: #1A1612 light / #E8DED4 dark)
+                    const textColor = this.isLight ? [0.102, 0.086, 0.071] : [0.910, 0.871, 0.831];
+                    this._drawArrowsCustomColor(arrowPass, aliveCount, 12, textColor, 1.0, minMag);
                 }
 
                 arrowPass.end();
@@ -657,6 +684,27 @@ export default class GPURenderer {
             // 9 vertices per arrow (3 triangles), aliveCount instances
             pass.draw(9, aliveCount);
         }
+    }
+
+    /**
+     * Render a single arrow type with a custom color (for total force / velocity vectors).
+     */
+    _drawArrowsCustomColor(pass, aliveCount, forceType, color, arrowScale, minMag) {
+        if (!this._arrowReady || aliveCount <= 0) return;
+        pass.setPipeline(this._arrowPipeline);
+        pass.setBindGroup(0, this._arrowBindGroup);
+
+        const data = new ArrayBuffer(32);
+        const u32 = new Uint32Array(data);
+        const f32 = new Float32Array(data);
+        u32[0] = forceType;
+        f32[1] = color[0];
+        f32[2] = color[1];
+        f32[3] = color[2];
+        f32[4] = arrowScale;
+        f32[5] = minMag;
+        this.device.queue.writeBuffer(this._arrowUniformBuffer, 0, data);
+        pass.draw(9, aliveCount);
     }
 
     /** Initialize field overlay render pipeline. Call after GPUPhysics has field buffers. */
@@ -835,6 +883,62 @@ export default class GPURenderer {
             this._photonPipeline = isLight ? this._photonPipelineLight : this._photonPipelineDark;
             this._pionPipeline   = isLight ? this._pionPipelineLight   : this._pionPipelineDark;
         }
+
+        // Rebuild spin pipeline (blend mode depends on theme).
+        if (this._spinReady) {
+            this._spinReady = false;
+            this._initSpinRendering();
+        }
+
+        // Rebuild trail pipeline (blend mode depends on theme).
+        // Save trail bind group resources so initTrailRendering can rebind them.
+        if (this._trailReady) {
+            this._trailReady = false;
+            this._rebuildTrailPipeline();
+        }
+
+        // Rebuild arrow pipeline (blend mode depends on theme).
+        if (this._arrowReady) {
+            this._arrowReady = false;
+            this._initArrowRendering();
+        }
+    }
+
+    /** Rebuild trail pipeline with current theme, preserving existing bind group bindings. */
+    async _rebuildTrailPipeline() {
+        try {
+            const { pipeline, bindGroupLayout } =
+                await createTrailRenderPipeline(this.device, this.format, this.isLight);
+            this._trailPipeline = pipeline;
+
+            // Recreate bind group with same buffers using the new layout
+            const oldBG = this._trailBindGroup;
+            if (oldBG) {
+                // Extract buffer references from existing bind group entries
+                // We stored the buffers during initTrailRendering, reuse them
+                const b = this.buffers;
+                const trailBuffers = this._trailBuffersRef;
+                if (trailBuffers) {
+                    this._trailBindGroup = this.device.createBindGroup({
+                        label: 'trailRender',
+                        layout: bindGroupLayout,
+                        entries: [
+                            { binding: 0, resource: { buffer: this.cameraBuffer } },
+                            { binding: 1, resource: { buffer: this._trailUniformBuffer } },
+                            { binding: 2, resource: { buffer: trailBuffers.trailX } },
+                            { binding: 3, resource: { buffer: trailBuffers.trailY } },
+                            { binding: 4, resource: { buffer: trailBuffers.trailWriteIdx } },
+                            { binding: 5, resource: { buffer: trailBuffers.trailCount } },
+                            { binding: 6, resource: { buffer: b.color } },
+                            { binding: 7, resource: { buffer: b.particleState } },
+                        ],
+                    });
+                }
+            }
+            this._trailReady = true;
+        } catch (e) {
+            console.warn('[physsim] Trail pipeline rebuild failed:', e.message);
+        }
     }
 
     resize(width, height) {
@@ -857,7 +961,7 @@ export default class GPURenderer {
 }
 
 async function fetchShader(filename) {
-    const resp = await fetch(`src/gpu/shaders/${filename}?v=9`);
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=11`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
     return resp.text();
 }

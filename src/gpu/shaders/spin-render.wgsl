@@ -59,8 +59,8 @@ const MIN_ANGVEL: f32 = 0.01;  // Skip drawing for very slow rotation
 
 // Cyan (#4AACA0) for positive angVel (CW), orange (#CC8E4E) for negative (CCW)
 // Theme-dependent alpha applied at vertex output (0.8 light / 0.9 dark)
-const COLOR_CW_RGB: vec3f  = vec3f(0.29, 0.67, 0.63);  // cyan
-const COLOR_CCW_RGB: vec3f = vec3f(0.80, 0.56, 0.31);   // orange
+const COLOR_CW_RGB: vec3f  = vec3f(0.278, 0.878, 0.780);  // HSLA(170, 80%, 60%)
+const COLOR_CCW_RGB: vec3f = vec3f(0.922, 0.678, 0.278);  // HSLA(30, 80%, 60%)
 
 struct VertexOutput {
     @builtin(position) pos: vec4f,

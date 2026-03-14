@@ -62,18 +62,34 @@ struct AllForces_AR {
     _pad: vec2<f32>,
 };
 
+// Packed derived struct (mirrors common.wgsl ParticleDerived)
+struct ParticleDerived_AR {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var<uniform> arrowParams: ArrowUniforms;
 @group(0) @binding(2) var<storage, read> particles: array<ParticleState_AR>;
 @group(0) @binding(3) var<storage, read> particleAux: array<ParticleAux_AR>;
 @group(0) @binding(4) var<storage, read> allForces: array<AllForces_AR>;
+@group(0) @binding(5) var<storage, read> derived: array<ParticleDerived_AR>;
 
 const ALIVE_BIT: u32 = 1u;
 
 // Arrow geometry: shaft width, head width, head length (world units)
 const SHAFT_HALF_W: f32 = 0.06;
 const HEAD_HALF_W: f32 = 0.15;
-const HEAD_LEN: f32 = 0.25;
+const HEAD_LEN: f32 = 0.5;
+
+// Velocity vector scale (matches CPU VELOCITY_VECTOR_SCALE = 32)
+const VELOCITY_VECTOR_SCALE: f32 = 32.0;
 
 fn getForceVector(idx: u32, forceType: u32) -> vec2f {
     let af = allForces[idx];
@@ -89,6 +105,11 @@ fn getForceVector(idx: u32, forceType: u32) -> vec2f {
         case 8u:  { return af.f4.xy; }           // external
         case 9u:  { return af.f4.zw; }           // higgs
         case 10u: { return af.f5.xy; }           // axion
+        case 11u: { return af.totalForce; }       // total force (showForce mode)
+        case 12u: {                                // velocity vector
+            let d = derived[idx];
+            return vec2f(d.velX, d.velY) * VELOCITY_VECTOR_SCALE;
+        }
         default:  { return vec2f(0.0); }
     }
 }
@@ -114,8 +135,10 @@ fn vs_main(
 
     let rawF = getForceVector(instIdx, arrowParams.forceType);
     // Convert force F to acceleration F/m for consistent arrow length regardless of mass
+    // (skip for velocity vectors which are already in velocity units)
+    let isVelocity = arrowParams.forceType == 12u;
     let m = p.mass;
-    let f = select(rawF, rawF / m, m > 1e-9);
+    let f = select(select(rawF, rawF / m, m > 1e-9), rawF, isVelocity);
     let mag = length(f);
     if (mag < arrowParams.minMag) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);

@@ -742,8 +742,10 @@ export default class GPUPhysics {
     /**
      * Dispatch boson update passes (Phase 4, Pass 21).
      * Photon/pion drift, absorption, pion decay.
+     * Skipped entirely when radiation and Yukawa are both off (no bosons can exist).
      */
     _dispatchBosonUpdate(encoder) {
+        if (!this._radiationEnabled && !this._yukawaEnabled) return;
         const p4 = this._phase4;
         const bgs = this._phase4BindGroups;
 
@@ -2141,7 +2143,7 @@ export default class GPUPhysics {
         u[10] = (this._toggles0 & 1) ? 1 : 0; // doGravity
         u[11] = (this._toggles0 & 2) ? 1 : 0; // doCoulomb
         u[12] = (this._toggles0 & 2048) ? 1 : 0; // doYukawa
-        u[13] = 0; // useDelay (not on GPU)
+        u[13] = (this._relativityEnabled && this.buffers.historyAllocated) ? 1 : 0; // useDelay
         u[14] = this.boundaryMode === BOUND_LOOP ? 1 : 0;
         u[15] = this.topologyMode;
         u[16] = this.aliveCount;
@@ -2170,7 +2172,65 @@ export default class GPUPhysics {
                         { binding: 3, resource: { buffer: this._heatmapUniformBuffer } },
                     ],
                 }),
+                g2: null, // history bind group (created lazily when history buffers allocated)
             };
+        }
+
+        // Create/recreate history bind group when history buffers become available
+        if (this.buffers.historyAllocated && !this._heatmapBGs.g2) {
+            const b = this.buffers;
+            const hm = this._heatmapPipelines;
+            this._heatmapBGs.g2 = this.device.createBindGroup({
+                label: 'heatmap_g2_history',
+                layout: hm.heatmapLayouts[2],
+                entries: [
+                    { binding: 0, resource: { buffer: b.histPosX } },
+                    { binding: 1, resource: { buffer: b.histPosY } },
+                    { binding: 2, resource: { buffer: b.histTime } },
+                    { binding: 3, resource: { buffer: b.histMeta } },
+                ],
+            });
+        }
+
+        // Ensure dummy history bind group exists when history not yet allocated
+        // (pipeline layout requires 3 bind groups even when useDelay=0)
+        if (!this._heatmapBGs.g2) {
+            if (!this._heatmapDummyHistBuf) {
+                this._heatmapDummyHistBuf = this.device.createBuffer({
+                    label: 'heatmap-dummy-hist',
+                    size: 4,
+                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                });
+            }
+            const hm = this._heatmapPipelines;
+            this._heatmapBGs.g2 = this.device.createBindGroup({
+                label: 'heatmap_g2_dummy',
+                layout: hm.heatmapLayouts[2],
+                entries: [
+                    { binding: 0, resource: { buffer: this._heatmapDummyHistBuf } },
+                    { binding: 1, resource: { buffer: this._heatmapDummyHistBuf } },
+                    { binding: 2, resource: { buffer: this._heatmapDummyHistBuf } },
+                    { binding: 3, resource: { buffer: this._heatmapDummyHistBuf } },
+                ],
+            });
+            this._heatmapBGs._g2IsDummy = true;
+        }
+
+        // Upgrade from dummy to real history bind group when buffers become available
+        if (this._heatmapBGs._g2IsDummy && this.buffers.historyAllocated) {
+            const b = this.buffers;
+            const hm = this._heatmapPipelines;
+            this._heatmapBGs.g2 = this.device.createBindGroup({
+                label: 'heatmap_g2_history',
+                layout: hm.heatmapLayouts[2],
+                entries: [
+                    { binding: 0, resource: { buffer: b.histPosX } },
+                    { binding: 1, resource: { buffer: b.histPosY } },
+                    { binding: 2, resource: { buffer: b.histTime } },
+                    { binding: 3, resource: { buffer: b.histMeta } },
+                ],
+            });
+            this._heatmapBGs._g2IsDummy = false;
         }
 
         const gridWG = Math.ceil(64 / 8);
@@ -2181,6 +2241,7 @@ export default class GPUPhysics {
             p.setPipeline(this._heatmapPipelines.computeHeatmap);
             p.setBindGroup(0, this._heatmapBGs.g0);
             p.setBindGroup(1, this._heatmapBGs.g1);
+            p.setBindGroup(2, this._heatmapBGs.g2);
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }
@@ -2394,12 +2455,8 @@ export default class GPUPhysics {
         // Clear maxAccel for adaptive substepping (reset before force computation)
         encoder.clearBuffer(this.buffers.maxAccelBuffer, 0, 4);
 
-        // Pass 1: resetForces
-        const pass1 = encoder.beginComputePass({ label: 'resetForces' });
-        pass1.setPipeline(p2.resetForces.pipeline);
-        pass1.setBindGroup(0, this._bg_resetForces);
-        pass1.dispatchWorkgroups(workgroups);
-        pass1.end();
+        // Pass 1: resetForces (DMA clear is faster than compute dispatch for zeroing)
+        encoder.clearBuffer(this.buffers.allForces, 0, this.aliveCount * 160);
 
         // Pass 2: cacheDerived
         const pass2 = encoder.beginComputePass({ label: 'cacheDerived' });
@@ -2510,11 +2567,13 @@ export default class GPUPhysics {
         this._dispatch1PNVV(encoder);
 
         // Pass 15: scalar field evolution (Higgs, Axion)
+        // Field uniforms already written at Pass 5c (same dtSub). Only need currentFieldType update.
         // When both fields are enabled, must submit between them to avoid currentFieldType
         // uniform race: queue.writeBuffer executes before submit, so the second writeBuffer
         // would overwrite the first before any dispatches run.
         if (this._fieldDeposit) {
-            this._writeFieldUniforms(dtSub);
+            // Write field uniforms only if Pass 5c didn't (fields enabled but forces not dispatched)
+            if (!(this._higgsEnabled || this._axionEnabled)) this._writeFieldUniforms(dtSub);
             if (this._higgsEnabled) {
                 // Set currentFieldType=0 (Higgs) for Laplacian/gradient vacuum value
                 this.device.queue.writeBuffer(this._fieldUniformBuffer, 20 * 4, new Uint32Array([0]));
@@ -2908,6 +2967,7 @@ export default class GPUPhysics {
     destroy() {
         this.buffers.destroy();
         this.uniformBuffer.destroy();
+        if (this._heatmapDummyHistBuf) this._heatmapDummyHistBuf.destroy();
     }
 }
 

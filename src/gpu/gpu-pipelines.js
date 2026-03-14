@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 10;
+const SHADER_VERSION = 11;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename) {
@@ -1010,6 +1010,7 @@ export async function createFieldExcitationPipeline(device) {
  *   heatmapLayout:
  *     Group 0: particleState (ro) = 1 (was 5 separate buffers)
  *     Group 1: potential grids (3 rw) + HeatmapUniforms = 4
+ *     Group 2: signal delay history (histPosX, histPosY, histTime, histMeta) = 4
  *   blurLayout: unchanged
  */
 export async function createHeatmapPipelines(device) {
@@ -1031,7 +1032,17 @@ export async function createHeatmapPipelines(device) {
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
         ],
     });
-    const heatmapLayouts = [hmG0, hmG1];
+    // Group 2: signal delay history buffers (histPosX, histPosY, histTime, histMeta)
+    const hmG2 = device.createBindGroupLayout({
+        label: 'heatmap_g2_history',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // histPosX
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // histPosY
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // histTime
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // histMeta
+        ],
+    });
+    const heatmapLayouts = [hmG0, hmG1, hmG2];
 
     const computeHeatmap = device.createComputePipeline({
         label: 'computeHeatmap',
@@ -1333,6 +1344,7 @@ export async function createArrowRenderPipeline(device, format, isLight) {
             { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleState
             { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleAux
             { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // allForces
+            { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // derived (for velocity vectors)
         ],
     });
 

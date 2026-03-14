@@ -155,10 +155,40 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let dSq1b = dx1 * dx1 + dy1b * dy1b;
                 if (dSq1b < bestSq) { dx = dx1; dy = dy1b; }
             } else {
-                // RP²: both axes glide
-                if (dx > halfDomW) { dx -= du.domainW; } else if (dx < -halfDomW) { dx += du.domainW; }
-                if (dy > halfDomH) { dy -= du.domainH; } else if (dy < -halfDomH) { dy += du.domainH; }
-                // RP² candidates omitted for performance (Torus wrapping is reasonable approximation)
+                // RP²: both axes carry glide reflections
+                // Candidate 0: direct torus wrap
+                var dx0r = dx;
+                if (dx0r > halfDomW) { dx0r -= du.domainW; } else if (dx0r < -halfDomW) { dx0r += du.domainW; }
+                var dy0r = dy;
+                if (dy0r > halfDomH) { dy0r -= du.domainH; } else if (dy0r < -halfDomH) { dy0r += du.domainH; }
+                var bestSqR = dx0r * dx0r + dy0r * dy0r;
+                dx = dx0r; dy = dy0r;
+
+                // Candidate 1: y-glide reflection (x,y) ~ (W-x, y+H)
+                let gxR = du.domainW - op.posX;
+                var dxG = gxR - px;
+                if (dxG > halfDomW) { dxG -= du.domainW; } else if (dxG < -halfDomW) { dxG += du.domainW; }
+                var dyG = (op.posY + du.domainH) - py;
+                if (dyG > du.domainH) { dyG -= 2.0 * du.domainH; } else if (dyG < -du.domainH) { dyG += 2.0 * du.domainH; }
+                let dSqG = dxG * dxG + dyG * dyG;
+                if (dSqG < bestSqR) { dx = dxG; dy = dyG; bestSqR = dSqG; }
+
+                // Candidate 2: x-glide reflection (x,y) ~ (x+W, H-y)
+                let gyR = du.domainH - op.posY;
+                var dxH = (op.posX + du.domainW) - px;
+                if (dxH > du.domainW) { dxH -= 2.0 * du.domainW; } else if (dxH < -du.domainW) { dxH += 2.0 * du.domainW; }
+                var dyH = gyR - py;
+                if (dyH > halfDomH) { dyH -= du.domainH; } else if (dyH < -halfDomH) { dyH += du.domainH; }
+                let dSqH = dxH * dxH + dyH * dyH;
+                if (dSqH < bestSqR) { dx = dxH; dy = dyH; bestSqR = dSqH; }
+
+                // Candidate 3: combined double glide (x,y) ~ (W-x+W, H-y+H)
+                var dxC = (du.domainW - op.posX + du.domainW) - px;
+                if (dxC > du.domainW) { dxC -= 2.0 * du.domainW; } else if (dxC < -du.domainW) { dxC += 2.0 * du.domainW; }
+                var dyC = (du.domainH - op.posY + du.domainH) - py;
+                if (dyC > du.domainH) { dyC -= 2.0 * du.domainH; } else if (dyC < -du.domainH) { dyC += 2.0 * du.domainH; }
+                let dSqC = dxC * dxC + dyC * dyC;
+                if (dSqC < bestSqR) { dx = dxC; dy = dyC; }
             }
         }
 

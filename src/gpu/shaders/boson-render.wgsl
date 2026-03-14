@@ -78,13 +78,14 @@ fn vertexPhoton(
     let alphaScale = select(0.6, 0.8, camera.isDarkMode > 0.5);
     let alpha = rawAlpha * alphaScale;
 
-    // Point sprite quad — energy-proportional size (matches CPU: min(0.25 + 2*energy, 5))
+    // Point sprite quad — energy-proportional size in world space (matches CPU renderer)
     let qOff = quadOffset(vertexIdx);
-    let spriteSize = clamp(0.25 + 2.0 * ph.energy, 1.0, 5.0) * camera.zoom / 16.0;
+    let worldRadius = clamp(0.25 + 2.0 * ph.energy, 0.25, 5.0);
+    let pixelRadius = worldRadius * camera.zoom;
     let worldPos = vec2f(px, py);
     let clipPos = camera.viewMatrix * vec4f(worldPos, 0.0, 1.0);
 
-    out.position = clipPos + vec4f(qOff * spriteSize / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
+    out.position = clipPos + vec4f(qOff * pixelRadius * 2.0 / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
 
     // Color: yellow for EM (#CCA84C), red for grav (#C05048)
     let isGrav = (ph.flags & 2u) != 0u;
@@ -118,13 +119,14 @@ fn vertexPion(
     let px = pi.posX;
     let py = pi.posY;
 
-    // Energy-proportional size (matches CPU: min(0.25 + 2*energy, 5))
+    // Energy-proportional size in world space (matches CPU renderer)
     let qOff = quadOffset(vertexIdx);
-    let spriteSize = clamp(0.25 + 2.0 * pi.energy, 1.0, 5.0) * camera.zoom / 16.0;
+    let worldRadius = clamp(0.25 + 2.0 * pi.energy, 0.25, 5.0);
+    let pixelRadius = worldRadius * camera.zoom;
     let worldPos = vec2f(px, py);
     let clipPos = camera.viewMatrix * vec4f(worldPos, 0.0, 1.0);
 
-    out.position = clipPos + vec4f(qOff * spriteSize / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
+    out.position = clipPos + vec4f(qOff * pixelRadius * 2.0 / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
 
     // Pion: green, theme-dependent alpha (0.7 light / 0.9 dark)
     let pionAlpha = select(0.7, 0.9, camera.isDarkMode > 0.5);
