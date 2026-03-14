@@ -208,8 +208,8 @@ export default class GPURenderer {
         let lightResult, darkResult;
         try {
             [lightResult, darkResult] = await Promise.all([
-                createBosonRenderPipelines(this.device, this.format, true, wgslConstants),
-                createBosonRenderPipelines(this.device, this.format, false, wgslConstants),
+                createBosonRenderPipelines(this.device, this.format, true, this._wgslConstants || ''),
+                createBosonRenderPipelines(this.device, this.format, false, this._wgslConstants || ''),
             ]);
         } catch (e) {
             console.warn('[physsim] Boson render pipeline creation failed, skipping:', e.message);
