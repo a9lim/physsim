@@ -3,7 +3,7 @@
 // PQS (cubic B-spline, order 3) particle-grid coupling: 4×4 stencil,
 // C² interpolation, C² continuous gradients (PQS-interpolated grid gradients).
 
-import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE, BOUND_BOUNCE, BOUND_LOOP, TORUS, KLEIN, RP2 } from './config.js';
+import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE, BOUND_BOUNCE, BOUND_LOOP, TORUS, KLEIN, RP2, SELFGRAV_GRID } from './config.js';
 import { minImage } from './topology.js';
 
 // Zero-alloc output for minImage()
@@ -28,7 +28,7 @@ export default class ScalarField {
         this._gradY = new Float64Array(gsq);
 
         // Self-gravity: coarse grid (SG×SG) for O(SG⁴) potential, upsampled to full grid
-        const sgGrid = gridSize >> 3; // 8 for SCALAR_GRID=64 (O(SG⁴)=4096 vs 65536)
+        const sgGrid = SELFGRAV_GRID;
         this._sgGrid = sgGrid;
         this._sgGridSq = sgGrid * sgGrid;
         this._sgRatio = gridSize / sgGrid;
