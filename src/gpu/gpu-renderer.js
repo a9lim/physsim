@@ -11,7 +11,7 @@
 import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
 import { TRAIL_LEN } from './gpu-buffers.js';
 import { buildWGSLConstants, paletteRGB } from './gpu-constants.js';
-import { HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA } from '../config.js';
+import { HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA, MAX_PHOTONS, MAX_PIONS } from '../config.js';
 
 // Palette-derived colors (computed once at module load from _PALETTE)
 const _PAL = window._PALETTE;
@@ -548,13 +548,13 @@ export default class GPURenderer {
                 bosonPass.setBindGroup(0, bgs[0]);
                 bosonPass.setBindGroup(1, bgs[1]);
                 bosonPass.setBindGroup(2, bgs[2]);
-                bosonPass.draw(4, 512);
+                bosonPass.draw(4, MAX_PHOTONS);
 
                 bosonPass.setPipeline(this._pionPipeline);
                 bosonPass.setBindGroup(0, bgs[0]);
                 bosonPass.setBindGroup(1, bgs[1]);
                 bosonPass.setBindGroup(2, bgs[2]);
-                bosonPass.draw(4, 256);
+                bosonPass.draw(4, MAX_PIONS);
 
                 bosonPass.end();
                 this.device.queue.submit([bosonEncoder.finish()]);

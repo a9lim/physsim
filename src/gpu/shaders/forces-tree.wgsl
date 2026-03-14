@@ -554,6 +554,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
             if (origIdx == pIdx) { continue; } // skip self
             if (sIdx == pIdx) { continue; }
+            if ((sPs.flags & FLAG_ALIVE) == 0u) { continue; } // skip dead/retired particles
 
             let sDerived = derived_in[sIdx];
             let sAYM = axYukMod_in[sIdx];
