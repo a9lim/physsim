@@ -48,7 +48,7 @@ Two dynamical scalar fields live on 64×64 grids, sharing a common PQS (cubic B-
 - **GW quadrupole** — Trace-free mass quadrupole d³I^TF_ij/dt³ with COM-relative coordinates. Gravitons rendered red.
 - **Pion emission (scalar Larmor)** — Yukawa interactions radiate massive pions with P = g²m²a²/3 (spin-0 angular factor 1/3 vs 2/3 for spin-1 EM). Pions travel at v < c, experience gravitational deflection with factor (1 + v²), and **decay**: π⁰ → 2γ (Lorentz-boosted), π⁺ → e⁺ + γ, π⁻ → e⁻ + γ (two-body kinematics in rest frame).
 - **Photon & pion absorption** — Quadtree overlap query transfers momentum (and charge for π±) to absorbing particles.
-- **Boson gravity** — Photons and pions gravitate particles and each other. GR deflection: 2× for photons (null geodesic), (1+v²)× for pions (massive).
+- **Boson gravity** — Photons and pions gravitate particles and each other via Barnes-Hut tree walks. GR deflection: 2× for photons (null geodesic), (1+v²)× for pions (massive).
 - **Field excitations** — Inelastic merges deposit Gaussian wave packets into active scalar fields, propagated by the Klein-Gordon equation.
 
 ### Additional Physics
@@ -117,46 +117,59 @@ No build step, no dependencies, no npm. ES6 modules require HTTP (no `file://`).
 
 ## Tech
 
-Zero-dependency vanilla JavaScript with Canvas 2D rendering. All physics and rendering code is hand-written — no physics engines, no WebGL, no libraries. Structure-of-arrays quadtree, circular history buffers for signal delay, cubic B-spline field infrastructure, adaptive substepping — all designed for zero per-frame allocation in hot paths.
+Zero-dependency vanilla JavaScript. CPU backend uses Canvas 2D; GPU backend uses WebGPU compute + instanced rendering (auto-detected at startup, falls back to CPU). All physics and rendering code is hand-written — no physics engines, no libraries. Structure-of-arrays quadtree, circular history buffers for signal delay, cubic B-spline field infrastructure, adaptive substepping — all designed for zero per-frame allocation in hot paths.
 
 ## Architecture
 
 ```
-main.js                   419 lines  Simulation class, fixed-timestep loop, pair production, pion loop
-index.html                476 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders
-styles.css                269 lines  Project-specific CSS overrides
-colors.js                  18 lines  Project color tokens (extends shared-tokens.js)
+main.js                  801 lines  Simulation class, fixed-timestep loop, backend selection (CPU/GPU),
+                                     pair production, pion loop, dirty-flag render, window.sim
+index.html               494 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders
+styles.css               295 lines  Project-specific CSS overrides
+colors.js                 18 lines  Project color tokens (extends shared-tokens.js)
 src/
-  integrator.js          1500 lines  Physics: Boris substep loop, radiation, pion emission/absorption, field excitations,
-                                     tidal, GW quadrupole, expansion, Roche, external fields, Hertz bounce, scalar fields
-  forces.js               734 lines  Pairwise + Barnes-Hut force accumulation, 1PN (4 sectors), boson gravity
-  reference.js            714 lines  Physics reference content (KaTeX math)
-  presets.js              688 lines  19 preset scenarios (Gravity / EM / Exotic / Cosmological)
-  scalar-field.js         638 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C² gradients,
-                                     field energy, excitations, particle-field gravity, self-gravity
-  renderer.js             532 lines  Canvas 2D: particles, trails, spin rings, vectors, photons, pions, field overlays
-  ui.js                   521 lines  DOM setup, declarative toggle dependencies, info tips, shortcuts
-  heatmap.js              309 lines  Gravitational + electric + Yukawa potential field overlay
-  axion-field.js          297 lines  AxionField: quadratic potential, scalar aF² coupling, Peccei-Quinn CP violation
-  higgs-field.js          296 lines  HiggsField: Mexican hat potential, mass modulation, thermal phase transitions
-  quadtree.js             274 lines  SoA pool-based Barnes-Hut tree (zero GC)
-  signal-delay.js         257 lines  Three-phase light-cone solver on circular history buffers
-  input.js                249 lines  Mouse/touch, left/right-click symmetry (matter/antimatter)
-  effective-potential.js  214 lines  V_eff(r) sidebar canvas with axMod/yukMod modulation
-  potential.js            211 lines  PE computation (7 terms, pairwise + tree traversal)
-  save-load.js            205 lines  State serialization, quick save/load, file export/import
-  energy.js               191 lines  KE, PE, field energy, momentum, angular momentum
-  pion.js                 187 lines  Massive Yukawa force carrier: proper velocity, (1+v²) GR deflection, decay channels
-  config.js               152 lines  Named constants, mode enums, helpers
-  collisions.js           142 lines  Merge, annihilation, baseMass conservation, relativistic merge KE tracking
-  particle.js             132 lines  Particle: 11 force Vec2s, axMod/yukMod, baseMass, signal delay history
-  topology.js             131 lines  Torus / Klein / RP² min-image + wrapping
-  phase-plot.js           128 lines  Phase space r-v_r plot (512-sample ring buffer)
-  stats-display.js        123 lines  Sidebar energy/momentum/drift readout
-  vec2.js                  61 lines  2D vector math
-  boson-utils.js           58 lines  Shared BH tree walk for photon/pion gravitational lensing
-  massless-boson.js        45 lines  Radiation photon/graviton with BH tree lensing
-  relativity.js            22 lines  Proper velocity helpers
+  integrator.js         1565 lines  Physics: Boris substep loop, radiation, pion emission/absorption, field
+                                     excitations, tidal, GW quadrupole, expansion, Roche, external fields,
+                                     Hertz bounce, scalar fields
+  forces.js              794 lines  Pairwise + Barnes-Hut force accumulation, 1PN (4 sectors), boson gravity
+  reference.js           714 lines  Physics reference content (KaTeX math)
+  presets.js             680 lines  19 preset scenarios (Gravity / EM / Exotic / Cosmological)
+  scalar-field.js        858 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C²
+                                     gradients, field energy, excitations, particle-field gravity, self-gravity
+  renderer.js            729 lines  Canvas 2D: particles, trails, spin rings, vectors, photons, pions,
+                                     field overlays, batched draw calls
+  ui.js                  609 lines  DOM setup, declarative toggle dependencies, info tips, shortcuts
+  heatmap.js             315 lines  Gravitational + electric + Yukawa potential field overlay
+  higgs-field.js         309 lines  HiggsField: Mexican hat potential, mass modulation, thermal transitions
+  axion-field.js         299 lines  AxionField: quadratic potential, scalar aF² coupling, PQ CP violation
+  quadtree.js            348 lines  SoA pool-based Barnes-Hut tree (zero GC), boson distribution
+  input.js               307 lines  Mouse/touch, left/right-click symmetry (matter/antimatter)
+  signal-delay.js        260 lines  Three-phase light-cone solver on circular history buffers
+  effective-potential.js 244 lines  V_eff(r) sidebar canvas with axMod/yukMod modulation
+  pion.js                236 lines  Massive Yukawa force carrier: proper velocity, GR deflection, decay
+  save-load.js           229 lines  State serialization, quick save/load, file export/import
+  potential.js           211 lines  PE computation (7 terms, pairwise + tree traversal)
+  energy.js              191 lines  KE, PE, field energy, momentum, angular momentum
+  config.js              166 lines  Named constants, mode enums, helpers
+  collisions.js          152 lines  Merge, annihilation, baseMass conservation, relativistic KE tracking
+  stats-display.js       138 lines  Sidebar energy/momentum/drift readout
+  phase-plot.js          137 lines  Phase space r-v_r plot (512-sample ring buffer)
+  particle.js            135 lines  Particle: 11 force Vec2s, axMod/yukMod, baseMass, signal delay history
+  topology.js            131 lines  Torus / Klein / RP² min-image + wrapping
+  massless-boson.js       91 lines  Radiation photon/graviton with BH tree lensing, object pool
+  vec2.js                 61 lines  2D vector math
+  boson-utils.js          59 lines  Shared BH tree walk for photon/pion gravitational lensing
+  backend-interface.js    57 lines  PhysicsBackend/RenderBackend interface contracts
+  cpu-physics.js          25 lines  CPUPhysics adapter (wraps integrator.js Physics class)
+  relativity.js           25 lines  Proper velocity helpers
+  canvas-renderer.js      20 lines  CanvasRenderer adapter (wraps renderer.js Renderer class)
+  gpu/
+    gpu-physics.js      3011 lines  WebGPU compute pipeline orchestrator, all dispatch methods
+    gpu-pipelines.js    1448 lines  Pipeline + bind group layout creation for compute/render shaders
+    gpu-renderer.js      977 lines  WebGPU instanced rendering: particles, bosons, trails, arrows, spin
+    gpu-buffers.js       592 lines  Buffer allocation: packed structs, quadtree, collision, field, trails
+    gpu-constants.js     253 lines  Single-source JS→WGSL constant generation from config.js + palette
+    shaders/              43 files  WGSL compute + render shaders (8555 lines total)
 ```
 
 ## Sibling Projects
