@@ -1,6 +1,7 @@
 import Particle from './particle.js';
 import { angwToAngVel } from './relativity.js';
 import { DEFAULT_SPEED_SCALE, COL_NAMES, BOUND_NAMES, TOPO_NAMES, colFromString, boundFromString, topoFromString } from './config.js';
+import { BACKEND_GPU } from './backend-interface.js';
 
 // Maps physics flag names to UI toggle element IDs (same order as presets.js TOGGLE_ORDER)
 const TOGGLE_SYNC = [
@@ -62,7 +63,19 @@ function syncUI(sim) {
     if (axionMassEl) { axionMassEl.value = ph.axionMass; axionMassEl.dispatchEvent(new Event('input')); }
 }
 
-export function saveState(sim) {
+/**
+ * Save simulation state. Async for GPU backend (requires buffer readback).
+ * @param {Object} sim
+ * @returns {Promise<Object>|Object} State object (async for GPU, sync for CPU)
+ */
+export async function saveState(sim) {
+    if (sim.backend === BACKEND_GPU && sim._gpuPhysics) {
+        return await sim._gpuPhysics.serialize(sim);
+    }
+    return _cpuSaveState(sim);
+}
+
+function _cpuSaveState(sim) {
     const state = {
         version: 1,
         particles: sim.particles.map(p => ({
@@ -99,14 +112,36 @@ export function saveState(sim) {
 export function loadState(state, sim) {
     if (!state || state.version !== 1) return false;
 
-    sim.particles = [];
-    sim.deadParticles = [];
-    sim.clearBosons();
-    sim.totalRadiated = 0;
-    sim.totalRadiatedPx = 0;
-    sim.totalRadiatedPy = 0;
-    sim.selectedParticle = null;
-    sim.physics._forcesInit = false;
+    if (sim.backend === BACKEND_GPU && sim._gpuPhysics) {
+        const ok = sim._gpuPhysics.deserialize(state, sim);
+        if (ok) {
+            // Also clear CPU-side state for consistency
+            sim.reset();
+            _restoreSettings(state, sim);
+            syncUI(sim);
+        }
+        return ok;
+    }
+    return _cpuLoadState(state, sim);
+}
+
+function _restoreSettings(state, sim) {
+    if (state.settings) {
+        const col = state.settings.collision === 'repel' ? 'bounce' : (state.settings.collision || 'pass');
+        sim.collisionMode = colFromString(col);
+        sim.boundaryMode = boundFromString(state.settings.boundary);
+        sim.topology = topoFromString(state.settings.topology);
+        sim.speedScale = state.settings.speed ?? DEFAULT_SPEED_SCALE;
+    }
+    if (state.camera) {
+        sim.camera.x = state.camera.x;
+        sim.camera.y = state.camera.y;
+        sim.camera.zoom = state.camera.zoom;
+    }
+}
+
+function _cpuLoadState(state, sim) {
+    sim.reset();
 
     const ph = sim.physics;
     for (const [key, val] of Object.entries(state.toggles)) {
@@ -115,23 +150,9 @@ export function loadState(state, sim) {
     if (state.yukawaMu != null) ph.yukawaMu = state.yukawaMu;
     if (state.axionMass != null) ph.axionMass = state.axionMass;
     if (state.hubbleParam != null) ph.hubbleParam = state.hubbleParam;
-    if (sim.higgsField) sim.higgsField.reset();
-    if (sim.axionField) sim.axionField.reset();
 
-    if (state.settings) {
-        const col = state.settings.collision === 'repel' ? 'bounce' : (state.settings.collision || 'pass');
-        sim.collisionMode = colFromString(col);
-        sim.boundaryMode = boundFromString(state.settings.boundary);
-        sim.topology = topoFromString(state.settings.topology);
-        sim.speedScale = state.settings.speed ?? DEFAULT_SPEED_SCALE;
-        if (state.settings.friction != null) ph.bounceFriction = state.settings.friction;
-    }
-
-    if (state.camera) {
-        sim.camera.x = state.camera.x;
-        sim.camera.y = state.camera.y;
-        sim.camera.zoom = state.camera.zoom;
-    }
+    _restoreSettings(state, sim);
+    if (state.settings && state.settings.friction != null) ph.bounceFriction = state.settings.friction;
 
     for (const pd of state.particles) {
         const p = new Particle(pd.x, pd.y, pd.mass, pd.charge);
@@ -153,8 +174,8 @@ export function loadState(state, sim) {
     return true;
 }
 
-export function downloadState(sim) {
-    const state = saveState(sim);
+export async function downloadState(sim) {
+    const state = await saveState(sim);
     const json = JSON.stringify(state);
     const blob = new Blob([json], { type: 'application/json' });
     const a = document.createElement('a');
@@ -189,8 +210,8 @@ export function uploadState(sim, onComplete) {
     input.click();
 }
 
-export function quickSave(sim) {
-    const state = saveState(sim);
+export async function quickSave(sim) {
+    const state = await saveState(sim);
     localStorage.setItem('nohair-quicksave', JSON.stringify(state));
     showToast('Quick saved');
 }

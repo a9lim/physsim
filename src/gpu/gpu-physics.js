@@ -142,6 +142,7 @@ export default class GPUPhysics {
         this._pairProdBuffers = null;
         this._higgsEnabled = false;
         this._axionEnabled = false;
+        this._fieldResolution = FIELD_GRID_RES; // default: 64, configurable to 128/256
         this._fieldGravEnabled = false;
         this._expansionEnabled = false;
         this._disintegrationEnabled = false;
@@ -1169,6 +1170,26 @@ export default class GPUPhysics {
 
         this._ghostCount = data[0];
         this._ghostCountPending = false;
+    }
+
+    /**
+     * Change the scalar field grid resolution. Requires reallocating field buffers.
+     * @param {number} res - Power of 2: 64, 128, or 256
+     */
+    setFieldResolution(res) {
+        if (res !== 64 && res !== 128 && res !== 256) return;
+        if (res === this._fieldResolution) return;
+
+        this._fieldResolution = res;
+
+        // TODO: Reallocate field buffers at new resolution once field compute is fully wired.
+        // this._reallocFieldBuffers(res);
+
+        // Reset field state (resolution change invalidates field data)
+        if (this._sim && this._sim.higgsField) this._sim.higgsField.reset();
+        if (this._sim && this._sim.axionField) this._sim.axionField.reset();
+
+        if (typeof showToast === 'function') showToast(`Field grid: ${res}\u00D7${res}`);
     }
 
     /**
@@ -2552,6 +2573,177 @@ export default class GPUPhysics {
         this._lastCamera = camera;
     }
 
+    /**
+     * Read all particle state from GPU and return a save-compatible JSON object.
+     * This triggers an async readback. Only called on user action (save/download).
+     * @param {Object} sim - The Simulation instance for camera/mode state
+     * @returns {Promise<Object>} Save-compatible state object
+     */
+    async serialize(sim) {
+        const count = this.aliveCount;
+        const byteLen = count * 4;
+
+        // Create staging buffers for readback
+        const stagingPosX = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const stagingPosY = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const stagingWX = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const stagingWY = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const stagingMass = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const stagingBaseMass = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const stagingCharge = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const stagingAngW = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const stagingFlags = this.device.createBuffer({ size: byteLen, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+
+        const encoder = this.device.createCommandEncoder({ label: 'serialize-readback' });
+        encoder.copyBufferToBuffer(this.buffers.posX, 0, stagingPosX, 0, byteLen);
+        encoder.copyBufferToBuffer(this.buffers.posY, 0, stagingPosY, 0, byteLen);
+        encoder.copyBufferToBuffer(this.buffers.velWX, 0, stagingWX, 0, byteLen);
+        encoder.copyBufferToBuffer(this.buffers.velWY, 0, stagingWY, 0, byteLen);
+        encoder.copyBufferToBuffer(this.buffers.mass, 0, stagingMass, 0, byteLen);
+        encoder.copyBufferToBuffer(this.buffers.baseMass, 0, stagingBaseMass, 0, byteLen);
+        encoder.copyBufferToBuffer(this.buffers.charge, 0, stagingCharge, 0, byteLen);
+        encoder.copyBufferToBuffer(this.buffers.angW, 0, stagingAngW, 0, byteLen);
+        encoder.copyBufferToBuffer(this.buffers.flags, 0, stagingFlags, 0, byteLen);
+        this.device.queue.submit([encoder.finish()]);
+
+        // Map all staging buffers
+        await Promise.all([
+            stagingPosX.mapAsync(GPUMapMode.READ),
+            stagingPosY.mapAsync(GPUMapMode.READ),
+            stagingWX.mapAsync(GPUMapMode.READ),
+            stagingWY.mapAsync(GPUMapMode.READ),
+            stagingMass.mapAsync(GPUMapMode.READ),
+            stagingBaseMass.mapAsync(GPUMapMode.READ),
+            stagingCharge.mapAsync(GPUMapMode.READ),
+            stagingAngW.mapAsync(GPUMapMode.READ),
+            stagingFlags.mapAsync(GPUMapMode.READ),
+        ]);
+
+        const posX = new Float32Array(stagingPosX.getMappedRange());
+        const posY = new Float32Array(stagingPosY.getMappedRange());
+        const wx = new Float32Array(stagingWX.getMappedRange());
+        const wy = new Float32Array(stagingWY.getMappedRange());
+        const mass = new Float32Array(stagingMass.getMappedRange());
+        const baseMass = new Float32Array(stagingBaseMass.getMappedRange());
+        const charge = new Float32Array(stagingCharge.getMappedRange());
+        const angw = new Float32Array(stagingAngW.getMappedRange());
+        const flags = new Uint32Array(stagingFlags.getMappedRange());
+
+        const state = {
+            version: 1,
+            particles: [],
+            toggles: {},
+            settings: {
+                collision: COL_NAMES[sim.collisionMode],
+                boundary: BOUND_NAMES[sim.boundaryMode],
+                topology: TOPO_NAMES[sim.topology],
+                speed: sim.speedScale,
+                friction: this._bounceFriction,
+            },
+            camera: {
+                x: sim.camera.x,
+                y: sim.camera.y,
+                zoom: sim.camera.zoom,
+            },
+        };
+
+        for (let i = 0; i < count; i++) {
+            if (!(flags[i] & FLAG_ALIVE)) continue;
+            state.particles.push({
+                x: posX[i], y: posY[i],
+                wx: wx[i], wy: wy[i],
+                mass: mass[i], baseMass: baseMass[i],
+                charge: charge[i], angw: angw[i],
+                antimatter: !!(flags[i] & FLAG_ANTIMATTER),
+            });
+        }
+
+        // Unmap and destroy staging buffers
+        stagingPosX.unmap(); stagingPosX.destroy();
+        stagingPosY.unmap(); stagingPosY.destroy();
+        stagingWX.unmap(); stagingWX.destroy();
+        stagingWY.unmap(); stagingWY.destroy();
+        stagingMass.unmap(); stagingMass.destroy();
+        stagingBaseMass.unmap(); stagingBaseMass.destroy();
+        stagingCharge.unmap(); stagingCharge.destroy();
+        stagingAngW.unmap(); stagingAngW.destroy();
+        stagingFlags.unmap(); stagingFlags.destroy();
+
+        // Pack toggle state
+        const toggleKeys = [
+            'gravityEnabled', 'bosonGravEnabled', 'fieldGravEnabled',
+            'coulombEnabled', 'magneticEnabled',
+            'gravitomagEnabled', 'relativityEnabled', 'barnesHutEnabled',
+            'radiationEnabled', 'blackHoleEnabled', 'disintegrationEnabled',
+            'spinOrbitEnabled',
+            'onePNEnabled', 'yukawaEnabled', 'axionEnabled',
+            'expansionEnabled', 'higgsEnabled',
+        ];
+        // Map internal toggle bits back to boolean flags
+        const t0 = this._toggles0;
+        const t1 = this._toggles1;
+        state.toggles.gravityEnabled = !!(t0 & 1);
+        state.toggles.coulombEnabled = !!(t0 & 2);
+        state.toggles.magneticEnabled = !!(t0 & 4);
+        state.toggles.gravitomagEnabled = !!(t0 & 8);
+        state.toggles.onePNEnabled = !!(t0 & 16);
+        state.toggles.relativityEnabled = !!(t0 & 32);
+        state.toggles.spinOrbitEnabled = !!(t0 & 64);
+        state.toggles.radiationEnabled = !!(t0 & 128);
+        state.toggles.blackHoleEnabled = !!(t0 & 256);
+        state.toggles.disintegrationEnabled = !!(t0 & 512);
+        state.toggles.expansionEnabled = !!(t0 & 1024);
+        state.toggles.yukawaEnabled = !!(t0 & 2048);
+        state.toggles.higgsEnabled = !!(t0 & 4096);
+        state.toggles.axionEnabled = !!(t0 & 8192);
+        state.toggles.barnesHutEnabled = !!(t0 & 16384);
+        state.toggles.bosonGravEnabled = !!(t0 & 32768);
+        state.toggles.fieldGravEnabled = !!(t1 & 1);
+
+        state.yukawaMu = this._yukawaMu;
+        state.axionMass = this._axionMass;
+        state.hubbleParam = this._hubbleParam;
+
+        return state;
+    }
+
+    /**
+     * Load a save state into GPU buffers.
+     * @param {Object} state - JSON state from serialize() or CPU saveState()
+     * @param {Object} sim - The Simulation instance
+     * @returns {boolean} Success
+     */
+    deserialize(state, sim) {
+        if (!state || state.version !== 1) return false;
+
+        this.reset();
+
+        // Upload particles to GPU
+        for (const pd of state.particles) {
+            this.addParticle({
+                x: pd.x, y: pd.y,
+                vx: pd.wx, vy: pd.wy,
+                mass: pd.mass,
+                charge: pd.charge,
+            });
+            // Set baseMass, angw, antimatter flags for the last added particle
+            const idx = this.aliveCount - 1;
+            const f32 = new Float32Array([0]);
+            const u32 = new Uint32Array([0]);
+            f32[0] = pd.baseMass ?? pd.mass;
+            this.device.queue.writeBuffer(this.buffers.baseMass, idx * 4, f32);
+            f32[0] = pd.angw || 0;
+            this.device.queue.writeBuffer(this.buffers.angW, idx * 4, f32);
+            if (pd.antimatter) {
+                u32[0] = FLAG_ALIVE | FLAG_ANTIMATTER;
+                this.device.queue.writeBuffer(this.buffers.flags, idx * 4, u32);
+            }
+        }
+
+        this.syncUniforms();
+        return true;
+    }
+
     reset() {
         this.aliveCount = 0;
         this.simTime = 0;
@@ -2601,6 +2793,49 @@ export default class GPUPhysics {
         if (this._axionBuffers) this._initFieldToVacuum('axion');
     }
 
+    /** Queue a GPU hit test. Result available next frame via readHitResult(). */
+    hitTest(worldX, worldY) {
+        // Write click position to hit uniform buffer
+        const data = new Float32Array([worldX, worldY, 0, 0]);
+        this.device.queue.writeBuffer(this._hitUniformBuffer, 0, data);
+        this._hitPending = true;
+    }
+
+    /** Read the result of a previously queued hit test. Returns particle index or -1. */
+    readHitResult() {
+        if (!this._hitResultReady) return -1;
+        this._hitResultReady = false;
+        const view = new Int32Array(this._hitStagingData);
+        return view[0];
+    }
+
+    /**
+     * Get the count of alive particles.
+     * @returns {number}
+     */
+    getParticleCount() {
+        return this.aliveCount;
+    }
+
+    /**
+     * Get the cached state of a particle by index.
+     * Returns null if no cached readback data is available.
+     * @param {number} idx
+     * @returns {Object|null} { x, y, radius, mass, charge, antimatter }
+     */
+    getParticleState(idx) {
+        if (!this._cachedParticleState || idx >= this.aliveCount) return null;
+        const s = this._cachedParticleState;
+        return {
+            x: s.posX[idx],
+            y: s.posY[idx],
+            radius: s.radius[idx],
+            mass: s.mass[idx],
+            charge: s.charge[idx],
+            antimatter: !!(s.flags[idx] & FLAG_ANTIMATTER),
+        };
+    }
+
     destroy() {
         this.buffers.destroy();
         this.uniformBuffer.destroy();
@@ -2609,8 +2844,14 @@ export default class GPUPhysics {
 
 // Constants (must match common.wgsl / config.js)
 const FLAG_ALIVE = 1;
+const FLAG_ANTIMATTER = 4;
 const BOUND_LOOP = 2;
 const COL_MERGE = 1;
+
+// Save/load name tables (must match config.js)
+const COL_NAMES = ['pass', 'merge', 'bounce'];
+const BOUND_NAMES = ['despawn', 'bounce', 'loop'];
+const TOPO_NAMES = ['torus', 'klein', 'rp2'];
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename) {
