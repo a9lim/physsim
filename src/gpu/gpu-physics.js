@@ -1196,9 +1196,12 @@ export default class GPUPhysics {
         f32[0] = m; this.device.queue.writeBuffer(this.buffers.mass, idx * 4, f32);
         f32[0] = m; this.device.queue.writeBuffer(this.buffers.baseMass, idx * 4, f32);
         f32[0] = q; this.device.queue.writeBuffer(this.buffers.charge, idx * 4, f32);
-        f32[0] = Math.cbrt(m); this.device.queue.writeBuffer(this.buffers.radius, idx * 4, f32);
-        const wSq = vx * vx + vy * vy;
-        f32[0] = Math.sqrt(1 + wSq); this.device.queue.writeBuffer(this.buffers.gamma, idx * 4, f32);
+        // radius is in its own buffer (read by renderer)
+        if (this.buffers.radius) {
+            f32[0] = Math.cbrt(m); this.device.queue.writeBuffer(this.buffers.radius, idx * 4, f32);
+        }
+        // gamma was packed into particleDerived — computed by cacheDerived shader
+        // No need to init here; cacheDerived runs before forces each substep.
         u32[0] = FLAG_ALIVE; this.device.queue.writeBuffer(this.buffers.flags, idx * 4, u32);
 
         // Pack color: neutral slate = #8A7E72 -> RGBA
