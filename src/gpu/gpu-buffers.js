@@ -575,7 +575,7 @@ export function writeUniforms(device, buffer, params) {
     f[20] = params.extElectric || 0;
     f[21] = params.extElectricAngle || 0;
     f[22] = params.extBz || 0;
-    f[23] = params.bounceFriction || 0.4;
+    f[23] = params.bounceFriction ?? 0.4;
     // Precomputed external field directions
     f[24] = (params.extGravity || 0) * Math.cos(params.extGravityAngle || 0); // extGx
     f[25] = (params.extGravity || 0) * Math.sin(params.extGravityAngle || 0); // extGy

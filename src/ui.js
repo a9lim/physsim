@@ -250,6 +250,15 @@ export function setupUI(sim) {
         }
     };
 
+    // Push slider-only changes to GPU (toggles call updateAllDeps which already syncs)
+    const _syncSlidersToGPU = () => {
+        if (sim._gpuPhysics && sim._gpuPhysics.setToggles) {
+            const gpuToggles = Object.create(sim.physics);
+            gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
+            sim._gpuPhysics.setToggles(gpuToggles);
+        }
+    };
+
     // Wire every toggle: sync physics prop + re-evaluate all deps
     toggleDefs.forEach(({ id, prop }) => {
         tEl[id].addEventListener('change', () => {
@@ -344,6 +353,7 @@ export function setupUI(sim) {
     frictionSlider.addEventListener('input', () => {
         sim.physics.bounceFriction = parseFloat(frictionSlider.value);
         frictionLabel.textContent = parseFloat(frictionSlider.value).toFixed(2);
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
 
@@ -354,6 +364,7 @@ export function setupUI(sim) {
         const mu = parseFloat(yukawaMuSlider.value);
         sim.physics.yukawaMu = mu;
         yukawaMuLabel.textContent = mu.toFixed(2);
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
 
@@ -365,6 +376,7 @@ export function setupUI(sim) {
         sim.physics.axionMass = m;
         if (sim.axionField) sim.axionField.mass = m;
         axionMassLabel.textContent = m.toFixed(2);
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
 
@@ -374,6 +386,7 @@ export function setupUI(sim) {
     hubbleSlider.addEventListener('input', () => {
         sim.physics.hubbleParam = parseFloat(hubbleSlider.value);
         hubbleLabel.textContent = parseFloat(hubbleSlider.value).toFixed(4);
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
 
@@ -383,8 +396,10 @@ export function setupUI(sim) {
     if (higgsMassSlider) {
         higgsMassSlider.addEventListener('input', () => {
             const m = parseFloat(higgsMassSlider.value);
-            sim.higgsField.mass = m;
+            sim.physics.higgsMass = m;
+            if (sim.higgsField) sim.higgsField.mass = m;
             higgsMassLabel.textContent = m.toFixed(2);
+            _syncSlidersToGPU();
             _haptics.trigger('selection');
         });
     }
@@ -400,12 +415,14 @@ export function setupUI(sim) {
         sim.physics.extGravity = v;
         extGravityLabel.textContent = v.toFixed(2);
         extGravityAngleGroup.style.display = v > 0 ? '' : 'none';
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
     extGravityAngleSlider.addEventListener('input', () => {
         const deg = parseFloat(extGravityAngleSlider.value);
         sim.physics.extGravityAngle = deg * Math.PI / 180;
         extGravityAngleLabel.textContent = deg + '°';
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
 
@@ -419,12 +436,14 @@ export function setupUI(sim) {
         sim.physics.extElectric = v;
         extElectricLabel.textContent = v.toFixed(2);
         extElectricAngleGroup.style.display = v > 0 ? '' : 'none';
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
     extElectricAngleSlider.addEventListener('input', () => {
         const deg = parseFloat(extElectricAngleSlider.value);
         sim.physics.extElectricAngle = deg * Math.PI / 180;
         extElectricAngleLabel.textContent = deg + '°';
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
 
@@ -434,6 +453,7 @@ export function setupUI(sim) {
         const v = parseFloat(extBzSlider.value);
         sim.physics.extBz = v;
         extBzLabel.textContent = v.toFixed(2);
+        _syncSlidersToGPU();
         _haptics.trigger('selection');
     });
 

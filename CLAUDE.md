@@ -526,9 +526,9 @@ Worst-case pipeline (radiation) uses 10 storage buffers (was 42 before packing).
 ### GPU ↔ CPU Sync
 
 - `addParticle()` writes packed `ParticleState` (36B) + `ParticleAux` (20B) + `color` (4B) + `axYukMod` (8B, initialized to 1.0/1.0) + `radiationState` (32B, zeroed) via `queue.writeBuffer()`
-- `setToggles(physics)` packs CPU toggle booleans into `toggles0`/`toggles1` u32 bitfields. Called from `ui.js` `updateAllDeps()` on every toggle change. Heatmap state passed via `Object.create(sim.physics)` with `heatmapEnabled` added.
+- `setToggles(physics)` packs CPU toggle booleans into `toggles0`/`toggles1` u32 bitfields. Called from `ui.js` `updateAllDeps()` on every toggle change AND from `_syncSlidersToGPU()` on every slider change. Heatmap state passed via `Object.create(sim.physics)` with `heatmapEnabled` added.
 - `_writeFieldUniforms(dt)` writes `FieldUniforms` struct to shared field uniform buffer (used by field forces pass). Must match `field-common.wgsl` `FieldUniforms` struct layout exactly. `_writePerFieldUniforms(dt, fieldType)` writes to per-field dedicated uniform buffers (`_higgsUniformBuffer`/`_axionUniformBuffer`) with `currentFieldType` baked in — eliminates encoder split when both Higgs and Axion are active.
-- Slider changes (yukawaMu, axionMass, higgsMass, external fields, etc.) sync to GPU via `setToggles()` on toggle change, but NOT on slider-only changes — slider values are cached in `_yukawaMu`, `_higgsMass`, etc. and written to uniforms each substep.
+- Slider changes (yukawaMu, axionMass, higgsMass, external fields, bounceFriction, hubbleParam) sync to GPU via `_syncSlidersToGPU()` → `setToggles()` on every slider `input` event. Values are cached in `_yukawaMu`, `_higgsMass`, etc. and written to uniforms each substep.
 - `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load. `deserialize()` initializes `axYukMod` to (1,1), zeroes `radiationState`, and restores slider parameters (`higgsMass`, `axionMass`, `yukawaMu`, `hubbleParam`).
 - CPU-side `particles[]` array maintained in parallel for sidebar UI, presets, stats
 - `device.lost` handler falls back to CPU mode, restores from periodic auto-save
