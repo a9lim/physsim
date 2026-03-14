@@ -269,16 +269,6 @@ class Simulation {
                         _attemptGPURecovery();
                     });
 
-                    // Test: spawn a few particles with random velocities
-                    for (let i = 0; i < 8; i++) {
-                        this._gpuPhysics.addParticle({
-                            x: this.domainW * (0.2 + 0.6 * Math.random()),
-                            y: this.domainH * (0.2 + 0.6 * Math.random()),
-                            vx: (Math.random() - 0.5) * 2,
-                            vy: (Math.random() - 0.5) * 2,
-                            mass: 0.5 + Math.random() * 2,
-                        });
-                    }
                 } catch (e) {
                     console.error('[physsim] GPU init failed, falling back to CPU:', e);
                     this._gpuReady = false;
@@ -370,8 +360,17 @@ class Simulation {
     }
 
     addParticle(x, y, vx, vy, options = {}) {
-        const p = new Particle(x, y);
+        if (this._gpuReady && this.backend === BACKEND_GPU) {
+            // GPU path: write directly to GPU SoA buffers
+            this._gpuPhysics.addParticle({
+                x, y, vx, vy,
+                mass: options.mass ?? 10,
+                charge: options.charge ?? 0,
+            });
+        }
 
+        // Always maintain CPU-side particle array (needed for presets, sidebar, etc.)
+        const p = new Particle(x, y);
         p.mass = options.mass ?? 10;
         p.baseMass = options.baseMass ?? p.mass;
         p.charge = options.charge ?? 0;
@@ -447,173 +446,175 @@ class Simulation {
             const maxAccum = PHYSICS_DT * MAX_SUBSTEPS * ACCUMULATOR_CAP;
             if (this.accumulator > maxAccum) this.accumulator = maxAccum;
 
-            this.physics._collisionCount = 0;
-            while (this.accumulator >= PHYSICS_DT) {
-                this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
+            if (this._gpuReady && this.backend === BACKEND_GPU) {
+                // ─── GPU physics path ───
+                const substeps = Math.floor(this.accumulator / PHYSICS_DT);
+                if (substeps > 0) {
+                    this._gpuPhysics.update(PHYSICS_DT * substeps);
+                    this.accumulator -= substeps * PHYSICS_DT;
+                }
 
-                // Update photons, swap-and-pop dead ones, release to pool
-                // Gravitational lensing only when gravity is on
-                const _bosonGrav = this.physics.bosonGravEnabled;
-                const _pool = (_bosonGrav && this.physics.barnesHutEnabled) ? this.physics.pool : null;
-                const _root = this.physics._lastRoot;
-                const _lensParticles = _bosonGrav ? this.particles : null;
-                let pLen = this.photons.length;
-                for (let i = pLen - 1; i >= 0; i--) {
-                    const ph = this.photons[i];
-                    ph.update(PHYSICS_DT, _lensParticles, _pool, _root);
-                    if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
+                // Periodic auto-save for GPU error recovery (non-blocking)
+                if (++_autoSaveCounter >= AUTO_SAVE_INTERVAL) {
+                    _autoSaveCounter = 0;
+                    this._gpuPhysics.serialize(this).then(state => { _gpuAutoSave = state; });
+                }
+            } else {
+                // ─── CPU physics path ───
+                this.physics._collisionCount = 0;
+                while (this.accumulator >= PHYSICS_DT) {
+                    this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
+
+                    // Update photons, swap-and-pop dead ones, release to pool
+                    // Gravitational lensing only when gravity is on
+                    const _bosonGrav = this.physics.bosonGravEnabled;
+                    const _pool = (_bosonGrav && this.physics.barnesHutEnabled) ? this.physics.pool : null;
+                    const _root = this.physics._lastRoot;
+                    const _lensParticles = _bosonGrav ? this.particles : null;
+                    let pLen = this.photons.length;
+                    for (let i = pLen - 1; i >= 0; i--) {
+                        const ph = this.photons[i];
+                        ph.update(PHYSICS_DT, _lensParticles, _pool, _root);
+                        if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
+                            ph.alive = false;
+                            MasslessBoson.release(ph);
+                            this.photons[i] = this.photons[--pLen];
+                        }
+                    }
+                    this.photons.length = pLen;
+
+                    // Pair production: energetic photon near massive body -> matter + antimatter
+                    // BH mode: no antimatter (no hair)
+                    const canPairProduce = this.particles.length < PAIR_PROD_MAX_PARTICLES && !this.physics.blackHoleEnabled;
+                    for (let i = canPairProduce ? pLen - 1 : -1; i >= 0; i--) {
+                        const ph = this.photons[i];
+                        if (ph.energy < PAIR_PROD_MIN_ENERGY || ph.lifetime < PAIR_PROD_MIN_AGE) continue;
+                        // Check proximity to any massive body
+                        let nearBody = false;
+                        for (let j = 0; j < this.particles.length; j++) {
+                            const p = this.particles[j];
+                            const dx = ph.pos.x - p.pos.x, dy = ph.pos.y - p.pos.y;
+                            if (dx * dx + dy * dy < PAIR_PROD_RADIUS * PAIR_PROD_RADIUS * p.mass) {
+                                nearBody = true;
+                                break;
+                            }
+                        }
+                        if (!nearBody || Math.random() > PAIR_PROD_PROB) continue;
+                        // Produce pair: split photon energy into mass + kinetic
+                        const pairMass = ph.energy * 0.5;
+                        const offset = SPAWN_OFFSET_FLOOR;
+                        // Perpendicular to photon direction
+                        const px = -ph.vel.y, py = ph.vel.x;
+                        this.addParticle(ph.pos.x + px * offset, ph.pos.y + py * offset,
+                            ph.vel.x * 0.1, ph.vel.y * 0.1,
+                            { mass: pairMass, charge: 0, antimatter: false, skipBaseline: true });
+                        this.addParticle(ph.pos.x - px * offset, ph.pos.y - py * offset,
+                            ph.vel.x * 0.1, ph.vel.y * 0.1,
+                            { mass: pairMass, charge: 0, antimatter: true, skipBaseline: true });
+                        // Kill the photon and release to pool
                         ph.alive = false;
                         MasslessBoson.release(ph);
                         this.photons[i] = this.photons[--pLen];
                     }
-                }
-                this.photons.length = pLen;
+                    this.photons.length = pLen;
 
-                // Pair production: energetic photon near massive body -> matter + antimatter
-                // BH mode: no antimatter (no hair)
-                const canPairProduce = this.particles.length < PAIR_PROD_MAX_PARTICLES && !this.physics.blackHoleEnabled;
-                for (let i = canPairProduce ? pLen - 1 : -1; i >= 0; i--) {
-                    const ph = this.photons[i];
-                    if (ph.energy < PAIR_PROD_MIN_ENERGY || ph.lifetime < PAIR_PROD_MIN_AGE) continue;
-                    // Check proximity to any massive body
-                    let nearBody = false;
-                    for (let j = 0; j < this.particles.length; j++) {
-                        const p = this.particles[j];
-                        const dx = ph.pos.x - p.pos.x, dy = ph.pos.y - p.pos.y;
-                        if (dx * dx + dy * dy < PAIR_PROD_RADIUS * PAIR_PROD_RADIUS * p.mass) {
-                            nearBody = true;
-                            break;
+                    // Update pions: move, decay, swap-and-pop dead, release to pool
+                    let piLen = this.pions.length;
+                    for (let i = piLen - 1; i >= 0; i--) {
+                        const pn = this.pions[i];
+                        pn.update(PHYSICS_DT, _lensParticles, _pool, _root);
+                        if (!pn.alive) {
+                            Pion.release(pn);
+                            this.pions[i] = this.pions[--piLen];
+                        } else if (Math.random() < (pn.charge === 0 ? PION_DECAY_PROB : CHARGED_PION_DECAY_PROB)) {
+                            pn.decay(this);
+                            Pion.release(pn);
+                            this.pions[i] = this.pions[--piLen];
                         }
                     }
-                    if (!nearBody || Math.random() > PAIR_PROD_PROB) continue;
-                    // Produce pair: split photon energy into mass + kinetic
-                    const pairMass = ph.energy * 0.5;
-                    const offset = SPAWN_OFFSET_FLOOR;
-                    // Perpendicular to photon direction
-                    const px = -ph.vel.y, py = ph.vel.x;
-                    this.addParticle(ph.pos.x + px * offset, ph.pos.y + py * offset,
-                        ph.vel.x * 0.1, ph.vel.y * 0.1,
-                        { mass: pairMass, charge: 0, antimatter: false, skipBaseline: true });
-                    this.addParticle(ph.pos.x - px * offset, ph.pos.y - py * offset,
-                        ph.vel.x * 0.1, ph.vel.y * 0.1,
-                        { mass: pairMass, charge: 0, antimatter: true, skipBaseline: true });
-                    // Kill the photon and release to pool
-                    ph.alive = false;
-                    MasslessBoson.release(ph);
-                    this.photons[i] = this.photons[--pLen];
-                }
-                this.photons.length = pLen;
+                    this.pions.length = piLen;
 
-                // Update pions: move, decay, swap-and-pop dead, release to pool
-                let piLen = this.pions.length;
-                for (let i = piLen - 1; i >= 0; i--) {
-                    const pn = this.pions[i];
-                    pn.update(PHYSICS_DT, _lensParticles, _pool, _root);
-                    if (!pn.alive) {
-                        Pion.release(pn);
-                        this.pions[i] = this.pions[--piLen];
-                    } else if (Math.random() < (pn.charge === 0 ? PION_DECAY_PROB : CHARGED_PION_DECAY_PROB)) {
-                        pn.decay(this);
-                        Pion.release(pn);
-                        this.pions[i] = this.pions[--piLen];
+                    const { fragments: toFragment, transfers: rocheTransfers } = this.physics.checkDisintegration(this.particles, this.physics._lastRoot);
+                    // Handle Roche lobe overflow mass transfers
+                    for (let ti = 0; ti < rocheTransfers.length; ti++) {
+                        const t = rocheTransfers[ti];
+                        const origM = t.source.mass;
+                        t.source.mass -= t.mass;
+                        if (origM > 0) t.source.baseMass *= t.source.mass / origM;
+                        t.source.charge -= t.charge;
+                        t.source.updateColor();
+                        this.addParticle(t.spawnX, t.spawnY, t.vx, t.vy, {
+                            mass: t.mass, charge: t.charge, spin: 0, skipBaseline: true,
+                        });
                     }
-                }
-                this.pions.length = piLen;
+                    if (toFragment.length > 0) {
+                        // Build set for O(1) lookup, spawn fragments, then compact
+                        if (!this._fragSet) this._fragSet = new Set();
+                        const fragSet = this._fragSet;
+                        fragSet.clear();
+                        for (let fi = 0; fi < toFragment.length; fi++) fragSet.add(toFragment[fi]);
+                        for (const p of toFragment) {
+                            const nf = SPAWN_COUNT;
+                            const fragMass = p.mass / nf;
+                            const fragBaseMass = p.baseMass / nf;
+                            const fragCharge = p.charge / nf;
+                            for (let fi = 0; fi < nf; fi++) {
+                                const angle = (TWO_PI * fi) / nf;
+                                const offset = spawnOffset(p.radius);
+                                const fx = p.pos.x + Math.cos(angle) * offset;
+                                const fy = p.pos.y + Math.sin(angle) * offset;
+                                const tangVx = -Math.sin(angle) * p.angVel * offset;
+                                const tangVy = Math.cos(angle) * p.angVel * offset;
+                                this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
+                                    mass: fragMass, baseMass: fragBaseMass, charge: fragCharge, spin: p.angw, skipBaseline: true,
+                                });
+                            }
+                        }
+                        // Single-pass compaction (swap-and-pop style)
+                        let write = 0;
+                        for (let ri = 0; ri < this.particles.length; ri++) {
+                            if (!fragSet.has(this.particles[ri])) {
+                                this.particles[write++] = this.particles[ri];
+                            } else {
+                                this.physics._retireParticle(this.particles[ri]);
+                            }
+                        }
+                        this.particles.length = write;
+                    }
 
-                const { fragments: toFragment, transfers: rocheTransfers } = this.physics.checkDisintegration(this.particles, this.physics._lastRoot);
-                // Handle Roche lobe overflow mass transfers
-                for (let ti = 0; ti < rocheTransfers.length; ti++) {
-                    const t = rocheTransfers[ti];
-                    const origM = t.source.mass;
-                    t.source.mass -= t.mass;
-                    if (origM > 0) t.source.baseMass *= t.source.mass / origM;
-                    t.source.charge -= t.charge;
-                    t.source.updateColor();
-                    this.addParticle(t.spawnX, t.spawnY, t.vx, t.vy, {
-                        mass: t.mass, charge: t.charge, spin: 0, skipBaseline: true,
-                    });
+                    // Hawking evaporation: remove particles below MIN_MASS
+                    if (this.physics.blackHoleEnabled) {
+                        let writeIdx = 0;
+                        for (let i = 0; i < this.particles.length; i++) {
+                            const p = this.particles[i];
+                            if (p.mass >= MIN_MASS) {
+                                this.particles[writeIdx++] = p;
+                                continue;
+                            }
+                            // Final burst: emit remaining mass-energy as photons
+                            if (p.mass > 0) this.emitPhotonBurst(p.pos.x, p.pos.y, p.mass, p.radius, p.id);
+                            this.physics._retireParticle(p);
+                            if (this.selectedParticle === p) this.selectedParticle = null;
+                        }
+                        this.particles.length = writeIdx;
+                    }
+
+                    this.accumulator -= PHYSICS_DT;
                 }
-                if (toFragment.length > 0) {
-                    // Build set for O(1) lookup, spawn fragments, then compact
-                    if (!this._fragSet) this._fragSet = new Set();
-                    const fragSet = this._fragSet;
-                    fragSet.clear();
-                    for (let fi = 0; fi < toFragment.length; fi++) fragSet.add(toFragment[fi]);
-                    for (const p of toFragment) {
-                        const nf = SPAWN_COUNT;
-                        const fragMass = p.mass / nf;
-                        const fragBaseMass = p.baseMass / nf;
-                        const fragCharge = p.charge / nf;
-                        for (let fi = 0; fi < nf; fi++) {
-                            const angle = (TWO_PI * fi) / nf;
-                            const offset = spawnOffset(p.radius);
-                            const fx = p.pos.x + Math.cos(angle) * offset;
-                            const fy = p.pos.y + Math.sin(angle) * offset;
-                            const tangVx = -Math.sin(angle) * p.angVel * offset;
-                            const tangVy = Math.cos(angle) * p.angVel * offset;
-                            this.addParticle(fx, fy, p.vel.x + tangVx, p.vel.y + tangVy, {
-                                mass: fragMass, baseMass: fragBaseMass, charge: fragCharge, spin: p.angw, skipBaseline: true,
-                            });
+                if (this.physics._collisionCount > 0) _haptics.trigger('buzz');
+
+                // P16: Dead-particle GC once per frame (not per substep)
+                if (this.deadParticles.length > 0) {
+                    const maxDist = this._domainDiagonal;
+                    let dw = 0;
+                    for (let i = 0; i < this.deadParticles.length; i++) {
+                        const dp = this.deadParticles[i];
+                        if (this.physics.simTime - dp.deathTime < maxDist) {
+                            this.deadParticles[dw++] = dp;
                         }
                     }
-                    // Single-pass compaction (swap-and-pop style)
-                    let write = 0;
-                    for (let ri = 0; ri < this.particles.length; ri++) {
-                        if (!fragSet.has(this.particles[ri])) {
-                            this.particles[write++] = this.particles[ri];
-                        } else {
-                            this.physics._retireParticle(this.particles[ri]);
-                        }
-                    }
-                    this.particles.length = write;
+                    this.deadParticles.length = dw;
                 }
-
-                // Hawking evaporation: remove particles below MIN_MASS
-                if (this.physics.blackHoleEnabled) {
-                    let writeIdx = 0;
-                    for (let i = 0; i < this.particles.length; i++) {
-                        const p = this.particles[i];
-                        if (p.mass >= MIN_MASS) {
-                            this.particles[writeIdx++] = p;
-                            continue;
-                        }
-                        // Final burst: emit remaining mass-energy as photons
-                        if (p.mass > 0) this.emitPhotonBurst(p.pos.x, p.pos.y, p.mass, p.radius, p.id);
-                        this.physics._retireParticle(p);
-                        if (this.selectedParticle === p) this.selectedParticle = null;
-                    }
-                    this.particles.length = writeIdx;
-                }
-
-                this.accumulator -= PHYSICS_DT;
-            }
-            if (this.physics._collisionCount > 0) _haptics.trigger('buzz');
-
-            // P16: Dead-particle GC once per frame (not per substep) — particles need
-            // maxDist * 128 substeps to expire, so per-frame check is sufficient
-            if (this.deadParticles.length > 0) {
-                const maxDist = this._domainDiagonal;
-                let dw = 0;
-                for (let i = 0; i < this.deadParticles.length; i++) {
-                    const dp = this.deadParticles[i];
-                    if (this.physics.simTime - dp.deathTime < maxDist) {
-                        this.deadParticles[dw++] = dp;
-                    }
-                }
-                this.deadParticles.length = dw;
-            }
-        }
-
-        // GPU path: run compute + render independently of CPU path (Phase 1 test)
-        if (this._gpuReady && this.running) {
-            this._gpuPhysics.update(PHYSICS_DT * this.speedScale);
-            this._gpuRenderer.updateCamera(this.camera);
-            this._gpuRenderer.render(this._gpuPhysics.aliveCount);
-
-            // Periodic auto-save for GPU error recovery (non-blocking)
-            if (++_autoSaveCounter >= AUTO_SAVE_INTERVAL) {
-                _autoSaveCounter = 0;
-                this._gpuPhysics.serialize(this).then(state => { _gpuAutoSave = state; });
             }
         }
 
@@ -621,24 +622,33 @@ class Simulation {
         if (this._dirty) {
             this._dirty = false;
 
-            // Throttle heatmap to every HEATMAP_INTERVAL frames (default 4 = ~15fps)
-            // Skip when paused — state hasn't changed (camera changes trigger re-render via renderer)
-            if (this.running && ++this._hmFrame >= HEATMAP_INTERVAL) {
-                this._hmFrame = 0;
-                this.heatmap.update(this.particles, this.camera, this.width, this.height,
-                    this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
-                    this.physics.relativityEnabled,
-                    this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
-                    this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
-                    this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
-                    this.physics.gravityEnabled, this.physics.coulombEnabled);
+            if (this._gpuReady && this.backend === BACKEND_GPU) {
+                // ─── GPU render path ───
+                this._gpuRenderer.updateCamera(this.camera);
+                this._gpuRenderer.render(this._gpuPhysics.aliveCount);
+            } else {
+                // ─── CPU render path ───
+                // Throttle heatmap to every HEATMAP_INTERVAL frames (default 4 = ~15fps)
+                // Skip when paused — state hasn't changed (camera changes trigger re-render via renderer)
+                if (this.running && ++this._hmFrame >= HEATMAP_INTERVAL) {
+                    this._hmFrame = 0;
+                    this.heatmap.update(this.particles, this.camera, this.width, this.height,
+                        this.physics.pool, this.physics._lastRoot, this.physics.barnesHutEnabled,
+                        this.physics.relativityEnabled,
+                        this.physics.simTime, this.physics.periodic, this.domainW, this.domainH,
+                        this.topology, this.physics.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
+                        this.physics.yukawaEnabled, this.physics.yukawaMu, this.deadParticles,
+                        this.physics.gravityEnabled, this.physics.coulombEnabled);
+                }
+                this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons, this.pions);
             }
+
+            // Sidebar plots + stats (shared across both backends)
             const sidebarFrame = !(++this._sbFrame & SIDEBAR_THROTTLE_MASK);
             if (sidebarFrame) {
                 this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
                 this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
             }
-            this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons, this.pions);
             if (sidebarFrame) {
                 this.phasePlot.draw(this.renderer.isLight);
                 this.effPotPlot.draw(this.renderer.isLight);
