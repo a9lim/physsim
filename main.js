@@ -630,7 +630,26 @@ class Simulation {
             if (this._gpuReady && this.backend === BACKEND_GPU) {
                 // ─── GPU render path ───
                 this._gpuRenderer.updateCamera(this.camera);
-                this._gpuRenderer.render(this._gpuPhysics.aliveCount);
+                // Sync visual toggles from CPU renderer
+                this._gpuRenderer.showForce = this.renderer.showForce;
+                this._gpuRenderer.showForceComponents = this.renderer.showForceComponents;
+                this._gpuRenderer.showVelocity = this.renderer.showVelocity;
+                const ph = this.physics;
+                this._gpuRenderer.render(this._gpuPhysics.aliveCount, {
+                    enabledForces: {
+                        gravity: ph.gravityEnabled,
+                        coulomb: ph.coulombEnabled,
+                        magnetic: ph.magneticEnabled,
+                        gravitomag: ph.gravitomagEnabled,
+                        onePN: ph.onePNEnabled,
+                        spinOrbit: ph.spinOrbitEnabled,
+                        radiation: ph.radiationEnabled,
+                        yukawa: ph.yukawaEnabled,
+                        external: (ph.extGravity !== 0 || ph.extElectric !== 0 || ph.extBz !== 0),
+                        higgs: ph.higgsEnabled,
+                        axion: ph.axionEnabled,
+                    },
+                });
             } else {
                 // ─── CPU render path ───
                 // Throttle heatmap to every HEATMAP_INTERVAL frames (default 4 = ~15fps)

@@ -1152,6 +1152,50 @@ export async function createPairProductionPipeline(device) {
 }
 
 /**
+ * Create arrow render pipeline for force/velocity vector visualization.
+ * Standalone shader (no common.wgsl prepend).
+ * Bindings: camera (uniform), arrowParams (uniform), particleState/Aux/allForces (read-only-storage).
+ */
+export async function createArrowRenderPipeline(device, format, isLight) {
+    const code = await fetchShader('arrow-render.wgsl');
+    const module = device.createShaderModule({ label: 'arrowRender', code });
+
+    const bindGroupLayout = device.createBindGroupLayout({
+        label: 'arrowRender_g0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },        // camera
+            { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },        // arrowParams
+            { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleState
+            { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleAux
+            { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // allForces
+        ],
+    });
+
+    const blendState = isLight
+        ? {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        }
+        : {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+        };
+
+    const pipeline = device.createRenderPipeline({
+        label: 'arrowRender',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        vertex: { module, entryPoint: 'vs_main' },
+        fragment: {
+            module, entryPoint: 'fs_main',
+            targets: [{ format, blend: blendState }],
+        },
+        primitive: { topology: 'triangle-list' },
+    });
+
+    return { pipeline, bindGroupLayout };
+}
+
+/**
  * Create field overlay render pipeline (Phase 5). Unchanged — no particle buffers.
  */
 export async function createFieldRenderPipeline(device, format, isLight) {

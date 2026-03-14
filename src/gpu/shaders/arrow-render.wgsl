@@ -1,6 +1,6 @@
 // arrow-render.wgsl — Instanced force arrow rendering.
 //
-// Each arrow is drawn as a triangle strip (4 vertices for shaft + 3 for head = 7 total).
+// Each arrow is drawn as triangle-list (9 vertices = 3 triangles: shaft quad + head).
 // One draw call per force type (11 types), each with a different color uniform.
 // Instance count = alive particle count. Vertex shader reads force vector from the
 // appropriate force accumulator buffer.
@@ -130,18 +130,21 @@ fn vs_main(
     let tip = base + dir * scaledLen;
     let headBase = tip - dir * HEAD_LEN;
 
-    // 7 vertices: shaft (0-3 as triangle strip), then head (4-6 as triangle)
+    // 9 vertices (triangle-list): shaft quad (2 tris) + head (1 tri)
     var localPos: vec2f;
     switch (vertIdx) {
-        // Shaft quad (triangle strip: 0,1,2,3)
+        // Shaft triangle 1: bottom-left, bottom-right, top-left
         case 0u: { localPos = base - perp * SHAFT_HALF_W; }
         case 1u: { localPos = base + perp * SHAFT_HALF_W; }
         case 2u: { localPos = headBase - perp * SHAFT_HALF_W; }
-        case 3u: { localPos = headBase + perp * SHAFT_HALF_W; }
-        // Head triangle (4,5,6)
-        case 4u: { localPos = headBase - perp * HEAD_HALF_W; }
-        case 5u: { localPos = headBase + perp * HEAD_HALF_W; }
-        case 6u: { localPos = tip; }
+        // Shaft triangle 2: top-left, bottom-right, top-right
+        case 3u: { localPos = headBase - perp * SHAFT_HALF_W; }
+        case 4u: { localPos = base + perp * SHAFT_HALF_W; }
+        case 5u: { localPos = headBase + perp * SHAFT_HALF_W; }
+        // Head triangle: left, right, tip
+        case 6u: { localPos = headBase - perp * HEAD_HALF_W; }
+        case 7u: { localPos = headBase + perp * HEAD_HALF_W; }
+        case 8u: { localPos = tip; }
         default: { localPos = vec2f(0.0); }
     }
 
