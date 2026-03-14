@@ -133,51 +133,71 @@ export default class GPURenderer {
 
     /** Create boson (photon + pion) render pipelines. */
     async _initBosonRendering() {
-        const { photonPipeline, pionPipeline, bindGroupLayouts } =
-            await createBosonRenderPipelines(this.device, this.format, this.isLight);
+        let result;
+        try {
+            result = await createBosonRenderPipelines(this.device, this.format, this.isLight);
+        } catch (e) {
+            console.warn('[physsim] Boson render pipeline creation failed, skipping:', e.message);
+            return;
+        }
+        const { photonPipeline, pionPipeline, bindGroupLayouts } = result;
+        if (!photonPipeline || !pionPipeline) {
+            console.warn('[physsim] Boson render pipelines invalid, skipping');
+            return;
+        }
 
         this._photonPipeline = photonPipeline;
         this._pionPipeline = pionPipeline;
 
         const b = this.buffers;
 
-        // Group 0: camera uniforms
-        const g0 = this.device.createBindGroup({
-            label: 'bosonRender_g0',
-            layout: bindGroupLayouts[0],
-            entries: [
-                { binding: 0, resource: { buffer: this.cameraBuffer } },
-            ],
-        });
+        // Check that boson buffers exist (allocated lazily)
+        if (!b.phPosX || !b.piPosX) {
+            console.warn('[physsim] Boson buffers not yet allocated, skipping boson render init');
+            return;
+        }
 
-        // Group 1: photon pool (5 read-only)
-        const g1 = this.device.createBindGroup({
-            label: 'bosonRender_g1',
-            layout: bindGroupLayouts[1],
-            entries: [
-                { binding: 0, resource: { buffer: b.phPosX } },
-                { binding: 1, resource: { buffer: b.phPosY } },
-                { binding: 2, resource: { buffer: b.phAge } },
-                { binding: 3, resource: { buffer: b.phFlags } },
-                { binding: 4, resource: { buffer: b.phCount } },
-            ],
-        });
+        try {
+            // Group 0: camera uniforms
+            const g0 = this.device.createBindGroup({
+                label: 'bosonRender_g0',
+                layout: bindGroupLayouts[0],
+                entries: [
+                    { binding: 0, resource: { buffer: this.cameraBuffer } },
+                ],
+            });
 
-        // Group 2: pion pool (5 read-only)
-        const g2 = this.device.createBindGroup({
-            label: 'bosonRender_g2',
-            layout: bindGroupLayouts[2],
-            entries: [
-                { binding: 0, resource: { buffer: b.piPosX } },
-                { binding: 1, resource: { buffer: b.piPosY } },
-                { binding: 2, resource: { buffer: b.piAge } },
-                { binding: 3, resource: { buffer: b.piFlags } },
-                { binding: 4, resource: { buffer: b.piCount } },
-            ],
-        });
+            // Group 1: photon pool (5 read-only)
+            const g1 = this.device.createBindGroup({
+                label: 'bosonRender_g1',
+                layout: bindGroupLayouts[1],
+                entries: [
+                    { binding: 0, resource: { buffer: b.phPosX } },
+                    { binding: 1, resource: { buffer: b.phPosY } },
+                    { binding: 2, resource: { buffer: b.phAge } },
+                    { binding: 3, resource: { buffer: b.phFlags } },
+                    { binding: 4, resource: { buffer: b.phCount } },
+                ],
+            });
 
-        this._bosonBindGroups = [g0, g1, g2];
-        this._bosonReady = true;
+            // Group 2: pion pool (5 read-only)
+            const g2 = this.device.createBindGroup({
+                label: 'bosonRender_g2',
+                layout: bindGroupLayouts[2],
+                entries: [
+                    { binding: 0, resource: { buffer: b.piPosX } },
+                    { binding: 1, resource: { buffer: b.piPosY } },
+                    { binding: 2, resource: { buffer: b.piAge } },
+                    { binding: 3, resource: { buffer: b.piFlags } },
+                    { binding: 4, resource: { buffer: b.piCount } },
+                ],
+            });
+
+            this._bosonBindGroups = [g0, g1, g2];
+            this._bosonReady = true;
+        } catch (e) {
+            console.warn('[physsim] Boson bind group creation failed:', e.message);
+        }
     }
 
     /** Update camera uniform buffer. Call before render(). */
