@@ -230,6 +230,25 @@ export function createParticleBuffers(device, maxParticles) {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
+    // ── Phase 4: 1PN velocity-Verlet correction ──
+    // Old 1PN forces for VV correction: vec2<f32> per particle (stored as f32[maxParticles * 2])
+    const f1pnOld = storageBuffer('f1pnOld', FLOAT_SIZE, maxParticles * 2);
+
+    // ── Phase 4: Jerk accumulators for radiation ──
+    // Analytical jerk accumulated in pair-force pass, consumed by radiation shader
+    const jerkX = storageBuffer('jerkX', FLOAT_SIZE, maxParticles);
+    const jerkY = storageBuffer('jerkY', FLOAT_SIZE, maxParticles);
+
+    // ── Phase 4: Radiation accumulators ──
+    // Per-particle energy accumulators for photon/pion emission thresholds
+    const radAccum = storageBuffer('radAccum', FLOAT_SIZE, maxParticles);
+    const hawkAccum = storageBuffer('hawkAccum', FLOAT_SIZE, maxParticles);
+    const yukawaRadAccum = storageBuffer('yukawaRadAccum', FLOAT_SIZE, maxParticles);
+
+    // Radiation display forces (for renderer force arrows)
+    const radDisplayX = storageBuffer('radDisplayX', FLOAT_SIZE, maxParticles);
+    const radDisplayY = storageBuffer('radDisplayY', FLOAT_SIZE, maxParticles);
+
     // Max acceleration for adaptive substepping (single u32, atomicMax in force shader)
     const maxAccelBuffer = storageBuffer('maxAccel', UINT_SIZE, 1);
     const maxAccelStaging = device.createBuffer({
@@ -312,6 +331,12 @@ export function createParticleBuffers(device, maxParticles) {
         // Death metadata (Phase 3: dead particle GC)
         deathTime, deathMass, deathAngVel,
         freeStack, freeTop,
+        // 1PN VV correction (Phase 4)
+        f1pnOld,
+        // Jerk + radiation accumulators (Phase 4)
+        jerkX, jerkY,
+        radAccum, hawkAccum, yukawaRadAccum,
+        radDisplayX, radDisplayY,
         // Photon pool (Phase 4)
         phPosX, phPosY, phVelX, phVelY, phEnergy, phEmitterId, phAge, phFlags, phCount,
         MAX_PHOTONS,
