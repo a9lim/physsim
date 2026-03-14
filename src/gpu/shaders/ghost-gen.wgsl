@@ -3,14 +3,7 @@
 // Appends ghost copies at positions beyond the boundary edge.
 // Ghost flag (bit 4 in flags) marks them for tree insertion but skips self-accumulation.
 
-// Topology constants
-const TOPO_TORUS: u32 = 0u;
-const TOPO_KLEIN: u32 = 1u;
-const TOPO_RP2:   u32 = 2u;
-
-// Flag bits
-const FLAG_ALIVE:  u32 = 1u;
-const FLAG_GHOST:  u32 = 16u;
+// Constants provided by generated wgslConstants block.
 
 // ── Packed buffer structs (standalone — common.wgsl not prepended) ──
 
@@ -92,8 +85,6 @@ struct SimUniforms {
 @group(2) @binding(0) var<storage, read_write> ghostCounter: atomic<u32>;
 @group(2) @binding(1) var<uniform> uniforms: SimUniforms;
 @group(2) @binding(2) var<storage, read_write> ghostOriginalIdx: array<u32>;
-
-const MAX_GHOSTS: u32 = 4096u; // Must match MAX_PARTICLES
 
 fn appendGhost(
     gs: ParticleState, ga: ParticleAux, dd: ParticleDerived,

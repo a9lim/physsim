@@ -1,27 +1,6 @@
 // ─── Scalar Field Common Utilities ───
 // Shared by field-deposit, field-evolve, field-forces, field-selfgrav, field-excitation
-
-// Grid constants (overridden by specialization constants if supported)
-const GRID: u32 = 64u;
-const GRID_SQ: u32 = 4096u;  // GRID * GRID
-const GRID_LAST: u32 = 63u;  // GRID - 1
-const COARSE: u32 = 8u;
-const COARSE_SQ: u32 = 64u;
-const SG_RATIO: u32 = 8u;    // GRID / COARSE
-const SCALAR_FIELD_MAX: f32 = 2.0;
-const FIELD_EXCITATION_SIGMA: f32 = 2.0;
-const MERGE_EXCITATION_SCALE: f32 = 0.5;
-const EPSILON: f32 = 1e-9;
-
-// Boundary mode enums (must match config.js)
-const BOUND_DESPAWN: u32 = 0u;
-const BOUND_BOUNCE: u32 = 1u;
-const BOUND_LOOP: u32 = 2u;
-
-// Topology enums
-const TORUS: u32 = 0u;
-const KLEIN: u32 = 1u;
-const RP2: u32 = 2u;
+// Grid and physics constants are provided by the generated wgslConstants block.
 
 struct FieldUniforms {
     dt: f32,

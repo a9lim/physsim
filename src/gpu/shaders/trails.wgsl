@@ -3,7 +3,7 @@
 // Dispatched once per frame (after all substeps), not per substep.
 // Ring buffer length = TRAIL_LEN (256). Write index wraps around.
 
-const TRAIL_LEN: u32 = 256u;
+// Constants provided by generated wgslConstants block.
 
 // Packed particle state struct (matches common.wgsl ParticleState)
 struct ParticleState {
@@ -20,14 +20,12 @@ struct ParticleState {
 @group(0) @binding(3) var<storage, read_write> trailWriteIdx: array<u32>;  // [MAX_PARTICLES]
 @group(0) @binding(4) var<storage, read_write> trailCount: array<u32>;     // [MAX_PARTICLES]
 
-const ALIVE_BIT: u32 = 1u;
-
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let idx = gid.x;
     if (idx >= arrayLength(&particles)) { return; }
     let p = particles[idx];
-    if ((p.flags & ALIVE_BIT) == 0u) { return; }
+    if ((p.flags & FLAG_ALIVE) == 0u) { return; }
 
     let writeIdx = trailWriteIdx[idx];
     let base = idx * TRAIL_LEN;

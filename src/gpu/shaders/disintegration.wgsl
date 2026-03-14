@@ -3,7 +3,7 @@
 // Writes events to an append buffer for CPU-side fragment spawning.
 // Roche: Eggleton (1983) L1 mass transfer.
 
-const EPSILON: f32 = 1e-9;
+// Constants provided by generated wgslConstants block.
 
 // Packed particle state struct (matches common.wgsl ParticleState)
 struct ParticleState_DI {
@@ -72,8 +72,6 @@ struct DisintEvent {
 @group(1) @binding(0) var<storage, read_write> events: array<DisintEvent>;
 @group(1) @binding(1) var<storage, read_write> eventCounter: atomic<u32>;
 @group(1) @binding(2) var<uniform> du: DisintUniforms;
-
-const MAX_DISINT_EVENTS: u32 = 64u;
 
 @compute @workgroup_size(256)
 fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {

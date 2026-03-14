@@ -27,23 +27,8 @@ struct ColorUniforms {
 @group(0) @binding(1) var<storage, read> particles: array<ParticleState>;
 @group(0) @binding(2) var<storage, read_write> color: array<u32>;
 
-const ALIVE_BIT: u32 = 1u;
-const ANTIMATTER_BIT: u32 = 4u;
-
-// Slate (neutral): #8A7E72 = (138, 126, 114)
-const SLATE_R: f32 = 138.0 / 255.0;
-const SLATE_G: f32 = 126.0 / 255.0;
-const SLATE_B: f32 = 114.0 / 255.0;
-
-// Positive (red): #C05048 = (192, 80, 72)
-const POS_R: f32 = 192.0 / 255.0;
-const POS_G: f32 = 80.0 / 255.0;
-const POS_B: f32 = 72.0 / 255.0;
-
-// Negative (blue): #5C92A8 = (92, 146, 168)
-const NEG_R: f32 = 92.0 / 255.0;
-const NEG_G: f32 = 146.0 / 255.0;
-const NEG_B: f32 = 168.0 / 255.0;
+// Constants (FLAG_ALIVE, FLAG_ANTIMATTER, COLOR_SLATE, COLOR_RED, COLOR_BLUE)
+// provided by generated wgslConstants block.
 
 fn packRGBA(r: f32, g: f32, b: f32, a: f32) -> u32 {
     let ri = u32(clamp(r * 255.0, 0.0, 255.0));
@@ -58,7 +43,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let idx = gid.x;
     if (idx >= arrayLength(&particles)) { return; }
     let p = particles[idx];
-    if ((p.flags & ALIVE_BIT) == 0u) { return; }
+    if ((p.flags & FLAG_ALIVE) == 0u) { return; }
 
     let q = p.charge;
     let absQ = abs(q);
@@ -70,17 +55,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     if (absQ < 0.001) {
         // Neutral
-        r = SLATE_R; g = SLATE_G; b = SLATE_B;
+        r = COLOR_SLATE.r; g = COLOR_SLATE.g; b = COLOR_SLATE.b;
     } else if (q > 0.0) {
         // Positive: lerp slate → red
-        r = mix(SLATE_R, POS_R, intensity);
-        g = mix(SLATE_G, POS_G, intensity);
-        b = mix(SLATE_B, POS_B, intensity);
+        r = mix(COLOR_SLATE.r, COLOR_RED.r, intensity);
+        g = mix(COLOR_SLATE.g, COLOR_RED.g, intensity);
+        b = mix(COLOR_SLATE.b, COLOR_RED.b, intensity);
     } else {
         // Negative: lerp slate → blue
-        r = mix(SLATE_R, NEG_R, intensity);
-        g = mix(SLATE_G, NEG_G, intensity);
-        b = mix(SLATE_B, NEG_B, intensity);
+        r = mix(COLOR_SLATE.r, COLOR_BLUE.r, intensity);
+        g = mix(COLOR_SLATE.g, COLOR_BLUE.g, intensity);
+        b = mix(COLOR_SLATE.b, COLOR_BLUE.b, intensity);
     }
 
     // Antimatter: no color inversion — charge is already negated at spawn time,

@@ -5,12 +5,7 @@
 //
 // Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
-const MAX_PHOTONS: u32 = 1024u;
-const MAX_PIONS: u32 = 256u;
-const BOSON_SOFTENING_SQ: f32 = 4.0;
-const BH_THETA_SQ: f32 = 0.25; // 0.5^2
-const EPSILON: f32 = 1e-9;
-const MAX_DEPTH: u32 = 48u;
+// Constants provided by generated wgslConstants block.
 
 // ── Packed struct definitions ──
 
@@ -107,9 +102,6 @@ const N_SW: u32 = 16u;
 const N_SE: u32 = 17u;
 const N_PARTICLE_IDX: u32 = 18u;
 const N_DEPTH: u32 = 19u;
-
-// Particle flag bits
-const FLAG_ALIVE: u32 = 1u;
 
 // Group 0: uniforms + boson tree nodes (merged to stay within 4 bind groups)
 @group(0) @binding(0) var<uniform> u: SimUniforms;

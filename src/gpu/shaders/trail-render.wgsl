@@ -41,7 +41,7 @@ struct ParticleState {
 @group(0) @binding(6) var<storage, read> color: array<u32>;
 @group(0) @binding(7) var<storage, read> particles: array<ParticleState>;
 
-const ALIVE_BIT: u32 = 1u;
+// FLAG_ALIVE provided by generated wgslConstants block.
 
 struct VertexOutput {
     @builtin(position) pos: vec4f,
@@ -66,7 +66,7 @@ fn vs_main(
 
     // Skip dead particles
     let p = particles[instIdx];
-    if ((p.flags & ALIVE_BIT) == 0u) {
+    if ((p.flags & FLAG_ALIVE) == 0u) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);  // clip away
         out.alpha = 0.0;
         out.color = vec4f(0.0);

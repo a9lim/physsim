@@ -9,21 +9,22 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 11;
+const SHADER_VERSION = 12;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
-async function fetchShader(filename) {
+async function fetchShader(filename, prepend = '') {
     const resp = await fetch(`src/gpu/shaders/${filename}?v=${SHADER_VERSION}`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
-    return resp.text();
+    const source = await resp.text();
+    return prepend ? prepend + '\n' + source : source;
 }
 
 /**
  * Create all Phase 2 compute pipelines.
  * Returns an object with pipeline + bindGroupLayout for each shader.
  */
-export async function createPhase2Pipelines(device) {
-    const commonWGSL = await fetchShader('common.wgsl');
+export async function createPhase2Pipelines(device, wgslConstants = '') {
+    const commonWGSL = wgslConstants + '\n' + await fetchShader('common.wgsl');
 
     async function makePipeline(label, filename, layouts) {
         const code = commonWGSL + '\n' + await fetchShader(filename);
@@ -133,8 +134,8 @@ export async function createPhase2Pipelines(device) {
  *   Group 1: particleState (ro) + derived (ro) = 2 bindings
  *   Group 2: uniforms
  */
-export async function createTreeBuildPipelines(device) {
-    const code = await fetchShader('tree-build.wgsl');
+export async function createTreeBuildPipelines(device, wgslConstants = '') {
+    const code = await fetchShader('tree-build.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'treeBuild', code });
 
     // Group 0: tree node buffer + counter + bounds + visitor flags
@@ -209,8 +210,8 @@ export async function createTreeBuildPipelines(device) {
  *   Group 2: allForces (rw) + radiationState (rw) + maxAccel (rw) = 3
  *   Total: 8 storage buffers per stage
  */
-export async function createTreeForcePipeline(device) {
-    const code = await fetchShader('forces-tree.wgsl');
+export async function createTreeForcePipeline(device, wgslConstants = '') {
+    const code = await fetchShader('forces-tree.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'treeForce', code });
 
     const group0Layout = device.createBindGroupLayout({
@@ -261,8 +262,8 @@ export async function createTreeForcePipeline(device) {
  *   Group 2: collisionPairs + pairCounter + mergeResults + mergeCounter = 4
  *   Total: 8 storage buffers per stage
  */
-export async function createCollisionPipelines(device) {
-    const code = await fetchShader('collision.wgsl');
+export async function createCollisionPipelines(device, wgslConstants = '') {
+    const code = await fetchShader('collision.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'collision', code });
 
     const group0Layout = device.createBindGroupLayout({
@@ -329,8 +330,8 @@ export async function createCollisionPipelines(device) {
  * Bind group:
  *   Group 0: particleState (rw) + particleAux (ro) + uniforms + freeStack (rw) + freeTop (rw) = 4 storage
  */
-export async function createDeadGCPipeline(device) {
-    const code = await fetchShader('dead-gc.wgsl');
+export async function createDeadGCPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('dead-gc.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'deadGC', code });
 
     const group0Layout = device.createBindGroupLayout({
@@ -356,11 +357,11 @@ export async function createDeadGCPipeline(device) {
 /**
  * Create Phase 4 compute pipelines: history, 1PN, radiation, bosons, boson-tree.
  */
-export async function createPhase4Pipelines(device) {
+export async function createPhase4Pipelines(device, wgslConstants = '') {
     // ── recordHistory (history.wgsl, entry: recordHistory) ──
     // Group 0: uniform + particleState (ro) = 1 storage
     // Group 1: history ring buffers + meta (7 bindings)
-    const historyCode = await fetchShader('history.wgsl');
+    const historyCode = await fetchShader('history.wgsl', wgslConstants);
     const historyModule = device.createShaderModule({ label: 'history', code: historyCode });
 
     const historyG0 = device.createBindGroupLayout({
@@ -396,7 +397,7 @@ export async function createPhase4Pipelines(device) {
     // Group 0: uniforms
     // Group 1: particleState (ro) + derived (ro) + axYukMod (ro) = 3
     // Group 2: allForces (rw) + f1pnOld (ro) + particleState_rw (rw) = 3
-    const onePNCode = await fetchShader('onePN.wgsl');
+    const onePNCode = await fetchShader('onePN.wgsl', wgslConstants);
     const onePNModule = device.createShaderModule({ label: 'onePN', code: onePNCode });
 
     const onePNG0 = device.createBindGroupLayout({
@@ -446,7 +447,7 @@ export async function createPhase4Pipelines(device) {
     // Group 2: photonPool (rw) + phCount (rw) = 2
     // Group 3: pionPool (rw) + piCount (rw) = 2
     // Total: 10 storage buffers per stage
-    const radiationCode = await fetchShader('radiation.wgsl');
+    const radiationCode = await fetchShader('radiation.wgsl', wgslConstants);
     const radiationModule = device.createShaderModule({ label: 'radiation', code: radiationCode });
 
     const radG0 = device.createBindGroupLayout({
@@ -512,7 +513,7 @@ export async function createPhase4Pipelines(device) {
     // Group 2: photonPool (rw) + phCount (rw) = 2
     // Group 3: pionPool (rw) + piCount (rw) = 2
     // Total: 8 storage buffers per stage
-    const bosonsCode = await fetchShader('bosons.wgsl');
+    const bosonsCode = await fetchShader('bosons.wgsl', wgslConstants);
     const bosonsModule = device.createShaderModule({ label: 'bosons', code: bosonsCode });
 
     const bosG0 = device.createBindGroupLayout({
@@ -565,7 +566,7 @@ export async function createPhase4Pipelines(device) {
     // Group 2: pionPool (rw) + piCount (rw) = 2
     // Group 3: particleState (ro) + allForces (rw) = 2
     // Total: 4 groups, 8 storage buffers per stage
-    const bosonTreeCode = await fetchShader('boson-tree.wgsl');
+    const bosonTreeCode = await fetchShader('boson-tree.wgsl', wgslConstants);
     const bosonTreeModule = device.createShaderModule({ label: 'bosonTree', code: bosonTreeCode });
 
     const btG0 = device.createBindGroupLayout({
@@ -631,8 +632,8 @@ export async function createPhase4Pipelines(device) {
  * Group 1: photonPool (ro) + phCount (ro) = 2 (was 5)
  * Group 2: pionPool (ro) + piCount (ro) = 2 (was 5)
  */
-export async function createBosonRenderPipelines(device, format, isLight) {
-    const code = await fetchShader('boson-render.wgsl');
+export async function createBosonRenderPipelines(device, format, isLight, wgslConstants = '') {
+    const code = await fetchShader('boson-render.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'bosonRender', code });
 
     const g0 = device.createBindGroupLayout({
@@ -703,8 +704,8 @@ export async function createBosonRenderPipelines(device, format, isLight) {
  *   Group 2: ghostCounter (rw) + uniforms + ghostOriginalIdx (rw) = 3
  *   Total: 8 storage buffers per stage
  */
-export async function createGhostGenPipeline(device) {
-    const code = await fetchShader('ghost-gen.wgsl');
+export async function createGhostGenPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('ghost-gen.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'ghostGen', code });
 
     // Group 0: packed particle state (rw for encoder compat)
@@ -755,8 +756,8 @@ export async function createGhostGenPipeline(device) {
  *   Group 1: scratch + scratchIndices + targetGrid + fieldUniforms = 4
  *   Total: 4 storage buffers per stage
  */
-export async function createFieldDepositPipelines(device) {
-    const fieldCommonWGSL = await fetchShader('field-common.wgsl');
+export async function createFieldDepositPipelines(device, wgslConstants = '') {
+    const fieldCommonWGSL = wgslConstants + '\n' + await fetchShader('field-common.wgsl');
     const depositWGSL = await fetchShader('field-deposit.wgsl');
     const code = fieldCommonWGSL + '\n' + depositWGSL;
     const module = device.createShaderModule({ label: 'fieldDeposit', code });
@@ -797,8 +798,8 @@ export async function createFieldDepositPipelines(device) {
  * Create field evolution pipelines (Phase 5: Störmer-Verlet KDK).
  * Same as before — no particle buffers involved, just field grids.
  */
-export async function createFieldEvolvePipelines(device) {
-    const fieldCommonWGSL = await fetchShader('field-common.wgsl');
+export async function createFieldEvolvePipelines(device, wgslConstants = '') {
+    const fieldCommonWGSL = wgslConstants + '\n' + await fetchShader('field-common.wgsl');
     const evolveWGSL = await fetchShader('field-evolve.wgsl');
     const code = fieldCommonWGSL + '\n' + evolveWGSL;
     const module = device.createShaderModule({ label: 'fieldEvolve', code });
@@ -867,8 +868,8 @@ export async function createFieldEvolvePipelines(device) {
  *   Group 3: fieldUniforms = uniform
  *   Total: 9 storage buffers per stage
  */
-export async function createFieldForcesPipelines(device) {
-    const fieldCommonWGSL = await fetchShader('field-common.wgsl');
+export async function createFieldForcesPipelines(device, wgslConstants = '') {
+    const fieldCommonWGSL = wgslConstants + '\n' + await fetchShader('field-common.wgsl');
     const forcesWGSL = await fetchShader('field-forces.wgsl');
     const code = fieldCommonWGSL + '\n' + forcesWGSL;
     const module = device.createShaderModule({ label: 'fieldForces', code });
@@ -927,8 +928,8 @@ export async function createFieldForcesPipelines(device) {
  * Create field self-gravity pipelines (Phase 5).
  * No particle buffers — just field grids. Unchanged.
  */
-export async function createFieldSelfGravPipelines(device) {
-    const fieldCommonWGSL = await fetchShader('field-common.wgsl');
+export async function createFieldSelfGravPipelines(device, wgslConstants = '') {
+    const fieldCommonWGSL = wgslConstants + '\n' + await fetchShader('field-common.wgsl');
     const sgWGSL = await fetchShader('field-selfgrav.wgsl');
     const code = fieldCommonWGSL + '\n' + sgWGSL;
     const module = device.createShaderModule({ label: 'fieldSelfGrav', code });
@@ -978,8 +979,8 @@ export async function createFieldSelfGravPipelines(device) {
 /**
  * Create field excitation pipeline (Phase 5). Unchanged — no particle buffers.
  */
-export async function createFieldExcitationPipeline(device) {
-    const fieldCommonWGSL = await fetchShader('field-common.wgsl');
+export async function createFieldExcitationPipeline(device, wgslConstants = '') {
+    const fieldCommonWGSL = wgslConstants + '\n' + await fetchShader('field-common.wgsl');
     const excWGSL = await fetchShader('field-excitation.wgsl');
     const code = fieldCommonWGSL + '\n' + excWGSL;
     const module = device.createShaderModule({ label: 'fieldExcitation', code });
@@ -1013,8 +1014,8 @@ export async function createFieldExcitationPipeline(device) {
  *     Group 2: signal delay history (histPosX, histPosY, histTime, histMeta) = 4
  *   blurLayout: unchanged
  */
-export async function createHeatmapPipelines(device) {
-    const code = await fetchShader('heatmap.wgsl');
+export async function createHeatmapPipelines(device, wgslConstants = '') {
+    const code = await fetchShader('heatmap.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'heatmap', code });
 
     const hmG0 = device.createBindGroupLayout({
@@ -1076,8 +1077,8 @@ export async function createHeatmapPipelines(device) {
  * Create expansion compute pipeline (Phase 5).
  * Bind group: particleState (rw) + ExpansionUniforms = 1 storage + 1 uniform
  */
-export async function createExpansionPipeline(device) {
-    const code = await fetchShader('expansion.wgsl');
+export async function createExpansionPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('expansion.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'expansion', code });
 
     const group0Layout = device.createBindGroupLayout({
@@ -1104,8 +1105,8 @@ export async function createExpansionPipeline(device) {
  *   Group 0: particleState (ro) + particleAux (ro) + derived (ro) = 3
  *   Group 1: events + eventCounter + DisintUniforms = 3
  */
-export async function createDisintegrationPipeline(device) {
-    const code = await fetchShader('disintegration.wgsl');
+export async function createDisintegrationPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('disintegration.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'disintegration', code });
 
     const group0Layout = device.createBindGroupLayout({
@@ -1143,8 +1144,8 @@ export async function createDisintegrationPipeline(device) {
  *   Group 1: particleState (ro) = 1 (was 4 separate)
  *   Group 2: pairEvents + pairCounter + PairProdUniforms = 3
  */
-export async function createPairProductionPipeline(device) {
-    const code = await fetchShader('pair-production.wgsl');
+export async function createPairProductionPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('pair-production.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'pairProduction', code });
 
     const group0Layout = device.createBindGroupLayout({
@@ -1186,8 +1187,8 @@ export async function createPairProductionPipeline(device) {
  * Standalone shader (defines own structs).
  * Bindings: ColorUniforms (uniform), particleState (ro), color (rw).
  */
-export async function createUpdateColorsPipeline(device) {
-    const code = await fetchShader('update-colors.wgsl');
+export async function createUpdateColorsPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('update-colors.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'updateColors', code });
 
     const bindGroupLayout = device.createBindGroupLayout({
@@ -1213,8 +1214,8 @@ export async function createUpdateColorsPipeline(device) {
  * Standalone shader (defines own structs).
  * Bindings: camera (uniform), particleState (ro), particleAux (ro), derived (ro).
  */
-export async function createSpinRenderPipeline(device, format, isLight) {
-    const code = await fetchShader('spin-render.wgsl');
+export async function createSpinRenderPipeline(device, format, isLight, wgslConstants = '') {
+    const code = await fetchShader('spin-render.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'spinRender', code });
 
     const bindGroupLayout = device.createBindGroupLayout({
@@ -1256,8 +1257,8 @@ export async function createSpinRenderPipeline(device, format, isLight) {
  * Standalone shader (defines own structs).
  * Bindings: particleState (ro), trailX/Y (rw), trailWriteIdx/Count (rw).
  */
-export async function createTrailRecordPipeline(device) {
-    const code = await fetchShader('trails.wgsl');
+export async function createTrailRecordPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('trails.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'trailRecord', code });
 
     const bindGroupLayout = device.createBindGroupLayout({
@@ -1285,8 +1286,8 @@ export async function createTrailRecordPipeline(device) {
  * Standalone shader.
  * Bindings: camera (uniform), trailParams (uniform), trailX/Y (ro), trailWriteIdx/Count (ro), color (ro), particles (ro).
  */
-export async function createTrailRenderPipeline(device, format, isLight) {
-    const code = await fetchShader('trail-render.wgsl');
+export async function createTrailRenderPipeline(device, format, isLight, wgslConstants = '') {
+    const code = await fetchShader('trail-render.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'trailRender', code });
 
     const bindGroupLayout = device.createBindGroupLayout({
@@ -1332,8 +1333,8 @@ export async function createTrailRenderPipeline(device, format, isLight) {
  * Standalone shader (no common.wgsl prepend).
  * Bindings: camera (uniform), arrowParams (uniform), particleState/Aux/allForces (read-only-storage).
  */
-export async function createArrowRenderPipeline(device, format, isLight) {
-    const code = await fetchShader('arrow-render.wgsl');
+export async function createArrowRenderPipeline(device, format, isLight, wgslConstants = '') {
+    const code = await fetchShader('arrow-render.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'arrowRender', code });
 
     const bindGroupLayout = device.createBindGroupLayout({
@@ -1375,8 +1376,8 @@ export async function createArrowRenderPipeline(device, format, isLight) {
 /**
  * Create field overlay render pipeline (Phase 5). Unchanged — no particle buffers.
  */
-export async function createFieldRenderPipeline(device, format, isLight) {
-    const fieldCommonWGSL = await fetchShader('field-common.wgsl');
+export async function createFieldRenderPipeline(device, format, isLight, wgslConstants = '') {
+    const fieldCommonWGSL = wgslConstants + '\n' + await fetchShader('field-common.wgsl');
     const renderWGSL = await fetchShader('field-render.wgsl');
     const code = fieldCommonWGSL + '\n' + renderWGSL;
     const module = device.createShaderModule({ label: 'fieldRender', code });
@@ -1412,8 +1413,8 @@ export async function createFieldRenderPipeline(device, format, isLight) {
 /**
  * Create heatmap overlay render pipeline (Phase 5). Unchanged — no particle buffers.
  */
-export async function createHeatmapRenderPipeline(device, format, isLight) {
-    const code = await fetchShader('heatmap-render.wgsl');
+export async function createHeatmapRenderPipeline(device, format, isLight, wgslConstants = '') {
+    const code = await fetchShader('heatmap-render.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'heatmapRender', code });
 
     const group0Layout = device.createBindGroupLayout({

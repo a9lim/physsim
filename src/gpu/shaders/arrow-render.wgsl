@@ -81,15 +81,11 @@ struct ParticleDerived_AR {
 @group(0) @binding(4) var<storage, read> allForces: array<AllForces_AR>;
 @group(0) @binding(5) var<storage, read> derived: array<ParticleDerived_AR>;
 
-const ALIVE_BIT: u32 = 1u;
-
-// Arrow geometry: shaft width, head width, head length (world units)
+// Constants (FLAG_ALIVE, VELOCITY_VECTOR_SCALE) provided by generated wgslConstants block.
+// Shader-specific constants:
 const SHAFT_HALF_W: f32 = 0.06;
 const HEAD_HALF_W: f32 = 0.15;
 const HEAD_LEN: f32 = 0.5;
-
-// Velocity vector scale (matches CPU VELOCITY_VECTOR_SCALE = 32)
-const VELOCITY_VECTOR_SCALE: f32 = 32.0;
 
 fn getForceVector(idx: u32, forceType: u32) -> vec2f {
     let af = allForces[idx];
@@ -128,7 +124,7 @@ fn vs_main(
     out.alpha = 0.8;
 
     let p = particles[instIdx];
-    if ((p.flags & ALIVE_BIT) == 0u) {
+    if ((p.flags & FLAG_ALIVE) == 0u) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
         return out;
     }

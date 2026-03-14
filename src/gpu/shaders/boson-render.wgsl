@@ -73,7 +73,7 @@ fn vertexPhoton(
 
     let px = ph.posX;
     let py = ph.posY;
-    let rawAlpha = max(0.0, 1.0 - ph.lifetime / 256.0); // PHOTON_LIFETIME = 256 time units
+    let rawAlpha = max(0.0, 1.0 - ph.lifetime / PHOTON_LIFETIME);
     // Alpha scale: 0.6 for light, 0.8 for dark (matches CPU renderer bucket alpha)
     let alphaScale = select(0.6, 0.8, camera.isDarkMode > 0.5);
     let alpha = rawAlpha * alphaScale;
@@ -87,12 +87,12 @@ fn vertexPhoton(
 
     out.position = clipPos + vec4f(qOff * pixelRadius * 2.0 / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
 
-    // Color: yellow for EM (#CCA84C), red for grav (#C05048)
+    // Color: yellow for EM, red for grav (from palette)
     let isGrav = (ph.flags & 2u) != 0u;
     if (isGrav) {
-        out.color = vec4f(0.753, 0.314, 0.282, alpha);
+        out.color = vec4f(COLOR_RED, alpha);
     } else {
-        out.color = vec4f(0.800, 0.659, 0.298, alpha);
+        out.color = vec4f(COLOR_YELLOW, alpha);
     }
     out.uv = qOff * 0.5 + 0.5;
     return out;
@@ -128,9 +128,9 @@ fn vertexPion(
 
     out.position = clipPos + vec4f(qOff * pixelRadius * 2.0 / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
 
-    // Pion: green, theme-dependent alpha (0.7 light / 0.9 dark)
+    // Pion: green (from palette), theme-dependent alpha (0.7 light / 0.9 dark)
     let pionAlpha = select(0.7, 0.9, camera.isDarkMode > 0.5);
-    out.color = vec4f(0.31, 0.6, 0.47, pionAlpha); // ~_PALETTE.extended.green
+    out.color = vec4f(COLOR_GREEN, pionAlpha);
     out.uv = qOff * 0.5 + 0.5;
     return out;
 }

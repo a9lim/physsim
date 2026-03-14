@@ -67,8 +67,6 @@ fn randomFloat(seed: u32) -> f32 {
     return f32(pcgHash(seed)) / 4294967296.0;
 }
 
-const MAX_PAIR_EVENTS: u32 = 32u;
-
 @compute @workgroup_size(256)
 fn checkPairProduction(@builtin(global_invocation_id) gid: vec3<u32>) {
     let phIdx = gid.x;

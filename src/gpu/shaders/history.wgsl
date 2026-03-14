@@ -4,11 +4,7 @@
 //
 // Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
-const HISTORY_LEN: u32 = 256u;
-const HISTORY_MASK: u32 = 255u;
-const NR_MAX_ITER: u32 = 8u;
-const NR_TOLERANCE: f32 = 1e-5;
-const EPSILON: f32 = 1e-9;
+// Constants provided by generated wgslConstants block.
 
 // ── Packed struct definitions ──
 
@@ -53,13 +49,11 @@ struct SimUniforms {
 // histMeta: [writeIdx, count] per particle (u32 pairs)
 @group(1) @binding(6) var<storage, read_write> histMeta: array<u32>;
 
-const ALIVE_BIT: u32 = 1u;
-
 @compute @workgroup_size(64)
 fn recordHistory(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= arrayLength(&particles)) { return; }
-    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
 
     let metaBase = i * 2u;
     var writeIdx = histMeta[metaBase];
@@ -97,11 +91,6 @@ struct DelayedState {
     angw: f32,
     valid: bool,
 };
-
-// Topology constants
-const TOPO_TORUS: u32 = 0u;
-const TOPO_KLEIN: u32 = 1u;
-const TOPO_RP2: u32 = 2u;
 
 // Full topology-aware minimum image displacement (Torus/Klein/RP²)
 fn minImageDisp(ox: f32, oy: f32, sx: f32, sy: f32,

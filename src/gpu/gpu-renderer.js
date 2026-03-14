@@ -10,6 +10,7 @@
  */
 import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
 import { TRAIL_LEN } from './gpu-buffers.js';
+import { buildWGSLConstants } from './gpu-constants.js';
 
 /** Standard premultiplied alpha-over blend (light mode). */
 const BLEND_ALPHA = {
@@ -112,7 +113,9 @@ export default class GPURenderer {
 
     /** Create render pipeline. Must be called after GPUPhysics.init(). */
     async init() {
-        const shaderCode = await fetchShader('particle.wgsl');
+        const wgslConstants = buildWGSLConstants();
+        this._wgslConstants = wgslConstants; // cache for theme-change rebuilds
+        const shaderCode = await fetchShader('particle.wgsl', wgslConstants);
 
         const module = this.device.createShaderModule({
             label: 'particle render',
@@ -191,8 +194,8 @@ export default class GPURenderer {
         let lightResult, darkResult;
         try {
             [lightResult, darkResult] = await Promise.all([
-                createBosonRenderPipelines(this.device, this.format, true),
-                createBosonRenderPipelines(this.device, this.format, false),
+                createBosonRenderPipelines(this.device, this.format, true, wgslConstants),
+                createBosonRenderPipelines(this.device, this.format, false, wgslConstants),
             ]);
         } catch (e) {
             console.warn('[physsim] Boson render pipeline creation failed, skipping:', e.message);
@@ -266,7 +269,7 @@ export default class GPURenderer {
     async _initArrowRendering() {
         try {
             const { pipeline, bindGroupLayout } =
-                await createArrowRenderPipeline(this.device, this.format, this.isLight);
+                await createArrowRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
             this._arrowPipeline = pipeline;
 
             // ArrowUniforms: forceType(u32) + colorR/G/B(f32) + arrowScale(f32) + minMag(f32) + pad0 + pad1 = 32 bytes
@@ -302,7 +305,7 @@ export default class GPURenderer {
     async _initSpinRendering() {
         try {
             const { pipeline, bindGroupLayout } =
-                await createSpinRenderPipeline(this.device, this.format, this.isLight);
+                await createSpinRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
             this._spinPipeline = pipeline;
 
             const b = this.buffers;
@@ -330,7 +333,7 @@ export default class GPURenderer {
         if (this._trailReady || !trailBuffers) return;
         try {
             const { pipeline, bindGroupLayout } =
-                await createTrailRenderPipeline(this.device, this.format, this.isLight);
+                await createTrailRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
             this._trailPipeline = pipeline;
 
             // Store trail buffer reference for theme-change rebuild
@@ -712,7 +715,7 @@ export default class GPURenderer {
         if (this._fieldRenderReady) return;
 
         const { pipeline, bindGroupLayouts } =
-            await createFieldRenderPipeline(this.device, this.format, this.isLight);
+            await createFieldRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
         this._fieldRenderPipeline = pipeline;
         this._fieldRenderLayouts = bindGroupLayouts;
 
@@ -739,7 +742,7 @@ export default class GPURenderer {
         if (this._heatmapRenderReady) return;
 
         const { pipeline, bindGroupLayouts } =
-            await createHeatmapRenderPipeline(this.device, this.format, this.isLight);
+            await createHeatmapRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
         this._heatmapRenderPipeline = pipeline;
         this._heatmapRenderLayouts = bindGroupLayouts;
 
@@ -908,7 +911,7 @@ export default class GPURenderer {
     async _rebuildTrailPipeline() {
         try {
             const { pipeline, bindGroupLayout } =
-                await createTrailRenderPipeline(this.device, this.format, this.isLight);
+                await createTrailRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
             this._trailPipeline = pipeline;
 
             // Recreate bind group with same buffers using the new layout
@@ -960,8 +963,9 @@ export default class GPURenderer {
     }
 }
 
-async function fetchShader(filename) {
-    const resp = await fetch(`src/gpu/shaders/${filename}?v=11`);
+async function fetchShader(filename, prepend = '') {
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=12`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
-    return resp.text();
+    const source = await resp.text();
+    return prepend ? prepend + '\n' + source : source;
 }

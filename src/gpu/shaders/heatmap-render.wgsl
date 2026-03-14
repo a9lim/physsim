@@ -37,7 +37,7 @@ struct HeatmapRenderUniforms {
     _pad: f32,
 };
 
-const HGRID: u32 = 64u;
+// HGRID provided by generated wgslConstants block.
 
 @group(0) @binding(0) var<storage, read> gravPotential: array<f32>;
 @group(0) @binding(1) var<storage, read> elecPotential: array<f32>;
@@ -78,7 +78,7 @@ fn fsHeatmapOverlay(in: VertexOutput) -> @location(0) vec4<f32> {
     var g: f32 = 0.0;
     var b: f32 = 0.0;
 
-    // Gravity channel (slate: #8A7E72)
+    // Gravity channel (slate from palette)
     if (ru.doGravity != 0u) {
         let g00 = gravPotential[iy0 * HGRID + ix0];
         let g10 = gravPotential[iy0 * HGRID + ix1];
@@ -87,13 +87,12 @@ fn fsHeatmapOverlay(in: VertexOutput) -> @location(0) vec4<f32> {
         let gVal = mix(mix(g00, g10, fx), mix(g01, g11, fx), fy);
         let mapped = fastTanh(gVal * ru.sensitivity);
         let intensity = abs(mapped);
-        // Slate color: 0.541, 0.494, 0.447
-        r += intensity * 0.541;
-        g += intensity * 0.494;
-        b += intensity * 0.447;
+        r += intensity * COLOR_SLATE.r;
+        g += intensity * COLOR_SLATE.g;
+        b += intensity * COLOR_SLATE.b;
     }
 
-    // Electric channel (blue for negative, red for positive)
+    // Electric channel (blue for negative, red for positive — from palette)
     if (ru.doCoulomb != 0u) {
         let e00 = elecPotential[iy0 * HGRID + ix0];
         let e10 = elecPotential[iy0 * HGRID + ix1];
@@ -102,13 +101,13 @@ fn fsHeatmapOverlay(in: VertexOutput) -> @location(0) vec4<f32> {
         let eVal = mix(mix(e00, e10, fx), mix(e01, e11, fx), fy);
         let mapped = fastTanh(eVal * ru.sensitivity);
         if (mapped > 0.0) {
-            r += mapped * 0.75;  // Red for positive
+            r += mapped * COLOR_RED.r;
         } else {
-            b += abs(mapped) * 0.65;  // Blue for negative
+            b += abs(mapped) * COLOR_BLUE.b;
         }
     }
 
-    // Yukawa channel (green: #509878)
+    // Yukawa channel (green from palette)
     if (ru.doYukawa != 0u) {
         let y00 = yukawaPotential[iy0 * HGRID + ix0];
         let y10 = yukawaPotential[iy0 * HGRID + ix1];
@@ -117,9 +116,9 @@ fn fsHeatmapOverlay(in: VertexOutput) -> @location(0) vec4<f32> {
         let yVal = mix(mix(y00, y10, fx), mix(y01, y11, fx), fy);
         let mapped = fastTanh(yVal * ru.sensitivity);
         let intensity = abs(mapped);
-        g += intensity * 0.596;
-        r += intensity * 0.314;
-        b += intensity * 0.471;
+        r += intensity * COLOR_GREEN.r;
+        g += intensity * COLOR_GREEN.g;
+        b += intensity * COLOR_GREEN.b;
     }
 
     let maxC = max(r, max(g, b));
