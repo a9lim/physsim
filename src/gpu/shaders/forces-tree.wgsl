@@ -87,17 +87,16 @@ struct SimUniforms {
 @group(1) @binding(6) var<storage, read> angW_in: array<f32>;
 @group(1) @binding(7) var<storage, read> flags_in: array<u32>;
 @group(1) @binding(8) var<storage, read> radius_in: array<f32>;
-@group(1) @binding(9) var<storage, read> magMoment_in: array<f32>;
-@group(1) @binding(10) var<storage, read> angMomentum_in: array<f32>;
-@group(1) @binding(11) var<storage, read> axMod_in: array<f32>;
-@group(1) @binding(12) var<storage, read> yukMod_in: array<f32>;
-@group(1) @binding(13) var<storage, read> particleId_in: array<u32>;
+@group(1) @binding(9) var<storage, read> magAngMom_in: array<vec2<f32>>; // packed magMoment, angMomentum
+@group(1) @binding(10) var<storage, read> axMod_in: array<f32>;
+@group(1) @binding(11) var<storage, read> yukMod_in: array<f32>;
+@group(1) @binding(12) var<storage, read> particleId_in: array<u32>;
 
 // Ghost->original mapping
-@group(1) @binding(14) var<storage, read> ghostOriginalIdx: array<u32>;
+@group(1) @binding(13) var<storage, read> ghostOriginalIdx: array<u32>;
 
 // Death metadata (for retired particle forces)
-@group(1) @binding(15) var<storage, read> deathMass_in: array<f32>;
+@group(1) @binding(14) var<storage, read> deathMass_in: array<f32>;
 
 // Force accumulators (output, same layout as Phase 2)
 @group(2) @binding(0) var<storage, read_write> forces0: array<vec4<f32>>; // gravity.xy, coulomb.xy
@@ -233,8 +232,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let py = posY[pIdx];
     let pMass = mass_in[pIdx];
     let pCharge = charge_in[pIdx];
-    let pMagMoment = magMoment_in[pIdx];
-    let pAngMomentum = angMomentum_in[pIdx];
+    let pMamPacked = magAngMom_in[pIdx];
+    let pMagMoment = pMamPacked.x;
+    let pAngMomentum = pMamPacked.y;
     let pRadius = radius_in[pIdx];
     let pBodyRadiusSq = pRadius * pRadius; // Approximation; BH mode uses different formula
     let pAngW = angW_in[pIdx];
@@ -298,7 +298,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 velWX[sIdx] * invGamma, velWY[sIdx] * invGamma, // approximate vel from w
                 mass_in[sIdx], charge_in[sIdx],
                 0.0, // sAngVel approximated as 0 for aggregate; leaf uses cached
-                magMoment_in[sIdx], angMomentum_in[sIdx],
+                magAngMom_in[sIdx].x, magAngMom_in[sIdx].y,
                 axMod_in[sIdx], yukMod_in[sIdx],
                 pBodyRadiusSq,
             );

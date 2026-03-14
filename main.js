@@ -46,6 +46,9 @@ async function selectBackend() {
                 maxStorageBufferBindingSize: 256 * 1024 * 1024,
                 maxBufferSize: 256 * 1024 * 1024,
                 maxComputeWorkgroupsPerDimension: 65535,
+                maxStorageBuffersPerShaderStage: Math.min(
+                    adapter.limits.maxStorageBuffersPerShaderStage, 10),
+                maxBindingsPerBindGroup: adapter.limits.maxBindingsPerBindGroup,
             },
         });
         if (!device) return { backend: BACKEND_CPU };

@@ -48,18 +48,17 @@ struct Uniforms {
 @group(1) @binding(4) var<storage, read_write> mass: array<f32>;
 @group(1) @binding(5) var<storage, read> charge_buf: array<f32>;
 @group(1) @binding(6) var<storage, read> flags: array<u32>;
-@group(1) @binding(7) var<storage, read_write> invMass: array<f32>;
+@group(1) @binding(7) var<storage, read_write> invMassRadSq: array<vec2<f32>>; // packed: invMass, radiusSq
 @group(1) @binding(8) var<storage, read_write> baseMass: array<f32>;
 @group(1) @binding(9) var<storage, read> radius: array<f32>;
 @group(1) @binding(10) var<storage, read> angW_buf: array<f32>;
 @group(1) @binding(11) var<storage, read> particleId: array<u32>;
 
 // Force/jerk inputs (read)
-@group(1) @binding(12) var<storage, read> force_totalX: array<f32>;
-@group(1) @binding(13) var<storage, read> force_totalY: array<f32>;
-@group(1) @binding(14) var<storage, read> jerk_buf: array<f32>;  // interleaved [x0, y0, x1, y1, ...]
-@group(1) @binding(15) var<storage, read> yukForceX: array<f32>;
-@group(1) @binding(16) var<storage, read> yukForceY: array<f32>;
+@group(1) @binding(12) var<storage, read> force_total: array<vec2<f32>>;   // packed totalForce
+@group(1) @binding(13) var<storage, read> jerk_buf: array<f32>;  // interleaved [x0, y0, x1, y1, ...]
+@group(1) @binding(14) var<storage, read> yukForceX: array<f32>;
+@group(1) @binding(15) var<storage, read> yukForceY: array<f32>;
 
 // Radiation accumulators (read_write)
 @group(2) @binding(0) var<storage, read_write> radAccum: array<f32>;
@@ -116,7 +115,7 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
 
     let gamma = sqrt(1.0 + wMagSq);
     let qSq = charge_buf[i] * charge_buf[i];
-    let mInv = invMass[i];
+    let mInv = invMassRadSq[i].x;
     let tau = 2.0 / 3.0 * qSq * mInv;
 
     // Term 1: analytical jerk (pre-accumulated in force pass)
@@ -134,7 +133,7 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
 
         let invGamma = 1.0 / gamma;
         let vx = wx * invGamma; let vy = wy * invGamma;
-        let fx = force_totalX[i]; let fy = force_totalY[i];
+        let ftv = force_total[i]; let fx = ftv.x; let fy = ftv.y;
         let fSq = fx * fx + fy * fy;
         let vDotF = vx * fx + vy * fy;
 
@@ -146,8 +145,8 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
 
     // LL force clamp: |F_rad| <= 0.5 * |F_ext|
     let fRadMag = sqrt(fRadX * fRadX + fRadY * fRadY);
-    let fExtMag = sqrt(force_totalX[i] * force_totalX[i]
-                       + force_totalY[i] * force_totalY[i]);
+    let ftv2 = force_total[i];
+    let fExtMag = sqrt(ftv2.x * ftv2.x + ftv2.y * ftv2.y);
     let maxFRad = LL_FORCE_CLAMP * fExtMag;
     if (fRadMag > maxFRad && fRadMag > EPSILON * EPSILON) {
         let scale = maxFRad / fRadMag;
@@ -180,8 +179,9 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
         let phIdx = atomicAdd(&phCount, 1u);
         if (phIdx < MAX_PHOTONS) {
             // Emit along -acceleration direction (simplified dipole pattern)
-            let ax = force_totalX[i] * mInv;
-            let ay = force_totalY[i] * mInv;
+            let ftv3 = force_total[i];
+            let ax = ftv3.x * mInv;
+            let ay = ftv3.y * mInv;
             let aMag = sqrt(ax * ax + ay * ay);
             var cosA: f32; var sinA: f32;
             if (aMag > EPSILON) {
@@ -239,7 +239,9 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     if (dE <= 0.0) { return; }
 
     mass[i] -= dE;
-    invMass[i] = 1.0 / mass[i];
+    var imrs = invMassRadSq[i];
+    imrs.x = 1.0 / mass[i];
+    invMassRadSq[i] = imrs;
     baseMass[i] *= 1.0 - dE / (mass[i] + dE);
     hawkAccum[i] += dE;
 

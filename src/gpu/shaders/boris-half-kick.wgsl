@@ -5,9 +5,8 @@
 @group(0) @binding(1) var<storage, read_write> velWX: array<f32>;
 @group(0) @binding(2) var<storage, read_write> velWY: array<f32>;
 @group(0) @binding(3) var<storage, read> mass: array<f32>;
-@group(0) @binding(4) var<storage, read> totalForceX: array<f32>;
-@group(0) @binding(5) var<storage, read> totalForceY: array<f32>;
-@group(0) @binding(6) var<storage, read> flags: array<u32>;
+@group(0) @binding(4) var<storage, read> totalForce: array<vec2<f32>>;
+@group(0) @binding(5) var<storage, read> flags: array<u32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -20,8 +19,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let invM = 1.0 / m;
     let halfDtOverM = uniforms.dt * 0.5 * invM;
 
-    let fx = totalForceX[idx];
-    let fy = totalForceY[idx];
+    let tf = totalForce[idx];
+    let fx = tf.x;
+    let fy = tf.y;
 
     var wx = velWX[idx];
     var wy = velWY[idx];

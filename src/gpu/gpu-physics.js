@@ -317,40 +317,40 @@ export default class GPUPhysics {
                 entries: buffers.map((buf, i) => ({ binding: i, resource: { buffer: buf } })),
             });
 
-        // resetForces: uniforms + 11 force/torque buffers
+        // resetForces: uniforms + 10 force/torque buffers (totalForce packed vec2)
         this._bg_resetForces = bg('resetForces', p2.resetForces.bindGroupLayouts[0],
             [this.uniformBuffer, b.forces0, b.forces1, b.forces2, b.forces3,
              b.forces4, b.forces5, b.torques, b.bFields, b.bFieldGrads,
-             b.totalForceX, b.totalForceY]);
+             b.totalForce]);
 
-        // cacheDerived: uniforms + inputs + outputs
+        // cacheDerived: uniforms + inputs + packed outputs (magAngMom, vel, invMassRadSq)
         this._bg_cacheDerived = bg('cacheDerived', p2.cacheDerived.bindGroupLayouts[0],
             [this.uniformBuffer, b.mass, b.velWX, b.velWY, b.angW, b.charge,
-             b.radius, b.gamma, b.magMoment, b.angMomentum, b.velX, b.velY,
-             b.angVel, b.invMass, b.radiusSq, b.flags]);
+             b.radius, b.gamma, b.magAngMom, b.vel,
+             b.angVel, b.invMassRadSq, b.flags]);
 
         // pairForce: 4 bind groups
         this._bg_pairForce0 = bg('pairForce_g0', p2.pairForce.bindGroupLayouts[0],
             [this.uniformBuffer]);
         this._bg_pairForce1 = bg('pairForce_g1', p2.pairForce.bindGroupLayouts[1],
-            [b.posX, b.posY, b.velX, b.velY, b.mass, b.charge, b.angVel,
-             b.magMoment, b.angMomentum, b.axMod, b.yukMod, b.flags, b.radiusSq,
+            [b.posX, b.posY, b.vel, b.mass, b.charge, b.angVel,
+             b.magAngMom, b.axMod, b.yukMod, b.flags, b.invMassRadSq,
              b.velWX, b.velWY]);
         this._bg_pairForce2 = bg('pairForce_g2', p2.pairForce.bindGroupLayouts[2],
             [b.forces0, b.forces1, b.forces2, b.forces3, b.torques, b.bFields,
-             b.bFieldGrads, b.totalForceX, b.totalForceY]);
+             b.bFieldGrads, b.totalForce]);
         this._bg_pairForce3 = bg('pairForce_g3', p2.pairForce.bindGroupLayouts[3],
             [b.jerkX, b.jerkY]);
 
         // externalFields
         this._bg_extFields = bg('extFields', p2.externalFields.bindGroupLayouts[0],
             [this.uniformBuffer, b.mass, b.charge, b.flags, b.forces4,
-             b.totalForceX, b.totalForceY, b.bFields]);
+             b.totalForce, b.bFields]);
 
         // borisHalfKick
         this._bg_halfKick = bg('halfKick', p2.borisHalfKick.bindGroupLayouts[0],
-            [this.uniformBuffer, b.velWX, b.velWY, b.mass, b.totalForceX,
-             b.totalForceY, b.flags]);
+            [this.uniformBuffer, b.velWX, b.velWY, b.mass, b.totalForce,
+             b.flags]);
 
         // borisRotate
         this._bg_rotate = bg('rotate', p2.borisRotate.bindGroupLayouts[0],
@@ -359,12 +359,12 @@ export default class GPUPhysics {
         // borisDrift
         this._bg_drift = bg('drift', p2.borisDrift.bindGroupLayouts[0],
             [this.uniformBuffer, b.posX, b.posY, b.velWX, b.velWY, b.flags,
-             b.velX, b.velY]);
+             b.vel]);
 
-        // spinOrbit
+        // spinOrbit (packed vel, magAngMom)
         this._bg_spinOrbit = bg('spinOrbit', p2.spinOrbit.bindGroupLayouts[0],
             [this.uniformBuffer, b.velWX, b.velWY, b.angW, b.mass, b.charge,
-             b.velX, b.velY, b.magMoment, b.angMomentum, b.radius, b.bFieldGrads,
+             b.vel, b.magAngMom, b.radius, b.bFieldGrads,
              b.flags, b.angVel, b.forces2]);
 
         // applyTorques
@@ -393,15 +393,15 @@ export default class GPUPhysics {
 
         // Group 1: ghost output SoA (dedicated ghost buffers to avoid aliasing)
         //   bindings 0-7: ghost output (read-write)
-        //   bindings 8-10: particle derived inputs (read-only)
-        //   bindings 11-13: ghost derived output (read-write)
-        //   binding 14: particle ID input (read-only)
-        //   binding 15: ghost particle ID output (read-write)
+        //   bindings 8-9: particle derived inputs (read-only, packed magAngMom)
+        //   bindings 10-11: ghost derived output (read-write, packed ghostMagAngMom)
+        //   binding 12: particle ID input (read-only)
+        //   binding 13: ghost particle ID output (read-write)
         const group1 = bg('ghostGen_g1', layouts[1],
             [b.ghostPosX, b.ghostPosY, b.ghostVelWX, b.ghostVelWY,
              b.ghostAngW, b.ghostMass, b.ghostCharge, b.ghostFlags,
-             b.radius, b.magMoment, b.angMomentum,
-             b.ghostRadius, b.ghostMagMoment, b.ghostAngMomentum,
+             b.radius, b.magAngMom,
+             b.ghostRadius, b.ghostMagAngMom,
              b.particleId, b.ghostParticleId]);
 
         // Group 2: ghostCounter + uniforms + ghostOriginalIdx
@@ -450,8 +450,10 @@ export default class GPUPhysics {
             encoder.copyBufferToBuffer(b.ghostCharge, 0, b.charge, offset, ghostBytes);
             encoder.copyBufferToBuffer(b.ghostFlags, 0, b.flags, offset, ghostBytes);
             encoder.copyBufferToBuffer(b.ghostRadius, 0, b.radius, offset, ghostBytes);
-            encoder.copyBufferToBuffer(b.ghostMagMoment, 0, b.magMoment, offset, ghostBytes);
-            encoder.copyBufferToBuffer(b.ghostAngMomentum, 0, b.angMomentum, offset, ghostBytes);
+            // ghostMagAngMom is vec2 (8 bytes per element)
+            const vec2Offset = this.aliveCount * 8;
+            const vec2Bytes = ghostCount * 8;
+            encoder.copyBufferToBuffer(b.ghostMagAngMom, 0, b.magAngMom, vec2Offset, vec2Bytes);
             encoder.copyBufferToBuffer(b.ghostParticleId, 0, b.particleId, offset, ghostBytes);
         }
     }
@@ -475,7 +477,7 @@ export default class GPUPhysics {
             ],
         });
 
-        // Group 1: particle SoA inputs (read-only)
+        // Group 1: particle SoA inputs (read-only, packed magAngMom)
         this._treeBuildBG1 = this.device.createBindGroup({
             label: 'treeBuild_g1',
             layout: layouts[1],
@@ -486,9 +488,8 @@ export default class GPUPhysics {
                 { binding: 3, resource: { buffer: b.velWY } },
                 { binding: 4, resource: { buffer: b.mass } },
                 { binding: 5, resource: { buffer: b.charge } },
-                { binding: 6, resource: { buffer: b.magMoment } },
-                { binding: 7, resource: { buffer: b.angMomentum } },
-                { binding: 8, resource: { buffer: b.flags } },
+                { binding: 6, resource: { buffer: b.magAngMom } },
+                { binding: 7, resource: { buffer: b.flags } },
             ],
         });
 
@@ -521,7 +522,7 @@ export default class GPUPhysics {
             ],
         });
 
-        // Group 1: particle SoA (matches shader @group(1) bindings 0-15)
+        // Group 1: particle SoA (matches shader @group(1) bindings 0-14, packed magAngMom)
         this._treeForceGroup1 = this.device.createBindGroup({
             label: 'treeForce_g1',
             layout: layouts[1],
@@ -535,13 +536,12 @@ export default class GPUPhysics {
                 { binding: 6, resource: { buffer: b.angW } },
                 { binding: 7, resource: { buffer: b.flags } },
                 { binding: 8, resource: { buffer: b.radius } },
-                { binding: 9, resource: { buffer: b.magMoment } },
-                { binding: 10, resource: { buffer: b.angMomentum } },
-                { binding: 11, resource: { buffer: b.axMod } },
-                { binding: 12, resource: { buffer: b.yukMod } },
-                { binding: 13, resource: { buffer: b.particleId } },
-                { binding: 14, resource: { buffer: b.ghostOriginalIdx } },
-                { binding: 15, resource: { buffer: b.deathMass } },
+                { binding: 9, resource: { buffer: b.magAngMom } },
+                { binding: 10, resource: { buffer: b.axMod } },
+                { binding: 11, resource: { buffer: b.yukMod } },
+                { binding: 12, resource: { buffer: b.particleId } },
+                { binding: 13, resource: { buffer: b.ghostOriginalIdx } },
+                { binding: 14, resource: { buffer: b.deathMass } },
             ],
         });
 
@@ -655,7 +655,7 @@ export default class GPUPhysics {
         this._phase4BindGroups.onePNG0 = bg('onePN_g0', p4.compute1PN.bindGroupLayouts[0],
             [this.uniformBuffer]);
         this._phase4BindGroups.onePNG1 = bg('onePN_g1', p4.compute1PN.bindGroupLayouts[1],
-            [b.posX, b.posY, b.velWX, b.velWY, b.mass, b.charge, b.flags, b.yukMod, b.invMass]);
+            [b.posX, b.posY, b.velWX, b.velWY, b.mass, b.charge, b.flags, b.yukMod, b.invMassRadSq]);
         this._phase4BindGroups.onePNG2 = bg('onePN_g2', p4.compute1PN.bindGroupLayouts[2],
             [b.forces2, b.f1pnOld, b.velWX, b.velWY]);
 
@@ -667,8 +667,8 @@ export default class GPUPhysics {
         // bindings 15-16: separate yukForceX/Y buffers
         this._phase4BindGroups.radG1 = bg('radiation_g1', p4.lamrorRadiation.bindGroupLayouts[1],
             [b.posX, b.posY, b.velWX, b.velWY, b.mass, b.charge, b.flags,
-             b.invMass, b.baseMass, b.radius, b.angW, b.particleId,
-             b.totalForceX, b.totalForceY, b.jerkInterleaved,
+             b.invMassRadSq, b.baseMass, b.radius, b.angW, b.particleId,
+             b.totalForce, b.jerkInterleaved,
              b.yukForceX, b.yukForceY]);
         this._phase4BindGroups.radG2 = bg('radiation_g2', p4.lamrorRadiation.bindGroupLayouts[2],
             [b.radAccum, b.hawkAccum, b.yukawaRadAccum, b.radDisplayX, b.radDisplayY]);
@@ -1605,7 +1605,7 @@ export default class GPUPhysics {
                 { binding: 7, resource: { buffer: b.velWY } },
                 { binding: 8, resource: { buffer: b.angW } },
                 { binding: 9, resource: { buffer: b.radius } },
-                { binding: 10, resource: { buffer: b.invMass } },
+                { binding: 10, resource: { buffer: b.invMassRadSq } },
             ],
         });
 
@@ -1628,7 +1628,7 @@ export default class GPUPhysics {
             entries: [
                 { binding: 0, resource: { buffer: b.forces4 } },
                 { binding: 1, resource: { buffer: b.forces5 } },
-                { binding: 2, resource: { buffer: b.totalForceX } },
+                { binding: 2, resource: { buffer: b.totalForce } },
                 { binding: 3, resource: { buffer: b.axMod } },
                 { binding: 4, resource: { buffer: b.yukMod } },
             ],
@@ -2058,10 +2058,9 @@ export default class GPUPhysics {
                     { binding: 3, resource: { buffer: b.charge } },
                     { binding: 4, resource: { buffer: b.angVel } },
                     { binding: 5, resource: { buffer: b.radius } },
-                    { binding: 6, resource: { buffer: b.radiusSq } },
-                    { binding: 7, resource: { buffer: b.velX } },
-                    { binding: 8, resource: { buffer: b.velY } },
-                    { binding: 9, resource: { buffer: b.flags } },
+                    { binding: 6, resource: { buffer: b.invMassRadSq } },
+                    { binding: 7, resource: { buffer: b.vel } },
+                    { binding: 8, resource: { buffer: b.flags } },
                 ],
             });
             const g1 = this.device.createBindGroup({

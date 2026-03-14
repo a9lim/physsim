@@ -52,15 +52,13 @@ export function createParticleBuffers(device, maxParticles) {
     const gamma = storageBuffer('gamma', FLOAT_SIZE, soaCapacity);
 
     // Derived/cached (Phase 2) — sized for particles + ghosts
-    const magMoment = storageBuffer('magMoment', FLOAT_SIZE, soaCapacity);
-    const angMomentum = storageBuffer('angMomentum', FLOAT_SIZE, soaCapacity);
+    const VEC2_SIZE = 8;
+    const magAngMom = storageBuffer('magAngMom', VEC2_SIZE, soaCapacity);  // packed: magMoment, angMomentum
     const axMod = storageBuffer('axMod', FLOAT_SIZE, soaCapacity);
     const yukMod = storageBuffer('yukMod', FLOAT_SIZE, soaCapacity);
-    const velX = storageBuffer('velX', FLOAT_SIZE, soaCapacity);  // coordinate velocity
-    const velY = storageBuffer('velY', FLOAT_SIZE, soaCapacity);
+    const vel = storageBuffer('vel', VEC2_SIZE, soaCapacity);  // packed: velX, velY (coordinate velocity)
     const angVel = storageBuffer('angVel', FLOAT_SIZE, soaCapacity);
-    const invMass = storageBuffer('invMass', FLOAT_SIZE, soaCapacity);
-    const radiusSq = storageBuffer('radiusSq', FLOAT_SIZE, soaCapacity);
+    const invMassRadSq = storageBuffer('invMassRadSq', VEC2_SIZE, soaCapacity);  // packed: invMass, radiusSq
 
     // Force accumulators (vec4 = 16 bytes each, packed pairs)
     const VEC4_SIZE = 16;
@@ -74,9 +72,8 @@ export function createParticleBuffers(device, maxParticles) {
     const bFields = storageBuffer('bFields', VEC4_SIZE, maxParticles); // Bz, Bgz, extBz, pad
     const bFieldGrads = storageBuffer('bFieldGrads', VEC4_SIZE, maxParticles); // dBzdx, dBzdy, dBgzdx, dBgzdy
 
-    // Total force accumulator (sum of all force types)
-    const totalForceX = storageBuffer('totalForceX', FLOAT_SIZE, maxParticles);
-    const totalForceY = storageBuffer('totalForceY', FLOAT_SIZE, maxParticles);
+    // Total force accumulator (sum of all force types, packed vec2)
+    const totalForce = storageBuffer('totalForce', VEC2_SIZE, maxParticles);
 
     // Particle metadata — flags sized for particles + ghosts
     const flags = storageBuffer('flags', UINT_SIZE, soaCapacity);
@@ -103,8 +100,7 @@ export function createParticleBuffers(device, maxParticles) {
     const ghostCharge = storageBuffer('ghostCharge', FLOAT_SIZE, maxParticles);
     const ghostFlags = storageBuffer('ghostFlags', UINT_SIZE, maxParticles);
     const ghostRadius = storageBuffer('ghostRadius', FLOAT_SIZE, maxParticles);
-    const ghostMagMoment = storageBuffer('ghostMagMoment', FLOAT_SIZE, maxParticles);
-    const ghostAngMomentum = storageBuffer('ghostAngMomentum', FLOAT_SIZE, maxParticles);
+    const ghostMagAngMom = storageBuffer('ghostMagAngMom', VEC2_SIZE, maxParticles);  // packed: magMoment, angMomentum
     const ghostParticleId = storageBuffer('ghostParticleId', UINT_SIZE, maxParticles);
 
     // Ghost original index mapping (which alive particle each ghost copies)
@@ -307,15 +303,15 @@ export function createParticleBuffers(device, maxParticles) {
         soaCapacity,
         // Core state
         posX, posY, velWX, velWY, angW, mass, baseMass, charge,
-        // Derived
-        radius, gamma, magMoment, angMomentum, axMod, yukMod,
-        velX, velY, angVel, invMass, radiusSq,
+        // Derived (packed vec2: vel, magAngMom, invMassRadSq)
+        radius, gamma, magAngMom, axMod, yukMod,
+        vel, angVel, invMassRadSq,
         // Metadata
         flags, color, particleId,
         // Forces
         forces0, forces1, forces2, forces3, forces4, forces5,
         torques, bFields, bFieldGrads,
-        totalForceX, totalForceY,
+        totalForce,
         // Pool
         poolMgmt,
         // Stats
@@ -326,7 +322,7 @@ export function createParticleBuffers(device, maxParticles) {
         ghostCounter, ghostOriginalIdx, ghostCountStaging,
         ghostPosX, ghostPosY, ghostVelWX, ghostVelWY, ghostAngW,
         ghostMass, ghostCharge, ghostFlags,
-        ghostRadius, ghostMagMoment, ghostAngMomentum, ghostParticleId,
+        ghostRadius, ghostMagAngMom, ghostParticleId,
         // Quadtree (Phase 3)
         qtNodeBuffer, qtNodeCounter, qtBoundsBuffer, qtVisitorFlags,
         QT_MAX_NODES,

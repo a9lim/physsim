@@ -44,45 +44,50 @@ export async function createPhase2Pipelines(device) {
     }
 
     // --- resetForces ---
+    // 1 uniform + 10 storage = 10 storage buffers per stage
     const resetForces = await makePipeline('resetForces', 'reset-forces.wgsl', [
         ['uniform', 'storage', 'storage', 'storage', 'storage', 'storage',
-         'storage', 'storage', 'storage', 'storage', 'storage', 'storage'],
+         'storage', 'storage', 'storage', 'storage', 'storage'],
     ]);
 
     // --- cacheDerived ---
+    // 1 uniform + 5 read-only + 6 rw + 1 read-only = 12 storage buffers per stage
     const cacheDerived = await makePipeline('cacheDerived', 'cache-derived.wgsl', [
         ['uniform', 'read-only-storage', 'read-only-storage', 'read-only-storage',
          'read-only-storage', 'read-only-storage',
          'storage', 'storage', 'storage', 'storage', 'storage', 'storage',
-         'storage', 'storage', 'storage', 'read-only-storage'],
+         'read-only-storage'],
     ]);
 
     // --- pairForce (4 bind groups) ---
     const pairForce = await makePipeline('pairForce', 'pair-force.wgsl', [
         // Group 0: uniforms
         ['uniform'],
-        // Group 1: particle state (read-only)
-        ['read-only-storage', 'read-only-storage', 'read-only-storage', 'read-only-storage',
-         'read-only-storage', 'read-only-storage', 'read-only-storage', 'read-only-storage',
-         'read-only-storage', 'read-only-storage', 'read-only-storage', 'read-only-storage',
-         'read-only-storage', 'read-only-storage', 'read-only-storage'],
-        // Group 2: force accumulators (read-write)
+        // Group 1: particle state (read-only) — 13 bindings (packed vel, magAngMom, invMassRadSq)
+        ['read-only-storage', 'read-only-storage', 'read-only-storage',
+         'read-only-storage', 'read-only-storage', 'read-only-storage',
+         'read-only-storage', 'read-only-storage', 'read-only-storage',
+         'read-only-storage', 'read-only-storage', 'read-only-storage',
+         'read-only-storage'],
+        // Group 2: force accumulators (read-write) — 8 bindings (packed totalForce)
         ['storage', 'storage', 'storage', 'storage', 'storage', 'storage',
-         'storage', 'storage', 'storage'],
+         'storage', 'storage'],
         // Group 3: jerk accumulators for radiation (read-write)
         ['storage', 'storage'],
     ]);
 
     // --- externalFields ---
+    // 1 uniform + 3 read-only + 3 rw = 6 storage + 1 uniform
     const externalFields = await makePipeline('externalFields', 'external-fields.wgsl', [
         ['uniform', 'read-only-storage', 'read-only-storage', 'read-only-storage',
-         'storage', 'storage', 'storage', 'storage'],
+         'storage', 'storage', 'storage'],
     ]);
 
     // --- borisHalfKick ---
+    // 1 uniform + 2 rw + 1 read-only + 1 read-only + 1 read-only = 5 storage
     const borisHalfKick = await makePipeline('borisHalfKick', 'boris-half-kick.wgsl', [
         ['uniform', 'storage', 'storage', 'read-only-storage',
-         'read-only-storage', 'read-only-storage', 'read-only-storage'],
+         'read-only-storage', 'read-only-storage'],
     ]);
 
     // --- borisRotate ---
@@ -92,17 +97,19 @@ export async function createPhase2Pipelines(device) {
     ]);
 
     // --- borisDrift ---
+    // 1 uniform + 4 rw + 1 read-only + 1 rw = 6 storage
     const borisDrift = await makePipeline('borisDrift', 'boris.wgsl', [
         ['uniform', 'storage', 'storage', 'storage', 'storage',
-         'read-only-storage', 'storage', 'storage'],
+         'read-only-storage', 'storage'],
     ]);
 
     // --- spinOrbit ---
+    // 1 uniform + 12 storage = 12 storage buffers per stage
     const spinOrbit = await makePipeline('spinOrbit', 'spin-orbit.wgsl', [
         ['uniform', 'storage', 'storage', 'storage', 'read-only-storage',
          'read-only-storage', 'read-only-storage', 'read-only-storage',
          'read-only-storage', 'read-only-storage', 'read-only-storage',
-         'read-only-storage', 'read-only-storage', 'storage', 'storage'],
+         'storage', 'storage'],
     ]);
 
     // --- applyTorques ---
@@ -145,7 +152,7 @@ export async function createTreeBuildPipelines(device) {
         ],
     });
 
-    // Group 1: particle SoA inputs (read-only)
+    // Group 1: particle SoA inputs (read-only) — 8 bindings (magAngMom packed)
     const group1Layout = device.createBindGroupLayout({
         label: 'treeBuild_group1',
         entries: [
@@ -157,7 +164,6 @@ export async function createTreeBuildPipelines(device) {
             { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
             { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
             { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-            { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         ],
     });
 
@@ -226,9 +232,9 @@ export async function createTreeForcePipeline(device) {
         ],
     });
 
-    // Group 1: particle SoA inputs (16 read-only bindings, including deathMass)
+    // Group 1: particle SoA inputs (15 read-only bindings, packed magAngMom, including deathMass)
     const group1Entries = [];
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 15; i++) {
         group1Entries.push({
             binding: i,
             visibility: GPUShaderStage.COMPUTE,
@@ -494,14 +500,14 @@ export async function createPhase4Pipelines(device) {
     // binding 4: mass (read_write)
     // binding 5: charge_buf (read)
     // binding 6: flags (read)
-    // binding 7: invMass (read_write)
+    // binding 7: invMassRadSq (read_write, packed)
     // binding 8: baseMass (read_write)
     // binding 9: radius (read)
     // binding 10: angW_buf (read)
     // binding 11: particleId (read)
-    // bindings 12-13: force_totalX/Y (read)
-    // binding 14: jerk_buf (read)
-    // bindings 15-16: yukForceX/Y (read)
+    // binding 12: force_total (read, packed vec2)
+    // binding 13: jerk_buf (read)
+    // bindings 14-15: yukForceX/Y (read)
     const radG1Types = [
         'read-only-storage', 'read-only-storage',
         'storage', 'storage',
@@ -509,7 +515,7 @@ export async function createPhase4Pipelines(device) {
         'read-only-storage', 'read-only-storage',
         'storage', 'storage',
         'read-only-storage', 'read-only-storage', 'read-only-storage',
-        'read-only-storage', 'read-only-storage', 'read-only-storage',
+        'read-only-storage', 'read-only-storage',
         'read-only-storage', 'read-only-storage',
     ];
     for (let i = 0; i < radG1Types.length; i++) {
@@ -832,26 +838,24 @@ export async function createGhostGenPipeline(device) {
         ],
     });
 
-    // Group 1: ghost output (read-write) + derived inputs (read-only) (16 bindings)
+    // Group 1: ghost output (read-write) + derived inputs (read-only) (14 bindings, packed magAngMom)
     const group1Layout = device.createBindGroupLayout({
         label: 'ghostGen_group1',
         entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-            { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-            { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-            { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-            { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // ghostPosX
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // ghostPosY
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // ghostVelWX
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // ghostVelWY
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // ghostAngW
+            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // ghostMass
+            { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // ghostCharge
+            { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // ghostFlags
+            { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // radius_in
+            { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // magAngMom_in (packed)
+            { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },  // ghostRadius
+            { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },  // ghostMagAngMom (packed)
+            { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // particleId_in
+            { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },  // ghostParticleId
         ],
     });
 
@@ -1302,9 +1306,9 @@ export async function createDisintegrationPipeline(device) {
     const code = await fetchShader('disintegration.wgsl');
     const module = device.createShaderModule({ label: 'disintegration', code });
 
-    // Group 0: 10 particle read-only bindings
+    // Group 0: 9 particle read-only bindings (packed invMassRadSq, vel)
     const g0Entries = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 9; i++) {
         g0Entries.push({
             binding: i, visibility: GPUShaderStage.COMPUTE,
             buffer: { type: 'read-only-storage' },

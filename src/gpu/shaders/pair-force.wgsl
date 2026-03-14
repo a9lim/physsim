@@ -31,19 +31,17 @@ var<workgroup> tile: array<TileParticle, TILE_SIZE>;
 // Bind group 1: particle state (read-only)
 @group(1) @binding(0) var<storage, read> posX: array<f32>;
 @group(1) @binding(1) var<storage, read> posY: array<f32>;
-@group(1) @binding(2) var<storage, read> velX: array<f32>;
-@group(1) @binding(3) var<storage, read> velY: array<f32>;
-@group(1) @binding(4) var<storage, read> mass: array<f32>;
-@group(1) @binding(5) var<storage, read> charge: array<f32>;
-@group(1) @binding(6) var<storage, read> angVel: array<f32>;
-@group(1) @binding(7) var<storage, read> magMoment: array<f32>;
-@group(1) @binding(8) var<storage, read> angMomentum: array<f32>;
-@group(1) @binding(9) var<storage, read> axMod: array<f32>;
-@group(1) @binding(10) var<storage, read> yukMod: array<f32>;
-@group(1) @binding(11) var<storage, read> flags: array<u32>;
-@group(1) @binding(12) var<storage, read> radiusSq: array<f32>;
-@group(1) @binding(13) var<storage, read> velWX: array<f32>;
-@group(1) @binding(14) var<storage, read> velWY: array<f32>;
+@group(1) @binding(2) var<storage, read> vel: array<vec2<f32>>;        // packed velX, velY
+@group(1) @binding(3) var<storage, read> mass: array<f32>;
+@group(1) @binding(4) var<storage, read> charge: array<f32>;
+@group(1) @binding(5) var<storage, read> angVel: array<f32>;
+@group(1) @binding(6) var<storage, read> magAngMom: array<vec2<f32>>;  // packed magMoment, angMomentum
+@group(1) @binding(7) var<storage, read> axMod: array<f32>;
+@group(1) @binding(8) var<storage, read> yukMod: array<f32>;
+@group(1) @binding(9) var<storage, read> flags: array<u32>;
+@group(1) @binding(10) var<storage, read> invMassRadSq: array<vec2<f32>>; // packed invMass, radiusSq
+@group(1) @binding(11) var<storage, read> velWX: array<f32>;
+@group(1) @binding(12) var<storage, read> velWY: array<f32>;
 
 // Bind group 2: force accumulators (read_write)
 @group(2) @binding(0) var<storage, read_write> forces0: array<vec4<f32>>;   // gravity.xy, coulomb.xy
@@ -53,8 +51,7 @@ var<workgroup> tile: array<TileParticle, TILE_SIZE>;
 @group(2) @binding(4) var<storage, read_write> torques: array<vec4<f32>>;   // spinOrbit, frameDrag, tidal, contact
 @group(2) @binding(5) var<storage, read_write> bFields: array<vec4<f32>>;   // Bz, Bgz, extBz, pad
 @group(2) @binding(6) var<storage, read_write> bFieldGrads: array<vec4<f32>>; // dBzdx, dBzdy, dBgzdx, dBgzdy
-@group(2) @binding(7) var<storage, read_write> totalForceX: array<f32>;
-@group(2) @binding(8) var<storage, read_write> totalForceY: array<f32>;
+@group(2) @binding(7) var<storage, read_write> totalForce: array<vec2<f32>>;
 
 // Bind group 3: jerk accumulators for radiation (Phase 4)
 @group(3) @binding(0) var<storage, read_write> jerkX: array<f32>;
@@ -94,17 +91,20 @@ fn main(
     if (alive) {
         pPosX = posX[idx];
         pPosY = posY[idx];
-        pVelX = velX[idx];
-        pVelY = velY[idx];
+        let v = vel[idx];
+        pVelX = v.x;
+        pVelY = v.y;
         pMass = mass[idx];
         pCharge = charge[idx];
         pAngVel = angVel[idx];
-        pMagMom = magMoment[idx];
-        pAngMom = angMomentum[idx];
+        let mam = magAngMom[idx];
+        pMagMom = mam.x;
+        pAngMom = mam.y;
         pAxMod = axMod[idx];
         pYukMod = yukMod[idx];
-        pRadiusSq = radiusSq[idx];
-        pInvMass = select(0.0, 1.0 / pMass, pMass > EPSILON);
+        let imrs = invMassRadSq[idx];
+        pRadiusSq = imrs.y;
+        pInvMass = imrs.x;
         // Body radius squared for tidal locking: cbrt(mass)^2
         pBodyRadiusSq = pow(pMass, 2.0 / 3.0);
     }
@@ -163,16 +163,19 @@ fn main(
         if (srcIdx < N && (flags[srcIdx] & FLAG_ALIVE) != 0u) {
             tile[localIdx].posX = posX[srcIdx];
             tile[localIdx].posY = posY[srcIdx];
-            tile[localIdx].velX = velX[srcIdx];
-            tile[localIdx].velY = velY[srcIdx];
+            let sv = vel[srcIdx];
+            tile[localIdx].velX = sv.x;
+            tile[localIdx].velY = sv.y;
             tile[localIdx].mass = mass[srcIdx];
             tile[localIdx].charge = charge[srcIdx];
             tile[localIdx].angVel = angVel[srcIdx];
-            tile[localIdx].magMoment = magMoment[srcIdx];
-            tile[localIdx].angMomentum = angMomentum[srcIdx];
+            let smam = magAngMom[srcIdx];
+            tile[localIdx].magMoment = smam.x;
+            tile[localIdx].angMomentum = smam.y;
             tile[localIdx].axMod = axMod[srcIdx];
             tile[localIdx].yukMod = yukMod[srcIdx];
-            tile[localIdx].radiusSq = radiusSq[srcIdx];
+            let simrs = invMassRadSq[srcIdx];
+            tile[localIdx].radiusSq = simrs.y;
         } else {
             // Mark as invalid (zero mass = no force contribution)
             tile[localIdx].mass = 0.0;
@@ -421,8 +424,7 @@ fn main(
         torques[idx] = vec4(0.0, accFrameDrag, accTidal, 0.0);
         bFields[idx] = vec4(accBz, accBgz, 0.0, 0.0);  // extBz added by external fields pass
         bFieldGrads[idx] = vec4(accDBzdx, accDBzdy, accDBgzdx, accDBgzdy);
-        totalForceX[idx] = accTotalX;
-        totalForceY[idx] = accTotalY;
+        totalForce[idx] = vec2(accTotalX, accTotalY);
         // Analytical jerk for radiation reaction (Phase 4)
         jerkX[idx] = accJerkX;
         jerkY[idx] = accJerkY;

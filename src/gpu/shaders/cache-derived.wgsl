@@ -16,14 +16,11 @@
 @group(0) @binding(5) var<storage, read> chargeBuf: array<f32>;
 @group(0) @binding(6) var<storage, read_write> radiusBuf: array<f32>;
 @group(0) @binding(7) var<storage, read_write> gammaBuf: array<f32>;
-@group(0) @binding(8) var<storage, read_write> magMomentBuf: array<f32>;
-@group(0) @binding(9) var<storage, read_write> angMomentumBuf: array<f32>;
-@group(0) @binding(10) var<storage, read_write> velXBuf: array<f32>;
-@group(0) @binding(11) var<storage, read_write> velYBuf: array<f32>;
-@group(0) @binding(12) var<storage, read_write> angVelBuf: array<f32>;
-@group(0) @binding(13) var<storage, read_write> invMassBuf: array<f32>;
-@group(0) @binding(14) var<storage, read_write> radiusSqBuf: array<f32>;
-@group(0) @binding(15) var<storage, read> flags: array<u32>;
+@group(0) @binding(8) var<storage, read_write> magAngMomBuf: array<vec2<f32>>;  // packed: magMoment, angMomentum
+@group(0) @binding(9) var<storage, read_write> velBuf: array<vec2<f32>>;        // packed: velX, velY
+@group(0) @binding(10) var<storage, read_write> angVelBuf: array<f32>;
+@group(0) @binding(11) var<storage, read_write> invMassRadSqBuf: array<vec2<f32>>; // packed: invMass, radiusSq
+@group(0) @binding(12) var<storage, read> flags: array<u32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -62,11 +59,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Write all derived quantities
     radiusBuf[idx] = r;
     gammaBuf[idx] = g;
-    invMassBuf[idx] = invM;
-    radiusSqBuf[idx] = rSq;
-    velXBuf[idx] = vx;
-    velYBuf[idx] = vy;
+    invMassRadSqBuf[idx] = vec2(invM, rSq);
+    velBuf[idx] = vec2(vx, vy);
     angVelBuf[idx] = angVel;
-    magMomentBuf[idx] = magMom;
-    angMomentumBuf[idx] = angMom;
+    magAngMomBuf[idx] = vec2(magMom, angMom);
 }

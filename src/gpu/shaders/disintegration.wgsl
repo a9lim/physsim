@@ -40,10 +40,9 @@ struct DisintEvent {
 @group(0) @binding(3) var<storage, read> charge: array<f32>;
 @group(0) @binding(4) var<storage, read> angVel: array<f32>;
 @group(0) @binding(5) var<storage, read> radiusBuf: array<f32>;
-@group(0) @binding(6) var<storage, read> radiusSqBuf: array<f32>;
-@group(0) @binding(7) var<storage, read> velX: array<f32>;
-@group(0) @binding(8) var<storage, read> velY: array<f32>;
-@group(0) @binding(9) var<storage, read> flags: array<u32>;
+@group(0) @binding(6) var<storage, read> invMassRadSq: array<vec2<f32>>;  // packed invMass, radiusSq
+@group(0) @binding(7) var<storage, read> vel: array<vec2<f32>>;          // packed velX, velY
+@group(0) @binding(8) var<storage, read> flags: array<u32>;
 
 @group(1) @binding(0) var<storage, read_write> events: array<DisintEvent>;
 @group(1) @binding(1) var<storage, read_write> eventCounter: atomic<u32>;
@@ -61,7 +60,7 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
     let m = mass[pid];
     if (m < du.minMass * f32(du.spawnCount)) { return; }
 
-    let rSq = radiusSqBuf[pid];
+    let rSq = invMassRadSq[pid].y;
     let r = radiusBuf[pid];
     let selfGravity = m / rSq;
     let w = angVel[pid];
@@ -160,8 +159,9 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
                         evt.spawnX = px + l1x * r * 1.2;
                         evt.spawnY = py + l1y * r * 1.2;
                         let oMass = mass[strongestIdx];
-                        evt.spawnVX = velX[pid] + (-l1y) * sqrt(oMass / d) * 0.5;
-                        evt.spawnVY = velY[pid] + l1x * sqrt(oMass / d) * 0.5;
+                        let dv = vel[pid];
+                        evt.spawnVX = dv.x + (-l1y) * sqrt(oMass / d) * 0.5;
+                        evt.spawnVY = dv.y + l1x * sqrt(oMass / d) * 0.5;
                         events[slot] = evt;
                     }
                 }

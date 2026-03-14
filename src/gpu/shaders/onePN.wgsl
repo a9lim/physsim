@@ -46,7 +46,7 @@ const BOUND_LOOP: u32 = 2u;
 @group(1) @binding(5) var<storage, read> charge: array<f32>;
 @group(1) @binding(6) var<storage, read> flags: array<u32>;
 @group(1) @binding(7) var<storage, read> yukMod: array<f32>;
-@group(1) @binding(8) var<storage, read> invMass: array<f32>;
+@group(1) @binding(8) var<storage, read> invMassRadSq: array<vec2<f32>>; // packed: invMass, radiusSq
 
 // Force accumulators (read_write) — forces2.xy = f1pn
 @group(2) @binding(0) var<storage, read_write> forces2: array<vec4<f32>>;
@@ -194,7 +194,7 @@ fn vvKick1PN(@builtin(global_invocation_id) gid: vec3u) {
     if (i >= u.aliveCount) { return; }
     if ((flags[i] & ALIVE_BIT) == 0u) { return; }
 
-    let halfDtOverM = u.halfDt * invMass[i];
+    let halfDtOverM = u.halfDt * invMassRadSq[i].x;
     let newF = vec2f(forces2[i].x, forces2[i].y);
     let oldF = vec2f(f1pnOld[i * 2u], f1pnOld[i * 2u + 1u]);
     velWX_rw[i] += (newF.x - oldF.x) * halfDtOverM;

@@ -10,8 +10,7 @@
 @group(0) @binding(7) var<storage, read_write> torques: array<vec4<f32>>;
 @group(0) @binding(8) var<storage, read_write> bFields: array<vec4<f32>>;
 @group(0) @binding(9) var<storage, read_write> bFieldGrads: array<vec4<f32>>;
-@group(0) @binding(10) var<storage, read_write> totalForceX: array<f32>;
-@group(0) @binding(11) var<storage, read_write> totalForceY: array<f32>;
+@group(0) @binding(10) var<storage, read_write> totalForce: array<vec2<f32>>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -28,6 +27,5 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     torques[idx] = zero4;
     bFields[idx] = zero4;
     bFieldGrads[idx] = zero4;
-    totalForceX[idx] = 0.0;
-    totalForceY[idx] = 0.0;
+    totalForce[idx] = vec2(0.0, 0.0);
 }
