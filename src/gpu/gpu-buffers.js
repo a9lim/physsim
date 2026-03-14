@@ -163,6 +163,49 @@ export function createParticleBuffers(device, maxParticles) {
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
 
+    // ── Collision buffers (Phase 3: collision detection/resolution) ──
+    // Collision pair append buffer: stores (idx1, idx2) pairs found by broadphase
+    // Max pairs = MAX_PARTICLES (generous upper bound)
+    const collisionPairBuffer = device.createBuffer({
+        label: 'collisionPairs',
+        size: 8 * maxParticles, // u32 pairs: (idx1, idx2) = 8 bytes each
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    // Collision pair counter (atomic u32)
+    const collisionPairCounter = device.createBuffer({
+        label: 'collisionPairCounter',
+        size: 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+
+    // Merge results buffer: stores merge/annihilation events for post-processing
+    // Each event: { x, y, energy, type } = 16 bytes
+    const mergeResultBuffer = device.createBuffer({
+        label: 'mergeResults',
+        size: 16 * maxParticles,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+
+    const mergeResultCounter = device.createBuffer({
+        label: 'mergeResultCounter',
+        size: 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+
+    // Staging buffers for readback of merge results
+    const mergeCountStaging = device.createBuffer({
+        label: 'mergeCountStaging',
+        size: 4,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+
+    const mergeResultStaging = device.createBuffer({
+        label: 'mergeResultStaging',
+        size: 16 * maxParticles,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+
     // Max acceleration for adaptive substepping (single u32, atomicMax in force shader)
     const maxAccelBuffer = storageBuffer('maxAccel', UINT_SIZE, 1);
     const maxAccelStaging = device.createBuffer({
@@ -199,6 +242,10 @@ export function createParticleBuffers(device, maxParticles) {
         // Quadtree (Phase 3)
         qtNodeBuffer, qtNodeCounter, qtBoundsBuffer, qtVisitorFlags,
         QT_MAX_NODES,
+        // Collision (Phase 3)
+        collisionPairBuffer, collisionPairCounter,
+        mergeResultBuffer, mergeResultCounter,
+        mergeCountStaging, mergeResultStaging,
 
         /** Destroy all buffers */
         destroy() {
