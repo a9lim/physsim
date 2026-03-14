@@ -3,31 +3,25 @@
 // Mathisson-Papapetrou: F = -L * grad(Bgz) (angular momentum in gravitomagnetic gradient)
 // Energy coupling: transfers KE between translational and rotational DOFs.
 //
-// 9 storage buffers (was 12). Uses packed AllForces + ParticleDerived.
+// Uses packed ParticleState + ParticleDerived + AllForces structs.
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
-@group(0) @binding(1) var<storage, read_write> velWX: array<f32>;
-@group(0) @binding(2) var<storage, read_write> velWY: array<f32>;
-@group(0) @binding(3) var<storage, read_write> angW: array<f32>;
-@group(0) @binding(4) var<storage, read> mass: array<f32>;
-@group(0) @binding(5) var<storage, read> charge: array<f32>;
-@group(0) @binding(6) var<storage, read> radius: array<f32>;
-@group(0) @binding(7) var<storage, read_write> derived: array<ParticleDerived>;
-@group(0) @binding(8) var<storage, read> flags: array<u32>;
-@group(0) @binding(9) var<storage, read_write> allForces: array<AllForces>;
+@group(0) @binding(1) var<storage, read_write> particles: array<ParticleState>;
+@group(0) @binding(2) var<storage, read_write> derived: array<ParticleDerived>;
+@group(0) @binding(3) var<storage, read_write> allForces: array<AllForces>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.x;
     if (idx >= uniforms.aliveCount) { return; }
-    if ((flags[idx] & FLAG_ALIVE) == 0u) { return; }
+    if ((particles[idx].flags & FLAG_ALIVE) == 0u) { return; }
 
     let spinOrbitOn = hasToggle0(SPIN_ORBIT_BIT);
     let hasMag = hasToggle0(MAGNETIC_BIT);
     let hasGM = hasToggle0(GRAVITOMAG_BIT);
     if (!spinOrbitOn || (!hasMag && !hasGM)) { return; }
 
-    let aw = angW[idx];
+    let aw = particles[idx].angW;
     let d = derived[idx];
     let aVel = d.angVel;
     if (abs(aVel) < EPSILON) { return; }
@@ -35,11 +29,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let angMom = d.angMomentum;
     if (abs(angMom) < EPSILON) { return; }
 
-    let m = mass[idx];
-    let q = charge[idx];
+    let m = particles[idx].mass;
+    let q = particles[idx].charge;
     let invM = select(0.0, 1.0 / m, m > EPSILON);
     let dtOverM = uniforms.dt * invM;
-    let r = radius[idx];
+    // Radius from derived radiusSq (sqrt)
+    let r = sqrt(d.radiusSq);
     let relOn = hasToggle0(RELATIVITY_BIT);
 
     let vx = d.velX;
@@ -90,7 +85,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let sr = newAngW * r;
     let newAngVel = select(newAngW, newAngW / sqrt(1.0 + sr * sr), relOn);
 
-    angW[idx] = newAngW;
+    particles[idx].angW = newAngW;
 
     // Update angVel in derived struct
     var dOut = derived[idx];
@@ -98,8 +93,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     derived[idx] = dOut;
 
     // Apply translational kicks to proper velocity
-    velWX[idx] = velWX[idx] + kickX;
-    velWY[idx] = velWY[idx] + kickY;
+    particles[idx].velWX = particles[idx].velWX + kickX;
+    particles[idx].velWY = particles[idx].velWY + kickY;
 
     // Store spin-curvature display force in allForces.f2.zw
     var afOut = allForces[idx];
