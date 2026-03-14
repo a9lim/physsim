@@ -13,7 +13,7 @@ struct CameraUniforms {
     zoom: f32,
     canvasWidth: f32,
     canvasHeight: f32,
-    _pad: f32,
+    isDarkMode: f32,
 };
 
 struct TrailUniforms {
@@ -109,9 +109,10 @@ fn vs_main(
     let worldPos = vec4f(wx, wy, 0.0, 1.0);
     out.pos = camera.viewMatrix * worldPos;
 
-    // Alpha fades from 0 (oldest) to 0.6 (newest)
+    // Alpha fades from 0 (oldest) to alphaMax (newest): 0.7 light / 0.9 dark
     let age = f32(vertIdx) / f32(max(count - 1u, 1u));
-    out.alpha = age * 0.6;
+    let alphaMax = select(0.7, 0.9, camera.isDarkMode > 0.5);
+    out.alpha = age * alphaMax;
 
     out.color = unpackRGBA(color[instIdx]);
     return out;

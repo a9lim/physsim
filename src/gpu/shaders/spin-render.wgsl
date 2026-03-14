@@ -12,7 +12,7 @@ struct CameraUniforms {
     zoom: f32,
     canvasWidth: f32,
     canvasHeight: f32,
-    _pad: f32,
+    isDarkMode: f32,
 };
 
 // Packed particle state struct (matches common.wgsl ParticleState)
@@ -58,8 +58,9 @@ const HALF_PI: f32 = 1.5707963268;
 const MIN_ANGVEL: f32 = 0.01;  // Skip drawing for very slow rotation
 
 // Cyan (#4AACA0) for positive angVel (CW), orange (#CC8E4E) for negative (CCW)
-const COLOR_CW: vec4f  = vec4f(0.29, 0.67, 0.63, 0.7);
-const COLOR_CCW: vec4f = vec4f(0.80, 0.56, 0.31, 0.7);
+// Theme-dependent alpha applied at vertex output (0.8 light / 0.9 dark)
+const COLOR_CW_RGB: vec3f  = vec3f(0.29, 0.67, 0.63);  // cyan
+const COLOR_CCW_RGB: vec3f = vec3f(0.80, 0.56, 0.31);   // orange
 
 struct VertexOutput {
     @builtin(position) pos: vec4f,
@@ -110,7 +111,9 @@ fn vs_main(
     out.pos = camera.viewMatrix * worldPos;
 
     // Cyan for positive angVel (CW), orange for negative (CCW)
-    out.color = select(COLOR_CCW, COLOR_CW, angVel > 0.0);
+    let spinAlpha = select(0.8, 0.9, camera.isDarkMode > 0.5);
+    let rgb = select(COLOR_CCW_RGB, COLOR_CW_RGB, angVel > 0.0);
+    out.color = vec4f(rgb, spinAlpha);
     return out;
 }
 

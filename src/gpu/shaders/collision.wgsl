@@ -19,6 +19,71 @@ const COL_BOUNCE: u32 = 2u;
 const MERGE_ANNIHILATION: u32 = 0u;
 const MERGE_INELASTIC: u32 = 1u;
 
+// Topology modes
+const TOPO_TORUS: u32 = 0u;
+const TOPO_KLEIN: u32 = 1u;
+const TOPO_RP2: u32   = 2u;
+const BOUND_LOOP: u32 = 2u;
+
+// Full topology-aware minimum-image displacement (inlined from common.wgsl)
+fn fullMinImageCol(ox: f32, oy: f32, sx: f32, sy: f32, w: f32, h: f32, topo: u32) -> vec2<f32> {
+    let halfW = w * 0.5;
+    let halfH = h * 0.5;
+    if (topo == 0u) {
+        // Torus: simple periodic
+        var rx = sx - ox;
+        if (rx > halfW) { rx -= w; } else if (rx < -halfW) { rx += w; }
+        var ry = sy - oy;
+        if (ry > halfH) { ry -= h; } else if (ry < -halfH) { ry += h; }
+        return vec2(rx, ry);
+    }
+    // Klein/RP²: evaluate glide-reflection candidates
+    var dx0 = sx - ox;
+    if (dx0 > halfW) { dx0 -= w; } else if (dx0 < -halfW) { dx0 += w; }
+    var dy0 = sy - oy;
+    if (dy0 > halfH) { dy0 -= h; } else if (dy0 < -halfH) { dy0 += h; }
+    var bestSq = dx0 * dx0 + dy0 * dy0;
+    var bestDx = dx0;
+    var bestDy = dy0;
+    if (topo == 1u) {
+        // Klein: y-wrap glide reflection
+        let gx = w - sx;
+        var dx1 = gx - ox;
+        if (dx1 > halfW) { dx1 -= w; } else if (dx1 < -halfW) { dx1 += w; }
+        var dy1 = (sy + h) - oy;
+        if (dy1 > h) { dy1 -= 2.0 * h; } else if (dy1 < -h) { dy1 += 2.0 * h; }
+        let dSq1 = dx1 * dx1 + dy1 * dy1;
+        if (dSq1 < bestSq) { bestDx = dx1; bestDy = dy1; bestSq = dSq1; }
+        var dy1b = (sy - h) - oy;
+        if (dy1b > h) { dy1b -= 2.0 * h; } else if (dy1b < -h) { dy1b += 2.0 * h; }
+        let dSq1b = dx1 * dx1 + dy1b * dy1b;
+        if (dSq1b < bestSq) { bestDx = dx1; bestDy = dy1b; }
+    } else {
+        // RP²: both axes glide reflections
+        let gx = w - sx;
+        var dxG = gx - ox;
+        if (dxG > halfW) { dxG -= w; } else if (dxG < -halfW) { dxG += w; }
+        var dyG = (sy + h) - oy;
+        if (dyG > h) { dyG -= 2.0 * h; } else if (dyG < -h) { dyG += 2.0 * h; }
+        let dSqG = dxG * dxG + dyG * dyG;
+        if (dSqG < bestSq) { bestDx = dxG; bestDy = dyG; bestSq = dSqG; }
+        let gy = h - sy;
+        var dxH = (sx + w) - ox;
+        if (dxH > w) { dxH -= 2.0 * w; } else if (dxH < -w) { dxH += 2.0 * w; }
+        var dyH = gy - oy;
+        if (dyH > halfH) { dyH -= h; } else if (dyH < -halfH) { dyH += h; }
+        let dSqH = dxH * dxH + dyH * dyH;
+        if (dSqH < bestSq) { bestDx = dxH; bestDy = dyH; bestSq = dSqH; }
+        var dxC = (w - sx + w) - ox;
+        if (dxC > w) { dxC -= 2.0 * w; } else if (dxC < -w) { dxC += 2.0 * w; }
+        var dyC = (h - sy + h) - oy;
+        if (dyC > h) { dyC -= 2.0 * h; } else if (dyC < -h) { dyC += 2.0 * h; }
+        let dSqC = dxC * dxC + dyC * dyC;
+        if (dSqC < bestSq) { bestDx = dxC; bestDy = dyC; }
+    }
+    return vec2(bestDx, bestDy);
+}
+
 // ── Packed buffer structs (standalone — common.wgsl not prepended) ──
 
 struct ParticleState {
@@ -223,18 +288,15 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let relOn = (uniforms.toggles0 & 32u) != 0u; // RELATIVITY_BIT
 
-    // Minimum-image displacement from p1 to p2 (handles periodic boundaries).
-    // For non-loop boundaries the displacement is just the raw difference.
-    let boundLoop = uniforms.boundaryMode == 2u; // BOUND_LOOP = 2
+    // Minimum-image displacement from p1 to p2 (handles all topologies).
+    let boundLoop = uniforms.boundaryMode == BOUND_LOOP;
     var dx12 = ps2.posX - ps1.posX;
     var dy12 = ps2.posY - ps1.posY;
     if (boundLoop) {
-        let hw = uniforms.domainW * 0.5;
-        let hh = uniforms.domainH * 0.5;
-        if (dx12 >  hw) { dx12 -= uniforms.domainW; }
-        if (dx12 < -hw) { dx12 += uniforms.domainW; }
-        if (dy12 >  hh) { dy12 -= uniforms.domainH; }
-        if (dy12 < -hh) { dy12 += uniforms.domainH; }
+        let mi = fullMinImageCol(ps1.posX, ps1.posY, ps2.posX, ps2.posY,
+                                 uniforms.domainW, uniforms.domainH, uniforms.topologyMode);
+        dx12 = mi.x;
+        dy12 = mi.y;
     }
 
     if (isAntimatter1 != isAntimatter2) {
@@ -262,18 +324,18 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
 
         // Retire particles with zero mass
-        // Store coordinate angular velocity (angVel), not proper velocity (angW)
+        // Store pre-annihilation mass and coordinate angular velocity
         if (ps1.mass == 0.0) {
             ps1.flags = (ps1.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
             aux1.deathTime = uniforms.simTime;
-            aux1.deathMass = annihilated; // pre-removal mass
+            aux1.deathMass = annihilated; // full pre-annihilation mass (was all consumed)
             let sr1 = ps1.angW * aux1.radius;
             aux1.deathAngVel = select(ps1.angW, ps1.angW / sqrt(1.0 + sr1 * sr1), relOn);
         }
         if (ps2.mass == 0.0) {
             ps2.flags = (ps2.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
             aux2.deathTime = uniforms.simTime;
-            aux2.deathMass = annihilated; // pre-removal mass
+            aux2.deathMass = annihilated; // full pre-annihilation mass (was all consumed)
             let sr2 = ps2.angW * aux2.radius;
             aux2.deathAngVel = select(ps2.angW, ps2.angW / sqrt(1.0 + sr2 * sr2), relOn);
         }
@@ -324,6 +386,10 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         } else {
             ps1.angW = 0.0;
         }
+
+        // Update winner radius in aux
+        aux1.radius = newRadius;
+        particleAux[idx1] = aux1;
 
         // Retire p2 (loser) — save death metadata before zeroing mass
         // Store coordinate angular velocity, not proper velocity
@@ -425,10 +491,10 @@ fn detectCollisionsPairwise(
                 var dx = colTile[j].posX - pPosX;
                 var dy = colTile[j].posY - pPosY;
                 if (boundLoop) {
-                    if (dx >  hw) { dx -= uniforms.domainW; }
-                    if (dx < -hw) { dx += uniforms.domainW; }
-                    if (dy >  hh) { dy -= uniforms.domainH; }
-                    if (dy < -hh) { dy += uniforms.domainH; }
+                    let mi = fullMinImageCol(pPosX, pPosY, colTile[j].posX, colTile[j].posY,
+                                             uniforms.domainW, uniforms.domainH, uniforms.topologyMode);
+                    dx = mi.x;
+                    dy = mi.y;
                 }
 
                 let distSq = dx * dx + dy * dy;
@@ -476,16 +542,14 @@ fn resolveBouncePairwise(@builtin(global_invocation_id) gid: vec3<u32>) {
     let r1 = aux1.radius;
     let r2 = aux2.radius;
 
-    let boundLoop = uniforms.boundaryMode == 2u;
+    let boundLoop = uniforms.boundaryMode == BOUND_LOOP;
     var dx = ps2.posX - ps1.posX;
     var dy = ps2.posY - ps1.posY;
     if (boundLoop) {
-        let hw = uniforms.domainW * 0.5;
-        let hh = uniforms.domainH * 0.5;
-        if (dx >  hw) { dx -= uniforms.domainW; }
-        if (dx < -hw) { dx += uniforms.domainW; }
-        if (dy >  hh) { dy -= uniforms.domainH; }
-        if (dy < -hh) { dy += uniforms.domainH; }
+        let mi = fullMinImageCol(ps1.posX, ps1.posY, ps2.posX, ps2.posY,
+                                 uniforms.domainW, uniforms.domainH, uniforms.topologyMode);
+        dx = mi.x;
+        dy = mi.y;
     }
 
     let distSq = dx * dx + dy * dy;

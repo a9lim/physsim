@@ -11,7 +11,7 @@ struct CameraUniforms {
     zoom: f32,
     canvasWidth: f32,
     canvasHeight: f32,
-    _pad: f32,
+    isDarkMode: f32,
 };
 
 struct ArrowUniforms {
