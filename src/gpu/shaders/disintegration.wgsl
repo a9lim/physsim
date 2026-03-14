@@ -5,6 +5,18 @@
 
 const EPSILON: f32 = 1e-9;
 
+// Packed struct (mirrors common.wgsl ParticleDerived)
+struct DisintDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 struct DisintUniforms {
     softeningSq: f32,
     domainW: f32,
@@ -38,11 +50,9 @@ struct DisintEvent {
 @group(0) @binding(1) var<storage, read> posY: array<f32>;
 @group(0) @binding(2) var<storage, read> mass: array<f32>;
 @group(0) @binding(3) var<storage, read> charge: array<f32>;
-@group(0) @binding(4) var<storage, read> angVel: array<f32>;
-@group(0) @binding(5) var<storage, read> radiusBuf: array<f32>;
-@group(0) @binding(6) var<storage, read> invMassRadSq: array<vec2<f32>>;  // packed invMass, radiusSq
-@group(0) @binding(7) var<storage, read> vel: array<vec2<f32>>;          // packed velX, velY
-@group(0) @binding(8) var<storage, read> flags: array<u32>;
+@group(0) @binding(4) var<storage, read> radiusBuf: array<f32>;
+@group(0) @binding(5) var<storage, read> derived: array<DisintDerived>;
+@group(0) @binding(6) var<storage, read> flags: array<u32>;
 
 @group(1) @binding(0) var<storage, read_write> events: array<DisintEvent>;
 @group(1) @binding(1) var<storage, read_write> eventCounter: atomic<u32>;
@@ -60,10 +70,11 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
     let m = mass[pid];
     if (m < du.minMass * f32(du.spawnCount)) { return; }
 
-    let rSq = invMassRadSq[pid].y;
+    let d = derived[pid];
+    let rSq = d.radiusSq;
     let r = radiusBuf[pid];
     let selfGravity = m / rSq;
-    let w = angVel[pid];
+    let w = d.angVel;
     let centrifugal = w * w * r;
     let q = charge[pid];
     let coulombSelf = (q * q) / (4.0 * rSq);
@@ -159,7 +170,8 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
                         evt.spawnX = px + l1x * r * 1.2;
                         evt.spawnY = py + l1y * r * 1.2;
                         let oMass = mass[strongestIdx];
-                        let dv = vel[pid];
+                        let dvd = derived[pid];
+                        let dv = vec2<f32>(dvd.velX, dvd.velY);
                         evt.spawnVX = dv.x + (-l1y) * sqrt(oMass / d) * 0.5;
                         evt.spawnVY = dv.y + l1x * sqrt(oMass / d) * 0.5;
                         events[slot] = evt;

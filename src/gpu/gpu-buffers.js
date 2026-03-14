@@ -49,31 +49,20 @@ export function createParticleBuffers(device, maxParticles) {
 
     // Derived/cached — sized for particles + ghosts
     const radius = storageBuffer('radius', FLOAT_SIZE, soaCapacity);
-    const gamma = storageBuffer('gamma', FLOAT_SIZE, soaCapacity);
 
-    // Derived/cached (Phase 2) — sized for particles + ghosts
+    // Packed derived state: ParticleDerived struct (32 bytes per particle)
+    // Replaces: magAngMom, invMassRadSq, vel, angVel (4 buffers → 1)
+    const DERIVED_SIZE = 32; // 8 x f32
+    const derived = storageBuffer('derived', DERIVED_SIZE, soaCapacity);
+
+    // Packed axMod + yukMod (vec2, 8 bytes per particle)
     const VEC2_SIZE = 8;
-    const magAngMom = storageBuffer('magAngMom', VEC2_SIZE, soaCapacity);  // packed: magMoment, angMomentum
-    const axMod = storageBuffer('axMod', FLOAT_SIZE, soaCapacity);
-    const yukMod = storageBuffer('yukMod', FLOAT_SIZE, soaCapacity);
-    const vel = storageBuffer('vel', VEC2_SIZE, soaCapacity);  // packed: velX, velY (coordinate velocity)
-    const angVel = storageBuffer('angVel', FLOAT_SIZE, soaCapacity);
-    const invMassRadSq = storageBuffer('invMassRadSq', VEC2_SIZE, soaCapacity);  // packed: invMass, radiusSq
+    const axYukMod = storageBuffer('axYukMod', VEC2_SIZE, soaCapacity);
 
-    // Force accumulators (vec4 = 16 bytes each, packed pairs)
-    const VEC4_SIZE = 16;
-    const forces0 = storageBuffer('forces0', VEC4_SIZE, maxParticles); // gravity.xy, coulomb.xy
-    const forces1 = storageBuffer('forces1', VEC4_SIZE, maxParticles); // magnetic.xy, gravitomag.xy
-    const forces2 = storageBuffer('forces2', VEC4_SIZE, maxParticles); // f1pn.xy, spinCurv.xy
-    const forces3 = storageBuffer('forces3', VEC4_SIZE, maxParticles); // radiation.xy, yukawa.xy
-    const forces4 = storageBuffer('forces4', VEC4_SIZE, maxParticles); // external.xy, higgs.xy
-    const forces5 = storageBuffer('forces5', VEC4_SIZE, maxParticles); // axion.xy, pad, pad
-    const torques = storageBuffer('torques', VEC4_SIZE, maxParticles); // spinOrbit, frameDrag, tidal, contact
-    const bFields = storageBuffer('bFields', VEC4_SIZE, maxParticles); // Bz, Bgz, extBz, pad
-    const bFieldGrads = storageBuffer('bFieldGrads', VEC4_SIZE, maxParticles); // dBzdx, dBzdy, dBgzdx, dBgzdy
-
-    // Total force accumulator (sum of all force types, packed vec2)
-    const totalForce = storageBuffer('totalForce', VEC2_SIZE, maxParticles);
+    // Packed AllForces struct (160 bytes per particle)
+    // Replaces: forces0-5, torques, bFields, bFieldGrads, totalForce (10 buffers → 1)
+    const ALLFORCES_SIZE = 160; // 10 x vec4 (9 vec4 + 1 vec2 + 1 vec2 padding = 10 vec4)
+    const allForces = storageBuffer('allForces', ALLFORCES_SIZE, maxParticles);
 
     // Particle metadata — flags sized for particles + ghosts
     const flags = storageBuffer('flags', UINT_SIZE, soaCapacity);
@@ -100,7 +89,7 @@ export function createParticleBuffers(device, maxParticles) {
     const ghostCharge = storageBuffer('ghostCharge', FLOAT_SIZE, maxParticles);
     const ghostFlags = storageBuffer('ghostFlags', UINT_SIZE, maxParticles);
     const ghostRadius = storageBuffer('ghostRadius', FLOAT_SIZE, maxParticles);
-    const ghostMagAngMom = storageBuffer('ghostMagAngMom', VEC2_SIZE, maxParticles);  // packed: magMoment, angMomentum
+    const ghostDerived = storageBuffer('ghostDerived', DERIVED_SIZE, maxParticles);
     const ghostParticleId = storageBuffer('ghostParticleId', UINT_SIZE, maxParticles);
 
     // Ghost original index mapping (which alive particle each ghost copies)
@@ -231,11 +220,8 @@ export function createParticleBuffers(device, maxParticles) {
     const f1pnOld = storageBuffer('f1pnOld', FLOAT_SIZE, maxParticles * 2);
 
     // ── Phase 4: Jerk accumulators for radiation ──
-    // Analytical jerk accumulated in pair-force pass, consumed by radiation shader
-    const jerkX = storageBuffer('jerkX', FLOAT_SIZE, maxParticles);
-    const jerkY = storageBuffer('jerkY', FLOAT_SIZE, maxParticles);
-    // Interleaved jerk buffer [x0, y0, x1, y1, ...] for radiation shader binding 14
-    const jerkInterleaved = storageBuffer('jerkInterleaved', FLOAT_SIZE, maxParticles * 2);
+    // Packed jerk vec2 — written by pair-force, read by radiation shader
+    const jerk = storageBuffer('jerk', VEC2_SIZE, maxParticles);
 
     // ── Phase 4: Radiation accumulators ──
     // Per-particle energy accumulators for photon/pion emission thresholds
@@ -303,15 +289,12 @@ export function createParticleBuffers(device, maxParticles) {
         soaCapacity,
         // Core state
         posX, posY, velWX, velWY, angW, mass, baseMass, charge,
-        // Derived (packed vec2: vel, magAngMom, invMassRadSq)
-        radius, gamma, magAngMom, axMod, yukMod,
-        vel, angVel, invMassRadSq,
+        // Derived (packed struct)
+        radius, derived, axYukMod,
         // Metadata
         flags, color, particleId,
-        // Forces
-        forces0, forces1, forces2, forces3, forces4, forces5,
-        torques, bFields, bFieldGrads,
-        totalForce,
+        // Forces (packed AllForces struct)
+        allForces,
         // Pool
         poolMgmt,
         // Stats
@@ -322,7 +305,7 @@ export function createParticleBuffers(device, maxParticles) {
         ghostCounter, ghostOriginalIdx, ghostCountStaging,
         ghostPosX, ghostPosY, ghostVelWX, ghostVelWY, ghostAngW,
         ghostMass, ghostCharge, ghostFlags,
-        ghostRadius, ghostMagAngMom, ghostParticleId,
+        ghostRadius, ghostDerived, ghostParticleId,
         // Quadtree (Phase 3)
         qtNodeBuffer, qtNodeCounter, qtBoundsBuffer, qtVisitorFlags,
         QT_MAX_NODES,
@@ -335,8 +318,8 @@ export function createParticleBuffers(device, maxParticles) {
         freeStack, freeTop,
         // 1PN VV correction (Phase 4)
         f1pnOld,
-        // Jerk + radiation accumulators (Phase 4)
-        jerkX, jerkY, jerkInterleaved,
+        // Jerk (packed vec2) + radiation accumulators (Phase 4)
+        jerk,
         radAccum, hawkAccum, yukawaRadAccum,
         radDisplayX, radDisplayY, yukForceX, yukForceY,
         // Photon pool (Phase 4)

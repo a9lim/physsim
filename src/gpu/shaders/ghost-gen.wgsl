@@ -12,6 +12,18 @@ const TOPO_RP2:   u32 = 2u;
 const FLAG_ALIVE:  u32 = 1u;
 const FLAG_GHOST:  u32 = 16u;
 
+// Packed struct (mirrors common.wgsl ParticleDerived)
+struct GhostDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 struct SimUniforms {
     dt: f32,
     simTime: f32,
@@ -73,9 +85,9 @@ struct SimUniforms {
 
 // Additional per-particle data needed for tree aggregates
 @group(1) @binding(8) var<storage, read> radius_in: array<f32>;
-@group(1) @binding(9) var<storage, read> magAngMom_in: array<vec2<f32>>;   // packed magMoment, angMomentum
+@group(1) @binding(9) var<storage, read> derived_in: array<GhostDerived>;
 @group(1) @binding(10) var<storage, read_write> ghostRadius: array<f32>;
-@group(1) @binding(11) var<storage, read_write> ghostMagAngMom: array<vec2<f32>>; // packed ghost magMoment, angMomentum
+@group(1) @binding(11) var<storage, read_write> ghostDerived: array<GhostDerived>;
 @group(1) @binding(12) var<storage, read> particleId_in: array<u32>;
 @group(1) @binding(13) var<storage, read_write> ghostParticleId: array<u32>;
 
@@ -86,7 +98,7 @@ const MAX_GHOSTS: u32 = 4096u; // Must match MAX_PARTICLES
 
 fn appendGhost(
     px: f32, py: f32, wx: f32, wy: f32, aw: f32,
-    m: f32, q: f32, r: f32, mm: f32, am: f32,
+    m: f32, q: f32, r: f32, dd: GhostDerived,
     origIdx: u32, pid: u32
 ) {
     let slot = atomicAdd(&ghostCounter, 1u);
@@ -102,7 +114,7 @@ fn appendGhost(
     ghostCharge[slot] = q;
     ghostFlags[slot] = FLAG_ALIVE | FLAG_GHOST;
     ghostRadius[slot] = r;
-    ghostMagAngMom[slot] = vec2(mm, am);
+    ghostDerived[slot] = dd;
     ghostOriginalIdx[slot] = origIdx;
     ghostParticleId[slot] = pid;
 }
@@ -130,9 +142,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let m = mass_in[idx];
     let q = charge_in[idx];
     let r = radius_in[idx];
-    let mamIn = magAngMom_in[idx];
-    let mm = mamIn.x;
-    let am = mamIn.y;
+    let dd = derived_in[idx];
+    let mm = dd.magMoment;
+    let am = dd.angMomentum;
     let pid = particleId_in[idx];
 
     let nearL = x < margin;
@@ -140,46 +152,45 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let nearT = y < margin;
     let nearB = y > H - margin;
 
+    // Build flipped derived struct for Klein/RP2 glide reflections
+    var ddFlip = dd;
+    ddFlip.magMoment = -mm;
+    ddFlip.angMomentum = -am;
+
     if (topo == TOPO_TORUS) {
         // Torus: simple wrap, no velocity flip
-        if (nearL) { appendGhost(x + W, y, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        if (nearR) { appendGhost(x - W, y, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        if (nearT) { appendGhost(x, y + H, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        if (nearB) { appendGhost(x, y - H, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        if (nearL && nearT) { appendGhost(x + W, y + H, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        if (nearL && nearB) { appendGhost(x + W, y - H, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        if (nearR && nearT) { appendGhost(x - W, y + H, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        if (nearR && nearB) { appendGhost(x - W, y - H, wx, wy, aw, m, q, r, mm, am, idx, pid); }
+        if (nearL) { appendGhost(x + W, y, wx, wy, aw, m, q, r, dd, idx, pid); }
+        if (nearR) { appendGhost(x - W, y, wx, wy, aw, m, q, r, dd, idx, pid); }
+        if (nearT) { appendGhost(x, y + H, wx, wy, aw, m, q, r, dd, idx, pid); }
+        if (nearB) { appendGhost(x, y - H, wx, wy, aw, m, q, r, dd, idx, pid); }
+        if (nearL && nearT) { appendGhost(x + W, y + H, wx, wy, aw, m, q, r, dd, idx, pid); }
+        if (nearL && nearB) { appendGhost(x + W, y - H, wx, wy, aw, m, q, r, dd, idx, pid); }
+        if (nearR && nearT) { appendGhost(x - W, y + H, wx, wy, aw, m, q, r, dd, idx, pid); }
+        if (nearR && nearB) { appendGhost(x - W, y - H, wx, wy, aw, m, q, r, dd, idx, pid); }
     } else if (topo == TOPO_KLEIN) {
         // Klein: x wraps normally; y-wrap flips x and negates vx, angw
-        if (nearL) { appendGhost(x + W, y, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        if (nearR) { appendGhost(x - W, y, wx, wy, aw, m, q, r, mm, am, idx, pid); }
-        // y-glide: mirror x, negate vx and angw
-        let fmm_k = -mm; // magMoment flips sign with angVel flip
-        let fam_k = -am; // angMomentum flips sign
-        if (nearT) { appendGhost(W - x, y + H, -wx, wy, -aw, m, q, r, fmm_k, fam_k, idx, pid); }
-        if (nearB) { appendGhost(W - x, y - H, -wx, wy, -aw, m, q, r, fmm_k, fam_k, idx, pid); }
+        if (nearL) { appendGhost(x + W, y, wx, wy, aw, m, q, r, dd, idx, pid); }
+        if (nearR) { appendGhost(x - W, y, wx, wy, aw, m, q, r, dd, idx, pid); }
+        // y-glide: mirror x, negate vx and angw — magMoment/angMomentum flip sign
+        if (nearT) { appendGhost(W - x, y + H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearB) { appendGhost(W - x, y - H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
         // Corners: combine x-wrap + y-glide
-        if (nearL && nearT) { appendGhost(W - x + W, y + H, -wx, wy, -aw, m, q, r, fmm_k, fam_k, idx, pid); }
-        if (nearL && nearB) { appendGhost(W - x + W, y - H, -wx, wy, -aw, m, q, r, fmm_k, fam_k, idx, pid); }
-        if (nearR && nearT) { appendGhost(W - x - W, y + H, -wx, wy, -aw, m, q, r, fmm_k, fam_k, idx, pid); }
-        if (nearR && nearB) { appendGhost(W - x - W, y - H, -wx, wy, -aw, m, q, r, fmm_k, fam_k, idx, pid); }
+        if (nearL && nearT) { appendGhost(W - x + W, y + H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearL && nearB) { appendGhost(W - x + W, y - H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearR && nearT) { appendGhost(W - x - W, y + H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearR && nearB) { appendGhost(W - x - W, y - H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
     } else {
         // RP2: x-wrap flips y and negates vy, angw; y-wrap flips x and negates vx, angw
-        let fmm_vy = -mm;
-        let fam_vy = -am;
-        let fmm_vx = -mm;
-        let fam_vx = -am;
         // x-wrap: mirror y, negate vy and angw
-        if (nearL) { appendGhost(x + W, H - y, wx, -wy, -aw, m, q, r, fmm_vy, fam_vy, idx, pid); }
-        if (nearR) { appendGhost(x - W, H - y, wx, -wy, -aw, m, q, r, fmm_vy, fam_vy, idx, pid); }
+        if (nearL) { appendGhost(x + W, H - y, wx, -wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearR) { appendGhost(x - W, H - y, wx, -wy, -aw, m, q, r, ddFlip, idx, pid); }
         // y-wrap: mirror x, negate vx and angw
-        if (nearT) { appendGhost(W - x, y + H, -wx, wy, -aw, m, q, r, fmm_vx, fam_vx, idx, pid); }
-        if (nearB) { appendGhost(W - x, y - H, -wx, wy, -aw, m, q, r, fmm_vx, fam_vx, idx, pid); }
+        if (nearT) { appendGhost(W - x, y + H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearB) { appendGhost(W - x, y - H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
         // Corners: y-glide takes precedence (matches CPU _addGhost for RP2 corners)
-        if (nearL && nearT) { appendGhost(W - x + W, y + H, -wx, wy, -aw, m, q, r, fmm_vx, fam_vx, idx, pid); }
-        if (nearL && nearB) { appendGhost(W - x + W, y - H, -wx, wy, -aw, m, q, r, fmm_vx, fam_vx, idx, pid); }
-        if (nearR && nearT) { appendGhost(W - x - W, y + H, -wx, wy, -aw, m, q, r, fmm_vx, fam_vx, idx, pid); }
-        if (nearR && nearB) { appendGhost(W - x - W, y - H, -wx, wy, -aw, m, q, r, fmm_vx, fam_vx, idx, pid); }
+        if (nearL && nearT) { appendGhost(W - x + W, y + H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearL && nearB) { appendGhost(W - x + W, y - H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearR && nearT) { appendGhost(W - x - W, y + H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
+        if (nearR && nearB) { appendGhost(W - x - W, y - H, -wx, wy, -aw, m, q, r, ddFlip, idx, pid); }
     }
 }

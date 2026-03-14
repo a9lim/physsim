@@ -97,12 +97,27 @@ const FLAG_ALIVE: u32 = 1u;
 @group(3) @binding(5) var<storage, read> piFlags: array<u32>;
 @group(3) @binding(6) var<storage, read_write> piCount: atomic<u32>;
 
+// Packed force struct (mirrors common.wgsl AllForces)
+struct AllForces_BT {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
 // Particle SoA (for computeBosonGravity: particle positions + force accum)
 @group(4) @binding(0) var<storage, read> posX: array<f32>;
 @group(4) @binding(1) var<storage, read> posY: array<f32>;
 @group(4) @binding(2) var<storage, read> mass: array<f32>;
 @group(4) @binding(3) var<storage, read> flags: array<u32>;
-@group(4) @binding(4) var<storage, read_write> forces0: array<vec4f>; // gravity.xy in .xy
+@group(4) @binding(4) var<storage, read_write> allForces: array<AllForces_BT>;
 
 // Helper: read f32 from tree node
 fn nodeF32(nodeIdx: u32, field: u32) -> f32 {
@@ -349,9 +364,11 @@ fn computeBosonGravity(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
 
-    // Add to gravity force accumulators (forces0.xy = gravity)
-    let cur = forces0[i];
-    forces0[i] = vec4f(cur.x + fx, cur.y + fy, cur.z, cur.w);
+    // Add to gravity force accumulators (allForces.f0.xy = gravity)
+    var af = allForces[i];
+    af.f0.x += fx;
+    af.f0.y += fy;
+    allForces[i] = af;
 }
 
 // Mutual gravitational interaction between bosons via BH tree walk.

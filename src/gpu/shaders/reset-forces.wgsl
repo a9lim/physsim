@@ -1,16 +1,8 @@
 // Zero all force/torque/bField accumulators at start of each substep.
+// Uses packed AllForces struct — 1 storage buffer instead of 10.
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
-@group(0) @binding(1) var<storage, read_write> forces0: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read_write> forces1: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read_write> forces2: array<vec4<f32>>;
-@group(0) @binding(4) var<storage, read_write> forces3: array<vec4<f32>>;
-@group(0) @binding(5) var<storage, read_write> forces4: array<vec4<f32>>;
-@group(0) @binding(6) var<storage, read_write> forces5: array<vec4<f32>>;
-@group(0) @binding(7) var<storage, read_write> torques: array<vec4<f32>>;
-@group(0) @binding(8) var<storage, read_write> bFields: array<vec4<f32>>;
-@group(0) @binding(9) var<storage, read_write> bFieldGrads: array<vec4<f32>>;
-@group(0) @binding(10) var<storage, read_write> totalForce: array<vec2<f32>>;
+@group(0) @binding(1) var<storage, read_write> allForces: array<AllForces>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -18,14 +10,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (idx >= uniforms.aliveCount) { return; }
 
     let zero4 = vec4(0.0, 0.0, 0.0, 0.0);
-    forces0[idx] = zero4;
-    forces1[idx] = zero4;
-    forces2[idx] = zero4;
-    forces3[idx] = zero4;
-    forces4[idx] = zero4;
-    forces5[idx] = zero4;
-    torques[idx] = zero4;
-    bFields[idx] = zero4;
-    bFieldGrads[idx] = zero4;
-    totalForce[idx] = vec2(0.0, 0.0);
+    var af: AllForces;
+    af.f0 = zero4;
+    af.f1 = zero4;
+    af.f2 = zero4;
+    af.f3 = zero4;
+    af.f4 = zero4;
+    af.f5 = zero4;
+    af.torques = zero4;
+    af.bFields = zero4;
+    af.bFieldGrads = zero4;
+    af.totalForce = vec2(0.0, 0.0);
+    af._pad = vec2(0.0, 0.0);
+    allForces[idx] = af;
 }

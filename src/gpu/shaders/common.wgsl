@@ -101,6 +101,37 @@ fn hasToggle1(bit: u32) -> bool {
     return (uniforms.toggles1 & bit) != 0u;
 }
 
+// ── Packed buffer structs (reduces storage buffer count per shader stage) ──
+
+// All force/torque/bField accumulators in one struct (160 bytes per particle).
+// Replaces: forces0-5, torques, bFields, bFieldGrads, totalForce (10 buffers → 1).
+struct AllForces {
+    f0: vec4<f32>,          // gravity.xy, coulomb.xy
+    f1: vec4<f32>,          // magnetic.xy, gravitomag.xy
+    f2: vec4<f32>,          // f1pn.xy, spinCurv.xy
+    f3: vec4<f32>,          // radiation.xy, yukawa.xy
+    f4: vec4<f32>,          // external.xy, higgs.xy
+    f5: vec4<f32>,          // axion.xy, pad, pad
+    torques: vec4<f32>,     // spinOrbit, frameDrag, tidal, contact
+    bFields: vec4<f32>,     // Bz, Bgz, extBz, pad
+    bFieldGrads: vec4<f32>, // dBzdx, dBzdy, dBgzdx, dBgzdy
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
+// Derived per-particle state computed by cache-derived (32 bytes per particle).
+// Replaces: magAngMom, invMassRadSq, vel, angVel (4 buffers → 1).
+struct ParticleDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 // Minimum image displacement for torus topology (most common case).
 // Returns displacement vector from observer at (ox, oy) to source at (sx, sy).
 fn torusMinImage(ox: f32, oy: f32, sx: f32, sy: f32) -> vec2<f32> {

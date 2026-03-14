@@ -3,14 +3,13 @@
 // Electric: F = q*E (uniform electric field)
 // Magnetic: adds extBz to accumulated Bz for Boris rotation
 // Direction vectors precomputed in uniforms (extGx, extGy, extEx, extEy).
+// Uses packed AllForces struct for force/bField output.
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
 @group(0) @binding(1) var<storage, read> mass: array<f32>;
 @group(0) @binding(2) var<storage, read> charge: array<f32>;
 @group(0) @binding(3) var<storage, read> flags: array<u32>;
-@group(0) @binding(4) var<storage, read_write> forces4: array<vec4<f32>>;   // external.xy, higgs.xy
-@group(0) @binding(5) var<storage, read_write> totalForce: array<vec2<f32>>;
-@group(0) @binding(6) var<storage, read_write> bFields: array<vec4<f32>>;   // Bz, Bgz, extBz, pad
+@group(0) @binding(4) var<storage, read_write> allForces: array<AllForces>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -39,23 +38,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         extFy += q * uniforms.extEy;
     }
 
-    // Write external force (first two components of forces4)
-    var f4 = forces4[idx];
-    f4.x += extFx;
-    f4.y += extFy;
-    forces4[idx] = f4;
-
-    // Add to total force
-    var tf = totalForce[idx];
-    tf.x += extFx;
-    tf.y += extFy;
-    totalForce[idx] = tf;
+    // Write external force to allForces.f4.xy and update totalForce
+    var af = allForces[idx];
+    af.f4.x += extFx;
+    af.f4.y += extFy;
+    af.totalForce.x += extFx;
+    af.totalForce.y += extFy;
 
     // Add external Bz
     if (Bext != 0.0) {
-        var bf = bFields[idx];
-        bf.z = Bext;  // extBz slot
-        bf.x += Bext;  // add to total Bz for Boris rotation
-        bFields[idx] = bf;
+        af.bFields.z = Bext;  // extBz slot
+        af.bFields.x += Bext;  // add to total Bz for Boris rotation
     }
+    allForces[idx] = af;
 }

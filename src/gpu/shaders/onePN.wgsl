@@ -35,6 +35,32 @@ const RELATIVITY_BIT: u32    = 32u;
 const EPSILON: f32 = 1e-9;
 const BOUND_LOOP: u32 = 2u;
 
+// Packed structs (mirrors common.wgsl definitions for standalone shader)
+struct AllForces_1PN {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
+struct ParticleDerived_1PN {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
 // Particle state (read)
@@ -45,11 +71,11 @@ const BOUND_LOOP: u32 = 2u;
 @group(1) @binding(4) var<storage, read> mass: array<f32>;
 @group(1) @binding(5) var<storage, read> charge: array<f32>;
 @group(1) @binding(6) var<storage, read> flags: array<u32>;
-@group(1) @binding(7) var<storage, read> yukMod: array<f32>;
-@group(1) @binding(8) var<storage, read> invMassRadSq: array<vec2<f32>>; // packed: invMass, radiusSq
+@group(1) @binding(7) var<storage, read> axYukMod: array<vec2<f32>>;  // packed: axMod, yukMod
+@group(1) @binding(8) var<storage, read> derived: array<ParticleDerived_1PN>;
 
-// Force accumulators (read_write) — forces2.xy = f1pn
-@group(2) @binding(0) var<storage, read_write> forces2: array<vec4<f32>>;
+// Packed force accumulators (read_write)
+@group(2) @binding(0) var<storage, read_write> allForces: array<AllForces_1PN>;
 
 // f1pnOld buffer (read, for VV kick)
 @group(2) @binding(1) var<storage, read> f1pnOld: array<f32>;
@@ -149,8 +175,11 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     let yukOn = (u.toggles0 & YUKAWA_BIT) != 0u;
     let periodic = u.boundaryMode == BOUND_LOOP;
 
-    // Zero 1PN forces before accumulation
-    forces2[i] = vec4f(0.0, 0.0, forces2[i].z, forces2[i].w); // f1pn.xy = 0
+    // Zero 1PN forces before accumulation (preserve spinCurv in f2.zw)
+    var af = allForces[i];
+    af.f2.x = 0.0;
+    af.f2.y = 0.0;
+    allForces[i] = af;
 
     let px = posX[i]; let py = posY[i];
     // Use current velocity (post-drift) for 1PN — this is the VV correction
@@ -177,15 +206,18 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
 
         let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
                          posX[j], posY[j], svx, svy,
-                         mass[j], charge[j], yukMod[j],
+                         mass[j], charge[j], axYukMod[j].y,
                          u.softeningSq, periodic, u.domainW, u.domainH,
                          gmOn, magOn, yukOn, u.yukawaMu,
-                         u.yukawaCoupling, yukMod[i]);
+                         u.yukawaCoupling, axYukMod[i].y);
         f1pnX += f.x;
         f1pnY += f.y;
     }
 
-    forces2[i] = vec4f(f1pnX, f1pnY, forces2[i].z, forces2[i].w);
+    var afOut = allForces[i];
+    afOut.f2.x = f1pnX;
+    afOut.f2.y = f1pnY;
+    allForces[i] = afOut;
 }
 
 @compute @workgroup_size(64)
@@ -194,8 +226,9 @@ fn vvKick1PN(@builtin(global_invocation_id) gid: vec3u) {
     if (i >= u.aliveCount) { return; }
     if ((flags[i] & ALIVE_BIT) == 0u) { return; }
 
-    let halfDtOverM = u.halfDt * invMassRadSq[i].x;
-    let newF = vec2f(forces2[i].x, forces2[i].y);
+    let halfDtOverM = u.halfDt * derived[i].invMass;
+    let af1pn = allForces[i].f2;
+    let newF = vec2f(af1pn.x, af1pn.y);
     let oldF = vec2f(f1pnOld[i * 2u], f1pnOld[i * 2u + 1u]);
     velWX_rw[i] += (newF.x - oldF.x) * halfDtOverM;
     velWY_rw[i] += (newF.y - oldF.y) * halfDtOverM;

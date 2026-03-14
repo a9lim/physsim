@@ -55,6 +55,18 @@ struct SimUniforms {
     _pad4: u32,
 };
 
+// Packed struct (mirrors common.wgsl ParticleDerived)
+struct TreeBuildDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 // Node layout in flat buffer: 20 u32 words per node
 // [0..3]: minX, minY, maxX, maxY (as f32 reinterpreted)
 // [4..5]: comX, comY
@@ -81,7 +93,7 @@ struct SimUniforms {
 @group(1) @binding(3) var<storage, read> velWY: array<f32>;
 @group(1) @binding(4) var<storage, read> mass_in: array<f32>;
 @group(1) @binding(5) var<storage, read> charge_in: array<f32>;
-@group(1) @binding(6) var<storage, read> magAngMom_in: array<vec2<f32>>; // packed magMoment, angMomentum
+@group(1) @binding(6) var<storage, read> derived_in: array<TreeBuildDerived>;
 @group(1) @binding(7) var<storage, read> flags_in: array<u32>;
 
 @group(2) @binding(0) var<uniform> uniforms: SimUniforms;
@@ -409,9 +421,9 @@ fn computeAggregates(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Write leaf aggregates (single particle)
     let m = mass_in[pIdx];
     let q = charge_in[pIdx];
-    let mamPacked = magAngMom_in[pIdx];
-    let mm = mamPacked.x;
-    let am = mamPacked.y;
+    let drvd = derived_in[pIdx];
+    let mm = drvd.magMoment;
+    let am = drvd.angMomentum;
     let wx = velWX[pIdx];
     let wy = velWY[pIdx];
 

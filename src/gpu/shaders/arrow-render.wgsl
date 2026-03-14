@@ -36,13 +36,22 @@ struct ArrowUniforms {
 @group(0) @binding(4) var<storage, read> radius: array<f32>;
 @group(0) @binding(5) var<storage, read> mass: array<f32>;
 @group(0) @binding(6) var<storage, read> flags: array<u32>;
-// Force buffers: packed vec4 per particle
-@group(0) @binding(7) var<storage, read> forces0: array<vec4f>;  // gravity.xy, coulomb.xy
-@group(0) @binding(8) var<storage, read> forces1: array<vec4f>;  // magnetic.xy, gravitomag.xy
-@group(0) @binding(9) var<storage, read> forces2: array<vec4f>;  // f1pn.xy, spinCurv.xy
-@group(0) @binding(10) var<storage, read> forces3: array<vec4f>; // radiation.xy, yukawa.xy
-@group(0) @binding(11) var<storage, read> forces4: array<vec4f>; // external.xy, higgs.xy
-@group(0) @binding(12) var<storage, read> forces5: array<vec4f>; // axion.xy, pad, pad
+// Packed force struct (mirrors common.wgsl AllForces)
+struct AllForces_AR {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
+@group(0) @binding(7) var<storage, read> allForces: array<AllForces_AR>;
 
 const ALIVE_BIT: u32 = 1u;
 
@@ -52,18 +61,19 @@ const HEAD_HALF_W: f32 = 0.15;
 const HEAD_LEN: f32 = 0.25;
 
 fn getForceVector(idx: u32, forceType: u32) -> vec2f {
+    let af = allForces[idx];
     switch (forceType) {
-        case 0u:  { return forces0[idx].xy; }           // gravity
-        case 1u:  { return forces0[idx].zw; }           // coulomb
-        case 2u:  { return forces1[idx].xy; }           // magnetic
-        case 3u:  { return forces1[idx].zw; }           // gravitomag
-        case 4u:  { return forces2[idx].xy; }           // 1pn
-        case 5u:  { return forces2[idx].zw; }           // spinCurv
-        case 6u:  { return forces3[idx].xy; }           // radiation
-        case 7u:  { return forces3[idx].zw; }           // yukawa
-        case 8u:  { return forces4[idx].xy; }           // external
-        case 9u:  { return forces4[idx].zw; }           // higgs
-        case 10u: { return forces5[idx].xy; }           // axion
+        case 0u:  { return af.f0.xy; }           // gravity
+        case 1u:  { return af.f0.zw; }           // coulomb
+        case 2u:  { return af.f1.xy; }           // magnetic
+        case 3u:  { return af.f1.zw; }           // gravitomag
+        case 4u:  { return af.f2.xy; }           // 1pn
+        case 5u:  { return af.f2.zw; }           // spinCurv
+        case 6u:  { return af.f3.xy; }           // radiation
+        case 7u:  { return af.f3.zw; }           // yukawa
+        case 8u:  { return af.f4.xy; }           // external
+        case 9u:  { return af.f4.zw; }           // higgs
+        case 10u: { return af.f5.xy; }           // axion
         default:  { return vec2f(0.0); }
     }
 }
