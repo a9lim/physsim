@@ -73,13 +73,11 @@ struct SimUniforms {
 
 // Additional per-particle data needed for tree aggregates
 @group(1) @binding(8) var<storage, read> radius_in: array<f32>;
-@group(1) @binding(9) var<storage, read> magMoment_in: array<f32>;
-@group(1) @binding(10) var<storage, read> angMomentum_in: array<f32>;
-@group(1) @binding(11) var<storage, read_write> ghostRadius: array<f32>;
-@group(1) @binding(12) var<storage, read_write> ghostMagMoment: array<f32>;
-@group(1) @binding(13) var<storage, read_write> ghostAngMomentum: array<f32>;
-@group(1) @binding(14) var<storage, read> particleId_in: array<u32>;
-@group(1) @binding(15) var<storage, read_write> ghostParticleId: array<u32>;
+@group(1) @binding(9) var<storage, read> magAngMom_in: array<vec2<f32>>;   // packed magMoment, angMomentum
+@group(1) @binding(10) var<storage, read_write> ghostRadius: array<f32>;
+@group(1) @binding(11) var<storage, read_write> ghostMagAngMom: array<vec2<f32>>; // packed ghost magMoment, angMomentum
+@group(1) @binding(12) var<storage, read> particleId_in: array<u32>;
+@group(1) @binding(13) var<storage, read_write> ghostParticleId: array<u32>;
 
 // Store original particle index for ghost->original mapping
 @group(2) @binding(2) var<storage, read_write> ghostOriginalIdx: array<u32>;
@@ -104,8 +102,7 @@ fn appendGhost(
     ghostCharge[slot] = q;
     ghostFlags[slot] = FLAG_ALIVE | FLAG_GHOST;
     ghostRadius[slot] = r;
-    ghostMagMoment[slot] = mm;
-    ghostAngMomentum[slot] = am;
+    ghostMagAngMom[slot] = vec2(mm, am);
     ghostOriginalIdx[slot] = origIdx;
     ghostParticleId[slot] = pid;
 }
@@ -133,8 +130,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let m = mass_in[idx];
     let q = charge_in[idx];
     let r = radius_in[idx];
-    let mm = magMoment_in[idx];
-    let am = angMomentum_in[idx];
+    let mamIn = magAngMom_in[idx];
+    let mm = mamIn.x;
+    let am = mamIn.y;
     let pid = particleId_in[idx];
 
     let nearL = x < margin;

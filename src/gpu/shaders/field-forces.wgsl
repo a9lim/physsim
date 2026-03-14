@@ -11,7 +11,7 @@
 @group(0) @binding(7) var<storage, read_write> velWY: array<f32>;
 @group(0) @binding(8) var<storage, read_write> angW: array<f32>;
 @group(0) @binding(9) var<storage, read_write> radius: array<f32>;
-@group(0) @binding(10) var<storage, read_write> invMass: array<f32>;
+@group(0) @binding(10) var<storage, read_write> invMassRadSq: array<vec2<f32>>; // packed: invMass, radiusSq
 
 // Higgs field arrays
 @group(1) @binding(0) var<storage, read> higgsField: array<f32>;
@@ -136,7 +136,9 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     mass[pid] = newMass;
     let bodyR = pow(newMass, 1.0 / 3.0);  // cbrt
     radius[pid] = bodyR;
-    invMass[pid] = 1.0 / newMass;
+    var imrs = invMassRadSq[pid];
+    imrs.x = 1.0 / newMass;
+    invMassRadSq[pid] = imrs;
 
     // ── Gradient force: F = +g * baseMass * sign(phi) * grad(phi) ──
     let grad = pqsGradient(&higgsGradX, &higgsGradY, px, py, invCellW, invCellH, bcMode, topoMode);

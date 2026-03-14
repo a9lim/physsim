@@ -9,9 +9,8 @@
 @group(0) @binding(2) var<storage, read> charge: array<f32>;
 @group(0) @binding(3) var<storage, read> flags: array<u32>;
 @group(0) @binding(4) var<storage, read_write> forces4: array<vec4<f32>>;   // external.xy, higgs.xy
-@group(0) @binding(5) var<storage, read_write> totalForceX: array<f32>;
-@group(0) @binding(6) var<storage, read_write> totalForceY: array<f32>;
-@group(0) @binding(7) var<storage, read_write> bFields: array<vec4<f32>>;   // Bz, Bgz, extBz, pad
+@group(0) @binding(5) var<storage, read_write> totalForce: array<vec2<f32>>;
+@group(0) @binding(6) var<storage, read_write> bFields: array<vec4<f32>>;   // Bz, Bgz, extBz, pad
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -47,8 +46,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     forces4[idx] = f4;
 
     // Add to total force
-    totalForceX[idx] = totalForceX[idx] + extFx;
-    totalForceY[idx] = totalForceY[idx] + extFy;
+    var tf = totalForce[idx];
+    tf.x += extFx;
+    tf.y += extFy;
+    totalForce[idx] = tf;
 
     // Add external Bz
     if (Bext != 0.0) {

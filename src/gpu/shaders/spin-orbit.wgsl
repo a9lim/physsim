@@ -9,15 +9,13 @@
 @group(0) @binding(3) var<storage, read_write> angW: array<f32>;
 @group(0) @binding(4) var<storage, read> mass: array<f32>;
 @group(0) @binding(5) var<storage, read> charge: array<f32>;
-@group(0) @binding(6) var<storage, read> velX: array<f32>;
-@group(0) @binding(7) var<storage, read> velY: array<f32>;
-@group(0) @binding(8) var<storage, read> magMoment: array<f32>;
-@group(0) @binding(9) var<storage, read> angMomentum: array<f32>;
-@group(0) @binding(10) var<storage, read> radius: array<f32>;
-@group(0) @binding(11) var<storage, read> bFieldGrads: array<vec4<f32>>;  // dBzdx, dBzdy, dBgzdx, dBgzdy
-@group(0) @binding(12) var<storage, read> flags: array<u32>;
-@group(0) @binding(13) var<storage, read_write> angVelBuf: array<f32>;
-@group(0) @binding(14) var<storage, read_write> forces2: array<vec4<f32>>; // f1pn.xy, spinCurv.xy
+@group(0) @binding(6) var<storage, read> vel: array<vec2<f32>>;           // packed velX, velY
+@group(0) @binding(7) var<storage, read> magAngMom: array<vec2<f32>>;     // packed magMoment, angMomentum
+@group(0) @binding(8) var<storage, read> radius: array<f32>;
+@group(0) @binding(9) var<storage, read> bFieldGrads: array<vec4<f32>>;  // dBzdx, dBzdy, dBgzdx, dBgzdy
+@group(0) @binding(10) var<storage, read> flags: array<u32>;
+@group(0) @binding(11) var<storage, read_write> angVelBuf: array<f32>;
+@group(0) @binding(12) var<storage, read_write> forces2: array<vec4<f32>>; // f1pn.xy, spinCurv.xy
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -34,7 +32,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let aVel = angVelBuf[idx];
     if (abs(aVel) < EPSILON) { return; }
 
-    let angMom = angMomentum[idx];
+    let mam = magAngMom[idx];
+    let angMom = mam.y;
     if (abs(angMom) < EPSILON) { return; }
 
     let m = mass[idx];
@@ -44,9 +43,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let r = radius[idx];
     let relOn = hasToggle0(RELATIVITY_BIT);
 
-    let vx = velX[idx];
-    let vy = velY[idx];
-    let mu = magMoment[idx];
+    let v = vel[idx];
+    let vx = v.x;
+    let vy = v.y;
+    let mu = mam.x;
     let L = angMom;
 
     let bg = bFieldGrads[idx]; // dBzdx, dBzdy, dBgzdx, dBgzdy

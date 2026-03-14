@@ -81,9 +81,8 @@ struct SimUniforms {
 @group(1) @binding(3) var<storage, read> velWY: array<f32>;
 @group(1) @binding(4) var<storage, read> mass_in: array<f32>;
 @group(1) @binding(5) var<storage, read> charge_in: array<f32>;
-@group(1) @binding(6) var<storage, read> magMoment_in: array<f32>;
-@group(1) @binding(7) var<storage, read> angMomentum_in: array<f32>;
-@group(1) @binding(8) var<storage, read> flags_in: array<u32>;
+@group(1) @binding(6) var<storage, read> magAngMom_in: array<vec2<f32>>; // packed magMoment, angMomentum
+@group(1) @binding(7) var<storage, read> flags_in: array<u32>;
 
 @group(2) @binding(0) var<uniform> uniforms: SimUniforms;
 
@@ -410,8 +409,9 @@ fn computeAggregates(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Write leaf aggregates (single particle)
     let m = mass_in[pIdx];
     let q = charge_in[pIdx];
-    let mm = magMoment_in[pIdx];
-    let am = angMomentum_in[pIdx];
+    let mamPacked = magAngMom_in[pIdx];
+    let mm = mamPacked.x;
+    let am = mamPacked.y;
     let wx = velWX[pIdx];
     let wy = velWY[pIdx];
 
