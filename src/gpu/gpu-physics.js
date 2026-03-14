@@ -16,7 +16,7 @@
  *  11. boundary
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms } from './gpu-buffers.js';
-import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline } from './gpu-pipelines.js';
+import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines } from './gpu-pipelines.js';
 
 const MAX_PARTICLES = 4096;
 
@@ -63,6 +63,12 @@ export default class GPUPhysics {
         // Phase 3: Tree force (BH tree walk)
         this._treeForcePipeline = null;
         this._treeForceBindGroups = null;
+
+        // Phase 3: Collision detection/resolution
+        this._collisionPipelines = null;
+        this._collisionBindGroups = null;
+        this._mergeResultsPending = false;
+        this._pendingMergeEvents = [];
 
         // Toggle state
         this._toggles0 = 0;
@@ -186,6 +192,10 @@ export default class GPUPhysics {
         const treeForce = await createTreeForcePipeline(this.device);
         this._treeForcePipeline = treeForce.pipeline;
         this._createTreeForceBindGroups(treeForce.bindGroupLayouts);
+
+        // --- Phase 3: Collision detection/resolution pipelines ---
+        this._collisionPipelines = await createCollisionPipelines(this.device);
+        this._createCollisionBindGroups(this._collisionPipelines.bindGroupLayouts);
 
         this._ready = true;
     }
@@ -442,6 +452,154 @@ export default class GPUPhysics {
     }
 
     /**
+     * Create bind groups for collision detection/resolution pipelines.
+     * Both detectCollisions and resolveCollisions share the same layout.
+     */
+    _createCollisionBindGroups(layouts) {
+        const b = this.buffers;
+
+        // Group 0: tree nodes (read-only) + uniforms
+        this._collisionBG0 = this.device.createBindGroup({
+            label: 'collision_g0',
+            layout: layouts[0],
+            entries: [
+                { binding: 0, resource: { buffer: b.qtNodeBuffer } },
+                { binding: 1, resource: { buffer: this.uniformBuffer } },
+            ],
+        });
+
+        // Group 1: particle SoA (12 bindings)
+        this._collisionBG1 = this.device.createBindGroup({
+            label: 'collision_g1',
+            layout: layouts[1],
+            entries: [
+                { binding: 0, resource: { buffer: b.posX } },
+                { binding: 1, resource: { buffer: b.posY } },
+                { binding: 2, resource: { buffer: b.velWX } },
+                { binding: 3, resource: { buffer: b.velWY } },
+                { binding: 4, resource: { buffer: b.angW } },
+                { binding: 5, resource: { buffer: b.mass } },
+                { binding: 6, resource: { buffer: b.baseMass } },
+                { binding: 7, resource: { buffer: b.charge } },
+                { binding: 8, resource: { buffer: b.flags } },
+                { binding: 9, resource: { buffer: b.radius } },
+                { binding: 10, resource: { buffer: b.particleId } },
+                { binding: 11, resource: { buffer: b.ghostOriginalIdx } },
+            ],
+        });
+
+        // Group 2: collision pairs + counters + merge results
+        this._collisionBG2 = this.device.createBindGroup({
+            label: 'collision_g2',
+            layout: layouts[2],
+            entries: [
+                { binding: 0, resource: { buffer: b.collisionPairBuffer } },
+                { binding: 1, resource: { buffer: b.collisionPairCounter } },
+                { binding: 2, resource: { buffer: b.mergeResultBuffer } },
+                { binding: 3, resource: { buffer: b.mergeResultCounter } },
+            ],
+        });
+    }
+
+    /**
+     * Dispatch collision detection and resolution (Phase 3).
+     * Only runs when collisionMode === COL_MERGE (1).
+     * After drift + boundary, detects overlapping pairs via tree query,
+     * then resolves merges/annihilations.
+     */
+    _dispatchCollisions(encoder) {
+        if (this._collisionMode !== COL_MERGE) return;
+        if (!this._barnesHutEnabled) return; // collision detection requires tree
+        if (this.aliveCount === 0) return;
+
+        const b = this.buffers;
+
+        // Reset pair counter and merge counter to 0
+        const zero = new Uint32Array([0]);
+        this.device.queue.writeBuffer(b.collisionPairCounter, 0, zero);
+        this.device.queue.writeBuffer(b.mergeResultCounter, 0, zero);
+
+        // Dispatch detectCollisions: one thread per alive particle
+        const detectWG = Math.ceil(this.aliveCount / 64);
+        const passDetect = encoder.beginComputePass({ label: 'detectCollisions' });
+        passDetect.setPipeline(this._collisionPipelines.detectCollisions);
+        passDetect.setBindGroup(0, this._collisionBG0);
+        passDetect.setBindGroup(1, this._collisionBG1);
+        passDetect.setBindGroup(2, this._collisionBG2);
+        passDetect.dispatchWorkgroups(detectWG);
+        passDetect.end();
+
+        // Dispatch resolveCollisions: conservatively dispatch for maxParticles
+        // (pairCounter checked inside shader to skip excess threads)
+        const resolveWG = Math.ceil(this.buffers.maxParticles / 64);
+        const passResolve = encoder.beginComputePass({ label: 'resolveCollisions' });
+        passResolve.setPipeline(this._collisionPipelines.resolveCollisions);
+        passResolve.setBindGroup(0, this._collisionBG0);
+        passResolve.setBindGroup(1, this._collisionBG1);
+        passResolve.setBindGroup(2, this._collisionBG2);
+        passResolve.dispatchWorkgroups(resolveWG);
+        passResolve.end();
+    }
+
+    /**
+     * Non-blocking readback of merge results for post-processing by JS.
+     * Returns pending merge events (annihilation photon bursts, field excitations).
+     * Uses 1-frame latency like other readbacks.
+     */
+    async _readbackMergeResults() {
+        if (this._mergeResultsPending) return;
+        if (this._collisionMode !== COL_MERGE) return;
+        this._mergeResultsPending = true;
+
+        const b = this.buffers;
+        const encoder = this.device.createCommandEncoder();
+        encoder.copyBufferToBuffer(b.mergeResultCounter, 0, b.mergeCountStaging, 0, 4);
+        this.device.queue.submit([encoder.finish()]);
+
+        await b.mergeCountStaging.mapAsync(GPUMapMode.READ);
+        const countData = new Uint32Array(b.mergeCountStaging.getMappedRange().slice(0));
+        b.mergeCountStaging.unmap();
+
+        const mergeCount = countData[0];
+        if (mergeCount > 0) {
+            const readBytes = Math.min(mergeCount, this.buffers.maxParticles) * 16;
+            const encoder2 = this.device.createCommandEncoder();
+            encoder2.copyBufferToBuffer(b.mergeResultBuffer, 0, b.mergeResultStaging, 0, readBytes);
+            this.device.queue.submit([encoder2.finish()]);
+
+            await b.mergeResultStaging.mapAsync(GPUMapMode.READ);
+            const resultData = new Float32Array(b.mergeResultStaging.getMappedRange(0, readBytes).slice(0));
+            b.mergeResultStaging.unmap();
+
+            // Parse merge events: each is vec4(x, y, energy, type)
+            const events = [];
+            for (let i = 0; i < mergeCount; i++) {
+                events.push({
+                    x: resultData[i * 4],
+                    y: resultData[i * 4 + 1],
+                    energy: resultData[i * 4 + 2],
+                    type: resultData[i * 4 + 3] < 0.5 ? 'annihilation' : 'merge',
+                });
+            }
+            this._pendingMergeEvents = events;
+        } else {
+            this._pendingMergeEvents = [];
+        }
+
+        this._mergeResultsPending = false;
+    }
+
+    /**
+     * Consume pending merge events (call from main loop for photon bursts, field excitations).
+     * @returns {Array} Array of { x, y, energy, type } events
+     */
+    consumeMergeEvents() {
+        const events = this._pendingMergeEvents;
+        this._pendingMergeEvents = [];
+        return events;
+    }
+
+    /**
      * Dispatch tree build sequence when Barnes-Hut is enabled.
      * Runs after ghost generation, before force computation.
      *
@@ -616,7 +774,7 @@ export default class GPUPhysics {
         this._extElectricAngle = physics.extElectricAngle;
         this._extBz = physics.extBz;
         this._bounceFriction = physics.bounceFriction;
-        this._collisionMode = 0; // Phase 3
+        this._collisionMode = physics.collisionMode || 0;
         this._axionCoupling = 0.05;
         this._higgsCoupling = 1.0;
     }
@@ -647,6 +805,9 @@ export default class GPUPhysics {
 
         // Readback ghost count for next frame (non-blocking)
         this._readbackGhostCount();
+
+        // Readback merge results for photon bursts / field excitations (non-blocking)
+        this._readbackMergeResults();
     }
 
     /**
@@ -788,6 +949,10 @@ export default class GPUPhysics {
         passBoundary.dispatchWorkgroups(workgroups);
         passBoundary.end();
 
+        // Pass 25: collision detection + resolution (Phase 3)
+        // Runs after drift + boundary, uses tree built earlier in the substep
+        this._dispatchCollisions(encoder);
+
         this.device.queue.submit([encoder.finish()]);
     }
 
@@ -823,9 +988,10 @@ export default class GPUPhysics {
     }
 }
 
-// Constants (must match common.wgsl)
+// Constants (must match common.wgsl / config.js)
 const FLAG_ALIVE = 1;
 const BOUND_LOOP = 2;
+const COL_MERGE = 1;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename) {

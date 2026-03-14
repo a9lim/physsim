@@ -261,6 +261,83 @@ export async function createTreeForcePipeline(device) {
 }
 
 /**
+ * Create collision detection/resolution pipelines (Phase 3).
+ * Two entry points from collision.wgsl:
+ *   detectCollisions — tree broadphase overlap query
+ *   resolveCollisions — process detected pairs (merge/annihilation)
+ *
+ * Bind groups:
+ *   Group 0: tree nodes (read-only) + uniforms
+ *   Group 1: particle SoA (read-write for resolve) + ghost mapping
+ *   Group 2: collision pair buffer + counters + merge results
+ */
+export async function createCollisionPipelines(device) {
+    const code = await fetchShader('collision.wgsl');
+    const module = device.createShaderModule({ label: 'collision', code });
+
+    // Group 0: tree nodes (read-only) + uniforms
+    const group0Layout = device.createBindGroupLayout({
+        label: 'collision_group0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+        ],
+    });
+
+    // Group 1: particle SoA (12 bindings)
+    // bindings 0-7: read-write (posX, posY, velWX, velWY, angW, mass, baseMass, charge)
+    // binding 8: flags (read-write, atomic)
+    // binding 9: radius (read-only)
+    // binding 10: particleId (read-only)
+    // binding 11: ghostOriginalIdx (read-only)
+    const group1Layout = device.createBindGroupLayout({
+        label: 'collision_group1',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        ],
+    });
+
+    // Group 2: collision pairs + counters + merge results
+    const group2Layout = device.createBindGroupLayout({
+        label: 'collision_group2',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        ],
+    });
+
+    const bindGroupLayouts = [group0Layout, group1Layout, group2Layout];
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
+
+    const detectCollisions = device.createComputePipeline({
+        label: 'detectCollisions',
+        layout: pipelineLayout,
+        compute: { module, entryPoint: 'detectCollisions' },
+    });
+
+    const resolveCollisions = device.createComputePipeline({
+        label: 'resolveCollisions',
+        layout: pipelineLayout,
+        compute: { module, entryPoint: 'resolveCollisions' },
+    });
+
+    return { detectCollisions, resolveCollisions, bindGroupLayouts };
+}
+
+/**
  * Create ghost generation compute pipeline.
  * Standalone shader (not prepended with common.wgsl) — defines its own SimUniforms.
  * Bind groups:
