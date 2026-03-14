@@ -114,8 +114,8 @@ fn computeCoarsePotential(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (rhoJ < EPSILON) { continue; }
             let dx = (f32(ix) - f32(jx)) * cellW;
             let dy = (f32(iy) - f32(jy)) * cellH;
-            let rSq = dx * dx + dy * dy;
-            if (rSq < EPSILON) { continue; } // skip self
+            // Use softening for self-cell (matches CPU: 1/sqrt(dx²+dy²+softeningSq))
+            let rSq = dx * dx + dy * dy + uniforms.softeningSq;
             pot -= rhoJ * cellArea / sqrt(rSq);
         }
     }

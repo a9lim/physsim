@@ -46,9 +46,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let sr = aw * r;
     let newAngVel = select(aw, aw / sqrt(1.0 + sr * sr), relOn);
 
-    // Update derived struct: angVel and store new angW in _pad for writeback
+    // Write back angW to ParticleState
+    particles[idx].angW = aw;
+
+    // Update derived struct with new angVel
     var d = derived[idx];
     d.angVel = newAngVel;
-    d._pad = aw;
     derived[idx] = d;
 }

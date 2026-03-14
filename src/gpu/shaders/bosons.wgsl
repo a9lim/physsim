@@ -3,7 +3,7 @@
 //
 // Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
-const MAX_PHOTONS: u32 = 512u;
+const MAX_PHOTONS: u32 = 1024u;
 const MAX_PIONS: u32 = 256u;
 const BOSON_SOFTENING_SQ: f32 = 4.0;
 const BOSON_MIN_AGE: u32 = 4u;
@@ -11,8 +11,10 @@ const PHOTON_LIFETIME: f32 = 256.0;
 const EPSILON: f32 = 1e-9;
 
 // Pion decay probabilities (pre-computed from half-lives)
-const PION_DECAY_PROB: f32 = 0.00054; // 1 - exp(-ln2/32 * 1/128)
-const CHARGED_PION_DECAY_PROB: f32 = 0.0000423; // 1 - exp(-ln2/128 * 1/128)
+// PION_DECAY_PROB    = 1 - exp(-ln2 / 32  * (1/128)) = 1 - exp(-0.000216) ≈ 0.0001695
+// CHARGED_PION_DECAY_PROB = 1 - exp(-ln2 / 128 * (1/128)) = 1 - exp(-0.0000540) ≈ 0.0000424
+const PION_DECAY_PROB: f32 = 0.0001695; // pi0 (PION_HALF_LIFE=32, PHYSICS_DT=1/128)
+const CHARGED_PION_DECAY_PROB: f32 = 0.0000423; // pi+/- (CHARGED_PION_HALF_LIFE=128, PHYSICS_DT=1/128)
 const ELECTRON_MASS: f32 = 0.05;
 const MAX_SPEED_RATIO: f32 = 0.99;
 const MAX_PARTICLES: u32 = 4096u;
@@ -97,6 +99,8 @@ struct SimUniforms {
     higgsCoupling: f32,
     particleCount: u32,
     bhTheta: f32,
+    frameCount: u32,
+    _pad4: u32,
 };
 
 @group(0) @binding(0) var<uniform> u: SimUniforms;
@@ -439,6 +443,16 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
                     // Set antimatter flag for pi+ decay
                     if (pions[i].charge > 0) { p.flags |= ANTIMATTER_BIT; }
                     particles[pIdx] = p;
+
+                    // Initialize particleAux: radius=cbrt(mE), deathTime=+Inf, deathMass=0, deathAngVel=0
+                    // particleId=0 is acceptable (pion decay products are anonymous / not tracked for self-absorption)
+                    var aux: ParticleAux;
+                    aux.radius = pow(mE, 1.0 / 3.0);
+                    aux.particleId = 0xFFFFFFFFu; // sentinel: no emitter identity
+                    aux.deathTime = bitcast<f32>(0x7F800000u); // +Infinity
+                    aux.deathMass = 0.0;
+                    aux.deathAngVel = 0.0;
+                    particleAux[pIdx] = aux;
                 } else { atomicSub(&aliveCountAtomic, 1u); }
             }
         }

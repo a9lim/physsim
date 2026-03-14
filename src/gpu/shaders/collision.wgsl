@@ -1,6 +1,8 @@
 // ─── Collision Detection & Resolution ───
 // detectCollisions: tree-accelerated broadphase, writes (i,j) pairs to append buffer
 // resolveCollisions: processes pairs — merge or annihilation
+// detectCollisionsPairwise: O(N²) tiled broadphase (no tree required)
+// resolveBouncePairwise: Hertz contact + friction impulse for bounce mode
 
 const NONE: i32 = -1;
 const MAX_STACK: u32 = 48u;
@@ -11,6 +13,7 @@ const FLAG_RETIRED: u32 = 2u;
 const FLAG_ANTIMATTER: u32 = 4u;
 const FLAG_GHOST: u32 = 16u;
 const COL_MERGE: u32 = 1u;
+const COL_BOUNCE: u32 = 2u;
 
 // Merge event types
 const MERGE_ANNIHILATION: u32 = 0u;
@@ -67,7 +70,7 @@ struct SimUniforms {
     higgsCoupling: f32,
     particleCount: u32,
     bhTheta: f32,
-    _pad3: u32,
+    frameCount: u32,
     _pad4: u32,
 };
 
@@ -220,11 +223,26 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let relOn = (uniforms.toggles0 & 32u) != 0u; // RELATIVITY_BIT
 
+    // Minimum-image displacement from p1 to p2 (handles periodic boundaries).
+    // For non-loop boundaries the displacement is just the raw difference.
+    let boundLoop = uniforms.boundaryMode == 2u; // BOUND_LOOP = 2
+    var dx12 = ps2.posX - ps1.posX;
+    var dy12 = ps2.posY - ps1.posY;
+    if (boundLoop) {
+        let hw = uniforms.domainW * 0.5;
+        let hh = uniforms.domainH * 0.5;
+        if (dx12 >  hw) { dx12 -= uniforms.domainW; }
+        if (dx12 < -hw) { dx12 += uniforms.domainW; }
+        if (dy12 >  hh) { dy12 -= uniforms.domainH; }
+        if (dy12 < -hh) { dy12 += uniforms.domainH; }
+    }
+
     if (isAntimatter1 != isAntimatter2) {
         // Annihilation: matter + antimatter -> energy
         let annihilated = min(ps1.mass, ps2.mass);
-        let cx = (ps1.posX + ps2.posX) * 0.5;
-        let cy = (ps1.posY + ps2.posY) * 0.5;
+        // Use minimum-image midpoint: p1 + dx12 * 0.5
+        let cx = ps1.posX + dx12 * 0.5;
+        let cy = ps1.posY + dy12 * 0.5;
 
         let fraction1 = annihilated / ps1.mass;
         let fraction2 = annihilated / ps2.mass;
@@ -244,17 +262,20 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
 
         // Retire particles with zero mass
+        // Store coordinate angular velocity (angVel), not proper velocity (angW)
         if (ps1.mass == 0.0) {
             ps1.flags = (ps1.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
             aux1.deathTime = uniforms.simTime;
             aux1.deathMass = annihilated; // pre-removal mass
-            aux1.deathAngVel = ps1.angW;
+            let sr1 = ps1.angW * aux1.radius;
+            aux1.deathAngVel = select(ps1.angW, ps1.angW / sqrt(1.0 + sr1 * sr1), relOn);
         }
         if (ps2.mass == 0.0) {
             ps2.flags = (ps2.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
             aux2.deathTime = uniforms.simTime;
             aux2.deathMass = annihilated; // pre-removal mass
-            aux2.deathAngVel = ps2.angW;
+            let sr2 = ps2.angW * aux2.radius;
+            aux2.deathAngVel = select(ps2.angW, ps2.angW / sqrt(1.0 + sr2 * sr2), relOn);
         }
 
         particleState[idx1] = ps1;
@@ -268,14 +289,18 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         let totalMass = ps1.mass + ps2.mass;
         let newWx = (ps1.mass * ps1.velWX + ps2.mass * ps2.velWX) / totalMass;
         let newWy = (ps1.mass * ps1.velWY + ps2.mass * ps2.velWY) / totalMass;
-        let newX = (ps1.posX * ps1.mass + ps2.posX * ps2.mass) / totalMass;
-        let newY = (ps1.posY * ps1.mass + ps2.posY * ps2.mass) / totalMass;
+        // Use minimum-image displacement: newPos = p1 + dx12 * (m2 / totalMass)
+        let newX = ps1.posX + dx12 * (ps2.mass / totalMass);
+        let newY = ps1.posY + dy12 * (ps2.mass / totalMass);
 
-        // Angular momentum conservation
+        // Angular momentum conservation — arms relative to new CoM, using minimum-image positions.
+        // p2_miPos = p1 + dx12 (minimum-image position of p2 relative to p1's frame)
+        let p2miX = ps1.posX + dx12;
+        let p2miY = ps1.posY + dy12;
         let dx1 = ps1.posX - newX;
         let dy1 = ps1.posY - newY;
-        let dx2 = ps2.posX - newX;
-        let dy2 = ps2.posY - newY;
+        let dx2 = p2miX - newX;
+        let dy2 = p2miY - newY;
         let Lorb = dx1 * (ps1.mass * ps1.velWY) - dy1 * (ps1.mass * ps1.velWX)
                  + dx2 * (ps2.mass * ps2.velWY) - dy2 * (ps2.mass * ps2.velWX);
         let r1 = aux1.radius;
@@ -301,9 +326,11 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
 
         // Retire p2 (loser) — save death metadata before zeroing mass
+        // Store coordinate angular velocity, not proper velocity
         aux2.deathTime = uniforms.simTime;
         aux2.deathMass = ps2.mass;
-        aux2.deathAngVel = ps2.angW;
+        let srM = ps2.angW * aux2.radius;
+        aux2.deathAngVel = select(ps2.angW, ps2.angW / sqrt(1.0 + srM * srM), relOn);
 
         ps2.mass = 0.0;
         ps2.baseMass = 0.0;
@@ -321,4 +348,215 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
             mergeResults[slot] = vec4<f32>(newX, newY, keLost, f32(MERGE_INELASTIC));
         }
     }
+}
+
+// ─── detectCollisionsPairwise ───
+// O(N²) tiled broadphase — no tree required.
+// One thread per particle (observer). Scans all j > i to find overlapping pairs.
+// Shared TILE_SIZE tile loaded collaboratively per tile (same pattern as pair-force.wgsl).
+// Works for both COL_MERGE and COL_BOUNCE.
+
+const TILE_SIZE_COL: u32 = 64u;
+
+struct ColTileEntry {
+    posX: f32,
+    posY: f32,
+    radius: f32,
+    valid: u32,   // 1 = alive real particle, 0 = padding
+};
+
+var<workgroup> colTile: array<ColTileEntry, TILE_SIZE_COL>;
+
+@compute @workgroup_size(TILE_SIZE_COL)
+fn detectCollisionsPairwise(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+    let pIdx = gid.x;
+    let localIdx = lid.x;
+    let N = uniforms.aliveCount;
+
+    // Load observer (this thread's particle)
+    var alive = false;
+    var pPosX: f32 = 0.0;
+    var pPosY: f32 = 0.0;
+    var pRadius: f32 = 0.0;
+    if (pIdx < N) {
+        let ps = particleState[pIdx];
+        if ((ps.flags & FLAG_ALIVE) != 0u && (ps.flags & FLAG_GHOST) == 0u && ps.mass > 0.0) {
+            alive = true;
+            pPosX = ps.posX;
+            pPosY = ps.posY;
+            pRadius = particleAux[pIdx].radius;
+        }
+    }
+
+    let boundLoop = uniforms.boundaryMode == 2u; // BOUND_LOOP
+    let hw = uniforms.domainW * 0.5;
+    let hh = uniforms.domainH * 0.5;
+
+    let numTiles = (N + TILE_SIZE_COL - 1u) / TILE_SIZE_COL;
+
+    for (var t: u32 = 0u; t < numTiles; t++) {
+        // Collaborative tile load
+        let srcIdx = t * TILE_SIZE_COL + localIdx;
+        if (srcIdx < N) {
+            let sps = particleState[srcIdx];
+            let isReal = (sps.flags & FLAG_ALIVE) != 0u
+                      && (sps.flags & FLAG_GHOST) == 0u
+                      && sps.mass > 0.0;
+            colTile[localIdx].posX   = sps.posX;
+            colTile[localIdx].posY   = sps.posY;
+            colTile[localIdx].radius = particleAux[srcIdx].radius;
+            colTile[localIdx].valid  = select(0u, 1u, isReal);
+        } else {
+            colTile[localIdx].valid = 0u;
+        }
+
+        workgroupBarrier();
+
+        // Scan tile: only emit pair when pIdx < srcIdx (unique pairs, lower index emits)
+        if (alive) {
+            for (var j: u32 = 0u; j < TILE_SIZE_COL; j++) {
+                let sIdx = t * TILE_SIZE_COL + j;
+                if (sIdx >= N || sIdx <= pIdx) { continue; }
+                if (colTile[j].valid == 0u) { continue; }
+
+                var dx = colTile[j].posX - pPosX;
+                var dy = colTile[j].posY - pPosY;
+                if (boundLoop) {
+                    if (dx >  hw) { dx -= uniforms.domainW; }
+                    if (dx < -hw) { dx += uniforms.domainW; }
+                    if (dy >  hh) { dy -= uniforms.domainH; }
+                    if (dy < -hh) { dy += uniforms.domainH; }
+                }
+
+                let distSq = dx * dx + dy * dy;
+                let minDist = pRadius + colTile[j].radius;
+
+                if (distSq < minDist * minDist) {
+                    let slot = atomicAdd(&pairCounter, 1u);
+                    if (slot < arrayLength(&collisionPairs) / 2u) {
+                        collisionPairs[slot * 2u]      = pIdx;
+                        collisionPairs[slot * 2u + 1u] = sIdx;
+                    }
+                }
+            }
+        }
+
+        workgroupBarrier();
+    }
+}
+
+// ─── resolveBouncePairwise ───
+// One thread per detected collision pair.
+// Applies Hertz contact impulse + tangential friction to proper velocities (w) and angW.
+// Matches CPU _repelPair() — F = delta^1.5, tangential friction with clamped vRel.
+// NOTE: The CPU applies this as a force accumulated into the force step.  On the GPU the
+// collision step runs AFTER Boris drift, so we apply the impulse directly to velW/angW
+// (equivalent to a single-substep impulse p = F·dt with dt = uniforms.dt).
+
+@compute @workgroup_size(64)
+fn resolveBouncePairwise(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let pairIdx = gid.x;
+    let numPairs = atomicLoad(&pairCounter);
+    if (pairIdx >= numPairs) { return; }
+
+    let idx1 = collisionPairs[pairIdx * 2u];
+    let idx2 = collisionPairs[pairIdx * 2u + 1u];
+
+    var ps1 = particleState[idx1];
+    var ps2 = particleState[idx2];
+
+    if ((ps1.flags & FLAG_ALIVE) == 0u || (ps2.flags & FLAG_ALIVE) == 0u) { return; }
+    if (ps1.mass == 0.0 || ps2.mass == 0.0) { return; }
+
+    let aux1 = particleAux[idx1];
+    let aux2 = particleAux[idx2];
+    let r1 = aux1.radius;
+    let r2 = aux2.radius;
+
+    let boundLoop = uniforms.boundaryMode == 2u;
+    var dx = ps2.posX - ps1.posX;
+    var dy = ps2.posY - ps1.posY;
+    if (boundLoop) {
+        let hw = uniforms.domainW * 0.5;
+        let hh = uniforms.domainH * 0.5;
+        if (dx >  hw) { dx -= uniforms.domainW; }
+        if (dx < -hw) { dx += uniforms.domainW; }
+        if (dy >  hh) { dy -= uniforms.domainH; }
+        if (dy < -hh) { dy += uniforms.domainH; }
+    }
+
+    let distSq = dx * dx + dy * dy;
+    let minDist = r1 + r2;
+    if (distSq >= minDist * minDist) { return; }
+
+    let dist = sqrt(distSq);
+    let delta = minDist - dist;
+    if (delta <= 0.0) { return; }
+
+    // Hertz normal force magnitude: F = delta^1.5
+    let Fn = delta * sqrt(delta);
+    let safeDist = max(dist, EPSILON);
+    let nx = dx / safeDist;
+    let ny = dy / safeDist;
+
+    // Tangential direction (perpendicular to normal, y-down convention)
+    let tx = -ny;
+    let ty =  nx;
+
+    let relOn = (uniforms.toggles0 & 32u) != 0u; // RELATIVITY_BIT
+
+    // Coordinate velocities (vel = w / sqrt(1 + w²) when relativity on, else w)
+    let w1Sq = ps1.velWX * ps1.velWX + ps1.velWY * ps1.velWY;
+    let w2Sq = ps2.velWX * ps2.velWX + ps2.velWY * ps2.velWY;
+    let inv1 = select(1.0, 1.0 / sqrt(1.0 + w1Sq), relOn);
+    let inv2 = select(1.0, 1.0 / sqrt(1.0 + w2Sq), relOn);
+    let v1x = ps1.velWX * inv1;
+    let v1y = ps1.velWY * inv1;
+    let v2x = ps2.velWX * inv2;
+    let v2y = ps2.velWY * inv2;
+
+    // Angular velocity: angVel = angW / sqrt(1 + (angW*r)²) when relativity on
+    let sr1 = ps1.angW * r1;
+    let sr2 = ps2.angW * r2;
+    let av1 = select(ps1.angW, ps1.angW / sqrt(1.0 + sr1 * sr1), relOn);
+    let av2 = select(ps2.angW, ps2.angW / sqrt(1.0 + sr2 * sr2), relOn);
+
+    // Relative tangential velocity at contact point (surface velocity contribution)
+    // v1t = v1·t + av1·r1,  v2t = v2·t - av2·r2  (sign: CW spin adds to contact surface vel)
+    let v1t = v1x * tx + v1y * ty + av1 * r1;
+    let v2t = v2x * tx + v2y * ty - av2 * r2;
+    let vRel = v1t - v2t;
+
+    let friction = uniforms.bounceFriction;
+    let Ft = -friction * Fn * clamp(vRel * 10.0, -1.0, 1.0);
+
+    // Total force on p1 in world space
+    let F1x = -nx * Fn + tx * Ft;
+    let F1y = -ny * Fn + ty * Ft;
+
+    // Apply as impulse: Δw ≈ F·dt / m
+    // (same as CPU which accumulates into force vectors then integrates with dt)
+    let dt = uniforms.dt;
+    let invM1 = select(0.0, 1.0 / ps1.mass, ps1.mass > EPSILON);
+    let invM2 = select(0.0, 1.0 / ps2.mass, ps2.mass > EPSILON);
+
+    ps1.velWX += F1x * dt * invM1;
+    ps1.velWY += F1y * dt * invM1;
+    ps2.velWX -= F1x * dt * invM2;  // Newton's 3rd law
+    ps2.velWY -= F1y * dt * invM2;
+
+    // Angular impulse: τ = r × F_t → ΔangW ≈ τ·dt / I,  I = INERTIA_K·m·r²
+    // Contact torque on p1: +r1 * Ft,  on p2: -r2 * Ft
+    if (friction > 0.0) {
+        let I1 = INERTIA_K * ps1.mass * r1 * r1;
+        let I2 = INERTIA_K * ps2.mass * r2 * r2;
+        if (I1 > EPSILON) { ps1.angW += r1 * Ft * dt / I1; }
+        if (I2 > EPSILON) { ps2.angW -= r2 * Ft * dt / I2; }
+    }
+
+    particleState[idx1] = ps1;
+    particleState[idx2] = ps2;
 }

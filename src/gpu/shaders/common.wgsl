@@ -35,7 +35,7 @@ struct SimUniforms {
     higgsCoupling: f32,
     particleCount: u32,
     bhTheta: f32,
-    _pad3: u32,
+    frameCount: u32,
     _pad4: u32,
 };
 

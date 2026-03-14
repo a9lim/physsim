@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 8;
+const SHADER_VERSION = 9;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename) {
@@ -56,9 +56,9 @@ export async function createPhase2Pipelines(device) {
     ]);
 
     // --- cacheDerived ---
-    // uniforms + particleState (rw) + derived (rw) + particleAux (rw) = 3 storage
+    // uniforms + particleState (rw) + derived (rw) + particleAux (rw) + axYukMod (rw) = 4 storage
     const cacheDerived = await makePipeline('cacheDerived', 'cache-derived.wgsl', [
-        ['uniform', 'storage', 'storage', 'storage'],
+        ['uniform', 'storage', 'storage', 'storage', 'storage'],
     ]);
 
     // --- pairForce (4 bind groups) ---
@@ -110,9 +110,17 @@ export async function createPhase2Pipelines(device) {
         ['uniform', 'storage', 'storage', 'storage'],
     ]);
 
+    // --- saveF1pn ---
+    // Save 1PN forces before Boris kick for velocity-Verlet correction.
+    // uniforms + allForces (rw) + f1pnOld (rw) + particleState (rw) = 3 storage
+    const saveF1pn = await makePipeline('saveF1pn', 'save-f1pn.wgsl', [
+        ['uniform', 'storage', 'storage', 'storage'],
+    ]);
+
     return {
         resetForces, cacheDerived, pairForce, externalFields,
         borisHalfKick, borisRotate, borisDrift, spinOrbit, applyTorques,
+        saveF1pn,
     };
 }
 
@@ -301,7 +309,19 @@ export async function createCollisionPipelines(device) {
         compute: { module, entryPoint: 'resolveCollisions' },
     });
 
-    return { detectCollisions, resolveCollisions, bindGroupLayouts };
+    const detectCollisionsPairwise = device.createComputePipeline({
+        label: 'detectCollisionsPairwise',
+        layout: pipelineLayout,
+        compute: { module, entryPoint: 'detectCollisionsPairwise' },
+    });
+
+    const resolveBouncePairwise = device.createComputePipeline({
+        label: 'resolveBouncePairwise',
+        layout: pipelineLayout,
+        compute: { module, entryPoint: 'resolveBouncePairwise' },
+    });
+
+    return { detectCollisions, resolveCollisions, detectCollisionsPairwise, resolveBouncePairwise, bindGroupLayouts };
 }
 
 /**
@@ -1179,7 +1199,7 @@ export async function createUpdateColorsPipeline(device) {
 /**
  * Create spin ring render pipeline.
  * Standalone shader (defines own structs).
- * Bindings: camera (uniform), particleState (ro), particleAux (ro), color (ro).
+ * Bindings: camera (uniform), particleState (ro), particleAux (ro), derived (ro).
  */
 export async function createSpinRenderPipeline(device, format, isLight) {
     const code = await fetchShader('spin-render.wgsl');

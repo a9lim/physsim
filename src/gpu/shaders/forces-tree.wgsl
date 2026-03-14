@@ -130,7 +130,7 @@ struct SimUniforms {
     higgsCoupling: f32,
     particleCount: u32,
     bhTheta: f32,
-    _pad3: u32,
+    frameCount: u32,
     _pad4: u32,
 };
 
@@ -355,8 +355,12 @@ fn accumulateForce(
                 let alpha = 1.0 + mu * r;
                 let beta = 0.5 * uniforms.yukawaCoupling * yukModPair * pMass * sMass * expMuR * invRSq;
                 let radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1.0) * nDotV1 * nDotV2);
-                (*af).f2.x += beta * (radial * nx + alpha * (nDotV2 * pVelX + nDotV1 * svx));
-                (*af).f2.y += beta * (radial * ny + alpha * (nDotV2 * pVelY + nDotV1 * svy));
+                let sbX = beta * (radial * nx + alpha * (nDotV2 * pVelX + nDotV1 * svx));
+                let sbY = beta * (radial * ny + alpha * (nDotV2 * pVelY + nDotV1 * svy));
+                (*af).f2.x += sbX;
+                (*af).f2.y += sbY;
+                (*af).totalForce.x += sbX;
+                (*af).totalForce.y += sbY;
             }
         }
     }
@@ -376,8 +380,12 @@ fn accumulateForce(
         let v1Coeff = 4.0 * nDotV1 - 3.0 * nDotV2;
         let v2Coeff = 3.0 * nDotV2;
         let base = sMass * invR3;
-        (*af).f2.x += base * (rx * radial + (pVelX * v1Coeff + svx * v2Coeff) * r_val);
-        (*af).f2.y += base * (ry * radial + (pVelY * v1Coeff + svy * v2Coeff) * r_val);
+        let eihX = base * (rx * radial + (pVelX * v1Coeff + svx * v2Coeff) * r_val);
+        let eihY = base * (ry * radial + (pVelY * v1Coeff + svy * v2Coeff) * r_val);
+        (*af).f2.x += eihX;
+        (*af).f2.y += eihY;
+        (*af).totalForce.x += eihX;
+        (*af).totalForce.y += eihY;
     }
 
     // 1PN Darwin EM (magnetic + 1PN)
@@ -387,8 +395,12 @@ fn accumulateForce(
         let v2DotN = svx * nx + svy * ny;
         let v1DotN = pVelX * nx + pVelY * ny;
         let coeff = 0.5 * pCharge * sCharge * invRSq;
-        (*af).f2.x += coeff * (pVelX * v2DotN - 3.0 * nx * v1DotN * v2DotN);
-        (*af).f2.y += coeff * (pVelY * v2DotN - 3.0 * ny * v1DotN * v2DotN);
+        let darX = coeff * (pVelX * v2DotN - 3.0 * nx * v1DotN * v2DotN);
+        let darY = coeff * (pVelY * v2DotN - 3.0 * ny * v1DotN * v2DotN);
+        (*af).f2.x += darX;
+        (*af).f2.y += darY;
+        (*af).totalForce.x += darX;
+        (*af).totalForce.y += darY;
     }
 
     // 1PN Bazanski (GM + Magnetic + 1PN): mixed gravity+EM
@@ -396,8 +408,12 @@ fn accumulateForce(
         let crossCoeff = pCharge * sCharge * (pMass + sMass)
             - (pCharge * pCharge * sMass + sCharge * sCharge * pMass);
         let fDir = crossCoeff * invRSq * invRSq;
-        (*af).f2.x += rx * fDir;
-        (*af).f2.y += ry * fDir;
+        let bazX = rx * fDir;
+        let bazY = ry * fDir;
+        (*af).f2.x += bazX;
+        (*af).f2.y += bazY;
+        (*af).totalForce.x += bazX;
+        (*af).totalForce.y += bazY;
     }
 
 }

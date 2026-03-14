@@ -112,8 +112,10 @@ fn vs_main(
         return out;
     }
 
-    let f = getForceVector(instIdx, arrowParams.forceType);
-    // Force is F/m (acceleration) — scale for visibility
+    let rawF = getForceVector(instIdx, arrowParams.forceType);
+    // Convert force F to acceleration F/m for consistent arrow length regardless of mass
+    let m = p.mass;
+    let f = select(rawF, rawF / m, m > 1e-9);
     let mag = length(f);
     if (mag < arrowParams.minMag) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);

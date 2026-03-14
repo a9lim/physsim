@@ -144,7 +144,7 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
             strongestIdx = oi;
             strongestDx = dx;
             strongestDy = dy;
-            strongestDist = sqrt(distSq - du.softeningSq);
+            strongestDist = sqrt(max(0.0, distSq - du.softeningSq));
         }
     }
 

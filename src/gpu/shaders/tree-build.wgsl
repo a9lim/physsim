@@ -72,7 +72,7 @@ struct SimUniforms {
     higgsCoupling: f32,
     particleCount: u32,  // totalCount = aliveCount + ghostCount (set by JS)
     bhTheta: f32,
-    _pad3: u32,
+    frameCount: u32,
     _pad4: u32,
 };
 
@@ -169,6 +169,10 @@ fn setParticleIndex(idx: u32, v: i32) {
 
 fn setParticleCount(idx: u32, v: u32) {
     atomicStore(&nodes[nodeOffset(idx) + 17u], v);
+}
+
+fn atomicAddParticleCount(idx: u32, delta: u32) -> u32 {
+    return atomicAdd(&nodes[nodeOffset(idx) + 17u], delta);
 }
 
 fn allocNode() -> u32 {
@@ -350,8 +354,17 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
         let prev = casParticleIndex(cur, NONE, i32(pIdx));
 
         if (prev == NONE) {
-            // Successfully claimed empty node — we're a leaf
+            // Successfully claimed empty node — we're a leaf.
+            // Record that this child slot is now populated so the parent knows
+            // how many children to wait for during aggregate phase.
             setParticleCount(cur, 1u);
+            let parentIdx = getParentIndex(cur);
+            if (parentIdx >= 0) {
+                // Increment parent's populated-child count (stored in particleCount
+                // field; internal nodes are always 0 after subdivision and we reuse
+                // it here as an atomic counter during the insert phase).
+                atomicAddParticleCount(u32(parentIdx), 1u);
+            }
             break;
         }
 
@@ -367,14 +380,19 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let displacedIdx = u32(prev);
                 let displacedPs = particleState[displacedIdx];
 
-                // Reinsert displaced particle into correct child
+                // Reinsert displaced particle into correct child.
+                // Also bump the subdivided node's populated-child count so
+                // computeAggregates knows how many children to wait for.
                 let childForDisplaced = childFor(cur, displacedPs.posX, displacedPs.posY);
                 setParticleIndex(childForDisplaced, i32(displacedIdx));
                 setParticleCount(childForDisplaced, 1u);
+                atomicAddParticleCount(cur, 1u); // cur now has one populated child
 
-                // Mark current node as internal (clear particleIndex, set count=0)
+                // Mark current node as internal (clear particleIndex).
+                // Do NOT reset particleCount — it is now the populated-child
+                // counter used by computeAggregates to know how many visitors
+                // to wait for before aggregating.
                 setParticleIndex(cur, NONE);
-                setParticleCount(cur, 0u);
 
                 // Now descend into correct child for our particle
                 cur = childFor(cur, px, py);
@@ -447,15 +465,23 @@ fn computeAggregates(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (curNode < 0) { break; } // reached root's parent (NONE)
 
         let nodeU = u32(curNode);
-        // First visitor sets flag to 1 and exits.
-        // Second visitor (flag was already 1) computes aggregate.
+        // Each visitor increments the flag.  Only the last visitor (the one
+        // that brings the count up to the number of populated children) is
+        // allowed to aggregate and continue climbing.  All earlier visitors
+        // must exit here so they do not read partially-written child data.
+        //
+        // `particleCount` on an internal node was repurposed during the
+        // insertParticles pass to count how many of its 4 children received
+        // at least one particle.  That tells us exactly how many threads will
+        // walk through this node, so we can use it as the threshold.
+        let expectedVisitors = getParticleCount(nodeU); // populated child count
         let prev = atomicAdd(&visitorFlags[nodeU], 1u);
-        if (prev == 0u) {
-            // First visitor — exit, let second visitor aggregate
+        if (prev < expectedVisitors - 1u) {
+            // Not the last visitor — exit, let the last one aggregate
             break;
         }
 
-        // Second visitor — all children are computed, aggregate
+        // Last visitor — all populated children have written their data, aggregate
         let c0 = u32(getNW(nodeU));
         let c1 = u32(getNE(nodeU));
         let c2 = u32(getSW(nodeU));

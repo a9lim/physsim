@@ -41,12 +41,14 @@ import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines
 
 const MAX_PARTICLES = 4096;
 const HISTORY_STRIDE = 64;
-const MAX_PHOTONS = 512;
+const MAX_PHOTONS = 1024;
 const MAX_PIONS = 256;
 
 // Pre-allocated typed arrays for per-frame writeBuffer calls (avoid GC pressure)
 const _qtNodeCounterData = new Uint32Array([1]);
 const _qtBoundsResetData = new Int32Array([2147483647, 2147483647, -2147483647, -2147483647]);
+const _bosonRootData = new Uint32Array(20);
+const _bosonRootF32 = new Float32Array(_bosonRootData.buffer);
 
 export default class GPUPhysics {
     /**
@@ -183,8 +185,7 @@ export default class GPUPhysics {
         this._disintUniformBuffer = null;
         this._pairProdUniformBuffer = null;
 
-        // Phase 5: sgInvR table upload tracking
-        this._sgInvRUploaded = { higgs: false, axion: false };
+        // (sgInvR table removed — computed inline in field-selfgrav.wgsl)
 
         // Update colors pipeline
         this._updateColorsPipeline = null;
@@ -196,6 +197,10 @@ export default class GPUPhysics {
         this._trailRecordBindGroup = null;
         this._trailBuffers = null;
         this._trailsEnabled = true; // default on (matches CPU)
+
+        // Free slot management: CPU-side mirror of GPU free stack
+        this._cpuFreeSlots = [];
+        this._freeTopPending = false;
 
         // Adaptive substepping state
         this._maxAccel = 0;
@@ -314,9 +319,9 @@ export default class GPUPhysics {
         this._bg_resetForces = bg('resetForces', p2.resetForces.bindGroupLayouts[0],
             [this.uniformBuffer, b.allForces]);
 
-        // cacheDerived: uniforms + particleState (packed) + derived + particleAux
+        // cacheDerived: uniforms + particleState (packed) + derived + particleAux + axYukMod
         this._bg_cacheDerived = bg('cacheDerived', p2.cacheDerived.bindGroupLayouts[0],
-            [this.uniformBuffer, b.particleState, b.derived, b.particleAux]);
+            [this.uniformBuffer, b.particleState, b.derived, b.particleAux, b.axYukMod]);
 
         // pairForce: 4 bind groups (packed structs)
         this._bg_pairForce0 = bg('pairForce_g0', p2.pairForce.bindGroupLayouts[0],
@@ -351,6 +356,10 @@ export default class GPUPhysics {
         // applyTorques (reads from particleState, allForces, writes derived)
         this._bg_torques = bg('torques', p2.applyTorques.bindGroupLayouts[0],
             [this.uniformBuffer, b.particleState, b.allForces, b.derived]);
+
+        // saveF1pn (save 1PN forces before Boris kick for VV correction)
+        this._bg_saveF1pn = bg('saveF1pn', p2.saveF1pn.bindGroupLayouts[0],
+            [this.uniformBuffer, b.allForces, b.f1pnOld, b.particleState]);
     }
 
     /**
@@ -805,15 +814,13 @@ export default class GPUPhysics {
         // Reset boson tree node counter to 1 (root = node 0)
         this.device.queue.writeBuffer(b.bosonTreeCounter, 0, _qtNodeCounterData);
 
-        // Initialize root node bounds (will be set by insertBosonsIntoTree)
-        // For boson tree we use domain bounds directly
-        const rootInit = new Uint32Array(20);
-        const rootF32 = new Float32Array(rootInit.buffer);
-        rootF32[0] = 0;              // minX
-        rootF32[1] = 0;              // minY
-        rootF32[2] = this.domainW;   // maxX
-        rootF32[3] = this.domainH;   // maxY
-        this.device.queue.writeBuffer(b.bosonTreeNodes, 0, rootInit);
+        // Initialize root node bounds (reuse pre-allocated arrays to avoid GC)
+        _bosonRootData.fill(0);
+        _bosonRootF32[0] = 0;              // minX
+        _bosonRootF32[1] = 0;              // minY
+        _bosonRootF32[2] = this.domainW;   // maxX
+        _bosonRootF32[3] = this.domainH;   // maxY
+        this.device.queue.writeBuffer(b.bosonTreeNodes, 0, _bosonRootData);
 
         const totalBosons = MAX_PHOTONS + MAX_PIONS;
         const bosonWG = Math.ceil(totalBosons / 64);
@@ -900,41 +907,68 @@ export default class GPUPhysics {
 
     /**
      * Dispatch collision detection and resolution (Phase 3).
-     * Only runs when collisionMode === COL_MERGE (1).
-     * After drift + boundary, detects overlapping pairs via tree query,
-     * then resolves merges/annihilations.
+     *
+     * COL_PASS (0):        skip entirely.
+     * COL_MERGE (1) + BH:  tree-based detect → resolveCollisions (merge/annihilation).
+     * COL_MERGE (1) no BH: pairwise detect   → resolveCollisions (merge/annihilation).
+     * COL_BOUNCE (2):      pairwise detect   → resolveBouncePairwise (Hertz impulse).
      */
     _dispatchCollisions(encoder) {
-        if (this._collisionMode !== COL_MERGE) return;
-        if (!this._barnesHutEnabled) return; // collision detection requires tree
+        if (this._collisionMode === 0) return; // COL_PASS — nothing to do
         if (this.aliveCount === 0) return;
 
         const b = this.buffers;
+        const isMerge  = this._collisionMode === COL_MERGE;
+        const isBounce = this._collisionMode === COL_BOUNCE;
+        const useTree  = isMerge && this._barnesHutEnabled;
 
-        // Reset pair counter and merge counter to 0
+        // Reset pair counter (and merge counter for merge mode)
         encoder.clearBuffer(b.collisionPairCounter, 0, 4);
-        encoder.clearBuffer(b.mergeResultCounter, 0, 4);
+        if (isMerge) encoder.clearBuffer(b.mergeResultCounter, 0, 4);
 
-        // Dispatch detectCollisions: one thread per alive particle
+        // ── Detection phase ──
         const detectWG = Math.ceil(this.aliveCount / 64);
-        const passDetect = encoder.beginComputePass({ label: 'detectCollisions' });
-        passDetect.setPipeline(this._collisionPipelines.detectCollisions);
-        passDetect.setBindGroup(0, this._collisionBG0);
-        passDetect.setBindGroup(1, this._collisionBG1);
-        passDetect.setBindGroup(2, this._collisionBG2);
-        passDetect.dispatchWorkgroups(detectWG);
-        passDetect.end();
+        if (useTree) {
+            // Tree-accelerated broadphase (existing path)
+            const passDetect = encoder.beginComputePass({ label: 'detectCollisions' });
+            passDetect.setPipeline(this._collisionPipelines.detectCollisions);
+            passDetect.setBindGroup(0, this._collisionBG0);
+            passDetect.setBindGroup(1, this._collisionBG1);
+            passDetect.setBindGroup(2, this._collisionBG2);
+            passDetect.dispatchWorkgroups(detectWG);
+            passDetect.end();
+        } else {
+            // O(N²) tiled pairwise broadphase (no tree needed)
+            const passDetect = encoder.beginComputePass({ label: 'detectCollisionsPairwise' });
+            passDetect.setPipeline(this._collisionPipelines.detectCollisionsPairwise);
+            passDetect.setBindGroup(0, this._collisionBG0);
+            passDetect.setBindGroup(1, this._collisionBG1);
+            passDetect.setBindGroup(2, this._collisionBG2);
+            passDetect.dispatchWorkgroups(detectWG);
+            passDetect.end();
+        }
 
-        // Dispatch resolveCollisions: conservatively dispatch for maxParticles
-        // (pairCounter checked inside shader to skip excess threads)
-        const resolveWG = Math.ceil(this.buffers.maxParticles / 64);
-        const passResolve = encoder.beginComputePass({ label: 'resolveCollisions' });
-        passResolve.setPipeline(this._collisionPipelines.resolveCollisions);
-        passResolve.setBindGroup(0, this._collisionBG0);
-        passResolve.setBindGroup(1, this._collisionBG1);
-        passResolve.setBindGroup(2, this._collisionBG2);
-        passResolve.dispatchWorkgroups(resolveWG);
-        passResolve.end();
+        // ── Resolution phase ──
+        // Conservatively dispatch enough workgroups to cover worst-case pair count.
+        // Each shader reads pairCounter atomically and exits early for out-of-range threads.
+        const resolveWG = Math.ceil(b.maxParticles / 64);
+        if (isMerge) {
+            const passResolve = encoder.beginComputePass({ label: 'resolveCollisions' });
+            passResolve.setPipeline(this._collisionPipelines.resolveCollisions);
+            passResolve.setBindGroup(0, this._collisionBG0);
+            passResolve.setBindGroup(1, this._collisionBG1);
+            passResolve.setBindGroup(2, this._collisionBG2);
+            passResolve.dispatchWorkgroups(resolveWG);
+            passResolve.end();
+        } else if (isBounce) {
+            const passResolve = encoder.beginComputePass({ label: 'resolveBouncePairwise' });
+            passResolve.setPipeline(this._collisionPipelines.resolveBouncePairwise);
+            passResolve.setBindGroup(0, this._collisionBG0);
+            passResolve.setBindGroup(1, this._collisionBG1);
+            passResolve.setBindGroup(2, this._collisionBG2);
+            passResolve.dispatchWorkgroups(resolveWG);
+            passResolve.end();
+        }
     }
 
     /**
@@ -1110,11 +1144,18 @@ export default class GPUPhysics {
 
     /**
      * Add a particle to the GPU buffers.
-     * Phase 1: writes directly via queue.writeBuffer (no free stack yet).
+     * Reuses free slots from dead GC when available, otherwise appends.
      */
     addParticle({ x, y, vx = 0, vy = 0, mass: m = 1, charge: q = 0, angw = 0, antimatter = false }) {
-        const idx = this.aliveCount;
-        if (idx >= MAX_PARTICLES) return -1;
+        let idx;
+        if (this._cpuFreeSlots.length > 0) {
+            // Reuse a slot freed by dead GC
+            idx = this._cpuFreeSlots.pop();
+        } else {
+            idx = this.aliveCount;
+            if (idx >= MAX_PARTICLES) return -1;
+            this.aliveCount++;
+        }
 
         // Write packed ParticleState struct (36 bytes = 9 × f32/u32)
         const stateData = new ArrayBuffer(PARTICLE_STATE_SIZE);
@@ -1157,8 +1198,6 @@ export default class GPUPhysics {
         // Initialize radiationState to zero (jerk, accumulators, display force)
         const radData = new Float32Array(RADIATION_STATE_SIZE / 4);
         this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, radData);
-
-        this.aliveCount++;
         return idx;
     }
 
@@ -1294,7 +1333,6 @@ export default class GPUPhysics {
         this.device.queue.writeBuffer(fb.sgGradX, 0, zeros);
         this.device.queue.writeBuffer(fb.sgGradY, 0, zeros);
 
-        this._sgInvRUploaded[which] = false;
     }
 
     /**
@@ -1327,43 +1365,6 @@ export default class GPUPhysics {
         this._expansionPipeline = expansion;
         this._disintPipeline = disint;
         this._pairProdPipeline = pairProd;
-    }
-
-    /**
-     * Build sgInvR table for field self-gravity (CPU-side O(SG^4=4096) computation).
-     * Uploaded once per field, rebuilt on domain size change.
-     */
-    _buildSgInvRTable(which) {
-        const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
-        if (!fb) return;
-
-        const SG = COARSE_RES;
-        const SG_SQ = COARSE_SQ;
-        const cellW = this.domainW / SG;
-        const cellH = this.domainH / SG;
-        const table = new Float32Array(SG_SQ * SG_SQ);
-
-        for (let i = 0; i < SG_SQ; i++) {
-            const ix = i % SG;
-            const iy = (i / SG) | 0;
-            const cx = (ix + 0.5) * cellW;
-            const cy = (iy + 0.5) * cellH;
-            const rowBase = i * SG_SQ;
-            for (let j = 0; j < SG_SQ; j++) {
-                if (i === j) {
-                    table[rowBase + j] = 0;
-                    continue;
-                }
-                const jx = j % SG;
-                const jy = (j / SG) | 0;
-                const dx = cx - (jx + 0.5) * cellW;
-                const dy = cy - (jy + 0.5) * cellH;
-                table[rowBase + j] = 1.0 / Math.sqrt(dx * dx + dy * dy);
-            }
-        }
-
-        this.device.queue.writeBuffer(fb.sgInvR, 0, table);
-        this._sgInvRUploaded[which] = true;
     }
 
     /**
@@ -2335,6 +2336,9 @@ export default class GPUPhysics {
 
         // Readback merge results for photon bursts / field excitations (non-blocking)
         this._readbackMergeResults();
+
+        // Readback free stack for slot reuse (non-blocking)
+        this._readbackFreeStack();
     }
 
     /**
@@ -2440,6 +2444,15 @@ export default class GPUPhysics {
             this._writeFieldUniforms(dtSub);
         }
         this._dispatchFieldForces(encoder);
+
+        // Pass 5d: save 1PN forces for velocity-Verlet correction (before Boris)
+        if (this._onePNEnabled) {
+            const passSave = encoder.beginComputePass({ label: 'saveF1pn' });
+            passSave.setPipeline(p2.saveF1pn.pipeline);
+            passSave.setBindGroup(0, this._bg_saveF1pn);
+            passSave.dispatchWorkgroups(workgroups);
+            passSave.end();
+        }
 
         // Pass 6: borisHalfKick (first)
         const pass6 = encoder.beginComputePass({ label: 'halfKick1' });
@@ -2555,6 +2568,53 @@ export default class GPUPhysics {
 
         this._maxAccel = data[0];
         this._maxAccelPending = false;
+    }
+
+    /**
+     * Non-blocking readback of free stack from GPU for slot reuse.
+     * Reads freeTop count first, then copies free indices to CPU pool.
+     * Uses 1-frame latency.
+     */
+    async _readbackFreeStack() {
+        if (this._freeTopPending) return;
+        this._freeTopPending = true;
+        const b = this.buffers;
+
+        try {
+            // Copy freeTop counter to staging
+            const enc = this.device.createCommandEncoder();
+            enc.copyBufferToBuffer(b.freeTop, 0, b.freeTopStaging, 0, 4);
+            this.device.queue.submit([enc.finish()]);
+
+            await b.freeTopStaging.mapAsync(GPUMapMode.READ);
+            const topData = new Uint32Array(b.freeTopStaging.getMappedRange().slice(0));
+            b.freeTopStaging.unmap();
+
+            const count = topData[0];
+            if (count > 0 && count <= MAX_PARTICLES) {
+                // Copy free stack indices to staging
+                const readBytes = count * 4;
+                const enc2 = this.device.createCommandEncoder();
+                enc2.copyBufferToBuffer(b.freeStack, 0, b.freeStackStaging, 0, readBytes);
+                this.device.queue.submit([enc2.finish()]);
+
+                await b.freeStackStaging.mapAsync(GPUMapMode.READ);
+                const stackData = new Uint32Array(b.freeStackStaging.getMappedRange(0, readBytes).slice(0));
+                b.freeStackStaging.unmap();
+
+                // Transfer to CPU free pool (deduplicate against existing)
+                for (let i = 0; i < stackData.length; i++) {
+                    const slot = stackData[i];
+                    if (slot < MAX_PARTICLES) this._cpuFreeSlots.push(slot);
+                }
+
+                // Reset GPU free stack (we've consumed all entries)
+                this.device.queue.writeBuffer(b.freeTop, 0, new Uint32Array([0]));
+            }
+        } catch (e) {
+            // Device lost or other error — don't block future readbacks
+        }
+        this._freeTopPending = false;
     }
 
     /** Store camera state for heatmap viewport calculation */
@@ -2736,6 +2796,11 @@ export default class GPUPhysics {
         this._frameCount = 0;
         this._heatmapFrame = 0;
         this._pendingMergeEvents = [];
+        this._cpuFreeSlots = [];
+        // Reset GPU free stack
+        if (this.buffers.freeTop) {
+            this.device.queue.writeBuffer(this.buffers.freeTop, 0, new Uint32Array([0]));
+        }
         this.resetFields();
         // Clear trail ring buffers
         if (this._trailBuffers) {
@@ -2756,7 +2821,6 @@ export default class GPUPhysics {
             domainW: this.domainW,
             domainH: this.domainH,
             aliveCount: this.aliveCount,
-            ghostCount: this._ghostCount,
             toggles0: this._toggles0,
             toggles1: this._toggles1,
             boundaryMode: this.boundaryMode,
@@ -2769,12 +2833,15 @@ export default class GPUPhysics {
             axionMass: this._axionMass,
             higgsCoupling: this._higgsCoupling,
             axionCoupling: this._axionCoupling,
-            extGravX: this._extGravity * Math.cos(this._extGravityAngle),
-            extGravY: this._extGravity * Math.sin(this._extGravityAngle),
-            extElecX: this._extElectric * Math.cos(this._extElectricAngle),
-            extElecY: this._extElectric * Math.sin(this._extElectricAngle),
+            extGravity: this._extGravity,
+            extGravityAngle: this._extGravityAngle,
+            extElectric: this._extElectric,
+            extElectricAngle: this._extElectricAngle,
             extBz: this._extBz,
-            hubbleParam: this._hubbleParam,
+            maxParticles: this.buffers.maxParticles,
+            particleCount: this.aliveCount + this._ghostCount,
+            bhTheta: 0.5,
+            frameCount: this._frameCount,
         });
     }
 
@@ -2786,7 +2853,8 @@ export default class GPUPhysics {
 
     /** Queue a GPU hit test. Result available next frame via readHitResult(). */
     hitTest(worldX, worldY) {
-        // Write click position to hit uniform buffer
+        // Hit test pipeline not yet initialized — fall back to CPU selection
+        if (!this._hitUniformBuffer) return;
         const data = new Float32Array([worldX, worldY, 0, 0]);
         this.device.queue.writeBuffer(this._hitUniformBuffer, 0, data);
         this._hitPending = true;
@@ -2794,7 +2862,7 @@ export default class GPUPhysics {
 
     /** Read the result of a previously queued hit test. Returns particle index or -1. */
     readHitResult() {
-        if (!this._hitResultReady) return -1;
+        if (!this._hitResultReady || !this._hitStagingData) return -1;
         this._hitResultReady = false;
         const view = new Int32Array(this._hitStagingData);
         return view[0];
@@ -2838,6 +2906,7 @@ const FLAG_ALIVE = 1;
 const FLAG_ANTIMATTER = 4;
 const BOUND_LOOP = 2;
 const COL_MERGE = 1;
+const COL_BOUNCE = 2;
 
 // Save/load name tables (must match config.js)
 const COL_NAMES = ['pass', 'merge', 'bounce'];

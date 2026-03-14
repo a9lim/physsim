@@ -16,7 +16,7 @@
 const HISTORY_LEN = 256;
 
 // Boson pool constants
-const MAX_PHOTONS = 512;
+const MAX_PHOTONS = 1024;
 const MAX_PIONS = 256;
 
 // Quadtree node size in bytes (20 u32 words = 80 bytes, must match tree-build.wgsl)
@@ -206,6 +206,16 @@ export function createParticleBuffers(device, maxParticles) {
         size: 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
+    const freeTopStaging = device.createBuffer({
+        label: 'freeTopStaging',
+        size: 4,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    const freeStackStaging = device.createBuffer({
+        label: 'freeStackStaging',
+        size: maxParticles * UINT_SIZE,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
 
     // ── Phase 4: 1PN velocity-Verlet correction ──
     const f1pnOld = storageBuffer('f1pnOld', FLOAT_SIZE, maxParticles * 2);
@@ -277,7 +287,7 @@ export function createParticleBuffers(device, maxParticles) {
         mergeResultBuffer, mergeResultCounter,
         mergeCountStaging, mergeResultStaging,
         // Free stack (Phase 3: dead particle GC)
-        freeStack, freeTop,
+        freeStack, freeTop, freeTopStaging, freeStackStaging,
         // 1PN VV correction (Phase 4)
         f1pnOld,
         // Photon pool (Phase 4, packed struct)

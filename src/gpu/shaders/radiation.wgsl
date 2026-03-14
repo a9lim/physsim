@@ -13,7 +13,7 @@ const ALIVE_BIT: u32 = 1u;
 const LL_FORCE_CLAMP: f32 = 0.5;
 const MIN_MASS: f32 = 0.05;
 const EPSILON: f32 = 1e-9;
-const MAX_PHOTONS: u32 = 512u;
+const MAX_PHOTONS: u32 = 1024u;
 const MAX_PIONS: u32 = 256u;
 const MAX_SPEED_RATIO: f32 = 0.9999;
 const INERTIA_K: f32 = 0.4;
@@ -240,17 +240,45 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
     if (rs.radAccum >= MIN_MASS) {
         let phIdx = atomicAdd(&phCount, 1u);
         if (phIdx < MAX_PHOTONS) {
-            // Emit along -acceleration direction (simplified dipole pattern)
+            // sin²θ dipole pattern: peak emission ⊥ to acceleration (rejection sampling)
             let ftv3 = allForces[i].totalForce;
             let ax = ftv3.x * mInv;
             let ay = ftv3.y * mInv;
             let aMag = sqrt(ax * ax + ay * ay);
-            var cosA: f32; var sinA: f32;
+            var emitAngle: f32;
             if (aMag > EPSILON) {
-                cosA = -ax / aMag; sinA = -ay / aMag;
+                let accelAngle = atan2(ay, ax);
+                // Rejection-sample sin²θ: up to 8 tries, fallback to perpendicular
+                var accepted = false;
+                var seedBase = (i * 2654435761u) ^ (u.frameCount * 1664525u);
+                for (var t: u32 = 0u; t < 8u; t++) {
+                    let theta = pcgRand(seedBase ^ (t * 1234567u)) * 6.2831853;
+                    let sinTh = sin(theta);
+                    if (pcgRand(seedBase ^ (t * 7654321u + 1u)) <= sinTh * sinTh) {
+                        emitAngle = accelAngle + theta;
+                        accepted = true;
+                        break;
+                    }
+                }
+                if (!accepted) {
+                    // Fallback: perpendicular to acceleration (θ = π/2)
+                    emitAngle = accelAngle + 1.5707963;
+                }
+                // Relativistic aberration: beam forward at high γ
+                if (gamma > 1.01) {
+                    let beta = sqrt(1.0 - 1.0 / (gamma * gamma));
+                    let vx2 = wx * (1.0 / gamma); let vy2 = wy * (1.0 / gamma);
+                    let velAngle = atan2(vy2, vx2);
+                    let delta = emitAngle - velAngle;
+                    let sinD = sin(delta); let cosD = cos(delta);
+                    let denom = 1.0 + beta * cosD;
+                    emitAngle = velAngle + atan2(sinD / (gamma * denom), (cosD + beta) / denom);
+                }
             } else {
-                cosA = 1.0; sinA = 0.0;
+                // No net acceleration: isotropic emission
+                emitAngle = pcgRand((i * 2654435761u) ^ (u.frameCount * 1664525u)) * 6.2831853;
             }
+            let cosA = cos(emitAngle); let sinA = sin(emitAngle);
             let offset = max(particleAux[i].radius * 1.5, 1.0);
             var ph: Photon;
             ph.posX = particles[i].posX + cosA * offset;
@@ -372,17 +400,51 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
         if (ke > 0.0) {
             let piIdx = atomicAdd(&piCount, 1u);
             if (piIdx < MAX_PIONS) {
-                // Scalar dipole emission angle (along Yukawa force direction)
-                let angle = atan2(fYukY, fYukX);
+                // Scalar dipole emission angle: cos²θ rejection-sample from ±Yukawa force axis,
+                // then Lorentz-boost from emitter rest frame to lab frame.
+                let accelAngle = atan2(fYukY, fYukX);
+                var angle: f32;
+                var seedBase = (i * 2246822519u) ^ (u.frameCount * 2654435769u);
+                var accepted = false;
+                for (var t: u32 = 0u; t < 8u; t++) {
+                    let phi = pcgRand(seedBase ^ (t * 1234567u)) * 6.2831853;
+                    let cosTheta = cos(phi - accelAngle);
+                    if (pcgRand(seedBase ^ (t * 9876543u + 1u)) <= cosTheta * cosTheta) {
+                        angle = phi;
+                        accepted = true;
+                        break;
+                    }
+                }
+                if (!accepted) {
+                    // Fallback: along ±acceleration axis
+                    angle = accelAngle + select(0.0, 3.1415927, pcgRand(seedBase ^ 999u) < 0.5);
+                }
+
+                // Relativistic aberration: Lorentz boost from particle rest frame to lab frame
+                let wx2 = particles[i].velWX; let wy2 = particles[i].velWY;
+                let wSqPi = wx2 * wx2 + wy2 * wy2;
+                if (wSqPi > EPSILON * EPSILON) {
+                    let betaP = min(sqrt(wSqPi / (1.0 + wSqPi)), MAX_SPEED_RATIO);
+                    if (betaP > EPSILON) {
+                        let gammaP = 1.0 / sqrt(1.0 - betaP * betaP);
+                        let boostAngle = atan2(wy2 / sqrt(1.0 + wSqPi), wx2 / sqrt(1.0 + wSqPi));
+                        let phiRel = angle - boostAngle;
+                        let labRel = atan2(sin(phiRel), gammaP * (cos(phiRel) + betaP));
+                        angle = labRel + boostAngle;
+                    }
+                }
+
                 let speed = min(sqrt(ke * (ke + 2.0 * pionMass)) / (ke + pionMass), MAX_SPEED_RATIO);
                 let gammaPI = 1.0 / sqrt(1.0 - speed * speed);
                 let piWx = gammaPI * speed * cos(angle);
                 let piWy = gammaPI * speed * sin(angle);
 
                 // Species: 50% pi0, 25% pi+, 25% pi-
+                // Neutral emitters cannot emit charged pions (no charge to transfer)
                 let rng = pcgRand((i * 98765u) ^ (u.frameCount * 4321u));
                 var piChg: i32 = 0;
-                if (rng > 0.5) {
+                let emitterIsCharged = abs(particles[i].charge) >= EPSILON;
+                if (rng > 0.5 && emitterIsCharged) {
                     let rng2 = pcgRand((i * 54321u) ^ (u.frameCount * 6789u));
                     piChg = select(-1, 1, rng2 < 0.5);
                     // Transfer charge from emitter (particleState is rw)

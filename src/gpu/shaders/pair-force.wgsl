@@ -282,6 +282,8 @@ fn main(
                     let fy = base * (ry * radial + (pVelY * v1Coeff + s.velY * v2Coeff) * r);
                     acc1PNX += fx;
                     acc1PNY += fy;
+                    accTotalX += fx;
+                    accTotalY += fy;
                 }
 
                 // -- 1PN Darwin EM --
@@ -295,6 +297,8 @@ fn main(
                     let fy = coeff * (pVelY * v2DotN - 3.0 * ny * v1DotN * v2DotN);
                     acc1PNX += fx;
                     acc1PNY += fy;
+                    accTotalX += fx;
+                    accTotalY += fy;
                 }
 
                 // -- 1PN Bazanski (mixed gravity+EM) --
@@ -304,6 +308,8 @@ fn main(
                     let fDir = crossCoeff * invRSq * invRSq;
                     acc1PNX += rx * fDir;
                     acc1PNY += ry * fDir;
+                    accTotalX += rx * fDir;
+                    accTotalY += ry * fDir;
                 }
 
                 // -- Magnetic dipole-dipole --
@@ -391,6 +397,8 @@ fn main(
                         let fy = beta * (radial * ny + alpha * (nDotV2 * pVelY + nDotV1 * s.velY));
                         acc1PNX += fx;
                         acc1PNY += fy;
+                        accTotalX += fx;
+                        accTotalY += fy;
                     }
                 }
             }

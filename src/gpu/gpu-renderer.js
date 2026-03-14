@@ -3,9 +3,25 @@
  *
  * Phase 1: particles. Phase 4: photon/pion boson rendering.
  * Also: spin rings, trails, field overlays, heatmap, force arrows.
+ *
+ * Dual-pipeline per renderer type: light mode uses standard alpha blending,
+ * dark mode uses additive blending ('lighter' equivalent, matching CPU Canvas 2D).
+ * On theme change setTheme() swaps _pipeline / _photonPipeline / _pionPipeline.
  */
 import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
 import { TRAIL_LEN } from './gpu-buffers.js';
+
+/** Standard premultiplied alpha-over blend (light mode). */
+const BLEND_ALPHA = {
+    color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+};
+
+/** Additive blend (dark mode — matches Canvas 2D globalCompositeOperation:'lighter'). */
+const BLEND_ADDITIVE = {
+    color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+    alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+};
 
 export default class GPURenderer {
     /**
@@ -37,15 +53,22 @@ export default class GPURenderer {
         // Uniform buffer for camera
         this.cameraBuffer = device.createBuffer({
             label: 'cameraUniforms',
-            size: 256, // 2 * mat4x4 + 4 floats
+            size: 256, // 2 * mat4x4 + 4 floats (zoom, canvasWidth, canvasHeight, isDarkMode)
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
+        // Particle render: two pipelines (light=alpha, dark=additive); _pipeline is the active one.
+        this._pipelineLight = null;
+        this._pipelineDark = null;
         this._pipeline = null;
         this._bindGroup = null;
         this._ready = false;
 
-        // Boson rendering (Phase 4)
+        // Boson rendering (Phase 4): two pipeline pairs, active pointers swapped on theme change.
+        this._photonPipelineLight = null;
+        this._photonPipelineDark = null;
+        this._pionPipelineLight = null;
+        this._pionPipelineDark = null;
         this._photonPipeline = null;
         this._pionPipeline = null;
         this._bosonBindGroups = null;
@@ -96,41 +119,49 @@ export default class GPURenderer {
             code: shaderCode,
         });
 
+        // Single bind group layout shared by both pipeline variants.
         const bindGroupLayout = this.device.createBindGroupLayout({
             label: 'particle render',
             entries: [
-                { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
+                { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
                 { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleState
                 { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleAux
                 { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // color
             ],
         });
 
-        this._pipeline = this.device.createRenderPipeline({
-            label: 'particle render',
-            layout: this.device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
-            vertex: {
-                module,
-                entryPoint: 'vs_main',
-            },
+        const pipelineLayout = this.device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+
+        const pipelineBase = {
+            layout: pipelineLayout,
+            vertex: { module, entryPoint: 'vs_main' },
+            primitive: { topology: 'triangle-list' },
+        };
+
+        // Light mode: standard premultiplied alpha-over blend.
+        this._pipelineLight = this.device.createRenderPipeline({
+            ...pipelineBase,
+            label: 'particle render light',
             fragment: {
                 module,
                 entryPoint: 'fs_main',
-                targets: [{
-                    format: this.format,
-                    // Use standard alpha-over blend for both themes. The clear color
-                    // handles light/dark background; glow effects can be added in the
-                    // fragment shader via premultiplied alpha output.
-                    blend: {
-                        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                    },
-                }],
-            },
-            primitive: {
-                topology: 'triangle-list',
+                targets: [{ format: this.format, blend: BLEND_ALPHA }],
             },
         });
+
+        // Dark mode: additive blend (matches Canvas 2D 'lighter').
+        this._pipelineDark = this.device.createRenderPipeline({
+            ...pipelineBase,
+            label: 'particle render dark',
+            fragment: {
+                module,
+                entryPoint: 'fs_main',
+                targets: [{ format: this.format, blend: BLEND_ADDITIVE }],
+            },
+        });
+
+        // Select active pipeline based on current theme.
+        this._pipeline = this.isLight ? this._pipelineLight : this._pipelineDark;
 
         this._bindGroup = this.device.createBindGroup({
             label: 'particle render',
@@ -155,23 +186,33 @@ export default class GPURenderer {
         await this._initSpinRendering();
     }
 
-    /** Create boson (photon + pion) render pipelines. */
+    /** Create boson (photon + pion) render pipelines — both light and dark variants. */
     async _initBosonRendering() {
-        let result;
+        let lightResult, darkResult;
         try {
-            result = await createBosonRenderPipelines(this.device, this.format, this.isLight);
+            [lightResult, darkResult] = await Promise.all([
+                createBosonRenderPipelines(this.device, this.format, true),
+                createBosonRenderPipelines(this.device, this.format, false),
+            ]);
         } catch (e) {
             console.warn('[physsim] Boson render pipeline creation failed, skipping:', e.message);
             return;
         }
-        const { photonPipeline, pionPipeline, bindGroupLayouts } = result;
-        if (!photonPipeline || !pionPipeline) {
+
+        if (!lightResult.photonPipeline || !lightResult.pionPipeline ||
+            !darkResult.photonPipeline || !darkResult.pionPipeline) {
             console.warn('[physsim] Boson render pipelines invalid, skipping');
             return;
         }
 
-        this._photonPipeline = photonPipeline;
-        this._pionPipeline = pionPipeline;
+        this._photonPipelineLight = lightResult.photonPipeline;
+        this._pionPipelineLight   = lightResult.pionPipeline;
+        this._photonPipelineDark  = darkResult.photonPipeline;
+        this._pionPipelineDark    = darkResult.pionPipeline;
+
+        // Active pointers for current theme.
+        this._photonPipeline = this.isLight ? this._photonPipelineLight : this._photonPipelineDark;
+        this._pionPipeline   = this.isLight ? this._pionPipelineLight   : this._pionPipelineDark;
 
         const b = this.buffers;
 
@@ -181,7 +222,10 @@ export default class GPURenderer {
             return;
         }
 
+        // Bind groups are theme-independent (same layouts between light and dark).
         try {
+            const bindGroupLayouts = lightResult.bindGroupLayouts;
+
             // Group 0: camera uniforms
             const g0 = this.device.createBindGroup({
                 label: 'bosonRender_g0',
@@ -353,7 +397,7 @@ export default class GPURenderer {
         f[32] = this.zoom;     // offset 128
         f[33] = this.canvasWidth;
         f[34] = this.canvasHeight;
-        f[35] = 0; // pad
+        f[35] = this.isLight ? 0.0 : 1.0; // isDarkMode (0=light, 1=dark)
 
         this.device.queue.writeBuffer(this.cameraBuffer, 0, data);
     }
@@ -531,7 +575,7 @@ export default class GPURenderer {
                 });
 
                 const enabledForces = opts.enabledForces || {};
-                const arrowScale = 40.0 / (this.zoom || 16);
+                const arrowScale = 256.0 / (this.zoom || 16);
                 const minMag = 0.001;
 
                 // Collect enabled force type indices
@@ -566,17 +610,17 @@ export default class GPURenderer {
      * Index matches getForceVector() in arrow-render.wgsl.
      */
     static FORCE_COLORS = [
-        [0.75, 0.31, 0.28], // 0: gravity — red
-        [0.36, 0.57, 0.66], // 1: coulomb — blue
-        [0.31, 0.60, 0.62], // 2: magnetic — cyan
-        [0.77, 0.39, 0.45], // 3: gravitomag — rose
-        [0.80, 0.56, 0.31], // 4: 1pn — orange
-        [0.61, 0.49, 0.69], // 5: spinCurv — purple
-        [0.80, 0.73, 0.31], // 6: radiation — yellow
-        [0.32, 0.66, 0.47], // 7: yukawa — green
-        [0.61, 0.41, 0.25], // 8: external — brown
-        [0.51, 0.66, 0.34], // 9: higgs — lime
-        [0.42, 0.47, 0.67], // 10: axion — indigo
+        [0.753, 0.314, 0.282], // 0: gravity — red #C05048
+        [0.361, 0.573, 0.659], // 1: coulomb — blue #5C92A8
+        [0.290, 0.675, 0.627], // 2: magnetic — cyan #4AACA0
+        [0.769, 0.384, 0.447], // 3: gravitomag — rose #C46272
+        [0.800, 0.557, 0.306], // 4: 1pn — orange #CC8E4E
+        [0.612, 0.494, 0.690], // 5: spinCurv — purple #9C7EB0
+        [0.800, 0.659, 0.298], // 6: radiation — yellow #CCA84C
+        [0.314, 0.596, 0.471], // 7: yukawa — green #509878
+        [0.612, 0.408, 0.251], // 8: external — brown #9C6840
+        [0.510, 0.659, 0.341], // 9: higgs — lime #82A857
+        [0.424, 0.475, 0.675], // 10: axion — indigo #6C79AC
     ];
 
     /**
@@ -587,7 +631,7 @@ export default class GPURenderer {
      * @param {number} arrowScale - scale factor for arrow length
      * @param {number} minMag - minimum force magnitude to draw
      */
-    _drawArrows(pass, aliveCount, forceTypes, arrowScale = 40.0, minMag = 0.001) {
+    _drawArrows(pass, aliveCount, forceTypes, arrowScale = 256.0, minMag = 0.001) {
         if (!this._arrowReady || aliveCount <= 0) return;
 
         pass.setPipeline(this._arrowPipeline);
@@ -773,11 +817,24 @@ export default class GPURenderer {
         this._domainH = domainH;
     }
 
+    /**
+     * Update theme. Swaps active pipeline pointers to additive (dark) or alpha (light).
+     * The camera uniform buffer is NOT re-written here — the isDarkMode field is written
+     * fresh each frame by updateCamera(), so the next frame will have the correct value.
+     */
     setTheme(isLight) {
         this.isLight = isLight;
-        // KNOWN LIMITATION (Phase 1): Blend mode baked at init time — only clear color changes.
-        // Spec requires two pre-built pipelines (additive dark / alpha light) swapped on theme change.
-        // Will be implemented in Phase 2 when the render pipeline is expanded.
+
+        // Swap particle pipeline.
+        if (this._pipelineLight && this._pipelineDark) {
+            this._pipeline = isLight ? this._pipelineLight : this._pipelineDark;
+        }
+
+        // Swap boson pipelines.
+        if (this._photonPipelineLight && this._photonPipelineDark) {
+            this._photonPipeline = isLight ? this._photonPipelineLight : this._photonPipelineDark;
+            this._pionPipeline   = isLight ? this._pionPipelineLight   : this._pionPipelineDark;
+        }
     }
 
     resize(width, height) {
@@ -800,7 +857,7 @@ export default class GPURenderer {
 }
 
 async function fetchShader(filename) {
-    const resp = await fetch(`src/gpu/shaders/${filename}?v=8`);
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=9`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
     return resp.text();
 }

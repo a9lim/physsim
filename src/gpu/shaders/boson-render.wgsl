@@ -75,22 +75,24 @@ fn vertexPhoton(
     let py = ph.posY;
     let age = f32(ph.age);
     let maxAge = 256.0 * 128.0; // PHOTON_LIFETIME * PHYSICS_DT_INV approx
-    let alpha = max(0.0, 1.0 - age / maxAge);
+    let rawAlpha = max(0.0, 1.0 - age / maxAge);
+    // Alpha scale: 0.6 for light, 0.8 for dark (matches CPU renderer bucket alpha)
+    let alpha = rawAlpha * 0.7;
 
-    // Point sprite quad
+    // Point sprite quad — energy-proportional size (matches CPU: min(0.25 + 2*energy, 5))
     let qOff = quadOffset(vertexIdx);
-    let spriteSize = 3.0; // pixels
+    let spriteSize = clamp(0.25 + 2.0 * ph.energy, 1.0, 5.0) * camera.zoom / 16.0;
     let worldPos = vec2f(px, py);
     let clipPos = camera.viewMatrix * vec4f(worldPos, 0.0, 1.0);
 
     out.position = clipPos + vec4f(qOff * spriteSize / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
 
-    // Color: yellow for EM, red for grav
+    // Color: yellow for EM (#CCA84C), red for grav (#C05048)
     let isGrav = (ph.flags & 2u) != 0u;
     if (isGrav) {
-        out.color = vec4f(1.0, 0.2, 0.1, alpha);
+        out.color = vec4f(0.753, 0.314, 0.282, alpha);
     } else {
-        out.color = vec4f(1.0, 0.9, 0.2, alpha);
+        out.color = vec4f(0.800, 0.659, 0.298, alpha);
     }
     out.uv = qOff * 0.5 + 0.5;
     return out;
@@ -117,8 +119,9 @@ fn vertexPion(
     let px = pi.posX;
     let py = pi.posY;
 
+    // Energy-proportional size (matches CPU: min(0.25 + 2*energy, 5))
     let qOff = quadOffset(vertexIdx);
-    let spriteSize = 4.0; // slightly larger than photons
+    let spriteSize = clamp(0.25 + 2.0 * pi.energy, 1.0, 5.0) * camera.zoom / 16.0;
     let worldPos = vec2f(px, py);
     let clipPos = camera.viewMatrix * vec4f(worldPos, 0.0, 1.0);
 

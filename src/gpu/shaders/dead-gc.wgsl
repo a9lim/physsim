@@ -56,7 +56,7 @@ struct SimUniforms {
     higgsCoupling: f32,
     particleCount: u32,
     bhTheta: f32,
-    _pad3: u32,
+    frameCount: u32,
     _pad4: u32,
 };
 
@@ -70,26 +70,34 @@ struct SimUniforms {
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.x;
     // Scan all particle slots (not just alive count — retired particles may be anywhere)
-    let maxSlots = uniforms.aliveCount; // Conservative: retired particles are within original alive range
+    let maxSlots = uniforms.aliveCount; // High-water mark: aliveCount is never decremented, so all ever-allocated slots (alive, retired, or freed) live in [0, aliveCount)
     if (idx >= maxSlots) { return; }
 
     var ps = particleState[idx];
 
-    // Only process RETIRED particles (not alive, not already free)
-    if ((ps.flags & FLAG_RETIRED) == 0u) { return; }
+    // Skip alive particles
     if ((ps.flags & FLAG_ALIVE) != 0u) { return; }
+    // Skip already-freed particles (flags == 0)
+    if (ps.flags == 0u) { return; }
 
-    let dt = particleAux[idx].deathTime;
-    let domainDiag = sqrt(uniforms.domainW * uniforms.domainW + uniforms.domainH * uniforms.domainH);
-    let expiry = 2.0 * domainDiag;
+    let isRetired = (ps.flags & FLAG_RETIRED) != 0u;
 
-    if (uniforms.simTime - dt > expiry) {
-        // Transition to FREE: clear all flags
-        ps.flags = 0u;
-        particleState[idx] = ps;
-
-        // Push slot to free stack
-        let slot = atomicAdd(&freeTop, 1u);
-        freeStack[slot] = idx;
+    if (isRetired) {
+        let deathT = particleAux[idx].deathTime;
+        // Boundary-killed particles have deathTime = Infinity (never set by boundary shader)
+        // → free immediately. Properly retired particles have finite deathTime → wait for expiry.
+        if (deathT < 1e30) {
+            let domainDiag = sqrt(uniforms.domainW * uniforms.domainW + uniforms.domainH * uniforms.domainH);
+            let expiry = 2.0 * domainDiag;
+            if (uniforms.simTime - deathT <= expiry) { return; }
+        }
     }
+
+    // Transition to FREE: clear all flags
+    ps.flags = 0u;
+    particleState[idx] = ps;
+
+    // Push slot to free stack
+    let slot = atomicAdd(&freeTop, 1u);
+    freeStack[slot] = idx;
 }

@@ -101,7 +101,8 @@ fn checkPairProduction(@builtin(global_invocation_id) gid: vec3<u32>) {
         let dx = p.posX - phX;
         let dy = p.posY - phY;
         let dSq = dx * dx + dy * dy;
-        if (dSq < minDistSq) {
+        // CPU checks dSq < PAIR_PROD_RADIUS² * p.mass (larger bodies have larger cross-section)
+        if (dSq < proxSq * p.mass) {
             minDistSq = dSq;
             nearestIdx = i;
         }
@@ -109,7 +110,7 @@ fn checkPairProduction(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (nearestIdx == 0xFFFFFFFFu) { return; }
 
-    // Write pair production event
+    // Write pair production event and kill the photon
     let slot = atomicAdd(&pairCounter, 1u);
     if (slot < MAX_PAIR_EVENTS) {
         var evt: PairEvent;
@@ -121,5 +122,10 @@ fn checkPairProduction(@builtin(global_invocation_id) gid: vec3<u32>) {
         evt.photonVelX = ph.velX;
         evt.photonVelY = ph.velY;
         pairEvents[slot] = evt;
+
+        // Kill the photon (matches CPU behavior)
+        var phDead = photonPool[phIdx];
+        phDead.flags = phDead.flags & ~1u;
+        photonPool[phIdx] = phDead;
     }
 }

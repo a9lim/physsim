@@ -5,7 +5,7 @@
 //
 // Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
-const MAX_PHOTONS: u32 = 512u;
+const MAX_PHOTONS: u32 = 1024u;
 const MAX_PIONS: u32 = 256u;
 const BOSON_SOFTENING_SQ: f32 = 4.0;
 const BH_THETA_SQ: f32 = 0.25; // 0.5^2
@@ -84,6 +84,8 @@ struct SimUniforms {
     higgsCoupling: f32,
     particleCount: u32,
     bhTheta: f32,
+    frameCount: u32,
+    _pad4: u32,
 };
 
 // Boson tree node: same 20-word layout as particle tree but only mass+CoM used

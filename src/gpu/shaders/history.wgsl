@@ -21,10 +21,23 @@ struct ParticleState {
 };
 
 // Must match SimUniforms byte layout in common.wgsl / writeUniforms() exactly.
-// Only simTime is used here; preceding fields kept as padding for alignment.
+// Only a few fields used; preceding fields kept as padding for alignment.
 struct SimUniforms {
-    _dt: f32,               // [0] dt (unused here)
+    _dt: f32,               // [0] dt
     simTime: f32,           // [1] simTime
+    domainW: f32,           // [2] domainW
+    domainH: f32,           // [3] domainH
+    _pad0: f32,             // [4] speedScale
+    _pad1: f32,             // [5] softening
+    _pad2: f32,             // [6] softeningSq
+    _pad3: u32,             // [7] toggles0
+    _pad4: u32,             // [8] toggles1
+    _pad5: f32,             // [9] yukawaCoupling
+    _pad6: f32,             // [10] yukawaMu
+    _pad7: f32,             // [11] higgsMass
+    _pad8: f32,             // [12] axionMass
+    boundaryMode: u32,      // [13] boundaryMode
+    topologyMode: u32,      // [14] topologyMode
 };
 
 @group(0) @binding(0) var<uniform> u: SimUniforms;
@@ -85,16 +98,69 @@ struct DelayedState {
     valid: bool,
 };
 
-// Topology-aware minimum image displacement (torus only for GPU hot path)
+// Topology constants
+const TOPO_TORUS: u32 = 0u;
+const TOPO_KLEIN: u32 = 1u;
+const TOPO_RP2: u32 = 2u;
+
+// Full topology-aware minimum image displacement (Torus/Klein/RP²)
 fn minImageDisp(ox: f32, oy: f32, sx: f32, sy: f32,
-                domW: f32, domH: f32) -> vec2f {
-    var dx = sx - ox;
-    var dy = sy - oy;
+                domW: f32, domH: f32, topo: u32) -> vec2f {
     let halfW = domW * 0.5;
     let halfH = domH * 0.5;
-    if (dx > halfW) { dx -= domW; } else if (dx < -halfW) { dx += domW; }
-    if (dy > halfH) { dy -= domH; } else if (dy < -halfH) { dy += domH; }
-    return vec2f(dx, dy);
+
+    // Candidate 0: direct wrap (torus)
+    var dx0 = sx - ox;
+    if (dx0 > halfW) { dx0 -= domW; } else if (dx0 < -halfW) { dx0 += domW; }
+    var dy0 = sy - oy;
+    if (dy0 > halfH) { dy0 -= domH; } else if (dy0 < -halfH) { dy0 += domH; }
+
+    if (topo == TOPO_TORUS) { return vec2f(dx0, dy0); }
+
+    var bestSq = dx0 * dx0 + dy0 * dy0;
+    var bestDx = dx0;
+    var bestDy = dy0;
+
+    if (topo == TOPO_KLEIN) {
+        // Klein: y-wrap is glide reflection (x,y) ~ (W-x, y+H)
+        let gx = domW - sx;
+        var dx1 = gx - ox;
+        if (dx1 > halfW) { dx1 -= domW; } else if (dx1 < -halfW) { dx1 += domW; }
+        var dy1 = (sy + domH) - oy;
+        if (dy1 > domH) { dy1 -= 2.0 * domH; } else if (dy1 < -domH) { dy1 += 2.0 * domH; }
+        let dSq1 = dx1 * dx1 + dy1 * dy1;
+        if (dSq1 < bestSq) { bestDx = dx1; bestDy = dy1; bestSq = dSq1; }
+        var dy1b = (sy - domH) - oy;
+        if (dy1b > domH) { dy1b -= 2.0 * domH; } else if (dy1b < -domH) { dy1b += 2.0 * domH; }
+        let dSq1b = dx1 * dx1 + dy1b * dy1b;
+        if (dSq1b < bestSq) { bestDx = dx1; bestDy = dy1b; }
+    } else {
+        // RP²: both axes carry glide reflections
+        let gx = domW - sx;
+        var dxG = gx - ox;
+        if (dxG > halfW) { dxG -= domW; } else if (dxG < -halfW) { dxG += domW; }
+        var dyG = (sy + domH) - oy;
+        if (dyG > domH) { dyG -= 2.0 * domH; } else if (dyG < -domH) { dyG += 2.0 * domH; }
+        let dSqG = dxG * dxG + dyG * dyG;
+        if (dSqG < bestSq) { bestDx = dxG; bestDy = dyG; bestSq = dSqG; }
+
+        let gy = domH - sy;
+        var dxH = (sx + domW) - ox;
+        if (dxH > domW) { dxH -= 2.0 * domW; } else if (dxH < -domW) { dxH += 2.0 * domW; }
+        var dyH = gy - oy;
+        if (dyH > halfH) { dyH -= domH; } else if (dyH < -halfH) { dyH += domH; }
+        let dSqH = dxH * dxH + dyH * dyH;
+        if (dSqH < bestSq) { bestDx = dxH; bestDy = dyH; bestSq = dSqH; }
+
+        var dxC = (domW - sx + domW) - ox;
+        if (dxC > domW) { dxC -= 2.0 * domW; } else if (dxC < -domW) { dxC += 2.0 * domW; }
+        var dyC = (domH - sy + domH) - oy;
+        if (dyC > domH) { dyC -= 2.0 * domH; } else if (dyC < -domH) { dyC += 2.0 * domH; }
+        let dSqC = dxC * dxC + dyC * dyC;
+        if (dSqC < bestSq) { bestDx = dxC; bestDy = dyC; }
+    }
+
+    return vec2f(bestDx, bestDy);
 }
 
 fn getDelayedStateGPU(
@@ -103,6 +169,7 @@ fn getDelayedStateGPU(
     simTime: f32,
     periodic: bool,
     domW: f32, domH: f32,
+    topoMode: u32,
     isDead: bool,
 ) -> DelayedState {
     var result: DelayedState;
@@ -127,7 +194,7 @@ fn getDelayedStateGPU(
     let nyPos = histPosY[base + newest];
     var cdx: f32; var cdy: f32;
     if (periodic) {
-        let d = minImageDisp(obsX, obsY, nxPos, nyPos, domW, domH);
+        let d = minImageDisp(obsX, obsY, nxPos, nyPos, domW, domH, topoMode);
         cdx = d.x; cdy = d.y;
     } else {
         cdx = nxPos - obsX; cdy = nyPos - obsY;
@@ -179,7 +246,7 @@ fn getDelayedStateGPU(
             let xLo = histPosX[loIdx]; let yLo = histPosY[loIdx];
             var vxEff: f32; var vyEff: f32;
             if (periodic) {
-                let d = minImageDisp(xLo, yLo, histPosX[hiIdx], histPosY[hiIdx], domW, domH);
+                let d = minImageDisp(xLo, yLo, histPosX[hiIdx], histPosY[hiIdx], domW, domH, topoMode);
                 vxEff = d.x / segDt; vyEff = d.y / segDt;
             } else {
                 vxEff = (histPosX[hiIdx] - xLo) / segDt;
@@ -192,7 +259,7 @@ fn getDelayedStateGPU(
 
             var dx: f32; var dy: f32;
             if (periodic) {
-                let d = minImageDisp(obsX, obsY, sx_interp, sy_interp, domW, domH);
+                let d = minImageDisp(obsX, obsY, sx_interp, sy_interp, domW, domH, topoMode);
                 dx = d.x; dy = d.y;
             } else {
                 dx = sx_interp - obsX; dy = sy_interp - obsY;
@@ -243,9 +310,9 @@ fn getDelayedStateGPU(
                 var dx: f32; var dy: f32;
                 var vx: f32; var vy: f32;
                 if (periodic) {
-                    let d0 = minImageDisp(obsX, obsY, xLo, yLo, domW, domH);
+                    let d0 = minImageDisp(obsX, obsY, xLo, yLo, domW, domH, topoMode);
                     dx = d0.x; dy = d0.y;
-                    let d1 = minImageDisp(xLo, yLo, xHi, yHi, domW, domH);
+                    let d1 = minImageDisp(xLo, yLo, xHi, yHi, domW, domH, topoMode);
                     vx = d1.x / segDt; vy = d1.y / segDt;
                 } else {
                     dx = xLo - obsX; dy = yLo - obsY;
@@ -303,7 +370,7 @@ fn getDelayedStateGPU(
         let yStart = histPosY[base + start];
         var dx: f32; var dy: f32;
         if (periodic) {
-            let d = minImageDisp(obsX, obsY, xStart, yStart, domW, domH);
+            let d = minImageDisp(obsX, obsY, xStart, yStart, domW, domH, topoMode);
             dx = d.x; dy = d.y;
         } else {
             dx = xStart - obsX; dy = yStart - obsY;

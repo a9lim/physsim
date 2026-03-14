@@ -60,12 +60,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let p = particles[idx];
     if ((p.flags & ALIVE_BIT) == 0u) { return; }
 
-    // BH mode: all particles are white
-    if (params.blackHoleEnabled != 0u) {
-        color[idx] = packRGBA(1.0, 1.0, 1.0, 1.0);
-        return;
-    }
-
     let q = p.charge;
     let absQ = abs(q);
     let intensity = clamp(absQ / 5.0, 0.0, 1.0);

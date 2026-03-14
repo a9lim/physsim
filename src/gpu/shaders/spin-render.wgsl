@@ -33,23 +33,33 @@ struct ParticleAux {
     deathAngVel: f32,
 };
 
+// Cached derived quantities (matches common.wgsl ParticleDerived)
+struct ParticleDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var<storage, read> particles: array<ParticleState>;
 @group(0) @binding(2) var<storage, read> particleAux: array<ParticleAux>;
-@group(0) @binding(3) var<storage, read> color: array<u32>;
+@group(0) @binding(3) var<storage, read> derived: array<ParticleDerived>;
 
 const ALIVE_BIT: u32 = 1u;
 const ARC_SEGMENTS: u32 = 32u;
 const PI: f32 = 3.14159265359;
 const TWO_PI: f32 = 6.28318530718;
+const HALF_PI: f32 = 1.5707963268;
 const MIN_ANGVEL: f32 = 0.01;  // Skip drawing for very slow rotation
 
-fn unpackRGBA(packed: u32) -> vec4f {
-    let r = f32(packed & 0xFFu) / 255.0;
-    let g = f32((packed >> 8u) & 0xFFu) / 255.0;
-    let b = f32((packed >> 16u) & 0xFFu) / 255.0;
-    return vec4f(r, g, b, 1.0);
-}
+// Cyan (#4AACA0) for positive angVel (CW), orange (#CC8E4E) for negative (CCW)
+const COLOR_CW: vec4f  = vec4f(0.29, 0.67, 0.63, 0.7);
+const COLOR_CCW: vec4f = vec4f(0.80, 0.56, 0.31, 0.7);
 
 struct VertexOutput {
     @builtin(position) pos: vec4f,
@@ -70,8 +80,8 @@ fn vs_main(
         return out;
     }
 
-    let aw = p.angW;
-    if (abs(aw) < MIN_ANGVEL) {
+    let angVel = derived[instIdx].angVel;
+    if (abs(angVel) < MIN_ANGVEL) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
         out.color = vec4f(0.0);
         return out;
@@ -81,25 +91,26 @@ fn vs_main(
     let cx = p.posX;
     let cy = p.posY;
 
-    // Arc length proportional to |angVel|, clamped to full circle
-    let arcFrac = clamp(abs(aw) * 2.0, 0.1, 1.0);
+    // Arc length: min(|angVel| * r, 1.0) * TWO_PI — matches CPU renderer
+    let arcFrac = clamp(abs(angVel) * r, 0.0, 1.0);
     let totalAngle = arcFrac * TWO_PI;
 
-    // Direction: positive angVel (CW in y-down) starts from right
-    let startAngle = select(0.0, PI, aw < 0.0);
+    // Always start from top (-PI/2). Positive angVel = CW (y-down), sweep clockwise (negative direction).
+    let startAngle = -HALF_PI;
+    let dir = -sign(angVel);   // negate: CW on y-down canvas means decreasing angle
     let t = f32(vertIdx) / f32(ARC_SEGMENTS - 1u);
-    let angle = startAngle + t * totalAngle * sign(aw);
+    let angle = startAngle + dir * t * totalAngle;
 
     // Arc sits just outside the particle radius
-    let arcR = r * 1.3;
+    let arcR = r + 0.5;
     let wx = cx + cos(angle) * arcR;
     let wy = cy + sin(angle) * arcR;
 
     let worldPos = vec4f(wx, wy, 0.0, 1.0);
     out.pos = camera.viewMatrix * worldPos;
 
-    // Use particle color with slight transparency
-    out.color = unpackRGBA(color[instIdx]) * vec4f(1.0, 1.0, 1.0, 0.6);
+    // Cyan for positive angVel (CW), orange for negative (CCW)
+    out.color = select(COLOR_CCW, COLOR_CW, angVel > 0.0);
     return out;
 }
 
