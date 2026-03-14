@@ -1443,8 +1443,9 @@ export default class GPUPhysics {
         const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
         if (!fb || !this._fieldSelfGrav) return;
 
+        // Group 0: core field arrays + uniform (6 storage + 1 uniform)
         this._fieldSelfGravBGs[which] = this.device.createBindGroup({
-            label: `fieldSelfGrav_${which}`,
+            label: `fieldSelfGrav_${which}_g0`,
             layout: this._fieldSelfGrav.bindGroupLayouts[0],
             entries: [
                 { binding: 0, resource: { buffer: fb.field } },
@@ -1453,12 +1454,19 @@ export default class GPUPhysics {
                 { binding: 3, resource: { buffer: fb.gradY } },
                 { binding: 4, resource: { buffer: fb.energyDensity } },
                 { binding: 5, resource: { buffer: fb.coarseRho } },
-                { binding: 6, resource: { buffer: fb.coarsePhi } },
-                { binding: 7, resource: { buffer: fb.sgPhiFull } },
-                { binding: 8, resource: { buffer: fb.sgGradX } },
-                { binding: 9, resource: { buffer: fb.sgGradY } },
-                { binding: 10, resource: { buffer: fb.sgInvR } },
-                { binding: 11, resource: { buffer: this._fieldUniformBuffer } },
+                { binding: 6, resource: { buffer: this._fieldUniformBuffer } },
+            ],
+        });
+        // Group 1: self-gravity arrays (5 storage)
+        this._fieldSelfGravBGs[which + '_g1'] = this.device.createBindGroup({
+            label: `fieldSelfGrav_${which}_g1`,
+            layout: this._fieldSelfGrav.bindGroupLayouts[1],
+            entries: [
+                { binding: 0, resource: { buffer: fb.coarsePhi } },
+                { binding: 1, resource: { buffer: fb.sgPhiFull } },
+                { binding: 2, resource: { buffer: fb.sgGradX } },
+                { binding: 3, resource: { buffer: fb.sgGradY } },
+                { binding: 4, resource: { buffer: fb.sgInvR } },
             ],
         });
     }
@@ -1610,7 +1618,8 @@ export default class GPUPhysics {
             if (!this._sgInvRUploaded[which]) {
                 this._buildSgInvRTable(which);
             }
-            const sgBG = this._fieldSelfGravBGs[which];
+            const sgBG0 = this._fieldSelfGravBGs[which];
+            const sgBG1 = this._fieldSelfGravBGs[which + '_g1'];
             const sg = this._fieldSelfGrav;
             const coarseWG = 1; // 8x8 = one workgroup for 8x8 coarse grid
 
@@ -1621,7 +1630,8 @@ export default class GPUPhysics {
             {
                 const p = encoder.beginComputePass({ label: `energyDensity_${which}` });
                 p.setPipeline(edPipeline);
-                p.setBindGroup(0, sgBG);
+                p.setBindGroup(0, sgBG0);
+                p.setBindGroup(1, sgBG1);
                 p.dispatchWorkgroups(gridWG, gridWG);
                 p.end();
             }
@@ -1629,7 +1639,8 @@ export default class GPUPhysics {
             {
                 const p = encoder.beginComputePass({ label: `downsampleRho_${which}` });
                 p.setPipeline(sg.downsampleRho);
-                p.setBindGroup(0, sgBG);
+                p.setBindGroup(0, sgBG0);
+                p.setBindGroup(1, sgBG1);
                 p.dispatchWorkgroups(coarseWG, coarseWG);
                 p.end();
             }
@@ -1637,7 +1648,8 @@ export default class GPUPhysics {
             {
                 const p = encoder.beginComputePass({ label: `coarsePotential_${which}` });
                 p.setPipeline(sg.computeCoarsePotential);
-                p.setBindGroup(0, sgBG);
+                p.setBindGroup(0, sgBG0);
+                p.setBindGroup(1, sgBG1);
                 p.dispatchWorkgroups(coarseWG, coarseWG);
                 p.end();
             }
@@ -1645,7 +1657,8 @@ export default class GPUPhysics {
             {
                 const p = encoder.beginComputePass({ label: `upsamplePhi_${which}` });
                 p.setPipeline(sg.upsamplePhi);
-                p.setBindGroup(0, sgBG);
+                p.setBindGroup(0, sgBG0);
+                p.setBindGroup(1, sgBG1);
                 p.dispatchWorkgroups(gridWG, gridWG);
                 p.end();
             }
@@ -1653,7 +1666,8 @@ export default class GPUPhysics {
             {
                 const p = encoder.beginComputePass({ label: `sgGradients_${which}` });
                 p.setPipeline(sg.computeSelfGravGradients);
-                p.setBindGroup(0, sgBG);
+                p.setBindGroup(0, sgBG0);
+                p.setBindGroup(1, sgBG1);
                 p.dispatchWorkgroups(gridWG, gridWG);
                 p.end();
             }
