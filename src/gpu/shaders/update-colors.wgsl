@@ -83,12 +83,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         b = mix(SLATE_B, NEG_B, intensity);
     }
 
-    // Antimatter: invert
-    if ((p.flags & ANTIMATTER_BIT) != 0u) {
-        r = 1.0 - r;
-        g = 1.0 - g;
-        b = 1.0 - b;
-    }
+    // Antimatter: no color inversion — charge is already negated at spawn time,
+    // which naturally produces the opposite color. CPU uses same getColor() for both.
+    // The visual distinction is the dashed ring overlay (rendered separately).
 
     color[idx] = packRGBA(r, g, b, 1.0);
 }
