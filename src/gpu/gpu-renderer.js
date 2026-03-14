@@ -800,7 +800,7 @@ export default class GPURenderer {
 }
 
 async function fetchShader(filename) {
-    const resp = await fetch(`src/gpu/shaders/${filename}?v=7`);
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=8`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
     return resp.text();
 }

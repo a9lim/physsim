@@ -47,7 +47,7 @@ struct FieldUniforms {
     blackHoleEnabled: u32,
     particleCount: u32,
     softeningSq: f32,
-    _pad0: f32,
+    currentFieldType: u32,  // 0=higgs, 1=axion (set before each field's dispatch)
 };
 
 // ─── PQS (Cubic B-Spline, Order 3) Weight Computation ───
