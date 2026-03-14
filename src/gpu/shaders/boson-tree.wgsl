@@ -2,6 +2,8 @@
 // Build BH tree from alive photons + pions for boson gravity.
 // Lightweight: only totalMass + CoM (no charge/dipole aggregates).
 // Traversal shaders: particle<-boson gravity and boson<->boson mutual gravity.
+//
+// Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
 const MAX_PHOTONS: u32 = 512u;
 const MAX_PIONS: u32 = 256u;
@@ -9,6 +11,45 @@ const BOSON_SOFTENING_SQ: f32 = 4.0;
 const BH_THETA_SQ: f32 = 0.25; // 0.5^2
 const EPSILON: f32 = 1e-9;
 const MAX_DEPTH: u32 = 48u;
+
+// ── Packed struct definitions ──
+
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+struct AllForces {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
+struct Photon {
+    posX: f32, posY: f32,
+    velX: f32, velY: f32,
+    energy: f32,
+    emitterId: u32, age: u32, flags: u32,
+};
+
+struct Pion {
+    posX: f32, posY: f32,
+    wX: f32, wY: f32,
+    mass: f32, charge: i32, energy: f32,
+    emitterId: u32, age: u32, flags: u32,
+    _pad0: u32, _pad1: u32,
+};
 
 struct SimUniforms {
     dt: f32,
@@ -46,11 +87,6 @@ struct SimUniforms {
 };
 
 // Boson tree node: same 20-word layout as particle tree but only mass+CoM used
-// Words: [minX, minY, maxX, maxY, comX, comY, totalMass, totalCharge(unused),
-//          totalMagMoment(unused), totalAngMomentum(unused), totalMomX(unused), totalMomY(unused),
-//          particleCount, divided, nw, ne, sw, se, particleIdx, depth]
-// All stored as u32 (bitcast for f32 values).
-
 const NODE_WORDS: u32 = 20u;
 
 // Node field offsets
@@ -79,45 +115,17 @@ const FLAG_ALIVE: u32 = 1u;
 @group(1) @binding(0) var<storage, read_write> bosonTree: array<u32>;
 @group(1) @binding(1) var<storage, read_write> bosonNodeCounter: atomic<u32>;
 
-// Photon pool (read-only)
-@group(2) @binding(0) var<storage, read> phPosX: array<f32>;
-@group(2) @binding(1) var<storage, read> phPosY: array<f32>;
-@group(2) @binding(2) var<storage, read_write> phVelX: array<f32>;
-@group(2) @binding(3) var<storage, read_write> phVelY: array<f32>;
-@group(2) @binding(4) var<storage, read> phEnergy: array<f32>;
-@group(2) @binding(5) var<storage, read> phFlags: array<u32>;
-@group(2) @binding(6) var<storage, read_write> phCount: atomic<u32>;
+// Photon pool (packed)
+@group(2) @binding(0) var<storage, read_write> photons: array<Photon>;
+@group(2) @binding(1) var<storage, read_write> phCount: atomic<u32>;
 
-// Pion pool (read for build, read_write for boson-boson gravity impulse)
-@group(3) @binding(0) var<storage, read> piPosX: array<f32>;
-@group(3) @binding(1) var<storage, read> piPosY: array<f32>;
-@group(3) @binding(2) var<storage, read_write> piWX: array<f32>;
-@group(3) @binding(3) var<storage, read_write> piWY: array<f32>;
-@group(3) @binding(4) var<storage, read> piMass: array<f32>;
-@group(3) @binding(5) var<storage, read> piFlags: array<u32>;
-@group(3) @binding(6) var<storage, read_write> piCount: atomic<u32>;
+// Pion pool (packed)
+@group(3) @binding(0) var<storage, read_write> pions: array<Pion>;
+@group(3) @binding(1) var<storage, read_write> piCount: atomic<u32>;
 
-// Packed force struct (mirrors common.wgsl AllForces)
-struct AllForces_BT {
-    f0: vec4<f32>,
-    f1: vec4<f32>,
-    f2: vec4<f32>,
-    f3: vec4<f32>,
-    f4: vec4<f32>,
-    f5: vec4<f32>,
-    torques: vec4<f32>,
-    bFields: vec4<f32>,
-    bFieldGrads: vec4<f32>,
-    totalForce: vec2<f32>,
-    _pad: vec2<f32>,
-};
-
-// Particle SoA (for computeBosonGravity: particle positions + force accum)
-@group(4) @binding(0) var<storage, read> posX: array<f32>;
-@group(4) @binding(1) var<storage, read> posY: array<f32>;
-@group(4) @binding(2) var<storage, read> mass: array<f32>;
-@group(4) @binding(3) var<storage, read> flags: array<u32>;
-@group(4) @binding(4) var<storage, read_write> allForces: array<AllForces_BT>;
+// Particle state + force accumulators
+@group(4) @binding(0) var<storage, read> particles: array<ParticleState>;
+@group(4) @binding(1) var<storage, read_write> allForces: array<AllForces>;
 
 // Helper: read f32 from tree node
 fn nodeF32(nodeIdx: u32, field: u32) -> f32 {
@@ -176,17 +184,17 @@ fn insertBosonsIntoTree(@builtin(global_invocation_id) gid: vec3u) {
     var bx: f32; var by: f32; var bMass: f32;
     if (i < phN) {
         // Photon: source mass = energy
-        if ((phFlags[i] & 1u) == 0u) { return; }
-        bx = phPosX[i]; by = phPosY[i];
-        bMass = phEnergy[i];
+        if ((photons[i].flags & 1u) == 0u) { return; }
+        bx = photons[i].posX; by = photons[i].posY;
+        bMass = photons[i].energy;
     } else {
         let pi = i - phN;
-        if ((piFlags[pi] & 1u) == 0u) { return; }
-        bx = piPosX[pi]; by = piPosY[pi];
+        if ((pions[pi].flags & 1u) == 0u) { return; }
+        bx = pions[pi].posX; by = pions[pi].posY;
         // Pion source mass = gravMass = m * gamma
-        let wx = piWX[pi]; let wy = piWY[pi];
+        let wx = pions[pi].wX; let wy = pions[pi].wY;
         let gamma = sqrt(1.0 + wx * wx + wy * wy);
-        bMass = piMass[pi] * gamma;
+        bMass = pions[pi].mass * gamma;
     }
 
     // Standard iterative tree insert (walk from root, subdivide on collision)
@@ -314,10 +322,10 @@ fn computeBosonAggregates(@builtin(global_invocation_id) gid: vec3u) {
 fn computeBosonGravity(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
-    if ((flags[i] & FLAG_ALIVE) == 0u) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
 
-    let px = posX[i]; let py = posY[i];
-    let pMass = mass[i];
+    let px = particles[i].posX; let py = particles[i].posY;
+    let pMass = particles[i].mass;
 
     var fx: f32 = 0.0; var fy: f32 = 0.0;
 
@@ -385,14 +393,14 @@ fn applyBosonBosonGravity(@builtin(global_invocation_id) gid: vec3u) {
     var bx: f32; var by: f32; var grFactor: f32;
 
     if (i < phN) {
-        if ((phFlags[i] & 1u) == 0u) { return; }
-        bx = phPosX[i]; by = phPosY[i];
+        if ((photons[i].flags & 1u) == 0u) { return; }
+        bx = photons[i].posX; by = photons[i].posY;
         grFactor = 2.0; // photon: null geodesic
     } else {
         let pi = i - phN;
-        if ((piFlags[pi] & 1u) == 0u) { return; }
-        bx = piPosX[pi]; by = piPosY[pi];
-        let wx = piWX[pi]; let wy = piWY[pi];
+        if ((pions[pi].flags & 1u) == 0u) { return; }
+        bx = pions[pi].posX; by = pions[pi].posY;
+        let wx = pions[pi].wX; let wy = pions[pi].wY;
         let wSq = wx * wx + wy * wy;
         let vSq = wSq / (1.0 + wSq);
         grFactor = 1.0 + vSq; // massive: 1+v^2
@@ -442,17 +450,17 @@ fn applyBosonBosonGravity(@builtin(global_invocation_id) gid: vec3u) {
 
     // Apply impulse
     if (i < phN) {
-        phVelX[i] += kx;
-        phVelY[i] += ky;
+        photons[i].velX += kx;
+        photons[i].velY += ky;
         // Renormalize photon to c=1
-        let vSq = phVelX[i] * phVelX[i] + phVelY[i] * phVelY[i];
+        let vSq = photons[i].velX * photons[i].velX + photons[i].velY * photons[i].velY;
         if (abs(vSq - 1.0) > 1e-6) {
             let v = sqrt(vSq);
-            if (v > EPSILON) { phVelX[i] /= v; phVelY[i] /= v; }
+            if (v > EPSILON) { photons[i].velX /= v; photons[i].velY /= v; }
         }
     } else {
         let pi = i - phN;
-        piWX[pi] += kx;
-        piWY[pi] += ky;
+        pions[pi].wX += kx;
+        pions[pi].wY += ky;
     }
 }

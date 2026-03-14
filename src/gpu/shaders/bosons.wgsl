@@ -1,5 +1,7 @@
 // ─── Boson Update Shaders ───
 // Photon/pion drift, gravitational lensing, absorption, pion decay.
+//
+// Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
 const MAX_PHOTONS: u32 = 512u;
 const MAX_PIONS: u32 = 256u;
@@ -18,6 +20,49 @@ const MAX_PARTICLES: u32 = 4096u;
 // Particle flag bits
 const ALIVE_BIT: u32 = 1u;
 const ANTIMATTER_BIT: u32 = 4u;
+
+// PCG hash RNG (high quality, replaces sin-based LCG)
+fn pcgHash(seed: u32) -> u32 {
+    var state = seed * 747796405u + 2891336453u;
+    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+fn pcgRand(seed: u32) -> f32 {
+    return f32(pcgHash(seed)) / 4294967296.0;
+}
+
+// ── Packed struct definitions ──
+
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+struct ParticleAux {
+    radius: f32,
+    particleId: u32,
+    deathTime: f32,
+    deathMass: f32,
+    deathAngVel: f32,
+};
+
+struct Photon {
+    posX: f32, posY: f32,
+    velX: f32, velY: f32,
+    energy: f32,
+    emitterId: u32, age: u32, flags: u32,
+};
+
+struct Pion {
+    posX: f32, posY: f32,
+    wX: f32, wY: f32,
+    mass: f32, charge: i32, energy: f32,
+    emitterId: u32, age: u32, flags: u32,
+    _pad0: u32, _pad1: u32,
+};
 
 struct SimUniforms {
     dt: f32,
@@ -57,84 +102,65 @@ struct SimUniforms {
 @group(0) @binding(0) var<uniform> u: SimUniforms;
 @group(0) @binding(1) var<storage, read_write> aliveCountAtomic: atomic<u32>;
 
-// Particle SoA (read_write: absorption writes velW, decay spawns electrons)
-@group(1) @binding(0) var<storage, read_write> posX: array<f32>;
-@group(1) @binding(1) var<storage, read_write> posY: array<f32>;
-@group(1) @binding(2) var<storage, read_write> mass: array<f32>;
-@group(1) @binding(3) var<storage, read> radius: array<f32>;
-@group(1) @binding(4) var<storage, read_write> flags: array<u32>;
-@group(1) @binding(5) var<storage, read> particleId: array<u32>;
-@group(1) @binding(6) var<storage, read_write> velWX: array<f32>;
-@group(1) @binding(7) var<storage, read_write> velWY: array<f32>;
-@group(1) @binding(8) var<storage, read_write> charge_buf: array<f32>;
-@group(1) @binding(9) var<storage, read_write> baseMass: array<f32>;
-@group(1) @binding(10) var<storage, read_write> angW_buf: array<f32>;
+// Packed particle state (rw: absorption writes velW, decay spawns electrons)
+@group(1) @binding(0) var<storage, read_write> particles: array<ParticleState>;
+@group(1) @binding(1) var<storage, read> particleAux: array<ParticleAux>;
 
-// Photon pool (SoA)
-@group(2) @binding(0) var<storage, read_write> phPosX: array<f32>;
-@group(2) @binding(1) var<storage, read_write> phPosY: array<f32>;
-@group(2) @binding(2) var<storage, read_write> phVelX: array<f32>;
-@group(2) @binding(3) var<storage, read_write> phVelY: array<f32>;
-@group(2) @binding(4) var<storage, read_write> phEnergy: array<f32>;
-@group(2) @binding(5) var<storage, read_write> phEmitterId: array<u32>;
-@group(2) @binding(6) var<storage, read_write> phAge: array<u32>;
-@group(2) @binding(7) var<storage, read_write> phFlags: array<u32>;
-@group(2) @binding(8) var<storage, read_write> phCount: atomic<u32>;
+// Photon pool (packed)
+@group(2) @binding(0) var<storage, read_write> photons: array<Photon>;
+@group(2) @binding(1) var<storage, read_write> phCount: atomic<u32>;
 
-// Pion pool (SoA)
-@group(3) @binding(0) var<storage, read_write> piPosX: array<f32>;
-@group(3) @binding(1) var<storage, read_write> piPosY: array<f32>;
-@group(3) @binding(2) var<storage, read_write> piWX: array<f32>;
-@group(3) @binding(3) var<storage, read_write> piWY: array<f32>;
-@group(3) @binding(4) var<storage, read_write> piMass: array<f32>;
-@group(3) @binding(5) var<storage, read_write> piCharge: array<i32>;
-@group(3) @binding(6) var<storage, read_write> piEnergy: array<f32>;
-@group(3) @binding(7) var<storage, read_write> piEmitterId: array<u32>;
-@group(3) @binding(8) var<storage, read_write> piAge: array<u32>;
-@group(3) @binding(9) var<storage, read_write> piFlags: array<u32>;
-@group(3) @binding(10) var<storage, read_write> piCount: atomic<u32>;
+// Pion pool (packed)
+@group(3) @binding(0) var<storage, read_write> pions: array<Pion>;
+@group(3) @binding(1) var<storage, read_write> piCount: atomic<u32>;
 
 // Photon drift: move at c=1, apply gravitational lensing via pairwise fallback
 @compute @workgroup_size(64)
 fn updatePhotons(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= atomicLoad(&phCount)) { return; }
-    if ((phFlags[i] & 1u) == 0u) { return; } // not alive
+    if ((photons[i].flags & 1u) == 0u) { return; } // not alive
 
     let dt = u.dt;
     let aliveN = u.aliveCount;
 
+    // Load photon state into locals for accumulation
+    var phVX = photons[i].velX;
+    var phVY = photons[i].velY;
+
     // Gravitational deflection: GR gives 2x Newtonian for null geodesic
-    // Pairwise fallback (tree walk added when boson gravity is wired)
     for (var j = 0u; j < aliveN; j++) {
-        if ((flags[j] & ALIVE_BIT) == 0u) { continue; }
-        let dx = posX[j] - phPosX[i];
-        let dy = posY[j] - phPosY[i];
+        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        let dx = particles[j].posX - photons[i].posX;
+        let dy = particles[j].posY - photons[i].posY;
         let rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
         let invR3 = 1.0 / (rSq * sqrt(rSq));
-        phVelX[i] += 2.0 * mass[j] * dx * invR3 * dt;
-        phVelY[i] += 2.0 * mass[j] * dy * invR3 * dt;
+        phVX += 2.0 * particles[j].mass * dx * invR3 * dt;
+        phVY += 2.0 * particles[j].mass * dy * invR3 * dt;
     }
 
     // Renormalize to c=1
-    let vSq = phVelX[i] * phVelX[i] + phVelY[i] * phVelY[i];
+    let vSq = phVX * phVX + phVY * phVY;
     if (abs(vSq - 1.0) > 1e-6) {
         let v = sqrt(vSq);
         if (v > EPSILON) {
-            phVelX[i] /= v;
-            phVelY[i] /= v;
+            phVX /= v;
+            phVY /= v;
         }
     }
 
-    // Drift
-    phPosX[i] += phVelX[i] * dt;
-    phPosY[i] += phVelY[i] * dt;
+    // Write back velocity + drift
+    var ph = photons[i];
+    ph.velX = phVX; ph.velY = phVY;
+    ph.posX += phVX * dt;
+    ph.posY += phVY * dt;
 
     // Age + lifetime despawn
-    phAge[i] += 1u;
-    if (f32(phAge[i]) * u.dt > PHOTON_LIFETIME) {
-        phFlags[i] &= ~1u; // mark dead
+    ph.age += 1u;
+    if (f32(ph.age) * u.dt > PHOTON_LIFETIME) {
+        ph.flags &= ~1u; // mark dead
     }
+    photons[i] = ph;
 }
 
 // Pion drift: massive particle with proper velocity w, v = w/sqrt(1+w^2)
@@ -142,37 +168,39 @@ fn updatePhotons(@builtin(global_invocation_id) gid: vec3u) {
 fn updatePions(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= atomicLoad(&piCount)) { return; }
-    if ((piFlags[i] & 1u) == 0u) { return; } // not alive
+    if ((pions[i].flags & 1u) == 0u) { return; } // not alive
 
     let dt = u.dt;
     let aliveN = u.aliveCount;
-    let wx = piWX[i]; let wy = piWY[i];
-    let wSq = wx * wx + wy * wy;
+    var piWX = pions[i].wX; var piWY = pions[i].wY;
+    let wSq = piWX * piWX + piWY * piWY;
     let gamma = sqrt(1.0 + wSq);
     let vSq = wSq / (gamma * gamma);
 
     // Gravitational deflection: (1+v^2) factor for massive particle
     let grFactor = 1.0 + vSq;
     for (var j = 0u; j < aliveN; j++) {
-        if ((flags[j] & ALIVE_BIT) == 0u) { continue; }
-        let dx = posX[j] - piPosX[i];
-        let dy = posY[j] - piPosY[i];
+        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        let dx = particles[j].posX - pions[i].posX;
+        let dy = particles[j].posY - pions[i].posY;
         let rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
         let invR3 = 1.0 / (rSq * sqrt(rSq));
-        piWX[i] += grFactor * mass[j] * dx * invR3 * dt;
-        piWY[i] += grFactor * mass[j] * dy * invR3 * dt;
+        piWX += grFactor * particles[j].mass * dx * invR3 * dt;
+        piWY += grFactor * particles[j].mass * dy * invR3 * dt;
     }
 
     // Sync vel from w
-    let wx2 = piWX[i]; let wy2 = piWY[i];
-    let gamma2 = sqrt(1.0 + wx2 * wx2 + wy2 * wy2);
-    let velX = wx2 / gamma2;
-    let velY = wy2 / gamma2;
+    let gamma2 = sqrt(1.0 + piWX * piWX + piWY * piWY);
+    let velX = piWX / gamma2;
+    let velY = piWY / gamma2;
 
-    // Drift
-    piPosX[i] += velX * dt;
-    piPosY[i] += velY * dt;
-    piAge[i] += 1u;
+    // Write back
+    var pi = pions[i];
+    pi.wX = piWX; pi.wY = piWY;
+    pi.posX += velX * dt;
+    pi.posY += velY * dt;
+    pi.age += 1u;
+    pions[i] = pi;
 }
 
 // Photon absorption: transfer momentum to nearby particles
@@ -181,28 +209,28 @@ fn absorbPhotons(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     let count = atomicLoad(&phCount);
     if (i >= count) { return; }
-    if ((phFlags[i] & 1u) == 0u) { return; }
-    if (phAge[i] < BOSON_MIN_AGE) { return; }
+    if ((photons[i].flags & 1u) == 0u) { return; }
+    if (photons[i].age < BOSON_MIN_AGE) { return; }
 
-    let phX = phPosX[i]; let phY = phPosY[i];
+    let phX = photons[i].posX; let phY = photons[i].posY;
     let aliveN = u.aliveCount;
 
     // Check all alive particles for overlap
     for (var j = 0u; j < aliveN; j++) {
-        if ((flags[j] & ALIVE_BIT) == 0u) { continue; }
-        if (particleId[j] == phEmitterId[i]) { continue; } // self-absorption blocked
+        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        if (particleAux[j].particleId == photons[i].emitterId) { continue; } // self-absorption blocked
 
-        let dx = phX - posX[j];
-        let dy = phY - posY[j];
+        let dx = phX - particles[j].posX;
+        let dy = phY - particles[j].posY;
         let distSq = dx * dx + dy * dy;
-        let rSq = radius[j] * radius[j];
+        let rSq = particleAux[j].radius * particleAux[j].radius;
         if (distSq < rSq) {
             // Absorb: transfer momentum to proper velocity
-            let impulse = phEnergy[i];
-            let invTM = select(0.0, 1.0 / mass[j], mass[j] > EPSILON);
-            velWX[j] += impulse * phVelX[i] * invTM;
-            velWY[j] += impulse * phVelY[i] * invTM;
-            phFlags[i] &= ~1u; // mark dead
+            let impulse = photons[i].energy;
+            let invTM = select(0.0, 1.0 / particles[j].mass, particles[j].mass > EPSILON);
+            particles[j].velWX += impulse * photons[i].velX * invTM;
+            particles[j].velWY += impulse * photons[i].velY * invTM;
+            photons[i].flags &= ~1u; // mark dead
             break;
         }
     }
@@ -214,30 +242,30 @@ fn absorbPions(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     let count = atomicLoad(&piCount);
     if (i >= count) { return; }
-    if ((piFlags[i] & 1u) == 0u) { return; }
-    if (piAge[i] < BOSON_MIN_AGE) { return; }
+    if ((pions[i].flags & 1u) == 0u) { return; }
+    if (pions[i].age < BOSON_MIN_AGE) { return; }
 
-    let piX = piPosX[i]; let piY = piPosY[i];
+    let piX = pions[i].posX; let piY = pions[i].posY;
     let aliveN = u.aliveCount;
 
     for (var j = 0u; j < aliveN; j++) {
-        if ((flags[j] & ALIVE_BIT) == 0u) { continue; }
-        if (particleId[j] == piEmitterId[i]) { continue; }
+        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        if (particleAux[j].particleId == pions[i].emitterId) { continue; }
 
-        let dx = piX - posX[j];
-        let dy = piY - posY[j];
-        if (dx * dx + dy * dy < radius[j] * radius[j]) {
+        let dx = piX - particles[j].posX;
+        let dy = piY - particles[j].posY;
+        if (dx * dx + dy * dy < particleAux[j].radius * particleAux[j].radius) {
             // Transfer momentum
-            let wx = piWX[i]; let wy = piWY[i];
+            let wx = pions[i].wX; let wy = pions[i].wY;
             let gamma = sqrt(1.0 + wx * wx + wy * wy);
             let invG = 1.0 / gamma;
-            let impulse = piEnergy[i];
-            let invTM = select(0.0, 1.0 / mass[j], mass[j] > EPSILON);
-            velWX[j] += impulse * (wx * invG) * invTM;
-            velWY[j] += impulse * (wy * invG) * invTM;
+            let impulse = pions[i].energy;
+            let invTM = select(0.0, 1.0 / particles[j].mass, particles[j].mass > EPSILON);
+            particles[j].velWX += impulse * (wx * invG) * invTM;
+            particles[j].velWY += impulse * (wy * invG) * invTM;
             // Transfer charge
-            charge_buf[j] += f32(piCharge[i]);
-            piFlags[i] &= ~1u;
+            particles[j].charge += f32(pions[i].charge);
+            pions[i].flags &= ~1u;
             break;
         }
     }
@@ -249,18 +277,18 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     let count = atomicLoad(&piCount);
     if (i >= count) { return; }
-    if ((piFlags[i] & 1u) == 0u) { return; }
+    if ((pions[i].flags & 1u) == 0u) { return; }
 
     // Decay probability depends on charge
-    let isNeutral = piCharge[i] == 0;
+    let isNeutral = pions[i].charge == 0;
     let prob = select(CHARGED_PION_DECAY_PROB, PION_DECAY_PROB, isNeutral);
 
     // Pseudo-random from pion index + age (deterministic per-frame)
-    let rng = fract(sin(f32(i * 73856093u ^ piAge[i] * 19349663u)) * 43758.5453);
+    let rng = pcgRand((i * 73856093u) ^ (pions[i].age * 19349663u));
     if (rng > prob) { return; }
 
-    let mPi = piMass[i];
-    let wx = piWX[i]; let wy = piWY[i];
+    let mPi = pions[i].mass;
+    let wx = pions[i].wX; let wy = pions[i].wY;
     let wSq = wx * wx + wy * wy;
     let gamma = sqrt(1.0 + wSq);
     let invG = 1.0 / gamma;
@@ -300,14 +328,14 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
             let phIdx = atomicAdd(&phCount, 1u);
             if (phIdx < MAX_PHOTONS) {
                 let offset = max(mPi * 1.5, 1.0);
-                phPosX[phIdx] = piPosX[i] + cosA * offset;
-                phPosY[phIdx] = piPosY[i] + sinA * offset;
-                phVelX[phIdx] = cosA;
-                phVelY[phIdx] = sinA;
-                phEnergy[phIdx] = pMag;
-                phEmitterId[phIdx] = piEmitterId[i]; // inherit emitterId
-                phAge[phIdx] = 0u;
-                phFlags[phIdx] = 1u; // alive, type=em
+                var ph: Photon;
+                ph.posX = pions[i].posX + cosA * offset;
+                ph.posY = pions[i].posY + sinA * offset;
+                ph.velX = cosA; ph.velY = sinA;
+                ph.energy = pMag;
+                ph.emitterId = pions[i].emitterId; // inherit emitterId
+                ph.age = 0u; ph.flags = 1u; // alive, type=em
+                photons[phIdx] = ph;
             } else {
                 atomicSub(&phCount, 1u); // rollback
             }
@@ -323,12 +351,14 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
             let phIdx = atomicAdd(&phCount, 1u);
             if (phIdx < MAX_PHOTONS) {
                 let offset = max(mPi * 1.5, 1.0);
-                phPosX[phIdx] = piPosX[i] + cosA * offset;
-                phPosY[phIdx] = piPosY[i] + sinA * offset;
-                phVelX[phIdx] = cosA; phVelY[phIdx] = sinA;
-                phEnergy[phIdx] = piEnergy[i];
-                phEmitterId[phIdx] = piEmitterId[i];
-                phAge[phIdx] = 0u; phFlags[phIdx] = 1u;
+                var ph: Photon;
+                ph.posX = pions[i].posX + cosA * offset;
+                ph.posY = pions[i].posY + sinA * offset;
+                ph.velX = cosA; ph.velY = sinA;
+                ph.energy = pions[i].energy;
+                ph.emitterId = pions[i].emitterId;
+                ph.age = 0u; ph.flags = 1u;
+                photons[phIdx] = ph;
             } else { atomicSub(&phCount, 1u); }
         } else {
             // Rest-frame energies
@@ -375,12 +405,14 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
                 let phIdx = atomicAdd(&phCount, 1u);
                 if (phIdx < MAX_PHOTONS) {
                     let offset = max(mPi * 1.5, 1.0);
-                    phPosX[phIdx] = piPosX[i] + phCos * offset;
-                    phPosY[phIdx] = piPosY[i] + phSin * offset;
-                    phVelX[phIdx] = phCos; phVelY[phIdx] = phSin;
-                    phEnergy[phIdx] = phMag;
-                    phEmitterId[phIdx] = piEmitterId[i];
-                    phAge[phIdx] = 0u; phFlags[phIdx] = 1u;
+                    var ph: Photon;
+                    ph.posX = pions[i].posX + phCos * offset;
+                    ph.posY = pions[i].posY + phSin * offset;
+                    ph.velX = phCos; ph.velY = phSin;
+                    ph.energy = phMag;
+                    ph.emitterId = pions[i].emitterId;
+                    ph.age = 0u; ph.flags = 1u;
+                    photons[phIdx] = ph;
                 } else { atomicSub(&phCount, 1u); }
             }
 
@@ -393,23 +425,25 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
                     let elVx = elPxR / elELab;
                     let elVy = elPyR / elELab;
                     let offset = max(mPi * 1.5, 1.0);
-                    posX[pIdx] = piPosX[i] - (phPxR / max(phMag, EPSILON)) * offset;
-                    posY[pIdx] = piPosY[i] - (phPyR / max(phMag, EPSILON)) * offset;
                     let elGamma = 1.0 / sqrt(max(1.0 - elVx * elVx - elVy * elVy, 0.01));
-                    velWX[pIdx] = elVx * elGamma;
-                    velWY[pIdx] = elVy * elGamma;
-                    mass[pIdx] = mE;
-                    baseMass[pIdx] = mE;
-                    charge_buf[pIdx] = f32(piCharge[i]); // +1 or -1
-                    angW_buf[pIdx] = 0.0;
-                    flags[pIdx] = ALIVE_BIT; // alive
+                    var p: ParticleState;
+                    p.posX = pions[i].posX - (phPxR / max(phMag, EPSILON)) * offset;
+                    p.posY = pions[i].posY - (phPyR / max(phMag, EPSILON)) * offset;
+                    p.velWX = elVx * elGamma;
+                    p.velWY = elVy * elGamma;
+                    p.mass = mE;
+                    p.charge = f32(pions[i].charge); // +1 or -1
+                    p.angW = 0.0;
+                    p.baseMass = mE;
+                    p.flags = ALIVE_BIT; // alive
                     // Set antimatter flag for pi+ decay
-                    if (piCharge[i] > 0) { flags[pIdx] |= ANTIMATTER_BIT; }
+                    if (pions[i].charge > 0) { p.flags |= ANTIMATTER_BIT; }
+                    particles[pIdx] = p;
                 } else { atomicSub(&aliveCountAtomic, 1u); }
             }
         }
     }
 
     // Mark pion as dead
-    piFlags[i] &= ~1u;
+    pions[i].flags &= ~1u;
 }

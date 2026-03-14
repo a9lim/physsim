@@ -1,12 +1,24 @@
 // ─── Signal Delay History ───
 // Ring buffer recording + Newton-Raphson light-cone retrieval.
 // f32 precision with relative-time encoding for GPU.
+//
+// Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
 const HISTORY_LEN: u32 = 256u;
 const HISTORY_MASK: u32 = 255u;
 const NR_MAX_ITER: u32 = 8u;
 const NR_TOLERANCE: f32 = 1e-5;
 const EPSILON: f32 = 1e-9;
+
+// ── Packed struct definitions ──
+
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
 
 // Must match SimUniforms byte layout in common.wgsl / writeUniforms() exactly.
 // Only simTime is used here; preceding fields kept as padding for alignment.
@@ -16,12 +28,8 @@ struct SimUniforms {
 };
 
 @group(0) @binding(0) var<uniform> u: SimUniforms;
-@group(0) @binding(1) var<storage, read> posX: array<f32>;
-@group(0) @binding(2) var<storage, read> posY: array<f32>;
-@group(0) @binding(3) var<storage, read> velWX: array<f32>;
-@group(0) @binding(4) var<storage, read> velWY: array<f32>;
-@group(0) @binding(5) var<storage, read> angW_buf: array<f32>;
-@group(0) @binding(6) var<storage, read> flags: array<u32>;
+@group(0) @binding(1) var<storage, read> particles: array<ParticleState>;
+
 // History ring buffers
 @group(1) @binding(0) var<storage, read_write> histPosX: array<f32>;
 @group(1) @binding(1) var<storage, read_write> histPosY: array<f32>;
@@ -37,8 +45,8 @@ const ALIVE_BIT: u32 = 1u;
 @compute @workgroup_size(64)
 fn recordHistory(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
-    if (i >= arrayLength(&posX)) { return; }
-    if ((flags[i] & ALIVE_BIT) == 0u) { return; }
+    if (i >= arrayLength(&particles)) { return; }
+    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
 
     let metaBase = i * 2u;
     var writeIdx = histMeta[metaBase];
@@ -46,18 +54,18 @@ fn recordHistory(@builtin(global_invocation_id) gid: vec3u) {
 
     let slot = i * HISTORY_LEN + (writeIdx & HISTORY_MASK);
 
-    histPosX[slot] = posX[i];
-    histPosY[slot] = posY[i];
+    histPosX[slot] = particles[i].posX;
+    histPosY[slot] = particles[i].posY;
 
     // Store coordinate velocity (vel = w / sqrt(1 + w²))
-    let wx = velWX[i];
-    let wy = velWY[i];
+    let wx = particles[i].velWX;
+    let wy = particles[i].velWY;
     let gamma = sqrt(1.0 + wx * wx + wy * wy);
     let invG = 1.0 / gamma;
     histVelWX[slot] = wx * invG;
     histVelWY[slot] = wy * invG;
 
-    histAngW[slot] = angW_buf[i];
+    histAngW[slot] = particles[i].angW;
 
     // Relative time encoding: store (simTime - 0) = simTime for now,
     // but retrieval uses (simTime_at_query - histTime) for f32 precision

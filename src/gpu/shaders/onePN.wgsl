@@ -8,8 +8,45 @@
 // Two entry points:
 //   compute1PN — recomputes 1PN forces at post-drift positions (pairwise)
 //   vvKick1PN — applies VV correction kick: w += (f1pn_new - f1pn_old) * dt/(2m)
+//
+// Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
 const ALIVE_BIT: u32 = 1u;
+
+// ── Packed struct definitions ──
+
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+struct ParticleDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
+struct AllForces {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
 
 // Must match SimUniforms byte layout in common.wgsl / writeUniforms() exactly.
 // Fields we don't use are kept as padding to preserve alignment.
@@ -43,54 +80,17 @@ const RELATIVITY_BIT: u32    = 32u;
 const EPSILON: f32 = 1e-9;
 const BOUND_LOOP: u32 = 2u;
 
-// Packed structs (mirrors common.wgsl definitions for standalone shader)
-struct AllForces_1PN {
-    f0: vec4<f32>,
-    f1: vec4<f32>,
-    f2: vec4<f32>,
-    f3: vec4<f32>,
-    f4: vec4<f32>,
-    f5: vec4<f32>,
-    torques: vec4<f32>,
-    bFields: vec4<f32>,
-    bFieldGrads: vec4<f32>,
-    totalForce: vec2<f32>,
-    _pad: vec2<f32>,
-};
-
-struct ParticleDerived_1PN {
-    magMoment: f32,
-    angMomentum: f32,
-    invMass: f32,
-    radiusSq: f32,
-    velX: f32,
-    velY: f32,
-    angVel: f32,
-    _pad: f32,
-};
-
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
-// Particle state (read)
-@group(1) @binding(0) var<storage, read> posX: array<f32>;
-@group(1) @binding(1) var<storage, read> posY: array<f32>;
-@group(1) @binding(2) var<storage, read> velWX: array<f32>;
-@group(1) @binding(3) var<storage, read> velWY: array<f32>;
-@group(1) @binding(4) var<storage, read> mass: array<f32>;
-@group(1) @binding(5) var<storage, read> charge: array<f32>;
-@group(1) @binding(6) var<storage, read> flags: array<u32>;
-@group(1) @binding(7) var<storage, read> axYukMod: array<vec2<f32>>;  // packed: axMod, yukMod
-@group(1) @binding(8) var<storage, read> derived: array<ParticleDerived_1PN>;
+// Group 1: particle state (read-only)
+@group(1) @binding(0) var<storage, read> particles: array<ParticleState>;
+@group(1) @binding(1) var<storage, read> derived: array<ParticleDerived>;
+@group(1) @binding(2) var<storage, read> axYukMod: array<vec2<f32>>;  // packed: axMod, yukMod
 
-// Packed force accumulators (read_write)
-@group(2) @binding(0) var<storage, read_write> allForces: array<AllForces_1PN>;
-
-// f1pnOld buffer (read, for VV kick)
+// Group 2: force outputs + VV kick
+@group(2) @binding(0) var<storage, read_write> allForces: array<AllForces>;
 @group(2) @binding(1) var<storage, read> f1pnOld: array<f32>;
-
-// Proper velocity (read_write, for VV kick)
-@group(2) @binding(2) var<storage, read_write> velWX_rw: array<f32>;
-@group(2) @binding(3) var<storage, read_write> velWY_rw: array<f32>;
+@group(2) @binding(2) var<storage, read_write> particlesRW: array<ParticleState>; // rw for VV kick
 
 // Per-source 1PN accumulation (shared between tree and pairwise paths)
 fn accum1PN(
@@ -176,7 +176,7 @@ fn accum1PN(
 fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
-    if ((flags[i] & ALIVE_BIT) == 0u) { return; }
+    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
 
     let gmOn = (u.toggles0 & GRAVITOMAG_BIT) != 0u;
     let magOn = (u.toggles0 & MAGNETIC_BIT) != 0u;
@@ -189,13 +189,13 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     af.f2.y = 0.0;
     allForces[i] = af;
 
-    let px = posX[i]; let py = posY[i];
+    let px = particles[i].posX; let py = particles[i].posY;
     // Use current velocity (post-drift) for 1PN — this is the VV correction
-    let wx = velWX[i]; let wy = velWY[i];
+    let wx = particles[i].velWX; let wy = particles[i].velWY;
     let gamma = sqrt(1.0 + wx * wx + wy * wy);
     let invG = 1.0 / gamma;
     let pvx = wx * invG; let pvy = wy * invG;
-    let pMass = mass[i]; let pCharge = charge[i];
+    let pMass = particles[i].mass; let pCharge = particles[i].charge;
 
     var f1pnX: f32 = 0.0;
     var f1pnY: f32 = 0.0;
@@ -204,17 +204,17 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     let n = u.aliveCount;
     for (var j = 0u; j < n; j++) {
         if (j == i) { continue; }
-        if ((flags[j] & ALIVE_BIT) == 0u) { continue; }
+        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
 
         // Use current positions/velocities (post-drift)
-        let swx = velWX[j]; let swy = velWY[j];
+        let swx = particles[j].velWX; let swy = particles[j].velWY;
         let sg = sqrt(1.0 + swx * swx + swy * swy);
         let sinvG = 1.0 / sg;
         let svx = swx * sinvG; let svy = swy * sinvG;
 
         let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
-                         posX[j], posY[j], svx, svy,
-                         mass[j], charge[j], axYukMod[j].y,
+                         particles[j].posX, particles[j].posY, svx, svy,
+                         particles[j].mass, particles[j].charge, axYukMod[j].y,
                          u.softeningSq, periodic, u.domainW, u.domainH,
                          gmOn, magOn, yukOn, u.yukawaMu,
                          u.yukawaCoupling, axYukMod[i].y);
@@ -232,17 +232,17 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
 fn vvKick1PN(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
-    if ((flags[i] & ALIVE_BIT) == 0u) { return; }
+    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
 
     let halfDtOverM = u.dt * 0.5 * derived[i].invMass;
     let af1pn = allForces[i].f2;
     let newF = vec2f(af1pn.x, af1pn.y);
     let oldF = vec2f(f1pnOld[i * 2u], f1pnOld[i * 2u + 1u]);
-    velWX_rw[i] += (newF.x - oldF.x) * halfDtOverM;
-    velWY_rw[i] += (newF.y - oldF.y) * halfDtOverM;
+    particlesRW[i].velWX += (newF.x - oldF.x) * halfDtOverM;
+    particlesRW[i].velWY += (newF.y - oldF.y) * halfDtOverM;
 
     // NaN guard
-    if (velWX_rw[i] != velWX_rw[i] || velWY_rw[i] != velWY_rw[i]) {
-        velWX_rw[i] = 0.0; velWY_rw[i] = 0.0;
+    if (particlesRW[i].velWX != particlesRW[i].velWX || particlesRW[i].velWY != particlesRW[i].velWY) {
+        particlesRW[i].velWX = 0.0; particlesRW[i].velWY = 0.0;
     }
 }
