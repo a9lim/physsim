@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 3;
+const SHADER_VERSION = 5;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename) {
@@ -913,25 +913,32 @@ export async function createFieldSelfGravPipelines(device) {
     const code = fieldCommonWGSL + '\n' + sgWGSL;
     const module = device.createShaderModule({ label: 'fieldSelfGrav', code });
 
+    // Group 0: core field arrays + uniform (6 storage + 1 uniform)
     const group0Layout = device.createBindGroupLayout({
         label: 'fieldSelfGrav_group0',
         entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // field (rw for encoder compat)
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // fieldDot (rw for encoder compat)
-            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // gradX (rw for encoder compat)
-            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // gradY (rw for encoder compat)
-            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },  // sgInvR (rw for encoder compat)
-            { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // field
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // fieldDot
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // gradX
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // gradY
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // energyDensity
+            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // coarseRho
+            { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },   // FieldUniforms
+        ],
+    });
+    // Group 1: self-gravity arrays (5 storage)
+    const group1Layout = device.createBindGroupLayout({
+        label: 'fieldSelfGrav_group1',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // coarsePhi
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgPhiFull
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgGradX
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgGradY
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgInvR
         ],
     });
 
-    const bindGroupLayouts = [group0Layout];
+    const bindGroupLayouts = [group0Layout, group1Layout];
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 
     const entryPoints = [
