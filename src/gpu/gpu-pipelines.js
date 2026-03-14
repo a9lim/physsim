@@ -57,7 +57,7 @@ export async function createPhase2Pipelines(device) {
          'storage', 'storage', 'storage', 'read-only-storage'],
     ]);
 
-    // --- pairForce (3 bind groups) ---
+    // --- pairForce (4 bind groups) ---
     const pairForce = await makePipeline('pairForce', 'pair-force.wgsl', [
         // Group 0: uniforms
         ['uniform'],
@@ -69,6 +69,8 @@ export async function createPhase2Pipelines(device) {
         // Group 2: force accumulators (read-write)
         ['storage', 'storage', 'storage', 'storage', 'storage', 'storage',
          'storage', 'storage', 'storage'],
+        // Group 3: jerk accumulators for radiation (read-write)
+        ['storage', 'storage'],
     ]);
 
     // --- externalFields ---

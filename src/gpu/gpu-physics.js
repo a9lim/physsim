@@ -329,7 +329,7 @@ export default class GPUPhysics {
              b.radius, b.gamma, b.magMoment, b.angMomentum, b.velX, b.velY,
              b.angVel, b.invMass, b.radiusSq, b.flags]);
 
-        // pairForce: 3 bind groups
+        // pairForce: 4 bind groups
         this._bg_pairForce0 = bg('pairForce_g0', p2.pairForce.bindGroupLayouts[0],
             [this.uniformBuffer]);
         this._bg_pairForce1 = bg('pairForce_g1', p2.pairForce.bindGroupLayouts[1],
@@ -339,6 +339,8 @@ export default class GPUPhysics {
         this._bg_pairForce2 = bg('pairForce_g2', p2.pairForce.bindGroupLayouts[2],
             [b.forces0, b.forces1, b.forces2, b.forces3, b.torques, b.bFields,
              b.bFieldGrads, b.totalForceX, b.totalForceY]);
+        this._bg_pairForce3 = bg('pairForce_g3', p2.pairForce.bindGroupLayouts[3],
+            [b.jerkX, b.jerkY]);
 
         // externalFields
         this._bg_extFields = bg('extFields', p2.externalFields.bindGroupLayouts[0],
@@ -2447,6 +2449,7 @@ export default class GPUPhysics {
             pass5.setBindGroup(0, this._bg_pairForce0);
             pass5.setBindGroup(1, this._bg_pairForce1);
             pass5.setBindGroup(2, this._bg_pairForce2);
+            pass5.setBindGroup(3, this._bg_pairForce3);
             pass5.dispatchWorkgroups(workgroups);
             pass5.end();
         }
