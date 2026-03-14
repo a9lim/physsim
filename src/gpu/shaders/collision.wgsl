@@ -16,18 +16,23 @@ const COL_MERGE: u32 = 1u;
 const MERGE_ANNIHILATION: u32 = 0u;
 const MERGE_INELASTIC: u32 = 1u;
 
-const NODE_STRIDE: u32 = 20u;
-fn nodeOffset(idx: u32) -> u32 { return idx * NODE_STRIDE; }
+// ── Packed buffer structs (standalone — common.wgsl not prepended) ──
 
-fn getMinX(idx: u32) -> f32 { return bitcast<f32>(nodes[nodeOffset(idx)]); }
-fn getMinY(idx: u32) -> f32 { return bitcast<f32>(nodes[nodeOffset(idx) + 1u]); }
-fn getMaxX(idx: u32) -> f32 { return bitcast<f32>(nodes[nodeOffset(idx) + 2u]); }
-fn getMaxY(idx: u32) -> f32 { return bitcast<f32>(nodes[nodeOffset(idx) + 3u]); }
-fn getNW(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 12u]); }
-fn getNE(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 13u]); }
-fn getSW(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 14u]); }
-fn getSE(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 15u]); }
-fn getParticleIndex(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 16u]); }
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+struct ParticleAux {
+    radius: f32,
+    particleId: u32,
+    deathTime: f32,
+    deathMass: f32,
+    deathAngVel: f32,
+};
 
 struct SimUniforms {
     dt: f32,
@@ -66,31 +71,32 @@ struct SimUniforms {
     _pad4: u32,
 };
 
+const NODE_STRIDE: u32 = 20u;
+fn nodeOffset(idx: u32) -> u32 { return idx * NODE_STRIDE; }
+
+fn getMinX(idx: u32) -> f32 { return bitcast<f32>(nodes[nodeOffset(idx)]); }
+fn getMinY(idx: u32) -> f32 { return bitcast<f32>(nodes[nodeOffset(idx) + 1u]); }
+fn getMaxX(idx: u32) -> f32 { return bitcast<f32>(nodes[nodeOffset(idx) + 2u]); }
+fn getMaxY(idx: u32) -> f32 { return bitcast<f32>(nodes[nodeOffset(idx) + 3u]); }
+fn getNW(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 12u]); }
+fn getNE(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 13u]); }
+fn getSW(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 14u]); }
+fn getSE(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 15u]); }
+fn getParticleIndex(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx) + 16u]); }
+
 @group(0) @binding(0) var<storage, read> nodes: array<u32>;
 @group(0) @binding(1) var<uniform> uniforms: SimUniforms;
 
-@group(1) @binding(0) var<storage, read_write> posX: array<f32>;
-@group(1) @binding(1) var<storage, read_write> posY: array<f32>;
-@group(1) @binding(2) var<storage, read_write> velWX: array<f32>;
-@group(1) @binding(3) var<storage, read_write> velWY: array<f32>;
-@group(1) @binding(4) var<storage, read_write> angW_buf: array<f32>;
-@group(1) @binding(5) var<storage, read_write> mass_buf: array<f32>;
-@group(1) @binding(6) var<storage, read_write> baseMass_buf: array<f32>;
-@group(1) @binding(7) var<storage, read_write> charge_buf: array<f32>;
-@group(1) @binding(8) var<storage, read_write> flags_buf: array<atomic<u32>>;
-@group(1) @binding(9) var<storage, read> radius_buf: array<f32>;
-@group(1) @binding(10) var<storage, read> particleId_buf: array<u32>;
+// Group 1: packed particle structs (rw for resolve)
+@group(1) @binding(0) var<storage, read_write> particleState: array<ParticleState>;
+@group(1) @binding(1) var<storage, read_write> particleAux: array<ParticleAux>;
+@group(1) @binding(2) var<storage, read> ghostOriginalIdx: array<u32>;
 
-// Ghost->original mapping
-@group(1) @binding(11) var<storage, read> ghostOriginalIdx: array<u32>;
-
+// Group 2: collision pairs + counters + merge results
 @group(2) @binding(0) var<storage, read_write> collisionPairs: array<u32>;
 @group(2) @binding(1) var<storage, read_write> pairCounter: atomic<u32>;
 @group(2) @binding(2) var<storage, read_write> mergeResults: array<vec4<f32>>;
 @group(2) @binding(3) var<storage, read_write> mergeCounter: atomic<u32>;
-@group(2) @binding(4) var<storage, read_write> deathTime_buf: array<f32>;
-@group(2) @binding(5) var<storage, read_write> deathMass_buf: array<f32>;
-@group(2) @binding(6) var<storage, read_write> deathAngVel_buf: array<f32>;
 
 // ─── detectCollisions ───
 // Tree query: for each alive particle, find overlapping particles via tree walk
@@ -109,15 +115,16 @@ fn detectCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (pIdx >= uniforms.aliveCount) { return; }
     if (uniforms.collisionMode != COL_MERGE) { return; }
 
-    let f = atomicLoad(&flags_buf[pIdx]);
-    if ((f & FLAG_ALIVE) == 0u) { return; }
-    if ((f & FLAG_GHOST) != 0u) { return; }
+    let ps = particleState[pIdx];
+    if ((ps.flags & FLAG_ALIVE) == 0u) { return; }
+    if ((ps.flags & FLAG_GHOST) != 0u) { return; }
 
-    let px = posX[pIdx];
-    let py = posY[pIdx];
-    let p1Radius = radius_buf[pIdx];
+    let px = ps.posX;
+    let py = ps.posY;
+    let pAux = particleAux[pIdx];
+    let p1Radius = pAux.radius;
     let searchR = p1Radius * 2.0;
-    let p1Id = particleId_buf[pIdx];
+    let p1Id = pAux.particleId;
 
     // Stack-based tree query (overlap search)
     var stack: array<u32, 48>;
@@ -140,24 +147,26 @@ fn detectCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
 
             // Resolve ghost -> original
             var realIdx: u32 = sIdx;
-            let sFlags = atomicLoad(&flags_buf[sIdx]);
-            if ((sFlags & FLAG_GHOST) != 0u && sIdx >= uniforms.aliveCount) {
+            let sPs = particleState[sIdx];
+            if ((sPs.flags & FLAG_GHOST) != 0u && sIdx >= uniforms.aliveCount) {
                 realIdx = ghostOriginalIdx[sIdx - uniforms.aliveCount];
             }
 
             if (pIdx == realIdx) { continue; }
-            if ((sFlags & FLAG_ALIVE) == 0u) { continue; }
-            if (mass_buf[realIdx] == 0.0) { continue; }
+            if ((sPs.flags & FLAG_ALIVE) == 0u) { continue; }
+            let realPs = particleState[realIdx];
+            if (realPs.mass == 0.0) { continue; }
 
             // Only process pair once: lower ID writes
             if (pIdx >= realIdx) { continue; }
 
-            let sx = posX[sIdx];
-            let sy = posY[sIdx];
+            let sx = sPs.posX;
+            let sy = sPs.posY;
             let dx = sx - px;
             let dy = sy - py;
             let distSq = dx * dx + dy * dy;
-            let minDist = p1Radius + radius_buf[realIdx];
+            let realAux = particleAux[realIdx];
+            let minDist = p1Radius + realAux.radius;
 
             if (distSq < minDist * minDist) {
                 let slot = atomicAdd(&pairCounter, 1u);
@@ -181,11 +190,9 @@ fn detectCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
 // One thread per detected pair. Resolves merge or annihilation.
 // Uses atomicExchange on flags to prevent double-merging.
 
-fn particleKE(idx: u32) -> f32 {
-    let wx = velWX[idx];
-    let wy = velWY[idx];
-    let wSq = wx * wx + wy * wy;
-    return wSq / (sqrt(1.0 + wSq) + 1.0) * mass_buf[idx];
+fn particleKE(ps: ParticleState) -> f32 {
+    let wSq = ps.velWX * ps.velWX + ps.velWY * ps.velWY;
+    return wSq / (sqrt(1.0 + wSq) + 1.0) * ps.mass;
 }
 
 @compute @workgroup_size(64)
@@ -197,109 +204,117 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx1 = collisionPairs[pairIdx * 2u];
     let idx2 = collisionPairs[pairIdx * 2u + 1u];
 
-    // Check both particles are still alive (another pair may have consumed one)
-    let f1 = atomicLoad(&flags_buf[idx1]);
-    let f2 = atomicLoad(&flags_buf[idx2]);
-    if ((f1 & FLAG_ALIVE) == 0u || (f2 & FLAG_ALIVE) == 0u) { return; }
-    if (mass_buf[idx1] == 0.0 || mass_buf[idx2] == 0.0) { return; }
+    // Read both particles
+    var ps1 = particleState[idx1];
+    var ps2 = particleState[idx2];
 
-    let isAntimatter1 = (f1 & FLAG_ANTIMATTER) != 0u;
-    let isAntimatter2 = (f2 & FLAG_ANTIMATTER) != 0u;
+    // Check both particles are still alive (another pair may have consumed one)
+    if ((ps1.flags & FLAG_ALIVE) == 0u || (ps2.flags & FLAG_ALIVE) == 0u) { return; }
+    if (ps1.mass == 0.0 || ps2.mass == 0.0) { return; }
+
+    let isAntimatter1 = (ps1.flags & FLAG_ANTIMATTER) != 0u;
+    let isAntimatter2 = (ps2.flags & FLAG_ANTIMATTER) != 0u;
+
+    var aux1 = particleAux[idx1];
+    var aux2 = particleAux[idx2];
 
     let relOn = (uniforms.toggles0 & 32u) != 0u; // RELATIVITY_BIT
 
     if (isAntimatter1 != isAntimatter2) {
         // Annihilation: matter + antimatter -> energy
-        let annihilated = min(mass_buf[idx1], mass_buf[idx2]);
-        let cx = (posX[idx1] + posX[idx2]) * 0.5;
-        let cy = (posY[idx1] + posY[idx2]) * 0.5;
+        let annihilated = min(ps1.mass, ps2.mass);
+        let cx = (ps1.posX + ps2.posX) * 0.5;
+        let cy = (ps1.posY + ps2.posY) * 0.5;
 
-        let fraction1 = annihilated / mass_buf[idx1];
-        let fraction2 = annihilated / mass_buf[idx2];
-        let keAnn = fraction1 * particleKE(idx1) + fraction2 * particleKE(idx2);
+        let fraction1 = annihilated / ps1.mass;
+        let fraction2 = annihilated / ps2.mass;
+        let keAnn = fraction1 * particleKE(ps1) + fraction2 * particleKE(ps2);
 
         // Store merge event for photon burst emission (handled by JS readback)
         let slot = atomicAdd(&mergeCounter, 1u);
         mergeResults[slot] = vec4<f32>(cx, cy, 2.0 * annihilated + keAnn, f32(MERGE_ANNIHILATION));
 
-        mass_buf[idx1] -= annihilated;
-        mass_buf[idx2] -= annihilated;
-        if (mass_buf[idx1] > 0.0) {
-            baseMass_buf[idx1] *= mass_buf[idx1] / (mass_buf[idx1] + annihilated);
+        ps1.mass -= annihilated;
+        ps2.mass -= annihilated;
+        if (ps1.mass > 0.0) {
+            ps1.baseMass *= ps1.mass / (ps1.mass + annihilated);
         }
-        if (mass_buf[idx2] > 0.0) {
-            baseMass_buf[idx2] *= mass_buf[idx2] / (mass_buf[idx2] + annihilated);
+        if (ps2.mass > 0.0) {
+            ps2.baseMass *= ps2.mass / (ps2.mass + annihilated);
         }
 
         // Retire particles with zero mass
-        if (mass_buf[idx1] == 0.0) {
-            atomicAnd(&flags_buf[idx1], ~FLAG_ALIVE);
-            atomicOr(&flags_buf[idx1], FLAG_RETIRED);
-            deathTime_buf[idx1] = uniforms.simTime;
-            deathMass_buf[idx1] = annihilated; // pre-removal mass
-            deathAngVel_buf[idx1] = angW_buf[idx1];
+        if (ps1.mass == 0.0) {
+            ps1.flags = (ps1.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
+            aux1.deathTime = uniforms.simTime;
+            aux1.deathMass = annihilated; // pre-removal mass
+            aux1.deathAngVel = ps1.angW;
         }
-        if (mass_buf[idx2] == 0.0) {
-            atomicAnd(&flags_buf[idx2], ~FLAG_ALIVE);
-            atomicOr(&flags_buf[idx2], FLAG_RETIRED);
-            deathTime_buf[idx2] = uniforms.simTime;
-            deathMass_buf[idx2] = annihilated; // pre-removal mass
-            deathAngVel_buf[idx2] = angW_buf[idx2];
+        if (ps2.mass == 0.0) {
+            ps2.flags = (ps2.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
+            aux2.deathTime = uniforms.simTime;
+            aux2.deathMass = annihilated; // pre-removal mass
+            aux2.deathAngVel = ps2.angW;
         }
+
+        particleState[idx1] = ps1;
+        particleState[idx2] = ps2;
+        particleAux[idx1] = aux1;
+        particleAux[idx2] = aux2;
     } else {
         // Inelastic merge: p2 merges into p1
-        let keBefore = particleKE(idx1) + particleKE(idx2);
+        let keBefore = particleKE(ps1) + particleKE(ps2);
 
-        let totalMass = mass_buf[idx1] + mass_buf[idx2];
-        let newWx = (mass_buf[idx1] * velWX[idx1] + mass_buf[idx2] * velWX[idx2]) / totalMass;
-        let newWy = (mass_buf[idx1] * velWY[idx1] + mass_buf[idx2] * velWY[idx2]) / totalMass;
-        let dx = posX[idx2] - posX[idx1];
-        let dy = posY[idx2] - posY[idx1];
-        let newX = (posX[idx1] * mass_buf[idx1] + posX[idx2] * mass_buf[idx2]) / totalMass;
-        let newY = (posY[idx1] * mass_buf[idx1] + posY[idx2] * mass_buf[idx2]) / totalMass;
+        let totalMass = ps1.mass + ps2.mass;
+        let newWx = (ps1.mass * ps1.velWX + ps2.mass * ps2.velWX) / totalMass;
+        let newWy = (ps1.mass * ps1.velWY + ps2.mass * ps2.velWY) / totalMass;
+        let newX = (ps1.posX * ps1.mass + ps2.posX * ps2.mass) / totalMass;
+        let newY = (ps1.posY * ps1.mass + ps2.posY * ps2.mass) / totalMass;
 
         // Angular momentum conservation
-        let dx1 = posX[idx1] - newX;
-        let dy1 = posY[idx1] - newY;
-        let dx2 = posX[idx2] - newX;
-        let dy2 = posY[idx2] - newY;
-        let Lorb = dx1 * (mass_buf[idx1] * velWY[idx1]) - dy1 * (mass_buf[idx1] * velWX[idx1])
-                 + dx2 * (mass_buf[idx2] * velWY[idx2]) - dy2 * (mass_buf[idx2] * velWX[idx2]);
-        let r1 = radius_buf[idx1];
-        let r2 = radius_buf[idx2];
-        let Lspin = INERTIA_K * mass_buf[idx1] * r1 * r1 * angW_buf[idx1]
-                   + INERTIA_K * mass_buf[idx2] * r2 * r2 * angW_buf[idx2];
+        let dx1 = ps1.posX - newX;
+        let dy1 = ps1.posY - newY;
+        let dx2 = ps2.posX - newX;
+        let dy2 = ps2.posY - newY;
+        let Lorb = dx1 * (ps1.mass * ps1.velWY) - dy1 * (ps1.mass * ps1.velWX)
+                 + dx2 * (ps2.mass * ps2.velWY) - dy2 * (ps2.mass * ps2.velWX);
+        let r1 = aux1.radius;
+        let r2 = aux2.radius;
+        let Lspin = INERTIA_K * ps1.mass * r1 * r1 * ps1.angW
+                   + INERTIA_K * ps2.mass * r2 * r2 * ps2.angW;
 
         // Update p1 (winner)
-        mass_buf[idx1] = totalMass;
-        baseMass_buf[idx1] += baseMass_buf[idx2];
-        charge_buf[idx1] += charge_buf[idx2];
-        velWX[idx1] = newWx;
-        velWY[idx1] = newWy;
-        posX[idx1] = newX;
-        posY[idx1] = newY;
+        ps1.mass = totalMass;
+        ps1.baseMass += ps2.baseMass;
+        ps1.charge += ps2.charge;
+        ps1.velWX = newWx;
+        ps1.velWY = newWy;
+        ps1.posX = newX;
+        ps1.posY = newY;
 
         let newRadius = pow(totalMass, 1.0 / 3.0);
         let newI = INERTIA_K * totalMass * newRadius * newRadius;
         if (newI > EPSILON) {
-            angW_buf[idx1] = (Lorb + Lspin) / newI;
+            ps1.angW = (Lorb + Lspin) / newI;
         } else {
-            angW_buf[idx1] = 0.0;
+            ps1.angW = 0.0;
         }
 
         // Retire p2 (loser) — save death metadata before zeroing mass
-        let preMergeMass2 = mass_buf[idx2];
-        deathTime_buf[idx2] = uniforms.simTime;
-        deathMass_buf[idx2] = preMergeMass2;
-        deathAngVel_buf[idx2] = angW_buf[idx2];
+        aux2.deathTime = uniforms.simTime;
+        aux2.deathMass = ps2.mass;
+        aux2.deathAngVel = ps2.angW;
 
-        mass_buf[idx2] = 0.0;
-        baseMass_buf[idx2] = 0.0;
-        atomicAnd(&flags_buf[idx2], ~FLAG_ALIVE);
-        atomicOr(&flags_buf[idx2], FLAG_RETIRED);
+        ps2.mass = 0.0;
+        ps2.baseMass = 0.0;
+        ps2.flags = (ps2.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
+
+        particleState[idx1] = ps1;
+        particleState[idx2] = ps2;
+        particleAux[idx2] = aux2;
 
         // Compute KE lost for field excitation
-        let keAfter = particleKE(idx1);
+        let keAfter = particleKE(ps1);
         let keLost = max(0.0, keBefore - keAfter);
         if (keLost > 0.0) {
             let slot = atomicAdd(&mergeCounter, 1u);

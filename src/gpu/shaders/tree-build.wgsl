@@ -18,6 +18,27 @@ const FP_INV_SCALE: f32 = 0.0000152587890625; // 1/65536
 const FLAG_ALIVE: u32 = 1u;
 const FLAG_GHOST: u32 = 16u;
 
+// ── Packed buffer structs (standalone — common.wgsl not prepended) ──
+
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+struct ParticleDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 struct SimUniforms {
     dt: f32,
     simTime: f32,
@@ -55,18 +76,6 @@ struct SimUniforms {
     _pad4: u32,
 };
 
-// Packed struct (mirrors common.wgsl ParticleDerived)
-struct TreeBuildDerived {
-    magMoment: f32,
-    angMomentum: f32,
-    invMass: f32,
-    radiusSq: f32,
-    velX: f32,
-    velY: f32,
-    angVel: f32,
-    _pad: f32,
-};
-
 // Node layout in flat buffer: 20 u32 words per node
 // [0..3]: minX, minY, maxX, maxY (as f32 reinterpreted)
 // [4..5]: comX, comY
@@ -87,14 +96,9 @@ struct TreeBuildDerived {
 @group(0) @binding(2) var<storage, read_write> bounds: array<atomic<i32>>;
 @group(0) @binding(3) var<storage, read_write> visitorFlags: array<atomic<u32>>;
 
-@group(1) @binding(0) var<storage, read> posX: array<f32>;
-@group(1) @binding(1) var<storage, read> posY: array<f32>;
-@group(1) @binding(2) var<storage, read> velWX: array<f32>;
-@group(1) @binding(3) var<storage, read> velWY: array<f32>;
-@group(1) @binding(4) var<storage, read> mass_in: array<f32>;
-@group(1) @binding(5) var<storage, read> charge_in: array<f32>;
-@group(1) @binding(6) var<storage, read> derived_in: array<TreeBuildDerived>;
-@group(1) @binding(7) var<storage, read> flags_in: array<u32>;
+// Group 1: packed particle state + derived
+@group(1) @binding(0) var<storage, read> particleState: array<ParticleState>;
+@group(1) @binding(1) var<storage, read> derived_in: array<ParticleDerived>;
 
 @group(2) @binding(0) var<uniform> uniforms: SimUniforms;
 
@@ -197,10 +201,10 @@ fn computeBounds(@builtin(global_invocation_id) gid: vec3<u32>,
     workgroupBarrier();
 
     if (idx < n) {
-        let f = flags_in[idx];
-        if ((f & (FLAG_ALIVE | FLAG_GHOST)) != 0u) {
-            let px = i32(posX[idx] * FP_SCALE);
-            let py = i32(posY[idx] * FP_SCALE);
+        let ps = particleState[idx];
+        if ((ps.flags & (FLAG_ALIVE | FLAG_GHOST)) != 0u) {
+            let px = i32(ps.posX * FP_SCALE);
+            let py = i32(ps.posY * FP_SCALE);
             atomicMin(&wgMinX, px);
             atomicMin(&wgMinY, py);
             atomicMax(&wgMaxX, px);
@@ -329,11 +333,11 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
     let n = uniforms.particleCount; // totalCount
     if (pIdx >= n) { return; }
 
-    let f = flags_in[pIdx];
-    if ((f & (FLAG_ALIVE | FLAG_GHOST)) == 0u) { return; }
+    let ps = particleState[pIdx];
+    if ((ps.flags & (FLAG_ALIVE | FLAG_GHOST)) == 0u) { return; }
 
-    let px = posX[pIdx];
-    let py = posY[pIdx];
+    let px = ps.posX;
+    let py = ps.posY;
     var cur: u32 = 0u; // root is always node 0
     var depth: u32 = 0u;
 
@@ -361,11 +365,10 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
                 // We got the lock — subdivide and reinsert displaced particle
                 subdivide(cur);
                 let displacedIdx = u32(prev);
-                let displacedPx = posX[displacedIdx];
-                let displacedPy = posY[displacedIdx];
+                let displacedPs = particleState[displacedIdx];
 
                 // Reinsert displaced particle into correct child
-                let childForDisplaced = childFor(cur, displacedPx, displacedPy);
+                let childForDisplaced = childFor(cur, displacedPs.posX, displacedPs.posY);
                 setParticleIndex(childForDisplaced, i32(displacedIdx));
                 setParticleCount(childForDisplaced, 1u);
 
@@ -402,13 +405,13 @@ fn computeAggregates(@builtin(global_invocation_id) gid: vec3<u32>) {
     let n = uniforms.particleCount; // totalCount
     if (pIdx >= n) { return; }
 
-    let f = flags_in[pIdx];
-    if ((f & (FLAG_ALIVE | FLAG_GHOST)) == 0u) { return; }
+    let ps = particleState[pIdx];
+    if ((ps.flags & (FLAG_ALIVE | FLAG_GHOST)) == 0u) { return; }
 
     // Find the leaf node containing this particle
     // Walk from root to leaf to find our node
-    let px = posX[pIdx];
-    let py = posY[pIdx];
+    let px = ps.posX;
+    let py = ps.posY;
     var leafNode: u32 = 0u;
     var depth: u32 = 0u;
     loop {
@@ -419,13 +422,13 @@ fn computeAggregates(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // Write leaf aggregates (single particle)
-    let m = mass_in[pIdx];
-    let q = charge_in[pIdx];
+    let m = ps.mass;
+    let q = ps.charge;
     let drvd = derived_in[pIdx];
     let mm = drvd.magMoment;
     let am = drvd.angMomentum;
-    let wx = velWX[pIdx];
-    let wy = velWY[pIdx];
+    let wx = ps.velWX;
+    let wy = ps.velWY;
 
     setTotalMass(leafNode, m);
     setTotalCharge(leafNode, q);

@@ -3,23 +3,18 @@
 // Klein/RP² glide reflections flip velocities and angular velocity on axis crossing.
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
-@group(0) @binding(1) var<storage, read_write> posX: array<f32>;
-@group(0) @binding(2) var<storage, read_write> posY: array<f32>;
-@group(0) @binding(3) var<storage, read_write> velWX: array<f32>;
-@group(0) @binding(4) var<storage, read_write> velWY: array<f32>;
-@group(0) @binding(5) var<storage, read_write> flags: array<u32>;
-@group(0) @binding(6) var<storage, read_write> angW: array<f32>;
+@group(0) @binding(1) var<storage, read_write> particleState: array<ParticleState>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.x;
     if (idx >= uniforms.aliveCount) { return; }
 
-    let flag = flags[idx];
-    if ((flag & FLAG_ALIVE) == 0u) { return; }
+    var ps = particleState[idx];
+    if ((ps.flags & FLAG_ALIVE) == 0u) { return; }
 
-    var x = posX[idx];
-    var y = posY[idx];
+    var x = ps.posX;
+    var y = ps.posY;
     let w = uniforms.domainW;
     let h = uniforms.domainH;
 
@@ -32,8 +27,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             else if (x >= w) { x -= w; }
             if (y < 0.0) { y += h; }
             else if (y >= h) { y -= h; }
-            posX[idx] = x;
-            posY[idx] = y;
+            ps.posX = x;
+            ps.posY = y;
 
         } else if (topo == TOPO_KLEIN) {
             // Klein bottle: x is periodic, y-wrap is a glide reflection
@@ -43,24 +38,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (y < 0.0) {
                 y += h;
                 x = w - x;
-                velWX[idx] = -velWX[idx];
-                angW[idx] = -angW[idx];
+                ps.velWX = -ps.velWX;
+                ps.angW = -ps.angW;
             } else if (y >= h) {
                 y -= h;
                 x = w - x;
-                velWX[idx] = -velWX[idx];
-                angW[idx] = -angW[idx];
+                ps.velWX = -ps.velWX;
+                ps.angW = -ps.angW;
             }
-            posX[idx] = x;
-            posY[idx] = y;
+            ps.posX = x;
+            ps.posY = y;
 
         } else {
             // RP² (real projective plane): both axes carry glide reflections
             // x crossing flips y-position and negates y-velocity + angular velocity
             // y crossing flips x-position and negates x-velocity + angular velocity
-            var vx = velWX[idx];
-            var vy = velWY[idx];
-            var aw = angW[idx];
+            var vx = ps.velWX;
+            var vy = ps.velWY;
+            var aw = ps.angW;
 
             if (x < 0.0) {
                 x += w;
@@ -85,29 +80,31 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 aw = -aw;
             }
 
-            posX[idx] = x;
-            posY[idx] = y;
-            velWX[idx] = vx;
-            velWY[idx] = vy;
-            angW[idx] = aw;
+            ps.posX = x;
+            ps.posY = y;
+            ps.velWX = vx;
+            ps.velWY = vy;
+            ps.angW = aw;
         }
 
     } else if (uniforms.boundaryMode == BOUND_BOUNCE) {
-        var vx = velWX[idx];
-        var vy = velWY[idx];
+        var vx = ps.velWX;
+        var vy = ps.velWY;
         if (x < 0.0) { x = -x; vx = abs(vx); }
         else if (x >= w) { x = 2.0 * w - x; vx = -abs(vx); }
         if (y < 0.0) { y = -y; vy = abs(vy); }
         else if (y >= h) { y = 2.0 * h - y; vy = -abs(vy); }
-        posX[idx] = x;
-        posY[idx] = y;
-        velWX[idx] = vx;
-        velWY[idx] = vy;
+        ps.posX = x;
+        ps.posY = y;
+        ps.velWX = vx;
+        ps.velWY = vy;
 
     } else {
         // Despawn: mark particles outside domain as dead
         if (x < 0.0 || x >= w || y < 0.0 || y >= h) {
-            flags[idx] = flag & ~FLAG_ALIVE;
+            ps.flags = ps.flags & ~FLAG_ALIVE;
         }
     }
+
+    particleState[idx] = ps;
 }
