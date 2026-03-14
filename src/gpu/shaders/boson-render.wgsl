@@ -25,14 +25,14 @@ struct VertexOutput {
 @group(1) @binding(1) var<storage, read> phPosY: array<f32>;
 @group(1) @binding(2) var<storage, read> phAge: array<u32>;
 @group(1) @binding(3) var<storage, read> phFlags: array<u32>;
-@group(1) @binding(4) var<storage, read> phCount: u32;
+@group(1) @binding(4) var<storage, read> phCount: array<u32>;
 
 // Pion pool (read-only for rendering)
 @group(2) @binding(0) var<storage, read> piPosX: array<f32>;
 @group(2) @binding(1) var<storage, read> piPosY: array<f32>;
 @group(2) @binding(2) var<storage, read> piAge: array<u32>;
 @group(2) @binding(3) var<storage, read> piFlags: array<u32>;
-@group(2) @binding(4) var<storage, read> piCount: u32;
+@group(2) @binding(4) var<storage, read> piCount: array<u32>;
 
 // Quad vertex positions (triangle strip: 4 verts -> 2 triangles via index buffer)
 fn quadOffset(vertexIdx: u32) -> vec2f {
@@ -49,7 +49,7 @@ fn vertexPhoton(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    if (instanceIdx >= phCount) {
+    if (instanceIdx >= phCount[0]) {
         out.position = vec4f(0.0, 0.0, -2.0, 1.0); // cull
         return out;
     }
@@ -90,7 +90,7 @@ fn vertexPion(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    if (instanceIdx >= piCount) {
+    if (instanceIdx >= piCount[0]) {
         out.position = vec4f(0.0, 0.0, -2.0, 1.0);
         return out;
     }
