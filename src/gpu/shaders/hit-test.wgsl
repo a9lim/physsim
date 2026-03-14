@@ -46,7 +46,7 @@ struct ParticleAux {
 @group(0) @binding(3) var<storage, read> particleAux: array<ParticleAux>;
 @group(0) @binding(4) var<storage, read_write> hitResult: array<i32>;  // single element
 
-const ALIVE_BIT: u32 = 1u;
+// FLAG_ALIVE provided by generated wgslConstants block.
 
 fn pointInBox(px: f32, py: f32, node: QTNode) -> bool {
     return px >= node.minX && px <= node.maxX && py >= node.minY && py <= node.maxY;
@@ -84,7 +84,7 @@ fn main() {
         if (node.particleIndex >= 0) {
             let pi = u32(node.particleIndex);
             let p = particles[pi];
-            if ((p.flags & ALIVE_BIT) != 0u) {
+            if ((p.flags & FLAG_ALIVE) != 0u) {
                 let dx = cx - p.posX;
                 let dy = cy - p.posY;
                 let distSq = dx * dx + dy * dy;

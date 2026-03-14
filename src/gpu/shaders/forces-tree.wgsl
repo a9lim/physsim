@@ -3,32 +3,10 @@
 // Uses theta=0.5 opening angle criterion.
 // Accumulates into the same force buffers as pairwise path.
 
+// Constants provided by generated wgslConstants block.
+// Shader-specific constants:
 const NONE: i32 = -1;
 const MAX_STACK: u32 = 48u;
-const EPSILON: f32 = 1e-9;
-const FLAG_ALIVE:   u32 = 1u;
-const FLAG_RETIRED: u32 = 2u;
-const FLAG_GHOST:   u32 = 16u;
-
-const GRAVITY_BIT:     u32 = 1u;
-const COULOMB_BIT:     u32 = 2u;
-const MAGNETIC_BIT:    u32 = 4u;
-const GRAVITOMAG_BIT:  u32 = 8u;
-const ONEPN_BIT:       u32 = 16u;
-const RELATIVITY_BIT:  u32 = 32u;
-const YUKAWA_BIT:      u32 = 2048u;
-const AXION_BIT:       u32 = 8192u;
-const RADIATION_BIT:   u32 = 128u;
-
-const MAG_MOMENT_K: f32 = 0.2;
-const INERTIA_K: f32 = 0.4;
-const TIDAL_STRENGTH: f32 = 0.3;
-
-// Topology modes
-const TOPO_TORUS: u32 = 0u;
-const TOPO_KLEIN: u32 = 1u;
-const TOPO_RP2: u32   = 2u;
-const BOUND_LOOP: u32 = 2u;
 
 // Minimum-image displacement (inlined from common.wgsl since standalone shader)
 fn torusMinImage(ox: f32, oy: f32, sx: f32, sy: f32, w: f32, h: f32) -> vec2<f32> {
@@ -418,7 +396,7 @@ fn accumulateForce(
             }
 
             // Scalar Breit 1PN correction
-            if ((toggles & ONEPN_BIT) != 0u) {
+            if ((toggles & ONE_PN_BIT) != 0u) {
                 let nx = rx * invR;
                 let ny = ry * invR;
                 let nDotV1 = nx * pVelX + ny * pVelY;
@@ -438,7 +416,7 @@ fn accumulateForce(
     }
 
     // 1PN EIH (gravitomagnetic + 1PN): perihelion precession
-    if ((toggles & ONEPN_BIT) != 0u && (toggles & GRAVITOMAG_BIT) != 0u) {
+    if ((toggles & ONE_PN_BIT) != 0u && (toggles & GRAVITOMAG_BIT) != 0u) {
         let r_val = 1.0 / invR;
         let nx = rx * invR;
         let ny = ry * invR;
@@ -461,7 +439,7 @@ fn accumulateForce(
     }
 
     // 1PN Darwin EM (magnetic + 1PN)
-    if ((toggles & ONEPN_BIT) != 0u && (toggles & MAGNETIC_BIT) != 0u) {
+    if ((toggles & ONE_PN_BIT) != 0u && (toggles & MAGNETIC_BIT) != 0u) {
         let nx = rx * invR;
         let ny = ry * invR;
         let v2DotN = svx * nx + svy * ny;
@@ -476,7 +454,7 @@ fn accumulateForce(
     }
 
     // 1PN Bazanski (GM + Magnetic + 1PN): mixed gravity+EM
-    if ((toggles & ONEPN_BIT) != 0u && (toggles & GRAVITOMAG_BIT) != 0u && (toggles & MAGNETIC_BIT) != 0u) {
+    if ((toggles & ONE_PN_BIT) != 0u && (toggles & GRAVITOMAG_BIT) != 0u && (toggles & MAGNETIC_BIT) != 0u) {
         let crossCoeff = pCharge * sCharge * (pMass + sMass)
             - (pCharge * pCharge * sMass + sCharge * sCharge * pMass);
         let fDir = crossCoeff * invRSq * invRSq;

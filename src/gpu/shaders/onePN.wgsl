@@ -11,7 +11,7 @@
 //
 // Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
-const ALIVE_BIT: u32 = 1u;
+// Constants provided by generated wgslConstants block.
 
 // ── Packed struct definitions ──
 
@@ -70,17 +70,6 @@ struct Uniforms {
     _maxParticles: u32,     // [16] maxParticles (unused here)
     aliveCount: u32,        // [17] aliveCount
 };
-
-// Toggle bit constants
-const GRAVITOMAG_BIT: u32    = 8u;
-const MAGNETIC_BIT: u32      = 4u;
-const YUKAWA_BIT: u32        = 2048u;
-const RELATIVITY_BIT: u32    = 32u;
-
-const EPSILON: f32 = 1e-9;
-const BOUND_LOOP: u32 = 2u;
-const TOPO_TORUS: u32 = 0u;
-const TOPO_KLEIN: u32 = 1u;
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
@@ -222,7 +211,7 @@ fn accum1PN(
 fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
-    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
 
     let gmOn = (u.toggles0 & GRAVITOMAG_BIT) != 0u;
     let magOn = (u.toggles0 & MAGNETIC_BIT) != 0u;
@@ -250,7 +239,7 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     let n = u.aliveCount;
     for (var j = 0u; j < n; j++) {
         if (j == i) { continue; }
-        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        if ((particles[j].flags & FLAG_ALIVE) == 0u) { continue; }
 
         // Use current positions/velocities (post-drift)
         let swx = particles[j].velWX; let swy = particles[j].velWY;
@@ -278,7 +267,7 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
 fn vvKick1PN(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
-    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
 
     let halfDtOverM = u.dt * 0.5 * derived[i].invMass;
     let af1pn = allForces[i].f2;

@@ -39,59 +39,6 @@ struct SimUniforms {
     _pad4: u32,
 };
 
-// Toggle bit constants (toggles0)
-const GRAVITY_BIT: u32       = 1u;
-const COULOMB_BIT: u32       = 2u;
-const MAGNETIC_BIT: u32      = 4u;
-const GRAVITOMAG_BIT: u32    = 8u;
-const ONE_PN_BIT: u32        = 16u;
-const RELATIVITY_BIT: u32    = 32u;
-const SPIN_ORBIT_BIT: u32    = 64u;
-const RADIATION_BIT: u32     = 128u;
-const BLACK_HOLE_BIT: u32    = 256u;
-const DISINTEGRATION_BIT: u32 = 512u;
-const EXPANSION_BIT: u32     = 1024u;
-const YUKAWA_BIT: u32        = 2048u;
-const HIGGS_BIT: u32         = 4096u;
-const AXION_BIT: u32         = 8192u;
-const BARNES_HUT_BIT: u32    = 16384u;
-const BOSON_GRAV_BIT: u32    = 32768u;
-
-// Toggle bit constants (toggles1)
-const FIELD_GRAV_BIT: u32    = 1u;
-const HERTZ_BOUNCE_BIT: u32  = 2u;
-
-// Particle flag bits
-const FLAG_ALIVE: u32    = 1u;
-const FLAG_RETIRED: u32  = 2u;
-const FLAG_ANTIMATTER: u32 = 4u;
-const FLAG_BH: u32       = 8u;
-const FLAG_GHOST: u32    = 16u;
-
-// Boundary modes
-const BOUND_DESPAWN: u32 = 0u;
-const BOUND_BOUNCE: u32  = 1u;
-const BOUND_LOOP: u32    = 2u;
-
-// Topology modes
-const TOPO_TORUS: u32 = 0u;
-const TOPO_KLEIN: u32 = 1u;
-const TOPO_RP2: u32   = 2u;
-
-// Physics constants (from config.js)
-const SOFTENING: f32 = 8.0;
-const SOFTENING_SQ: f32 = 64.0;
-const BH_SOFTENING: f32 = 4.0;
-const BH_SOFTENING_SQ: f32 = 16.0;
-const INERTIA_K: f32 = 0.4;
-const MAG_MOMENT_K: f32 = 0.2;
-const TIDAL_STRENGTH: f32 = 0.3;
-const YUKAWA_COUPLING_DEFAULT: f32 = 14.0;
-const EPSILON: f32 = 1e-9;
-const EPSILON_SQ: f32 = 1e-18;
-const PI: f32 = 3.14159265358979;
-const TWO_PI: f32 = 6.28318530717959;
-
 // Toggle query helpers
 fn hasToggle0(bit: u32) -> bool {
     return (uniforms.toggles0 & bit) != 0u;

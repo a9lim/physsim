@@ -2,8 +2,7 @@
 // Transitions RETIRED particles to FREE when their signal delay history expires.
 // Runs once per frame (not per substep).
 
-const FLAG_ALIVE:   u32 = 1u;
-const FLAG_RETIRED: u32 = 2u;
+// Constants provided by generated wgslConstants block.
 
 // ── Packed buffer structs (standalone — common.wgsl not prepended) ──
 

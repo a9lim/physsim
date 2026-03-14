@@ -56,20 +56,7 @@ struct HeatmapUniforms {
 @group(2) @binding(2) var<storage, read_write> histTime: array<f32>;
 @group(2) @binding(3) var<storage, read_write> histMeta: array<u32>;
 
-const HGRID: u32 = 64u;
-const HGRID_SQ: u32 = 4096u;
-
-// Signal delay constants (must match history.wgsl)
-const HISTORY_LEN: u32 = 256u;
-const HISTORY_MASK: u32 = 255u;
-const NR_MAX_ITER: u32 = 8u;
-const NR_TOLERANCE: f32 = 1e-5;
-const EPSILON: f32 = 1e-9;
-
-// Topology constants
-const TOPO_TORUS: u32 = 0u;
-const TOPO_KLEIN: u32 = 1u;
-const TOPO_RP2: u32 = 2u;
+// Constants provided by generated wgslConstants block.
 
 // ─── Topology-aware minimum image displacement ───
 fn hmMinImage(ox: f32, oy: f32, sx: f32, sy: f32) -> vec2<f32> {

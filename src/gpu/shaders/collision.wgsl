@@ -4,26 +4,14 @@
 // detectCollisionsPairwise: O(N²) tiled broadphase (no tree required)
 // resolveBouncePairwise: Hertz contact + friction impulse for bounce mode
 
+// Constants provided by generated wgslConstants block.
+// Shader-specific constants:
 const NONE: i32 = -1;
 const MAX_STACK: u32 = 48u;
-const EPSILON: f32 = 1e-9;
-const INERTIA_K: f32 = 0.4;
-const FLAG_ALIVE: u32 = 1u;
-const FLAG_RETIRED: u32 = 2u;
-const FLAG_ANTIMATTER: u32 = 4u;
-const FLAG_GHOST: u32 = 16u;
-const COL_MERGE: u32 = 1u;
-const COL_BOUNCE: u32 = 2u;
 
 // Merge event types
 const MERGE_ANNIHILATION: u32 = 0u;
 const MERGE_INELASTIC: u32 = 1u;
-
-// Topology modes
-const TOPO_TORUS: u32 = 0u;
-const TOPO_KLEIN: u32 = 1u;
-const TOPO_RP2: u32   = 2u;
-const BOUND_LOOP: u32 = 2u;
 
 // Full topology-aware minimum-image displacement (inlined from common.wgsl)
 fn fullMinImageCol(ox: f32, oy: f32, sx: f32, sy: f32, w: f32, h: f32, topo: u32) -> vec2<f32> {

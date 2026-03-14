@@ -38,6 +38,7 @@
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createPQSScratchBuffer, createPQSIndexBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, COARSE_RES, COARSE_SQ, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
 import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline } from './gpu-pipelines.js';
+import { buildWGSLConstants } from './gpu-constants.js';
 
 const MAX_PARTICLES = 4096;
 const HISTORY_STRIDE = 64;
@@ -211,7 +212,8 @@ export default class GPUPhysics {
 
     /** Load WGSL shaders and create compute pipelines. Must be called before update(). */
     async init() {
-        const commonWGSL = await fetchShader('common.wgsl');
+        const wgslConstants = buildWGSLConstants();
+        const commonWGSL = wgslConstants + '\n' + await fetchShader('common.wgsl');
         const boundaryWGSL = await fetchShader('boundary.wgsl');
 
         // --- Boundary pipeline ---
@@ -244,39 +246,39 @@ export default class GPUPhysics {
         });
 
         // --- Phase 2 pipelines ---
-        this._phase2 = await createPhase2Pipelines(this.device);
+        this._phase2 = await createPhase2Pipelines(this.device, wgslConstants);
         this._createPhase2BindGroups();
 
         // --- Phase 3: Ghost generation pipeline ---
-        const ghostGen = await createGhostGenPipeline(this.device);
+        const ghostGen = await createGhostGenPipeline(this.device, wgslConstants);
         this._ghostGenPipeline = ghostGen.pipeline;
         this._createGhostGenBindGroups(ghostGen.bindGroupLayouts);
 
         // --- Phase 3: Tree build pipelines ---
-        this._treeBuild = await createTreeBuildPipelines(this.device);
+        this._treeBuild = await createTreeBuildPipelines(this.device, wgslConstants);
         this._createTreeBuildBindGroups(this._treeBuild.bindGroupLayouts);
 
         // --- Phase 3: Tree force pipeline ---
-        const treeForce = await createTreeForcePipeline(this.device);
+        const treeForce = await createTreeForcePipeline(this.device, wgslConstants);
         this._treeForcePipeline = treeForce.pipeline;
         this._createTreeForceBindGroups(treeForce.bindGroupLayouts);
 
         // --- Phase 3: Collision detection/resolution pipelines ---
-        this._collisionPipelines = await createCollisionPipelines(this.device);
+        this._collisionPipelines = await createCollisionPipelines(this.device, wgslConstants);
         this._createCollisionBindGroups(this._collisionPipelines.bindGroupLayouts);
 
         // --- Phase 3: Dead particle GC pipeline ---
-        const deadGC = await createDeadGCPipeline(this.device);
+        const deadGC = await createDeadGCPipeline(this.device, wgslConstants);
         this._deadGCPipeline = deadGC.pipeline;
         this._createDeadGCBindGroup(deadGC.bindGroupLayouts);
 
         // --- Phase 4: Advanced physics pipelines ---
-        this._phase4 = await createPhase4Pipelines(this.device);
+        this._phase4 = await createPhase4Pipelines(this.device, wgslConstants);
         this._createPhase4BindGroups();
 
         // --- Update colors compute pipeline ---
         {
-            const uc = await createUpdateColorsPipeline(this.device);
+            const uc = await createUpdateColorsPipeline(this.device, wgslConstants);
             this._updateColorsPipeline = uc.pipeline;
             this._colorUniformBuffer = this.device.createBuffer({
                 label: 'colorUniforms', size: 16,
@@ -295,7 +297,7 @@ export default class GPUPhysics {
 
         // --- Trail recording compute pipeline ---
         {
-            const tr = await createTrailRecordPipeline(this.device);
+            const tr = await createTrailRecordPipeline(this.device, wgslConstants);
             this._trailRecordPipeline = tr.pipeline;
             this._trailRecordLayout = tr.bindGroupLayout;
         }
@@ -1357,18 +1359,20 @@ export default class GPUPhysics {
     async _ensurePhase5Pipelines() {
         if (this._fieldDeposit) return; // already initialized
 
+        const wgslConstants = buildWGSLConstants();
+
         // Initialize all Phase 5 pipelines in parallel
         const [deposit, evolve, forces, selfGrav, excitation, heatmap, expansion, disint, pairProd] =
             await Promise.all([
-                createFieldDepositPipelines(this.device),
-                createFieldEvolvePipelines(this.device),
-                createFieldForcesPipelines(this.device),
-                createFieldSelfGravPipelines(this.device),
-                createFieldExcitationPipeline(this.device),
-                createHeatmapPipelines(this.device),
-                createExpansionPipeline(this.device),
-                createDisintegrationPipeline(this.device),
-                createPairProductionPipeline(this.device),
+                createFieldDepositPipelines(this.device, wgslConstants),
+                createFieldEvolvePipelines(this.device, wgslConstants),
+                createFieldForcesPipelines(this.device, wgslConstants),
+                createFieldSelfGravPipelines(this.device, wgslConstants),
+                createFieldExcitationPipeline(this.device, wgslConstants),
+                createHeatmapPipelines(this.device, wgslConstants),
+                createExpansionPipeline(this.device, wgslConstants),
+                createDisintegrationPipeline(this.device, wgslConstants),
+                createPairProductionPipeline(this.device, wgslConstants),
             ]);
 
         this._fieldDeposit = deposit;

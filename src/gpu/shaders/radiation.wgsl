@@ -9,15 +9,7 @@
 //
 // Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
-const ALIVE_BIT: u32 = 1u;
-const LL_FORCE_CLAMP: f32 = 0.5;
-const MIN_MASS: f32 = 0.05;
-const EPSILON: f32 = 1e-9;
-const MAX_PHOTONS: u32 = 1024u;
-const MAX_PIONS: u32 = 256u;
-const MAX_SPEED_RATIO: f32 = 0.9999;
-const INERTIA_K: f32 = 0.4;
-const BH_NAKED_FLOOR: f32 = 0.5;
+// Constants provided by generated wgslConstants block.
 
 // PCG hash RNG (high quality, replaces sin-based LCG)
 fn pcgHash(seed: u32) -> u32 {
@@ -28,13 +20,6 @@ fn pcgHash(seed: u32) -> u32 {
 fn pcgRand(seed: u32) -> f32 {
     return f32(pcgHash(seed)) / 4294967296.0;
 }
-
-// Toggle bit constants
-const COULOMB_BIT: u32    = 2u;
-const RELATIVITY_BIT: u32 = 32u;
-const RADIATION_BIT: u32  = 128u;
-const BLACK_HOLE_BIT: u32 = 256u;
-const YUKAWA_BIT: u32     = 2048u;
 
 // ── Packed struct definitions (must match common.wgsl / writeUniforms() byte layout) ──
 
@@ -164,7 +149,7 @@ struct Uniforms {
 fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
-    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
 
     let coulombOn = (u.toggles0 & COULOMB_BIT) != 0u;
     let radiationOn = (u.toggles0 & RADIATION_BIT) != 0u;
@@ -303,7 +288,7 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
 fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
-    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
 
     let blackHoleOn = (u.toggles0 & BLACK_HOLE_BIT) != 0u;
     let radiationOn = (u.toggles0 & RADIATION_BIT) != 0u;
@@ -380,7 +365,7 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
 fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
-    if ((particles[i].flags & ALIVE_BIT) == 0u) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
 
     let yukawaOn = (u.toggles0 & YUKAWA_BIT) != 0u;
     let radiationOn = (u.toggles0 & RADIATION_BIT) != 0u;

@@ -5,18 +5,15 @@
 //   3. insertParticles — one thread per particle, CAS lock insertion
 //   4. computeAggregates — bottom-up aggregation via visitor flags
 
-// ── Constants ──
+// Constants provided by generated wgslConstants block.
+// Shader-specific constants:
 const NONE: i32 = -1;
-const MAX_DEPTH: u32 = 48u;
 const QT_CAPACITY: u32 = 1u; // Leaves hold 1 particle (GPU simplification for lock-free)
 const LOCK_BIT: i32 = -2147483648; // 0x80000000 (MSB)
 
 // Fixed-point scale for atomic min/max (f32 → i32: multiply by 2^16)
 const FP_SCALE: f32 = 65536.0;
 const FP_INV_SCALE: f32 = 0.0000152587890625; // 1/65536
-
-const FLAG_ALIVE: u32 = 1u;
-const FLAG_GHOST: u32 = 16u;
 
 // ── Packed buffer structs (standalone — common.wgsl not prepended) ──
 

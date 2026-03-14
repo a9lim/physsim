@@ -3,26 +3,7 @@
 //
 // Standalone shader — defines own structs (NOT prepended with common.wgsl).
 
-const MAX_PHOTONS: u32 = 1024u;
-const MAX_PIONS: u32 = 256u;
-const BOSON_SOFTENING_SQ: f32 = 4.0;
-const BOSON_MIN_AGE_TIME: f32 = 0.03125; // 4 substeps * PHYSICS_DT(1/128) = 0.03125 time units
-const BOSON_MIN_AGE: u32 = 4u; // pion substep counter guard
-const PHOTON_LIFETIME: f32 = 256.0;
-const EPSILON: f32 = 1e-9;
-
-// Pion decay probabilities (pre-computed from half-lives)
-// PION_DECAY_PROB    = 1 - exp(-ln2 / 32  * (1/128)) = 1 - exp(-0.000216) ≈ 0.0001695
-// CHARGED_PION_DECAY_PROB = 1 - exp(-ln2 / 128 * (1/128)) = 1 - exp(-0.0000540) ≈ 0.0000424
-const PION_DECAY_PROB: f32 = 0.0001695; // pi0 (PION_HALF_LIFE=32, PHYSICS_DT=1/128)
-const CHARGED_PION_DECAY_PROB: f32 = 0.0000423; // pi+/- (CHARGED_PION_HALF_LIFE=128, PHYSICS_DT=1/128)
-const ELECTRON_MASS: f32 = 0.05;
-const MAX_SPEED_RATIO: f32 = 0.99;
-const MAX_PARTICLES: u32 = 4096u;
-
-// Particle flag bits
-const ALIVE_BIT: u32 = 1u;
-const ANTIMATTER_BIT: u32 = 4u;
+// Constants provided by generated wgslConstants block.
 
 // PCG hash RNG (high quality, replaces sin-based LCG)
 fn pcgHash(seed: u32) -> u32 {
@@ -135,7 +116,7 @@ fn updatePhotons(@builtin(global_invocation_id) gid: vec3u) {
 
     // Gravitational deflection: GR gives 2x Newtonian for null geodesic
     for (var j = 0u; j < aliveN; j++) {
-        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        if ((particles[j].flags & FLAG_ALIVE) == 0u) { continue; }
         let dx = particles[j].posX - photons[i].posX;
         let dy = particles[j].posY - photons[i].posY;
         let rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
@@ -185,7 +166,7 @@ fn updatePions(@builtin(global_invocation_id) gid: vec3u) {
     // Gravitational deflection: (1+v^2) factor for massive particle
     let grFactor = 1.0 + vSq;
     for (var j = 0u; j < aliveN; j++) {
-        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        if ((particles[j].flags & FLAG_ALIVE) == 0u) { continue; }
         let dx = particles[j].posX - pions[i].posX;
         let dy = particles[j].posY - pions[i].posY;
         let rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
@@ -222,7 +203,7 @@ fn absorbPhotons(@builtin(global_invocation_id) gid: vec3u) {
 
     // Check all alive particles for overlap
     for (var j = 0u; j < aliveN; j++) {
-        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        if ((particles[j].flags & FLAG_ALIVE) == 0u) { continue; }
         if (particleAux[j].particleId == photons[i].emitterId) { continue; } // self-absorption blocked
 
         let dx = phX - particles[j].posX;
@@ -254,7 +235,7 @@ fn absorbPions(@builtin(global_invocation_id) gid: vec3u) {
     let aliveN = u.aliveCount;
 
     for (var j = 0u; j < aliveN; j++) {
-        if ((particles[j].flags & ALIVE_BIT) == 0u) { continue; }
+        if ((particles[j].flags & FLAG_ALIVE) == 0u) { continue; }
         if (particleAux[j].particleId == pions[i].emitterId) { continue; }
 
         let dx = piX - particles[j].posX;
@@ -440,9 +421,9 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
                     p.charge = f32(pions[i].charge); // +1 or -1
                     p.angW = 0.0;
                     p.baseMass = mE;
-                    p.flags = ALIVE_BIT; // alive
+                    p.flags = FLAG_ALIVE; // alive
                     // Set antimatter flag for pi+ decay
-                    if (pions[i].charge > 0) { p.flags |= ANTIMATTER_BIT; }
+                    if (pions[i].charge > 0) { p.flags |= FLAG_ANTIMATTER; }
                     particles[pIdx] = p;
 
                     // Initialize particleAux: radius=cbrt(mE), deathTime=+Inf, deathMass=0, deathAngVel=0

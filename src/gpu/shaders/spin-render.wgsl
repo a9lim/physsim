@@ -50,17 +50,11 @@ struct ParticleDerived {
 @group(0) @binding(2) var<storage, read> particleAux: array<ParticleAux>;
 @group(0) @binding(3) var<storage, read> derived: array<ParticleDerived>;
 
-const ALIVE_BIT: u32 = 1u;
+// Constants (FLAG_ALIVE, PI, TWO_PI, HALF_PI, COLOR_SPIN_CW, COLOR_SPIN_CCW)
+// provided by generated wgslConstants block.
+// Shader-specific constants:
 const ARC_SEGMENTS: u32 = 32u;
-const PI: f32 = 3.14159265359;
-const TWO_PI: f32 = 6.28318530718;
-const HALF_PI: f32 = 1.5707963268;
 const MIN_ANGVEL: f32 = 0.01;  // Skip drawing for very slow rotation
-
-// Cyan (#4AACA0) for positive angVel (CW), orange (#CC8E4E) for negative (CCW)
-// Theme-dependent alpha applied at vertex output (0.8 light / 0.9 dark)
-const COLOR_CW_RGB: vec3f  = vec3f(0.278, 0.878, 0.780);  // HSLA(170, 80%, 60%)
-const COLOR_CCW_RGB: vec3f = vec3f(0.922, 0.678, 0.278);  // HSLA(30, 80%, 60%)
 
 struct VertexOutput {
     @builtin(position) pos: vec4f,
@@ -75,7 +69,7 @@ fn vs_main(
     var out: VertexOutput;
 
     let p = particles[instIdx];
-    if ((p.flags & ALIVE_BIT) == 0u || vertIdx >= ARC_SEGMENTS) {
+    if ((p.flags & FLAG_ALIVE) == 0u || vertIdx >= ARC_SEGMENTS) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
         out.color = vec4f(0.0);
         return out;
@@ -112,7 +106,7 @@ fn vs_main(
 
     // Cyan for positive angVel (CW), orange for negative (CCW)
     let spinAlpha = select(0.8, 0.9, camera.isDarkMode > 0.5);
-    let rgb = select(COLOR_CCW_RGB, COLOR_CW_RGB, angVel > 0.0);
+    let rgb = select(COLOR_SPIN_CCW, COLOR_SPIN_CW, angVel > 0.0);
     out.color = vec4f(rgb, spinAlpha);
     return out;
 }
