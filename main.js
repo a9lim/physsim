@@ -14,7 +14,7 @@ import MasslessBoson from './src/massless-boson.js';
 import Pion from './src/pion.js';
 
 import { setVelocity, angwToAngVel } from './src/relativity.js';
-import { quickSave, quickLoad, downloadState, uploadState } from './src/save-load.js';
+import { saveState, loadState, quickSave, quickLoad, downloadState, uploadState } from './src/save-load.js';
 
 import { BACKEND_CPU, BACKEND_GPU } from './src/backend-interface.js';
 import CPUPhysics from './src/cpu-physics.js';
@@ -46,6 +46,36 @@ async function selectBackend() {
         console.warn('WebGPU detection failed:', e);
         return { backend: BACKEND_CPU };
     }
+}
+
+// Auto-save for GPU error recovery (lightweight, in-memory only)
+let _gpuAutoSave = null;
+const AUTO_SAVE_INTERVAL = 300;  // frames
+let _autoSaveCounter = 0;
+
+/**
+ * Attempt to re-acquire GPU device after a loss.
+ * Does not auto-switch — just logs availability.
+ */
+async function _attemptGPURecovery() {
+    await new Promise(r => setTimeout(r, 5000));
+    try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) return;
+        const newDevice = await adapter.requestDevice();
+        if (!newDevice) return;
+        console.log('[physsim] WebGPU device recovered — GPU backend available again');
+    } catch (e) {
+        console.warn('[physsim] GPU recovery failed:', e);
+    }
+}
+
+function updateBackendBadge(backend) {
+    const badge = document.getElementById('backend-badge');
+    if (!badge) return;
+    badge.textContent = backend.toUpperCase();
+    badge.classList.toggle('gpu', backend === 'gpu');
+    badge.title = backend === 'gpu' ? 'WebGPU compute + render' : 'CPU physics + Canvas 2D';
 }
 
 class Simulation {
@@ -189,6 +219,7 @@ class Simulation {
         selectBackend().then(async ({ backend, device }) => {
             this.backend = backend;
             this._gpuDevice = device || null;
+            updateBackendBadge(backend);
             console.log(`[physsim] Backend: ${backend}${device ? ' (WebGPU available)' : ''}`);
 
             if (backend === BACKEND_GPU && device) {
@@ -213,8 +244,20 @@ class Simulation {
                     device.lost.then((info) => {
                         console.error('[physsim] GPU device lost:', info.message);
                         this._gpuReady = false;
+                        this.backend = BACKEND_CPU;
+                        updateBackendBadge(BACKEND_CPU);
                         gpuCanvas.remove();
-                        // Full CPU fallback with state restore deferred to Phase 6
+
+                        // Restore from auto-save if available
+                        if (_gpuAutoSave) {
+                            loadState(_gpuAutoSave, this);
+                            showToast('GPU lost \u2014 restored from auto-save (CPU mode)');
+                        } else {
+                            showToast('GPU lost \u2014 switched to CPU mode');
+                        }
+
+                        this._dirty = true;
+                        _attemptGPURecovery();
                     });
 
                     // Test: spawn a few particles with random velocities
@@ -557,6 +600,12 @@ class Simulation {
             this._gpuPhysics.update(PHYSICS_DT * this.speedScale);
             this._gpuRenderer.updateCamera(this.camera);
             this._gpuRenderer.render(this._gpuPhysics.aliveCount);
+
+            // Periodic auto-save for GPU error recovery (non-blocking)
+            if (++_autoSaveCounter >= AUTO_SAVE_INTERVAL) {
+                _autoSaveCounter = 0;
+                this._gpuPhysics.serialize(this).then(state => { _gpuAutoSave = state; });
+            }
         }
 
         // Skip render entirely when nothing has changed (paused, no interaction)
