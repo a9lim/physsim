@@ -265,11 +265,12 @@ class Simulation {
                     // (e.g., preset loaded while shaders were still compiling)
                     if (this.particles.length > 0 && this._gpuPhysics.aliveCount === 0) {
                         for (const p of this.particles) {
-                            this._gpuPhysics.addParticle({
+                            p._gpuIdx = this._gpuPhysics.addParticle({
                                 x: p.pos.x, y: p.pos.y,
                                 vx: p.w.x, vy: p.w.y,
                                 mass: p.mass, charge: p.charge,
                                 angw: p.angw,
+                                antimatter: p.antimatter,
                             });
                         }
                     }
@@ -407,7 +408,7 @@ class Simulation {
 
         if (this._gpuReady && this.backend === BACKEND_GPU) {
             // GPU path: write directly to GPU SoA buffers (after CPU particle is fully built)
-            this._gpuPhysics.addParticle({
+            p._gpuIdx = this._gpuPhysics.addParticle({
                 x, y, vx, vy,
                 mass: p.mass,
                 charge: p.charge,

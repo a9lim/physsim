@@ -1204,6 +1204,19 @@ export default class GPUPhysics {
     }
 
     /**
+     * Remove a particle from the GPU by marking it dead (clearing ALIVE, setting RETIRED).
+     * The dead GC shader will reclaim the slot for reuse by addParticle().
+     * @param {number} idx - GPU buffer index of the particle to remove
+     */
+    removeParticle(idx) {
+        if (idx < 0 || idx >= this.aliveCount) return;
+        // Clear ALIVE bit, set RETIRED bit in flags (byte offset 8 in ParticleState = 32 bytes in)
+        // ParticleState: posX(0), posY(4), velWX(8), velWY(12), mass(16), charge(20), angW(24), baseMass(28), flags(32)
+        const flagData = new Uint32Array([FLAG_RETIRED]); // ALIVE cleared, RETIRED set
+        this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE + 32, flagData);
+    }
+
+    /**
      * Pack toggle booleans into u32 bitfields for GPU uniforms.
      * Must be called whenever a toggle changes.
      */
@@ -2973,6 +2986,7 @@ export default class GPUPhysics {
 
 // Constants (must match common.wgsl / config.js)
 const FLAG_ALIVE = 1;
+const FLAG_RETIRED = 2;
 const FLAG_ANTIMATTER = 4;
 const BOUND_LOOP = 2;
 const COL_MERGE = 1;

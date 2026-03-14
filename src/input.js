@@ -156,6 +156,10 @@ export default class InputHandler {
 
     _deleteParticle(p) {
         this.sim.physics._retireParticle(p);
+        // GPU path: mark particle dead on GPU side
+        if (this.sim._gpuReady && this.sim.backend === 'gpu' && p._gpuIdx != null) {
+            this.sim._gpuPhysics.removeParticle(p._gpuIdx);
+        }
         // A9: swap-and-pop instead of filter (O(1) vs O(N), no allocation)
         const arr = this.sim.particles;
         const idx = arr.indexOf(p);
