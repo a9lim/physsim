@@ -485,10 +485,30 @@ export function createPairProductionBuffers(device, maxEvents = 32) {
     };
 }
 
+// Trail rendering constants
+const TRAIL_LEN = 256;
+
+/**
+ * Allocate trail ring buffer storage for GPU trail rendering.
+ * @param {GPUDevice} device
+ * @param {number} maxParticles
+ */
+export function createTrailBuffers(device, maxParticles) {
+    const posBytes = maxParticles * TRAIL_LEN * 4; // f32
+    const metaBytes = maxParticles * 4; // u32 per particle
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
+    return {
+        trailX:        device.createBuffer({ label: 'trailX',        size: posBytes, usage }),
+        trailY:        device.createBuffer({ label: 'trailY',        size: posBytes, usage }),
+        trailWriteIdx: device.createBuffer({ label: 'trailWriteIdx', size: metaBytes, usage }),
+        trailCount:    device.createBuffer({ label: 'trailCount',    size: metaBytes, usage }),
+    };
+}
+
 export {
     FIELD_GRID_RES, FIELD_GRID_SQ, COARSE_RES, COARSE_SQ, PQS_STENCIL_SIZE,
     PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE,
-    PHOTON_SIZE, PION_SIZE, DERIVED_SIZE, VEC2_SIZE, ALLFORCES_SIZE,
+    PHOTON_SIZE, PION_SIZE, DERIVED_SIZE, VEC2_SIZE, ALLFORCES_SIZE, TRAIL_LEN,
 };
 
 /**

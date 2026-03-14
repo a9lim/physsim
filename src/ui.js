@@ -229,7 +229,10 @@ export function setupUI(sim) {
 
         // 5. Sync toggle state to GPU backend
         if (sim._gpuPhysics && sim._gpuPhysics.setToggles) {
-            sim._gpuPhysics.setToggles(sim.physics);
+            // Extend physics with heatmap state (not a physics property, lives on sim.heatmap)
+            const gpuToggles = Object.create(sim.physics);
+            gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
+            sim._gpuPhysics.setToggles(gpuToggles);
         }
     };
 
@@ -292,6 +295,12 @@ export function setupUI(sim) {
     potentialToggle?.addEventListener('change', (e) => {
         sim.heatmap.enabled = e.target.checked;
         potentialModeBar.style.display = e.target.checked ? '' : 'none';
+        // Sync heatmap state to GPU
+        if (sim._gpuPhysics) {
+            const gpuToggles = Object.create(sim.physics);
+            gpuToggles.heatmapEnabled = e.target.checked;
+            sim._gpuPhysics.setToggles(gpuToggles);
+        }
         sim._dirty = true;
         _haptics.trigger('light');
     });

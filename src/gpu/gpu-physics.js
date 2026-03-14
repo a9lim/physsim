@@ -12,6 +12,7 @@
  *   4a-d. treeBuild           (Phase 3 — if BH enabled)
  *   5. computeForces          (Phase 2 pairwise OR Phase 3 tree walk)
  *   5b. externalFields
+ *   5c. scalarFieldForces      (Phase 5 — gradient forces + mass/axMod modulation, before Boris)
  *   6. borisHalfKick (first)
  *   7. borisRotate
  *   8. borisHalfKick (second)
@@ -22,7 +23,6 @@
  *  13. cosmologicalExpansion  (Phase 5 — if expansionEnabled)
  *  14. compute1PN_VV          (Phase 4 — 1PN recompute + VV correction kick)
  *  15. scalarFieldEvolve      (Phase 5 — deposit → [self-grav] → KDK → gradients)
- *  16. scalarFieldForces      (Phase 5 — Higgs mass mod + Axion axMod/yukMod)
  *  17-18. collisions          (Phase 3 — detect + resolve)
  *  19. fieldExcitations       (Phase 5 — merge KE → wave packets)
  *  20. disintegrationCheck    (Phase 5 — tidal + Roche)
@@ -36,8 +36,8 @@
  *  - deadParticleGC           (Phase 3)
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
-import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createPQSScratchBuffer, createPQSIndexBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, FIELD_GRID_RES, COARSE_RES, COARSE_SQ, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
-import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline } from './gpu-pipelines.js';
+import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createPQSScratchBuffer, createPQSIndexBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, COARSE_RES, COARSE_SQ, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
+import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline } from './gpu-pipelines.js';
 
 const MAX_PARTICLES = 4096;
 const HISTORY_STRIDE = 64;
@@ -186,6 +186,17 @@ export default class GPUPhysics {
         // Phase 5: sgInvR table upload tracking
         this._sgInvRUploaded = { higgs: false, axion: false };
 
+        // Update colors pipeline
+        this._updateColorsPipeline = null;
+        this._updateColorsBindGroup = null;
+        this._colorUniformBuffer = null;
+
+        // Trail recording pipeline + buffers (lazy-allocated)
+        this._trailRecordPipeline = null;
+        this._trailRecordBindGroup = null;
+        this._trailBuffers = null;
+        this._trailsEnabled = true; // default on (matches CPU)
+
         // Adaptive substepping state
         this._maxAccel = 0;
         this._maxAccelPending = false;
@@ -257,6 +268,32 @@ export default class GPUPhysics {
         // --- Phase 4: Advanced physics pipelines ---
         this._phase4 = await createPhase4Pipelines(this.device);
         this._createPhase4BindGroups();
+
+        // --- Update colors compute pipeline ---
+        {
+            const uc = await createUpdateColorsPipeline(this.device);
+            this._updateColorsPipeline = uc.pipeline;
+            this._colorUniformBuffer = this.device.createBuffer({
+                label: 'colorUniforms', size: 16,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            this._updateColorsBindGroup = this.device.createBindGroup({
+                label: 'updateColors',
+                layout: uc.bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: this._colorUniformBuffer } },
+                    { binding: 1, resource: { buffer: this.buffers.particleState } },
+                    { binding: 2, resource: { buffer: this.buffers.color } },
+                ],
+            });
+        }
+
+        // --- Trail recording compute pipeline ---
+        {
+            const tr = await createTrailRecordPipeline(this.device);
+            this._trailRecordPipeline = tr.pipeline;
+            this._trailRecordLayout = tr.bindGroupLayout;
+        }
 
         this._ready = true;
     }
@@ -1110,7 +1147,14 @@ export default class GPUPhysics {
         this.device.queue.writeBuffer(this.buffers.color, idx * 4, u32);
 
         // cacheDerived shader computes derived state before forces each substep.
-        // No need to initialize derived/axYukMod here.
+        // No need to initialize derived here — but axYukMod must be set to (1, 1).
+        // axMod=1 (no EM modulation), yukMod=1 (no Yukawa modulation) is the default.
+        const modData = new Float32Array([1.0, 1.0]); // axMod, yukMod
+        this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 8, modData);
+
+        // Initialize radiationState to zero (jerk, accumulators, display force)
+        const radData = new Float32Array(RADIATION_STATE_SIZE / 4);
+        this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, radData);
 
         this.aliveCount++;
         return idx;
@@ -1328,17 +1372,31 @@ export default class GPUPhysics {
         const data = new ArrayBuffer(256);
         const f = new Float32Array(data);
         const u = new Uint32Array(data);
-        f[0] = dt;
-        f[1] = this.domainW;
-        f[2] = this.domainH;
-        u[3] = this.boundaryMode;
-        u[4] = this.topologyMode;
-        f[5] = this._higgsMass;
-        f[6] = this._axionMass;
-        f[7] = this._higgsCoupling;
-        f[8] = this._axionCoupling;
-        u[9] = this.aliveCount;
-        u[10] = this._fieldGravEnabled ? 1 : 0;
+        // Must match FieldUniforms struct in field-common.wgsl exactly:
+        f[0] = dt;                              // dt
+        f[1] = this.domainW;                    // domainW
+        f[2] = this.domainH;                    // domainH
+        u[3] = this.boundaryMode;               // boundaryMode
+        u[4] = this.topologyMode;               // topologyMode
+        // Higgs params
+        f[5] = this._higgsMass;                 // higgsMass
+        f[6] = this._higgsCoupling;             // higgsCoupling
+        f[7] = 0.05;                            // higgsMassFloor (matches CPU HIGGS_MASS_FLOOR)
+        f[8] = 4.0;                             // higgsMassMaxDelta (matches CPU HIGGS_MASS_MAX_DELTA)
+        // Axion params
+        f[9] = this._axionMass;                 // axionMass
+        f[10] = this._axionCoupling;            // axionCoupling
+        // Toggle bits
+        u[11] = this._higgsEnabled ? 1 : 0;     // higgsEnabled
+        u[12] = this._axionEnabled ? 1 : 0;     // axionEnabled
+        u[13] = (this._toggles0 & 2) ? 1 : 0;   // coulombEnabled
+        u[14] = (this._toggles0 & 2048) ? 1 : 0; // yukawaEnabled
+        u[15] = this._fieldGravEnabled ? 1 : 0;  // gravityEnabled (field self-gravity)
+        u[16] = this._relativityEnabled ? 1 : 0;  // relativityEnabled
+        u[17] = this._blackHoleEnabled ? 1 : 0;   // blackHoleEnabled
+        u[18] = this.aliveCount;                  // particleCount
+        f[19] = this._blackHoleEnabled ? 16 : 64;  // softeningSq
+        f[20] = 0;                                // _pad0
         this.device.queue.writeBuffer(this._fieldUniformBuffer, 0, data);
     }
 
@@ -2169,6 +2227,32 @@ export default class GPUPhysics {
     /** Expose heatmap buffers for renderer overlay drawing */
     getHeatmapBuffers() { return this._heatmapBuffers; }
 
+    /** Expose trail buffers for renderer trail drawing */
+    getTrailBuffers() { return this._trailBuffers; }
+
+    /** Set trails enabled state and lazily allocate trail buffers */
+    setTrailsEnabled(enabled) {
+        this._trailsEnabled = enabled;
+        if (enabled && !this._trailBuffers) {
+            this._trailBuffers = createTrailBuffers(this.device, this.buffers.maxParticles);
+            // Create bind group for trail recording
+            if (this._trailRecordPipeline) {
+                const tb = this._trailBuffers;
+                this._trailRecordBindGroup = this.device.createBindGroup({
+                    label: 'trailRecord',
+                    layout: this._trailRecordLayout,
+                    entries: [
+                        { binding: 0, resource: { buffer: this.buffers.particleState } },
+                        { binding: 1, resource: { buffer: tb.trailX } },
+                        { binding: 2, resource: { buffer: tb.trailY } },
+                        { binding: 3, resource: { buffer: tb.trailWriteIdx } },
+                        { binding: 4, resource: { buffer: tb.trailCount } },
+                    ],
+                });
+            }
+        }
+    }
+
     /**
      * Run one frame: adaptive substepping with full Phase 2 force computation + Boris integrator.
      * When paused, the caller does not call update() — no compute dispatches are issued.
@@ -2216,6 +2300,26 @@ export default class GPUPhysics {
             if (this._relativityEnabled && this._histStride >= HISTORY_STRIDE) {
                 this._histStride = 0;
                 this._dispatchRecordHistory(encoder);
+            }
+
+            // Update particle colors from charge/mass/antimatter state
+            if (this._updateColorsPipeline && this.aliveCount > 0) {
+                const colorData = new Uint32Array([this._blackHoleEnabled ? 1 : 0, 0, 0, 0]);
+                this.device.queue.writeBuffer(this._colorUniformBuffer, 0, colorData);
+                const p = encoder.beginComputePass({ label: 'updateColors' });
+                p.setPipeline(this._updateColorsPipeline);
+                p.setBindGroup(0, this._updateColorsBindGroup);
+                p.dispatchWorkgroups(Math.ceil(this.aliveCount / 64));
+                p.end();
+            }
+
+            // Record trail positions (every frame when trails enabled)
+            if (this._trailRecordPipeline && this._trailBuffers && this._trailsEnabled && this.aliveCount > 0) {
+                const p = encoder.beginComputePass({ label: 'trailRecord' });
+                p.setPipeline(this._trailRecordPipeline);
+                p.setBindGroup(0, this._trailRecordBindGroup);
+                p.dispatchWorkgroups(Math.ceil(this.aliveCount / 64));
+                p.end();
             }
 
             this.device.queue.submit([encoder.finish()]);
@@ -2270,6 +2374,7 @@ export default class GPUPhysics {
         });
 
         const workgroups = Math.ceil(this.aliveCount / 64);
+        if (workgroups === 0) return; // no particles, skip dispatch
         const p2 = this._phase2;
 
         const encoder = this.device.createCommandEncoder({ label: 'physics-substep' });
@@ -2325,6 +2430,14 @@ export default class GPUPhysics {
         pass5b.setBindGroup(0, this._bg_extFields);
         pass5b.dispatchWorkgroups(workgroups);
         pass5b.end();
+
+        // Pass 5c: scalar field forces (Higgs gradient + mass mod, Axion gradient + axMod/yukMod)
+        // Must run BEFORE Boris so gradient forces are included in totalForce for half-kicks.
+        // Uses previous substep's field gradients (computed at end of field evolve).
+        if (this._fieldDeposit && (this._higgsEnabled || this._axionEnabled)) {
+            this._writeFieldUniforms(dtSub);
+        }
+        this._dispatchFieldForces(encoder);
 
         // Pass 6: borisHalfKick (first)
         const pass6 = encoder.beginComputePass({ label: 'halfKick1' });
@@ -2386,8 +2499,7 @@ export default class GPUPhysics {
             if (this._axionEnabled) this._dispatchFieldEvolve(encoder, 'axion', dtSub);
         }
 
-        // Pass 16: scalar field forces
-        this._dispatchFieldForces(encoder);
+        // (Field forces already dispatched at Pass 5c, before Boris)
 
         // Pass 17-18: collision detection + resolution
         this._dispatchCollisions(encoder);
@@ -2592,6 +2704,14 @@ export default class GPUPhysics {
             const u32 = new Uint32Array([0xFF727E8A]);
             this.device.queue.writeBuffer(this.buffers.color, idx * 4, u32);
 
+            // Initialize axMod=1, yukMod=1 (no modulation)
+            const modData = new Float32Array([1.0, 1.0]);
+            this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 8, modData);
+
+            // Initialize radiationState to zero
+            const radData = new Float32Array(RADIATION_STATE_SIZE / 4);
+            this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, radData);
+
             this.aliveCount++;
         }
 
@@ -2607,6 +2727,12 @@ export default class GPUPhysics {
         this._heatmapFrame = 0;
         this._pendingMergeEvents = [];
         this.resetFields();
+        // Clear trail ring buffers
+        if (this._trailBuffers) {
+            const tb = this._trailBuffers;
+            this.device.queue.writeBuffer(tb.trailWriteIdx, 0, new Uint32Array(this.buffers.maxParticles));
+            this.device.queue.writeBuffer(tb.trailCount, 0, new Uint32Array(this.buffers.maxParticles));
+        }
     }
 
     /**

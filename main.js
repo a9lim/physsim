@@ -253,7 +253,9 @@ class Simulation {
                     await this._gpuRenderer.init();
                     this._gpuReady = true;
                     // Sync CPU toggle state to GPU uniforms
-                    this._gpuPhysics.setToggles(this.physics);
+                    const gpuToggles = Object.create(this.physics);
+                    gpuToggles.heatmapEnabled = this.heatmap && this.heatmap.enabled;
+                    this._gpuPhysics.setToggles(gpuToggles);
 
                     // Sync any CPU particles that were added before GPU was ready
                     // (e.g., preset loaded while shaders were still compiling)
@@ -481,6 +483,7 @@ class Simulation {
 
             if (this._gpuReady && this.backend === BACKEND_GPU) {
                 // ─── GPU physics path ───
+                this._gpuPhysics.setCamera(this.camera);
                 const substeps = Math.floor(this.accumulator / PHYSICS_DT);
                 if (substeps > 0) {
                     this._gpuPhysics.update(PHYSICS_DT * substeps);
@@ -662,8 +665,32 @@ class Simulation {
                 this._gpuRenderer.showForce = this.renderer.showForce;
                 this._gpuRenderer.showForceComponents = this.renderer.showForceComponents;
                 this._gpuRenderer.showVelocity = this.renderer.showVelocity;
+                this._gpuRenderer.showTrails = this.renderer.trails;
+                this._gpuRenderer.setDomain(this.domainW, this.domainH);
+
+                // Sync trails enabled to GPU physics (lazy trail buffer allocation)
+                this._gpuPhysics.setTrailsEnabled(this.renderer.trails);
+
+                // Lazily init trail render pipeline when trail buffers become available
+                const trailBufs = this._gpuPhysics.getTrailBuffers();
+                if (trailBufs && !this._gpuRenderer._trailReady) {
+                    this._gpuRenderer.initTrailRendering(trailBufs);
+                }
+
+                // Lazily init field overlay render pipeline when fields are active
                 const ph = this.physics;
-                this._gpuRenderer.render(this._gpuPhysics.aliveCount, {
+                if ((ph.higgsEnabled || ph.axionEnabled) && !this._gpuRenderer._fieldRenderReady) {
+                    this._gpuRenderer.initFieldOverlay();
+                }
+
+                // Lazily init heatmap overlay render pipeline when heatmap is active
+                if (this.heatmap.enabled && !this._gpuRenderer._heatmapRenderReady) {
+                    this._gpuRenderer.initHeatmapOverlay();
+                }
+
+                // Build render opts with field/heatmap buffers
+                const gpuPh = this._gpuPhysics;
+                const renderOpts = {
                     enabledForces: {
                         gravity: ph.gravityEnabled,
                         coulomb: ph.coulombEnabled,
@@ -677,7 +704,42 @@ class Simulation {
                         higgs: ph.higgsEnabled,
                         axion: ph.axionEnabled,
                     },
-                });
+                };
+
+                // Pass field buffers for overlay rendering
+                if (ph.higgsEnabled) {
+                    const hb = gpuPh.getFieldBuffers('higgs');
+                    if (hb) renderOpts.higgsField = hb.field;
+                }
+                if (ph.axionEnabled) {
+                    const ab = gpuPh.getFieldBuffers('axion');
+                    if (ab) renderOpts.axionField = ab.field;
+                }
+
+                // Pass heatmap buffers for overlay rendering
+                if (this.heatmap.enabled) {
+                    const hmBufs = gpuPh.getHeatmapBuffers();
+                    if (hmBufs) {
+                        renderOpts.heatmapBuffers = hmBufs;
+                        // Compute heatmap viewport info from camera
+                        const cam = this.camera;
+                        const viewW = this.width / cam.zoom;
+                        const viewH = this.height / cam.zoom;
+                        const viewLeft = cam.x - viewW / 2;
+                        const viewTop = cam.y - viewH / 2;
+                        renderOpts.heatmapOpts = {
+                            viewLeft,
+                            viewTop,
+                            cellW: viewW / 64,
+                            cellH: viewH / 64,
+                            doGravity: ph.gravityEnabled,
+                            doCoulomb: ph.coulombEnabled,
+                            doYukawa: ph.yukawaEnabled,
+                        };
+                    }
+                }
+
+                this._gpuRenderer.render(gpuPh.aliveCount, renderOpts);
             } else {
                 // ─── CPU render path ───
                 // Throttle heatmap to every HEATMAP_INTERVAL frames (default 4 = ~15fps)

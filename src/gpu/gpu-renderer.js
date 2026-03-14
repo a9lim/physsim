@@ -2,8 +2,10 @@
  * @fileoverview GPURenderer — WebGPU instanced rendering for particles + bosons.
  *
  * Phase 1: particles. Phase 4: photon/pion boson rendering.
+ * Also: spin rings, trails, field overlays, heatmap, force arrows.
  */
-import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline } from './gpu-pipelines.js';
+import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
+import { TRAIL_LEN } from './gpu-buffers.js';
 
 export default class GPURenderer {
     /**
@@ -52,7 +54,7 @@ export default class GPURenderer {
         // Field overlay rendering (Phase 5)
         this._fieldRenderPipeline = null;
         this._fieldRenderBindGroups = {};
-        this._fieldRenderUniformBuffer = null;
+        this._fieldRenderUniformBuffers = null; // per-field: { higgs, axion }
         this._fieldRenderReady = false;
 
         // Heatmap overlay rendering (Phase 5)
@@ -67,10 +69,22 @@ export default class GPURenderer {
         this._arrowUniformBuffer = null;
         this._arrowReady = false;
 
+        // Spin ring rendering
+        this._spinPipeline = null;
+        this._spinBindGroup = null;
+        this._spinReady = false;
+
+        // Trail rendering
+        this._trailPipeline = null;
+        this._trailBindGroup = null;
+        this._trailUniformBuffer = null;
+        this._trailReady = false;
+
         // Visual toggle state (synced from CPU renderer via main.js)
         this.showForce = false;
         this.showForceComponents = false;
         this.showVelocity = false;
+        this.showTrails = true; // default on (matches CPU)
     }
 
     /** Create render pipeline. Must be called after GPUPhysics.init(). */
@@ -136,6 +150,9 @@ export default class GPURenderer {
 
         // --- Arrow render pipeline (force/velocity vectors) ---
         await this._initArrowRendering();
+
+        // --- Spin ring render pipeline ---
+        await this._initSpinRendering();
     }
 
     /** Create boson (photon + pion) render pipelines. */
@@ -234,6 +251,67 @@ export default class GPURenderer {
         }
     }
 
+    /** Create spin ring render pipeline. */
+    async _initSpinRendering() {
+        try {
+            const { pipeline, bindGroupLayout } =
+                await createSpinRenderPipeline(this.device, this.format, this.isLight);
+            this._spinPipeline = pipeline;
+
+            const b = this.buffers;
+            this._spinBindGroup = this.device.createBindGroup({
+                label: 'spinRender',
+                layout: bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: this.cameraBuffer } },
+                    { binding: 1, resource: { buffer: b.particleState } },
+                    { binding: 2, resource: { buffer: b.particleAux } },
+                    { binding: 3, resource: { buffer: b.color } },
+                ],
+            });
+            this._spinReady = true;
+        } catch (e) {
+            console.warn('[physsim] Spin render pipeline creation failed, skipping:', e.message);
+        }
+    }
+
+    /**
+     * Initialize trail render pipeline. Call after trail buffers are allocated.
+     * @param {Object} trailBuffers - from GPUPhysics.getTrailBuffers()
+     */
+    async initTrailRendering(trailBuffers) {
+        if (this._trailReady || !trailBuffers) return;
+        try {
+            const { pipeline, bindGroupLayout } =
+                await createTrailRenderPipeline(this.device, this.format, this.isLight);
+            this._trailPipeline = pipeline;
+
+            this._trailUniformBuffer = this.device.createBuffer({
+                label: 'trailUniforms', size: 16,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+
+            const b = this.buffers;
+            this._trailBindGroup = this.device.createBindGroup({
+                label: 'trailRender',
+                layout: bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: this.cameraBuffer } },
+                    { binding: 1, resource: { buffer: this._trailUniformBuffer } },
+                    { binding: 2, resource: { buffer: trailBuffers.trailX } },
+                    { binding: 3, resource: { buffer: trailBuffers.trailY } },
+                    { binding: 4, resource: { buffer: trailBuffers.trailWriteIdx } },
+                    { binding: 5, resource: { buffer: trailBuffers.trailCount } },
+                    { binding: 6, resource: { buffer: b.color } },
+                    { binding: 7, resource: { buffer: b.particleState } },
+                ],
+            });
+            this._trailReady = true;
+        } catch (e) {
+            console.warn('[physsim] Trail render pipeline creation failed, skipping:', e.message);
+        }
+    }
+
     /** Update camera uniform buffer. Call before render(). */
     updateCamera(camera) {
         this.cameraX = camera.x;
@@ -316,6 +394,39 @@ export default class GPURenderer {
         // Submit particle render immediately (isolate from optional passes that may fail)
         this.device.queue.submit([encoder.finish()]);
 
+        // Pass 1b: Trail rendering (behind particles, but after clear)
+        if (this._trailReady && this.showTrails && aliveCount > 0) {
+            try {
+                // Write trail uniforms
+                const trailData = new ArrayBuffer(16);
+                const tu32 = new Uint32Array(trailData);
+                const tf32 = new Float32Array(trailData);
+                tu32[0] = TRAIL_LEN;
+                tf32[1] = this._domainW || 1;
+                tf32[2] = this._domainH || 1;
+                tf32[3] = 0;
+                this.device.queue.writeBuffer(this._trailUniformBuffer, 0, trailData);
+
+                const trailEncoder = this.device.createCommandEncoder({ label: 'trail-render' });
+                const trailPass = trailEncoder.beginRenderPass({
+                    label: 'trail render',
+                    colorAttachments: [{
+                        view: textureView,
+                        loadOp: 'load',
+                        storeOp: 'store',
+                    }],
+                });
+                trailPass.setPipeline(this._trailPipeline);
+                trailPass.setBindGroup(0, this._trailBindGroup);
+                trailPass.draw(TRAIL_LEN, aliveCount);
+                trailPass.end();
+                this.device.queue.submit([trailEncoder.finish()]);
+            } catch (e) {
+                console.warn('[physsim] Trail render failed, disabling:', e.message);
+                this._trailReady = false;
+            }
+        }
+
         // Pass 2: Field + heatmap overlays (load to preserve particles)
         const hasOverlays = (this._fieldRenderReady && (opts.higgsField || opts.axionField)) ||
             (this._heatmapRenderReady && opts.heatmapBuffers);
@@ -379,6 +490,30 @@ export default class GPURenderer {
             } catch (e) {
                 console.warn('[physsim] Boson render failed, disabling:', e.message);
                 this._bosonReady = false;
+            }
+        }
+
+        // Pass 3b: Spin ring rendering
+        if (this._spinReady && aliveCount > 0) {
+            try {
+                const spinEncoder = this.device.createCommandEncoder({ label: 'spin-render' });
+                const spinPass = spinEncoder.beginRenderPass({
+                    label: 'spin render',
+                    colorAttachments: [{
+                        view: textureView,
+                        loadOp: 'load',
+                        storeOp: 'store',
+                    }],
+                });
+                spinPass.setPipeline(this._spinPipeline);
+                spinPass.setBindGroup(0, this._spinBindGroup);
+                // 32 vertices per arc (line-strip), aliveCount instances
+                spinPass.draw(32, aliveCount);
+                spinPass.end();
+                this.device.queue.submit([spinEncoder.finish()]);
+            } catch (e) {
+                console.warn('[physsim] Spin render failed, disabling:', e.message);
+                this._spinReady = false;
             }
         }
 
@@ -489,11 +624,20 @@ export default class GPURenderer {
         this._fieldRenderPipeline = pipeline;
         this._fieldRenderLayouts = bindGroupLayouts;
 
-        this._fieldRenderUniformBuffer = this.device.createBuffer({
-            label: 'fieldRenderUniforms',
-            size: 128, // FieldRenderUniforms struct (padded to 128)
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
+        // Separate uniform buffers per field to avoid writeBuffer race condition
+        // when both Higgs and Axion draw in the same render pass
+        this._fieldRenderUniformBuffers = {
+            higgs: this.device.createBuffer({
+                label: 'fieldRenderUniforms_higgs',
+                size: 128,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            }),
+            axion: this.device.createBuffer({
+                label: 'fieldRenderUniforms_axion',
+                size: 128,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            }),
+        };
 
         this._fieldRenderReady = true;
     }
@@ -528,7 +672,7 @@ export default class GPURenderer {
             layout: this._fieldRenderLayouts[0],
             entries: [
                 { binding: 0, resource: { buffer: fieldBuffer } },
-                { binding: 1, resource: { buffer: this._fieldRenderUniformBuffer } },
+                { binding: 1, resource: { buffer: this._fieldRenderUniformBuffers[which] } },
             ],
         });
     }
@@ -568,7 +712,7 @@ export default class GPURenderer {
             // color1 (negative/yellow): #CCA84C
             f[16] = 0.800; f[17] = 0.659; f[18] = 0.298; f[19] = 1.0;
         }
-        this.device.queue.writeBuffer(this._fieldRenderUniformBuffer, 0, data);
+        this.device.queue.writeBuffer(this._fieldRenderUniformBuffers[which], 0, data);
 
         pass.setPipeline(this._fieldRenderPipeline);
         pass.setBindGroup(0, this._fieldRenderBindGroups[which]);
@@ -646,11 +790,17 @@ export default class GPURenderer {
     destroy() {
         this.cameraBuffer.destroy();
         if (this._arrowUniformBuffer) this._arrowUniformBuffer.destroy();
+        if (this._trailUniformBuffer) this._trailUniformBuffer.destroy();
+        if (this._fieldRenderUniformBuffers) {
+            this._fieldRenderUniformBuffers.higgs.destroy();
+            this._fieldRenderUniformBuffers.axion.destroy();
+        }
+        if (this._heatmapRenderUniformBuffer) this._heatmapRenderUniformBuffer.destroy();
     }
 }
 
 async function fetchShader(filename) {
-    const resp = await fetch(`src/gpu/shaders/${filename}?v=2`);
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=7`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
     return resp.text();
 }

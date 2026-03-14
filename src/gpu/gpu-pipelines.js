@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 6;
+const SHADER_VERSION = 7;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename) {
@@ -1147,6 +1147,152 @@ export async function createPairProductionPipeline(device) {
     });
 
     return { pipeline, bindGroupLayouts };
+}
+
+/**
+ * Create update-colors compute pipeline.
+ * Standalone shader (defines own structs).
+ * Bindings: ColorUniforms (uniform), particleState (ro), color (rw).
+ */
+export async function createUpdateColorsPipeline(device) {
+    const code = await fetchShader('update-colors.wgsl');
+    const module = device.createShaderModule({ label: 'updateColors', code });
+
+    const bindGroupLayout = device.createBindGroupLayout({
+        label: 'updateColors_g0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        ],
+    });
+
+    const pipeline = device.createComputePipeline({
+        label: 'updateColors',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        compute: { module, entryPoint: 'main' },
+    });
+
+    return { pipeline, bindGroupLayout };
+}
+
+/**
+ * Create spin ring render pipeline.
+ * Standalone shader (defines own structs).
+ * Bindings: camera (uniform), particleState (ro), particleAux (ro), color (ro).
+ */
+export async function createSpinRenderPipeline(device, format, isLight) {
+    const code = await fetchShader('spin-render.wgsl');
+    const module = device.createShaderModule({ label: 'spinRender', code });
+
+    const bindGroupLayout = device.createBindGroupLayout({
+        label: 'spinRender_g0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+        ],
+    });
+
+    const blendState = isLight
+        ? {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        }
+        : {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+        };
+
+    const pipeline = device.createRenderPipeline({
+        label: 'spinRender',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        vertex: { module, entryPoint: 'vs_main' },
+        fragment: {
+            module, entryPoint: 'fs_main',
+            targets: [{ format, blend: blendState }],
+        },
+        primitive: { topology: 'line-strip' },
+    });
+
+    return { pipeline, bindGroupLayout };
+}
+
+/**
+ * Create trail recording compute pipeline.
+ * Standalone shader (defines own structs).
+ * Bindings: particleState (ro), trailX/Y (rw), trailWriteIdx/Count (rw).
+ */
+export async function createTrailRecordPipeline(device) {
+    const code = await fetchShader('trails.wgsl');
+    const module = device.createShaderModule({ label: 'trailRecord', code });
+
+    const bindGroupLayout = device.createBindGroupLayout({
+        label: 'trailRecord_g0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        ],
+    });
+
+    const pipeline = device.createComputePipeline({
+        label: 'trailRecord',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        compute: { module, entryPoint: 'main' },
+    });
+
+    return { pipeline, bindGroupLayout };
+}
+
+/**
+ * Create trail render pipeline (line-strip per particle instance).
+ * Standalone shader.
+ * Bindings: camera (uniform), trailParams (uniform), trailX/Y (ro), trailWriteIdx/Count (ro), color (ro), particles (ro).
+ */
+export async function createTrailRenderPipeline(device, format, isLight) {
+    const code = await fetchShader('trail-render.wgsl');
+    const module = device.createShaderModule({ label: 'trailRender', code });
+
+    const bindGroupLayout = device.createBindGroupLayout({
+        label: 'trailRender_g0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
+            { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 6, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+            { binding: 7, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+        ],
+    });
+
+    const blendState = isLight
+        ? {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        }
+        : {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+        };
+
+    const pipeline = device.createRenderPipeline({
+        label: 'trailRender',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        vertex: { module, entryPoint: 'vs_main' },
+        fragment: {
+            module, entryPoint: 'fs_main',
+            targets: [{ format, blend: blendState }],
+        },
+        primitive: { topology: 'line-strip' },
+    });
+
+    return { pipeline, bindGroupLayout };
 }
 
 /**
