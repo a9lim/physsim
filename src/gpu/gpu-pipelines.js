@@ -873,3 +873,60 @@ export async function createGhostGenPipeline(device) {
 
     return { pipeline, bindGroupLayouts: [group0Layout, group1Layout, group2Layout] };
 }
+
+/**
+ * Create field deposition pipelines (Phase 5: scalar field two-pass PQS).
+ * Entry points from field-deposit.wgsl (prepended with field-common.wgsl):
+ *   scatterDeposit, scatterDepositAxion, scatterDepositThermal, gatherDeposit, clearGrid
+ *
+ * Bind groups:
+ *   Group 0: particle SoA (8 read-only bindings)
+ *   Group 1: scratch + target grid + uniforms (4 bindings)
+ */
+export async function createFieldDepositPipelines(device) {
+    const fieldCommonWGSL = await fetchShader('field-common.wgsl');
+    const depositWGSL = await fetchShader('field-deposit.wgsl');
+    const code = fieldCommonWGSL + '\n' + depositWGSL;
+    const module = device.createShaderModule({ label: 'fieldDeposit', code });
+
+    // Group 0: particle SoA (8 read-only bindings)
+    const group0Layout = device.createBindGroupLayout({
+        label: 'fieldDeposit_group0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // posX
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // posY
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // mass
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // baseMass
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // charge
+            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // flags
+            { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // velWX
+            { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // velWY
+        ],
+    });
+
+    // Group 1: scratch weights + scratch indices + target grid + uniforms
+    const group1Layout = device.createBindGroupLayout({
+        label: 'fieldDeposit_group1',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // scratchWeights
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // scratchIndices
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // targetGrid
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },           // FieldUniforms
+        ],
+    });
+
+    const bindGroupLayouts = [group0Layout, group1Layout];
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
+
+    const entryPoints = ['scatterDeposit', 'scatterDepositAxion', 'scatterDepositThermal', 'gatherDeposit', 'clearGrid'];
+    const pipelines = {};
+    for (const entry of entryPoints) {
+        pipelines[entry] = device.createComputePipeline({
+            label: entry,
+            layout: pipelineLayout,
+            compute: { module, entryPoint: entry },
+        });
+    }
+
+    return { ...pipelines, bindGroupLayouts };
+}
