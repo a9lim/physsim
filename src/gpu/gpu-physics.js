@@ -2891,6 +2891,13 @@ export default class GPUPhysics {
             this.device.queue.writeBuffer(this.buffers.freeTop, 0, new Uint32Array([0]));
         }
         this.resetFields();
+        // Clear boson pools
+        if (this.buffers.phCount) {
+            this.device.queue.writeBuffer(this.buffers.phCount, 0, new Uint32Array([0]));
+        }
+        if (this.buffers.piCount) {
+            this.device.queue.writeBuffer(this.buffers.piCount, 0, new Uint32Array([0]));
+        }
         // Clear trail ring buffers
         if (this._trailBuffers) {
             const tb = this._trailBuffers;
