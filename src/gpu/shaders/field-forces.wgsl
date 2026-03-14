@@ -46,10 +46,9 @@ struct AllForces_FF {
     _pad: vec2<f32>,
 };
 
-// Group 0: particleState (rw) + particleAux (rw for encoder compat) + derived (rw)
+// Group 0: particleState (rw) + derived (rw) — particleAux removed (not used by this shader)
 @group(0) @binding(0) var<storage, read_write> particles: array<ParticleState_FF>;
-@group(0) @binding(1) var<storage, read_write> particleAux: array<ParticleAux_FF>;
-@group(0) @binding(2) var<storage, read_write> derived: array<ParticleDerived_FF>;
+@group(0) @binding(1) var<storage, read_write> derived: array<ParticleDerived_FF>;
 
 // Higgs field arrays (read_write for encoder compat)
 @group(1) @binding(0) var<storage, read_write> higgsField: array<f32>;
