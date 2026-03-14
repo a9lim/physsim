@@ -1,12 +1,13 @@
 // Boris rotation: rotate w in the combined Bz + Bgz + extBz magnetic plane.
 // Preserves |w| exactly (symplectic rotation).
+// Reads bFields from packed AllForces struct.
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
 @group(0) @binding(1) var<storage, read_write> velWX: array<f32>;
 @group(0) @binding(2) var<storage, read_write> velWY: array<f32>;
 @group(0) @binding(3) var<storage, read> charge: array<f32>;
 @group(0) @binding(4) var<storage, read> mass: array<f32>;
-@group(0) @binding(5) var<storage, read> bFields: array<vec4<f32>>;  // Bz, Bgz, extBz, pad
+@group(0) @binding(5) var<storage, read> allForces: array<AllForces>;
 @group(0) @binding(6) var<storage, read> flags: array<u32>;
 
 @compute @workgroup_size(64)
@@ -23,7 +24,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (m < EPSILON) { return; }
     let invM = 1.0 / m;
     let q = charge[idx];
-    let bf = bFields[idx];
+    let bf = allForces[idx].bFields;
     let totalBz = bf.x;    // accumulated Bz (includes extBz)
     let totalBgz = bf.y;   // accumulated Bgz
 

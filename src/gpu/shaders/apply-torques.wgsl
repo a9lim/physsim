@@ -1,5 +1,6 @@
 // Apply accumulated torques to angular proper velocity.
-// torques buffer: [spinOrbit, frameDrag, tidal, contact]
+// Reads torques from packed AllForces struct.
+// Updates angVel in packed ParticleDerived struct.
 // Torque = I * dw/dt => dw = torque * dt / I
 // I = INERTIA_K * m * r^2
 
@@ -7,9 +8,9 @@
 @group(0) @binding(1) var<storage, read_write> angW: array<f32>;
 @group(0) @binding(2) var<storage, read> mass: array<f32>;
 @group(0) @binding(3) var<storage, read> radius: array<f32>;
-@group(0) @binding(4) var<storage, read> torques: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read> allForces: array<AllForces>;
 @group(0) @binding(5) var<storage, read> flags: array<u32>;
-@group(0) @binding(6) var<storage, read_write> angVelBuf: array<f32>;
+@group(0) @binding(6) var<storage, read_write> derived: array<ParticleDerived>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -21,7 +22,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let hasGrav = hasToggle0(GRAVITY_BIT);
     let relOn = hasToggle0(RELATIVITY_BIT);
 
-    let t = torques[idx]; // spinOrbit, frameDrag, tidal, contact
+    let t = allForces[idx].torques; // spinOrbit, frameDrag, tidal, contact
     var torque: f32 = 0.0;
     if (hasGM && relOn) { torque += t.y; }  // frame drag
     if (hasGrav) { torque += t.z; }         // tidal
@@ -44,5 +45,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let newAngVel = select(aw, aw / sqrt(1.0 + sr * sr), relOn);
 
     angW[idx] = aw;
-    angVelBuf[idx] = newAngVel;
+
+    // Update angVel in derived struct
+    var d = derived[idx];
+    d.angVel = newAngVel;
+    derived[idx] = d;
 }

@@ -1,6 +1,33 @@
 // ─── Scalar Field → Particle Forces ───
 // One thread per particle. PQS-interpolated gradient forces + Higgs mass modulation.
 
+// Packed struct (mirrors common.wgsl ParticleDerived for standalone field shaders)
+struct ParticleDerived_FF {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
+// Packed struct (mirrors common.wgsl AllForces)
+struct AllForces_FF {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
 @group(0) @binding(0) var<storage, read> posX: array<f32>;
 @group(0) @binding(1) var<storage, read> posY: array<f32>;
 @group(0) @binding(2) var<storage, read_write> mass: array<f32>;
@@ -11,7 +38,7 @@
 @group(0) @binding(7) var<storage, read_write> velWY: array<f32>;
 @group(0) @binding(8) var<storage, read_write> angW: array<f32>;
 @group(0) @binding(9) var<storage, read_write> radius: array<f32>;
-@group(0) @binding(10) var<storage, read_write> invMassRadSq: array<vec2<f32>>; // packed: invMass, radiusSq
+@group(0) @binding(10) var<storage, read_write> derived: array<ParticleDerived_FF>; // packed derived state
 
 // Higgs field arrays
 @group(1) @binding(0) var<storage, read> higgsField: array<f32>;
@@ -22,13 +49,9 @@
 @group(1) @binding(4) var<storage, read> axionGradX: array<f32>;
 @group(1) @binding(5) var<storage, read> axionGradY: array<f32>;
 
-// Force accumulators (forces4 = external.xy, higgs.xy; forces5 = axion.xy, pad, pad)
-@group(2) @binding(0) var<storage, read_write> forces4: array<vec4<f32>>;
-@group(2) @binding(1) var<storage, read_write> forces5: array<vec4<f32>>;
-@group(2) @binding(2) var<storage, read_write> totalForce: array<vec2<f32>>;
-// axMod/yukMod output
-@group(2) @binding(3) var<storage, read_write> axMod: array<f32>;
-@group(2) @binding(4) var<storage, read_write> yukMod: array<f32>;
+// Packed force accumulators + axYukMod output
+@group(2) @binding(0) var<storage, read_write> allForces: array<AllForces_FF>;
+@group(2) @binding(1) var<storage, read_write> axYukMod: array<vec2<f32>>; // packed: axMod, yukMod
 
 @group(3) @binding(0) var<uniform> uniforms: FieldUniforms;
 
@@ -136,9 +159,9 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     mass[pid] = newMass;
     let bodyR = pow(newMass, 1.0 / 3.0);  // cbrt
     radius[pid] = bodyR;
-    var imrs = invMassRadSq[pid];
-    imrs.x = 1.0 / newMass;
-    invMassRadSq[pid] = imrs;
+    var d = derived[pid];
+    d.invMass = 1.0 / newMass;
+    derived[pid] = d;
 
     // ── Gradient force: F = +g * baseMass * sign(phi) * grad(phi) ──
     let grad = pqsGradient(&higgsGradX, &higgsGradY, px, py, invCellW, invCellH, bcMode, topoMode);
@@ -147,16 +170,13 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let fx = g * bm * signPhi * grad.x;
     let fy = g * bm * signPhi * grad.y;
 
-    // Accumulate into higgs force slot (forces4.zw)
-    var f4 = forces4[pid];
-    f4.z += fx;
-    f4.w += fy;
-    forces4[pid] = f4;
-
-    var tf = totalForce[pid];
-    tf.x += fx;
-    tf.y += fy;
-    totalForce[pid] = tf;
+    // Accumulate into higgs force slot (allForces.f4.zw) and totalForce
+    var af = allForces[pid];
+    af.f4.z += fx;
+    af.f4.w += fy;
+    af.totalForce.x += fx;
+    af.totalForce.y += fy;
+    allForces[pid] = af;
 }
 
 // ─── Apply Axion Forces + Modulation ───
@@ -183,10 +203,9 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ga = g * aLocal;
 
     // axMod: scalar EM coupling
+    var aymVal = vec2<f32>(1.0, 1.0);
     if (uniforms.coulombEnabled != 0u) {
-        axMod[pid] = select(0.0, 1.0 + ga, ga > -1.0);
-    } else {
-        axMod[pid] = 1.0;
+        aymVal.x = select(0.0, 1.0 + ga, ga > -1.0);
     }
 
     // yukMod: pseudoscalar PQ coupling (flips for antimatter)
@@ -194,10 +213,9 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
         let isAnti = (flag & 4u) != 0u;
         let sign = select(1.0, -1.0, isAnti);
         let pq = sign * ga;
-        yukMod[pid] = select(0.0, 1.0 + pq, pq > -1.0);
-    } else {
-        yukMod[pid] = 1.0;
+        aymVal.y = select(0.0, 1.0 + pq, pq > -1.0);
     }
+    axYukMod[pid] = aymVal;
 
     // Gradient force
     var coupling: f32 = 0.0;
@@ -220,14 +238,11 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let fx = g * coupling * grad.x;
     let fy = g * coupling * grad.y;
 
-    // Accumulate into axion force slot (forces5.xy)
-    var f5 = forces5[pid];
-    f5.x += fx;
-    f5.y += fy;
-    forces5[pid] = f5;
-
-    var tf = totalForce[pid];
-    tf.x += fx;
-    tf.y += fy;
-    totalForce[pid] = tf;
+    // Accumulate into axion force slot (allForces.f5.xy) and totalForce
+    var af = allForces[pid];
+    af.f5.x += fx;
+    af.f5.y += fy;
+    af.totalForce.x += fx;
+    af.totalForce.y += fy;
+    allForces[pid] = af;
 }

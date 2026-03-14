@@ -23,6 +23,32 @@ const RADIATION_BIT: u32  = 128u;
 const BLACK_HOLE_BIT: u32 = 256u;
 const YUKAWA_BIT: u32     = 2048u;
 
+// Packed structs (mirrors common.wgsl definitions for standalone shader)
+struct RadDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
+struct RadAllForces {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
 struct Uniforms {
     dt: f32,
     simTime: f32,
@@ -48,15 +74,15 @@ struct Uniforms {
 @group(1) @binding(4) var<storage, read_write> mass: array<f32>;
 @group(1) @binding(5) var<storage, read> charge_buf: array<f32>;
 @group(1) @binding(6) var<storage, read> flags: array<u32>;
-@group(1) @binding(7) var<storage, read_write> invMassRadSq: array<vec2<f32>>; // packed: invMass, radiusSq
+@group(1) @binding(7) var<storage, read_write> derived_rad: array<RadDerived>; // packed derived state
 @group(1) @binding(8) var<storage, read_write> baseMass: array<f32>;
 @group(1) @binding(9) var<storage, read> radius: array<f32>;
 @group(1) @binding(10) var<storage, read> angW_buf: array<f32>;
 @group(1) @binding(11) var<storage, read> particleId: array<u32>;
 
 // Force/jerk inputs (read)
-@group(1) @binding(12) var<storage, read> force_total: array<vec2<f32>>;   // packed totalForce
-@group(1) @binding(13) var<storage, read> jerk_buf: array<f32>;  // interleaved [x0, y0, x1, y1, ...]
+@group(1) @binding(12) var<storage, read> allForces_rad: array<RadAllForces>;
+@group(1) @binding(13) var<storage, read> jerk_buf: array<vec2<f32>>;  // packed [jerkX, jerkY] per particle
 @group(1) @binding(14) var<storage, read> yukForceX: array<f32>;
 @group(1) @binding(15) var<storage, read> yukForceY: array<f32>;
 
@@ -115,12 +141,13 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
 
     let gamma = sqrt(1.0 + wMagSq);
     let qSq = charge_buf[i] * charge_buf[i];
-    let mInv = invMassRadSq[i].x;
+    let mInv = derived_rad[i].invMass;
     let tau = 2.0 / 3.0 * qSq * mInv;
 
     // Term 1: analytical jerk (pre-accumulated in force pass)
-    var jerkXVal = jerk_buf[i * 2u];
-    var jerkYVal = jerk_buf[i * 2u + 1u];
+    let jerkVec = jerk_buf[i];
+    var jerkXVal = jerkVec.x;
+    var jerkYVal = jerkVec.y;
 
     var fRadX = tau * jerkXVal;
     var fRadY = tau * jerkYVal;
@@ -133,7 +160,7 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
 
         let invGamma = 1.0 / gamma;
         let vx = wx * invGamma; let vy = wy * invGamma;
-        let ftv = force_total[i]; let fx = ftv.x; let fy = ftv.y;
+        let ftv = allForces_rad[i].totalForce; let fx = ftv.x; let fy = ftv.y;
         let fSq = fx * fx + fy * fy;
         let vDotF = vx * fx + vy * fy;
 
@@ -145,7 +172,7 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
 
     // LL force clamp: |F_rad| <= 0.5 * |F_ext|
     let fRadMag = sqrt(fRadX * fRadX + fRadY * fRadY);
-    let ftv2 = force_total[i];
+    let ftv2 = allForces_rad[i].totalForce;
     let fExtMag = sqrt(ftv2.x * ftv2.x + ftv2.y * ftv2.y);
     let maxFRad = LL_FORCE_CLAMP * fExtMag;
     if (fRadMag > maxFRad && fRadMag > EPSILON * EPSILON) {
@@ -179,7 +206,7 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
         let phIdx = atomicAdd(&phCount, 1u);
         if (phIdx < MAX_PHOTONS) {
             // Emit along -acceleration direction (simplified dipole pattern)
-            let ftv3 = force_total[i];
+            let ftv3 = allForces_rad[i].totalForce;
             let ax = ftv3.x * mInv;
             let ay = ftv3.y * mInv;
             let aMag = sqrt(ax * ax + ay * ay);
@@ -239,9 +266,9 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     if (dE <= 0.0) { return; }
 
     mass[i] -= dE;
-    var imrs = invMassRadSq[i];
-    imrs.x = 1.0 / mass[i];
-    invMassRadSq[i] = imrs;
+    var drd = derived_rad[i];
+    drd.invMass = 1.0 / mass[i];
+    derived_rad[i] = drd;
     baseMass[i] *= 1.0 - dE / (mass[i] + dE);
     hawkAccum[i] += dE;
 

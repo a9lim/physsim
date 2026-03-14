@@ -1,12 +1,8 @@
 // Compute all derived particle properties at start of each substep.
-// radius = cbrt(mass)
-// gamma = sqrt(1 + wSq)
-// invMass = 1 / mass
-// radiusSq = radius^2
-// angVel = angw / sqrt(1 + angw^2 * r^2) (when relativity on, else = angw)
-// magMoment = MAG_MOMENT_K * charge * angVel * radiusSq
-// angMomentum = INERTIA_K * mass * angVel * radiusSq
-// velX, velY = coordinate velocity from proper velocity
+// Outputs packed ParticleDerived struct: magMoment, angMomentum, invMass, radiusSq,
+// velX, velY, angVel.
+// Also writes radius buffer (used by other shaders independently).
+// 8 storage buffers (was 12).
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
 @group(0) @binding(1) var<storage, read> massBuf: array<f32>;
@@ -15,12 +11,8 @@
 @group(0) @binding(4) var<storage, read> angWBuf: array<f32>;
 @group(0) @binding(5) var<storage, read> chargeBuf: array<f32>;
 @group(0) @binding(6) var<storage, read_write> radiusBuf: array<f32>;
-@group(0) @binding(7) var<storage, read_write> gammaBuf: array<f32>;
-@group(0) @binding(8) var<storage, read_write> magAngMomBuf: array<vec2<f32>>;  // packed: magMoment, angMomentum
-@group(0) @binding(9) var<storage, read_write> velBuf: array<vec2<f32>>;        // packed: velX, velY
-@group(0) @binding(10) var<storage, read_write> angVelBuf: array<f32>;
-@group(0) @binding(11) var<storage, read_write> invMassRadSqBuf: array<vec2<f32>>; // packed: invMass, radiusSq
-@group(0) @binding(12) var<storage, read> flags: array<u32>;
+@group(0) @binding(7) var<storage, read_write> derived: array<ParticleDerived>;
+@group(0) @binding(8) var<storage, read> flags: array<u32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -56,11 +48,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let magMom = MAG_MOMENT_K * q * angVel * rSq;
     let angMom = INERTIA_K * m * angVel * rSq;
 
-    // Write all derived quantities
+    // Write radius (separate buffer, used by many shaders)
     radiusBuf[idx] = r;
-    gammaBuf[idx] = g;
-    invMassRadSqBuf[idx] = vec2(invM, rSq);
-    velBuf[idx] = vec2(vx, vy);
-    angVelBuf[idx] = angVel;
-    magAngMomBuf[idx] = vec2(magMom, angMom);
+
+    // Write packed derived struct
+    var d: ParticleDerived;
+    d.magMoment = magMom;
+    d.angMomentum = angMom;
+    d.invMass = invM;
+    d.radiusSq = rSq;
+    d.velX = vx;
+    d.velY = vy;
+    d.angVel = angVel;
+    d._pad = 0.0;
+    derived[idx] = d;
 }

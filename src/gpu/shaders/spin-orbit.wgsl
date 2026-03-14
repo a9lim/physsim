@@ -2,6 +2,8 @@
 // Stern-Gerlach: F = +mu * grad(Bz) (magnetic moment in B-field gradient)
 // Mathisson-Papapetrou: F = -L * grad(Bgz) (angular momentum in gravitomagnetic gradient)
 // Energy coupling: transfers KE between translational and rotational DOFs.
+//
+// 9 storage buffers (was 12). Uses packed AllForces + ParticleDerived.
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
 @group(0) @binding(1) var<storage, read_write> velWX: array<f32>;
@@ -9,13 +11,10 @@
 @group(0) @binding(3) var<storage, read_write> angW: array<f32>;
 @group(0) @binding(4) var<storage, read> mass: array<f32>;
 @group(0) @binding(5) var<storage, read> charge: array<f32>;
-@group(0) @binding(6) var<storage, read> vel: array<vec2<f32>>;           // packed velX, velY
-@group(0) @binding(7) var<storage, read> magAngMom: array<vec2<f32>>;     // packed magMoment, angMomentum
-@group(0) @binding(8) var<storage, read> radius: array<f32>;
-@group(0) @binding(9) var<storage, read> bFieldGrads: array<vec4<f32>>;  // dBzdx, dBzdy, dBgzdx, dBgzdy
-@group(0) @binding(10) var<storage, read> flags: array<u32>;
-@group(0) @binding(11) var<storage, read_write> angVelBuf: array<f32>;
-@group(0) @binding(12) var<storage, read_write> forces2: array<vec4<f32>>; // f1pn.xy, spinCurv.xy
+@group(0) @binding(6) var<storage, read> radius: array<f32>;
+@group(0) @binding(7) var<storage, read_write> derived: array<ParticleDerived>;
+@group(0) @binding(8) var<storage, read> flags: array<u32>;
+@group(0) @binding(9) var<storage, read_write> allForces: array<AllForces>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -29,11 +28,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (!spinOrbitOn || (!hasMag && !hasGM)) { return; }
 
     let aw = angW[idx];
-    let aVel = angVelBuf[idx];
+    let d = derived[idx];
+    let aVel = d.angVel;
     if (abs(aVel) < EPSILON) { return; }
 
-    let mam = magAngMom[idx];
-    let angMom = mam.y;
+    let angMom = d.angMomentum;
     if (abs(angMom) < EPSILON) { return; }
 
     let m = mass[idx];
@@ -43,17 +42,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let r = radius[idx];
     let relOn = hasToggle0(RELATIVITY_BIT);
 
-    let v = vel[idx];
-    let vx = v.x;
-    let vy = v.y;
-    let mu = mam.x;
+    let vx = d.velX;
+    let vy = d.velY;
+    let mu = d.magMoment;
     let L = angMom;
 
-    let bg = bFieldGrads[idx]; // dBzdx, dBzdy, dBgzdx, dBgzdy
-    let dBzdx = bg.x;
-    let dBzdy = bg.y;
-    let dBgzdx = bg.z;
-    let dBgzdy = bg.w;
+    let af = allForces[idx];
+    let dBzdx = af.bFieldGrads.x;
+    let dBzdy = af.bFieldGrads.y;
+    let dBgzdx = af.bFieldGrads.z;
+    let dBgzdy = af.bFieldGrads.w;
 
     var newAngW = aw;
     var kickX: f32 = 0.0;
@@ -93,15 +91,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let newAngVel = select(newAngW, newAngW / sqrt(1.0 + sr * sr), relOn);
 
     angW[idx] = newAngW;
-    angVelBuf[idx] = newAngVel;
+
+    // Update angVel in derived struct
+    var dOut = derived[idx];
+    dOut.angVel = newAngVel;
+    derived[idx] = dOut;
 
     // Apply translational kicks to proper velocity
     velWX[idx] = velWX[idx] + kickX;
     velWY[idx] = velWY[idx] + kickY;
 
-    // Store spin-curvature display force
-    var f2 = forces2[idx];
-    f2.z = scX;
-    f2.w = scY;
-    forces2[idx] = f2;
+    // Store spin-curvature display force in allForces.f2.zw
+    var afOut = allForces[idx];
+    afOut.f2.z = scX;
+    afOut.f2.w = scY;
+    allForces[idx] = afOut;
 }

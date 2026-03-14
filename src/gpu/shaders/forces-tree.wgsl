@@ -74,6 +74,32 @@ struct SimUniforms {
     totalCount: u32,
 };
 
+// Packed structs (mirrors common.wgsl definitions for standalone shader)
+struct AllForces_FT {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
+struct ParticleDerived_FT {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32,
+    velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
 @group(0) @binding(0) var<storage, read> nodes: array<u32>;
 @group(0) @binding(1) var<uniform> uniforms: SimUniforms;
 
@@ -87,23 +113,18 @@ struct SimUniforms {
 @group(1) @binding(6) var<storage, read> angW_in: array<f32>;
 @group(1) @binding(7) var<storage, read> flags_in: array<u32>;
 @group(1) @binding(8) var<storage, read> radius_in: array<f32>;
-@group(1) @binding(9) var<storage, read> magAngMom_in: array<vec2<f32>>; // packed magMoment, angMomentum
-@group(1) @binding(10) var<storage, read> axMod_in: array<f32>;
-@group(1) @binding(11) var<storage, read> yukMod_in: array<f32>;
-@group(1) @binding(12) var<storage, read> particleId_in: array<u32>;
+@group(1) @binding(9) var<storage, read> derived_in: array<ParticleDerived_FT>;
+@group(1) @binding(10) var<storage, read> axYukMod_in: array<vec2<f32>>; // packed: axMod, yukMod
+@group(1) @binding(11) var<storage, read> particleId_in: array<u32>;
 
 // Ghost->original mapping
-@group(1) @binding(13) var<storage, read> ghostOriginalIdx: array<u32>;
+@group(1) @binding(12) var<storage, read> ghostOriginalIdx: array<u32>;
 
 // Death metadata (for retired particle forces)
-@group(1) @binding(14) var<storage, read> deathMass_in: array<f32>;
+@group(1) @binding(13) var<storage, read> deathMass_in: array<f32>;
 
-// Force accumulators (output, same layout as Phase 2)
-@group(2) @binding(0) var<storage, read_write> forces0: array<vec4<f32>>; // gravity.xy, coulomb.xy
-@group(2) @binding(1) var<storage, read_write> forces1: array<vec4<f32>>; // magnetic.xy, gravitomag.xy
-@group(2) @binding(2) var<storage, read_write> forces3: array<vec4<f32>>; // radiation.xy, yukawa.xy
-@group(2) @binding(3) var<storage, read_write> bFields: array<vec4<f32>>; // Bz, Bgz, extBz, pad
-@group(2) @binding(4) var<storage, read_write> torques: array<vec4<f32>>; // spinOrbit, frameDrag, tidal, pad
+// Packed force accumulators (matches AllForces struct from common.wgsl)
+@group(2) @binding(0) var<storage, read_write> allForces: array<AllForces_FT>;
 
 // Shared pairForce function (from pair-force.wgsl, imported or inlined)
 // This function accumulates E-like forces and B-field contributions
@@ -145,11 +166,14 @@ fn accumulateForce(
         axModPair = sqrt(pAxMod * sAxMod);
     }
 
+    var af = allForces[pIdx];
+
     // Gravity: +m1*m2/r^2 (attractive)
     if ((toggles & GRAVITY_BIT) != 0u) {
         let k = pMass * sMass;
         let fDir = k * invR3;
-        forces0[pIdx] += vec4<f32>(rx * fDir, ry * fDir, 0.0, 0.0);
+        af.f0.x += rx * fDir;
+        af.f0.y += ry * fDir;
 
         // Tidal locking torque
         let crossRV = rx * (svy - pVelY) - ry * (svx - pVelX);
@@ -161,14 +185,15 @@ fn accumulateForce(
         }
         let ri5 = pBodyRadiusSq * pBodyRadiusSq * pow(pMass, 1.0/3.0);
         let invR6 = invRSq * invRSq * invRSq;
-        torques[pIdx] += vec4<f32>(0.0, 0.0, -TIDAL_STRENGTH * coupling * coupling * ri5 * invR6 * dw, 0.0);
+        af.torques.z += -TIDAL_STRENGTH * coupling * coupling * ri5 * invR6 * dw;
     }
 
     // Coulomb: -q1*q2/r^2 (like repels)
     if ((toggles & COULOMB_BIT) != 0u) {
         let k = -(pCharge * sCharge) * axModPair;
         let fDir = k * invR3;
-        forces0[pIdx] += vec4<f32>(0.0, 0.0, rx * fDir, ry * fDir);
+        af.f0.z += rx * fDir;
+        af.f0.w += ry * fDir;
     }
 
     // Cross product (vs x r)_z for Biot-Savart
@@ -179,29 +204,31 @@ fn accumulateForce(
         let axMod = axModPair;
         // Dipole-dipole radial: F = +3*mu1*mu2/r^4
         let fDir = 3.0 * (pMagMoment * sMagMoment) * invR5 * axMod;
-        forces1[pIdx] += vec4<f32>(rx * fDir, ry * fDir, 0.0, 0.0);
+        af.f1.x += rx * fDir;
+        af.f1.y += ry * fDir;
 
         // Bz from moving charge
         let BzMoving = sCharge * crossSV * invR3 * axMod;
-        bFields[pIdx] += vec4<f32>(BzMoving, 0.0, 0.0, 0.0);
+        af.bFields.x += BzMoving;
         // Bz from dipole
-        bFields[pIdx] -= vec4<f32>(sMagMoment * invR3 * axMod, 0.0, 0.0, 0.0);
+        af.bFields.x -= sMagMoment * invR3 * axMod;
     }
 
     // Gravitomagnetic: dipole + Bgz field
     if ((toggles & GRAVITOMAG_BIT) != 0u) {
         let fDir = 3.0 * (pAngMomentum * sAngMomentum) * invR5;
-        forces1[pIdx] += vec4<f32>(0.0, 0.0, rx * fDir, ry * fDir);
+        af.f1.z += rx * fDir;
+        af.f1.w += ry * fDir;
 
         // Bgz from moving mass
         let BgzMoving = -sMass * crossSV * invR3;
-        bFields[pIdx] += vec4<f32>(0.0, BgzMoving, 0.0, 0.0);
+        af.bFields.y += BgzMoving;
         // Bgz from spin
-        bFields[pIdx] -= vec4<f32>(0.0, 2.0 * sAngMomentum * invR3, 0.0, 0.0);
+        af.bFields.y -= 2.0 * sAngMomentum * invR3;
 
         // Frame-dragging torque
         let fdTorque = 2.0 * sAngMomentum * (sAngVel - pAngVel) * invR3;
-        torques[pIdx] += vec4<f32>(0.0, fdTorque, 0.0, 0.0);
+        af.torques.y += fdTorque;
     }
 
     // Yukawa
@@ -214,9 +241,12 @@ fn accumulateForce(
             let yukModPair = sqrt(1.0 * sYukMod); // p.yukMod handled via caller
             let ym = yukModPair;
             let fDir = uniforms.yukawaCoupling * ym * pMass * sMass * expMuR * (invRSq + mu * invR) * invR;
-            forces3[pIdx] += vec4<f32>(0.0, 0.0, rx * fDir, ry * fDir);
+            af.f3.z += rx * fDir;
+            af.f3.w += ry * fDir;
         }
     }
+
+    allForces[pIdx] = af;
 }
 
 @compute @workgroup_size(64)
@@ -232,13 +262,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let py = posY[pIdx];
     let pMass = mass_in[pIdx];
     let pCharge = charge_in[pIdx];
-    let pMamPacked = magAngMom_in[pIdx];
-    let pMagMoment = pMamPacked.x;
-    let pAngMomentum = pMamPacked.y;
+    let pDerived = derived_in[pIdx];
+    let pMagMoment = pDerived.magMoment;
+    let pAngMomentum = pDerived.angMomentum;
     let pRadius = radius_in[pIdx];
     let pBodyRadiusSq = pRadius * pRadius; // Approximation; BH mode uses different formula
     let pAngW = angW_in[pIdx];
-    let pAxMod = axMod_in[pIdx];
+    let pAxMod = axYukMod_in[pIdx].x;
 
     // Derive velocity from proper velocity
     let wSq = velWX[pIdx] * velWX[pIdx] + velWY[pIdx] * velWY[pIdx];
@@ -291,15 +321,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (origIdx == pIdx) { continue; } // skip self
             if (sIdx == pIdx) { continue; }
 
+            let sDerived = derived_in[sIdx];
+            let sAYM = axYukMod_in[sIdx];
             accumulateForce(
                 pIdx, px, py, pMass, pCharge,
                 pMagMoment, pAngMomentum, pAngVel, pVelX, pVelY, pAxMod,
                 posX[sIdx], posY[sIdx],
-                velWX[sIdx] * invGamma, velWY[sIdx] * invGamma, // approximate vel from w
+                sDerived.velX, sDerived.velY,
                 mass_in[sIdx], charge_in[sIdx],
-                0.0, // sAngVel approximated as 0 for aggregate; leaf uses cached
-                magAngMom_in[sIdx].x, magAngMom_in[sIdx].y,
-                axMod_in[sIdx], yukMod_in[sIdx],
+                sDerived.angVel,
+                sDerived.magMoment, sDerived.angMomentum,
+                sAYM.x, sAYM.y,
                 pBodyRadiusSq,
             );
         } else if (!isLeaf && (size * size < thetaSq * dSq)) {
