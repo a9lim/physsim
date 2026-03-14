@@ -109,23 +109,22 @@ const N_DEPTH: u32 = 19u;
 // Particle flag bits
 const FLAG_ALIVE: u32 = 1u;
 
+// Group 0: uniforms + boson tree nodes (merged to stay within 4 bind groups)
 @group(0) @binding(0) var<uniform> u: SimUniforms;
+@group(0) @binding(1) var<storage, read_write> bosonTree: array<u32>;
+@group(0) @binding(2) var<storage, read_write> bosonNodeCounter: atomic<u32>;
 
-// Boson tree nodes (read-write for build, read-only for traversal)
-@group(1) @binding(0) var<storage, read_write> bosonTree: array<u32>;
-@group(1) @binding(1) var<storage, read_write> bosonNodeCounter: atomic<u32>;
+// Group 1: photon pool (packed)
+@group(1) @binding(0) var<storage, read_write> photons: array<Photon>;
+@group(1) @binding(1) var<storage, read_write> phCount: atomic<u32>;
 
-// Photon pool (packed)
-@group(2) @binding(0) var<storage, read_write> photons: array<Photon>;
-@group(2) @binding(1) var<storage, read_write> phCount: atomic<u32>;
+// Group 2: pion pool (packed)
+@group(2) @binding(0) var<storage, read_write> pions: array<Pion>;
+@group(2) @binding(1) var<storage, read_write> piCount: atomic<u32>;
 
-// Pion pool (packed)
-@group(3) @binding(0) var<storage, read_write> pions: array<Pion>;
-@group(3) @binding(1) var<storage, read_write> piCount: atomic<u32>;
-
-// Particle state + force accumulators
-@group(4) @binding(0) var<storage, read> particles: array<ParticleState>;
-@group(4) @binding(1) var<storage, read_write> allForces: array<AllForces>;
+// Group 3: particle state + force accumulators
+@group(3) @binding(0) var<storage, read> particles: array<ParticleState>;
+@group(3) @binding(1) var<storage, read_write> allForces: array<AllForces>;
 
 // Helper: read f32 from tree node
 fn nodeF32(nodeIdx: u32, field: u32) -> f32 {

@@ -583,15 +583,14 @@ export default class GPUPhysics {
             [b.pionPool, b.piCount]);
 
         // ── Boson Tree (insertBosonsIntoTree, computeBosonAggregates, computeBosonGravity, applyBosonBosonGravity) ──
+        // Group 0: uniforms + tree nodes (merged to fit within 4 bind groups)
         this._phase4BindGroups.btG0 = bg('bosonTree_g0', p4.insertBosonsIntoTree.bindGroupLayouts[0],
-            [this.uniformBuffer]);
+            [this.uniformBuffer, b.bosonTreeNodes, b.bosonTreeCounter]);
         this._phase4BindGroups.btG1 = bg('bosonTree_g1', p4.insertBosonsIntoTree.bindGroupLayouts[1],
-            [b.bosonTreeNodes, b.bosonTreeCounter]);
-        this._phase4BindGroups.btG2 = bg('bosonTree_g2', p4.insertBosonsIntoTree.bindGroupLayouts[2],
             [b.photonPool, b.phCount]);
-        this._phase4BindGroups.btG3 = bg('bosonTree_g3', p4.insertBosonsIntoTree.bindGroupLayouts[3],
+        this._phase4BindGroups.btG2 = bg('bosonTree_g2', p4.insertBosonsIntoTree.bindGroupLayouts[2],
             [b.pionPool, b.piCount]);
-        this._phase4BindGroups.btG4 = bg('bosonTree_g4', p4.insertBosonsIntoTree.bindGroupLayouts[4],
+        this._phase4BindGroups.btG3 = bg('bosonTree_g3', p4.insertBosonsIntoTree.bindGroupLayouts[3],
             [b.particleState, b.allForces]);
     }
 
@@ -789,7 +788,6 @@ export default class GPUPhysics {
         passInsert.setBindGroup(1, bgs.btG1);
         passInsert.setBindGroup(2, bgs.btG2);
         passInsert.setBindGroup(3, bgs.btG3);
-        passInsert.setBindGroup(4, bgs.btG4);
         passInsert.dispatchWorkgroups(bosonWG);
         passInsert.end();
 
@@ -802,7 +800,6 @@ export default class GPUPhysics {
         passAgg.setBindGroup(1, bgs.btG1);
         passAgg.setBindGroup(2, bgs.btG2);
         passAgg.setBindGroup(3, bgs.btG3);
-        passAgg.setBindGroup(4, bgs.btG4);
         passAgg.dispatchWorkgroups(aggWG);
         passAgg.end();
 
@@ -815,7 +812,6 @@ export default class GPUPhysics {
             passGrav.setBindGroup(1, bgs.btG1);
             passGrav.setBindGroup(2, bgs.btG2);
             passGrav.setBindGroup(3, bgs.btG3);
-            passGrav.setBindGroup(4, bgs.btG4);
             passGrav.dispatchWorkgroups(particleWG);
             passGrav.end();
         }
@@ -827,7 +823,6 @@ export default class GPUPhysics {
         passBosonBoson.setBindGroup(1, bgs.btG1);
         passBosonBoson.setBindGroup(2, bgs.btG2);
         passBosonBoson.setBindGroup(3, bgs.btG3);
-        passBosonBoson.setBindGroup(4, bgs.btG4);
         passBosonBoson.dispatchWorkgroups(bosonWG);
         passBosonBoson.end();
     }

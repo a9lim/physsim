@@ -541,12 +541,11 @@ export async function createPhase4Pipelines(device) {
     }
 
     // ── Boson Tree (boson-tree.wgsl) ──
-    // Group 0: uniforms
-    // Group 1: bosonTreeNodes + bosonTreeCounter = 2
-    // Group 2: photonPool (rw) + phCount (rw) = 2
-    // Group 3: pionPool (rw) + piCount (rw) = 2
-    // Group 4: particleState (ro) + allForces (rw) = 2
-    // Total: 8 storage buffers per stage
+    // Group 0: uniforms + bosonTreeNodes + bosonTreeCounter = 3 (1 uniform + 2 storage)
+    // Group 1: photonPool (rw) + phCount (rw) = 2
+    // Group 2: pionPool (rw) + piCount (rw) = 2
+    // Group 3: particleState (ro) + allForces (rw) = 2
+    // Total: 4 groups, 8 storage buffers per stage
     const bosonTreeCode = await fetchShader('boson-tree.wgsl');
     const bosonTreeModule = device.createShaderModule({ label: 'bosonTree', code: bosonTreeCode });
 
@@ -554,37 +553,32 @@ export async function createPhase4Pipelines(device) {
         label: 'bosonTree_g0',
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },  // bosonTreeNodes
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },  // bosonTreeCounter
         ],
     });
     const btG1 = device.createBindGroupLayout({
         label: 'bosonTree_g1',
         entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // photonPool
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // phCount
         ],
     });
     const btG2 = device.createBindGroupLayout({
         label: 'bosonTree_g2',
         entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // photonPool
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // phCount
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // pionPool
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // piCount
         ],
     });
     const btG3 = device.createBindGroupLayout({
         label: 'bosonTree_g3',
         entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // pionPool
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // piCount
-        ],
-    });
-    const btG4 = device.createBindGroupLayout({
-        label: 'bosonTree_g4',
-        entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // particleState
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // allForces
         ],
     });
-    const btLayouts = [btG0, btG1, btG2, btG3, btG4];
+    const btLayouts = [btG0, btG1, btG2, btG3];
     const btPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: btLayouts });
 
     const bosonTreeEntries = [
