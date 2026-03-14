@@ -5,6 +5,16 @@
  * Buffers are fixed-capacity (MAX_PARTICLES), indexed by particle slot.
  */
 
+// Signal delay history constants
+const HISTORY_LEN = 256;
+
+// Boson pool constants
+const MAX_PHOTONS = 512;
+const MAX_PIONS = 256;
+
+// Quadtree node size in bytes (20 u32 words = 80 bytes, must match tree-build.wgsl)
+const QTNODE_SIZE_BYTES = 80;
+
 /** @param {GPUDevice} device */
 export function createParticleBuffers(device, maxParticles) {
     const FLOAT_SIZE = 4;
@@ -228,6 +238,45 @@ export function createParticleBuffers(device, maxParticles) {
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
 
+    // ── Boson pool buffers (Phase 4: photon/pion SoA) ──
+    // Photon pool (SoA)
+    const phSize = MAX_PHOTONS * FLOAT_SIZE;
+    const phPosX = device.createBuffer({ size: phSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'phPosX' });
+    const phPosY = device.createBuffer({ size: phSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'phPosY' });
+    const phVelX = device.createBuffer({ size: phSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'phVelX' });
+    const phVelY = device.createBuffer({ size: phSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'phVelY' });
+    const phEnergy = device.createBuffer({ size: phSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'phEnergy' });
+    const phEmitterId = device.createBuffer({ size: MAX_PHOTONS * UINT_SIZE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'phEmitterId' });
+    const phAge = device.createBuffer({ size: MAX_PHOTONS * UINT_SIZE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'phAge' }); // u32
+    const phFlags = device.createBuffer({ size: MAX_PHOTONS * UINT_SIZE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'phFlags' }); // u32: alive, type (em/grav)
+    const phCount = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, label: 'phCount' }); // atomic<u32>
+
+    // Pion pool (SoA)
+    const piSize = MAX_PIONS * FLOAT_SIZE;
+    const piPosX = device.createBuffer({ size: piSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piPosX' });
+    const piPosY = device.createBuffer({ size: piSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piPosY' });
+    const piWX = device.createBuffer({ size: piSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piWX' }); // proper velocity
+    const piWY = device.createBuffer({ size: piSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piWY' });
+    const piMass = device.createBuffer({ size: piSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piMass' });
+    const piCharge = device.createBuffer({ size: MAX_PIONS * UINT_SIZE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piCharge' }); // i32: +1, -1, 0
+    const piEnergy = device.createBuffer({ size: piSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piEnergy' });
+    const piEmitterId = device.createBuffer({ size: MAX_PIONS * UINT_SIZE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piEmitterId' });
+    const piAge = device.createBuffer({ size: MAX_PIONS * UINT_SIZE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piAge' }); // u32
+    const piFlags = device.createBuffer({ size: MAX_PIONS * UINT_SIZE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'piFlags' }); // u32: alive
+    const piCount = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, label: 'piCount' }); // atomic<u32>
+
+    // ── Boson tree buffers (Phase 4: boson gravity BH tree) ──
+    const MAX_BOSON_NODES = (MAX_PHOTONS + MAX_PIONS) * 6;
+    const bosonTreeNodes = device.createBuffer({
+        size: MAX_BOSON_NODES * QTNODE_SIZE_BYTES,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        label: 'bosonTreeNodes'
+    });
+    const bosonTreeCounter = device.createBuffer({
+        size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        label: 'bosonTreeCounter'
+    });
+
     return {
         maxParticles,
         soaCapacity,
@@ -263,6 +312,67 @@ export function createParticleBuffers(device, maxParticles) {
         // Death metadata (Phase 3: dead particle GC)
         deathTime, deathMass, deathAngVel,
         freeStack, freeTop,
+        // Photon pool (Phase 4)
+        phPosX, phPosY, phVelX, phVelY, phEnergy, phEmitterId, phAge, phFlags, phCount,
+        MAX_PHOTONS,
+        // Pion pool (Phase 4)
+        piPosX, piPosY, piWX, piWY, piMass, piCharge, piEnergy, piEmitterId, piAge, piFlags, piCount,
+        MAX_PIONS,
+        // Boson tree (Phase 4)
+        bosonTreeNodes, bosonTreeCounter, MAX_BOSON_NODES,
+
+        // Signal delay history (lazy-allocated)
+        historyAllocated: false,
+        histPosX: null,
+        histPosY: null,
+        histVelWX: null,
+        histVelWY: null,
+        histAngW: null,
+        histTime: null,
+        histMeta: null,
+
+        /**
+         * Lazily allocate signal delay history buffers.
+         * Called when relativity is first enabled.
+         * Total: 6 f32 arrays × 256 × maxParticles × 4 bytes = ~24 MB at 4096 particles
+         */
+        allocateHistoryBuffers(dev) {
+            if (this.historyAllocated) return;
+            const size = maxParticles * HISTORY_LEN * 4; // f32 bytes
+
+            this.histPosX = dev.createBuffer({
+                size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                label: 'histPosX'
+            });
+            this.histPosY = dev.createBuffer({
+                size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                label: 'histPosY'
+            });
+            this.histVelWX = dev.createBuffer({
+                size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                label: 'histVelWX'
+            });
+            this.histVelWY = dev.createBuffer({
+                size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                label: 'histVelWY'
+            });
+            this.histAngW = dev.createBuffer({
+                size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                label: 'histAngW'
+            });
+            this.histTime = dev.createBuffer({
+                size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                label: 'histTime'
+            });
+            // Per-particle: write index (u32) and count (u32), packed as u32[maxParticles * 2]
+            this.histMeta = dev.createBuffer({
+                size: maxParticles * 2 * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                label: 'histMeta'
+            });
+
+            this.historyAllocated = true;
+        },
 
         /** Destroy all buffers */
         destroy() {
@@ -271,6 +381,7 @@ export function createParticleBuffers(device, maxParticles) {
                     this[key].destroy();
                 }
             }
+            this.historyAllocated = false;
         }
     };
 }
