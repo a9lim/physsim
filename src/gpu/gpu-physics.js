@@ -16,7 +16,7 @@
  *  11. boundary
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms } from './gpu-buffers.js';
-import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines } from './gpu-pipelines.js';
+import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline } from './gpu-pipelines.js';
 
 const MAX_PARTICLES = 4096;
 
@@ -59,6 +59,10 @@ export default class GPUPhysics {
         this._treeBuild = null;
         this._treeBuildBindGroups = null;
         this._barnesHutEnabled = false;
+
+        // Phase 3: Tree force (BH tree walk)
+        this._treeForcePipeline = null;
+        this._treeForceBindGroups = null;
 
         // Toggle state
         this._toggles0 = 0;
@@ -177,6 +181,11 @@ export default class GPUPhysics {
         // --- Phase 3: Tree build pipelines ---
         this._treeBuild = await createTreeBuildPipelines(this.device);
         this._createTreeBuildBindGroups(this._treeBuild.bindGroupLayouts);
+
+        // --- Phase 3: Tree force pipeline ---
+        const treeForce = await createTreeForcePipeline(this.device);
+        this._treeForcePipeline = treeForce.pipeline;
+        this._createTreeForceBindGroups(treeForce.bindGroupLayouts);
 
         this._ready = true;
     }
@@ -372,6 +381,62 @@ export default class GPUPhysics {
             layout: layouts[2],
             entries: [
                 { binding: 0, resource: { buffer: this.uniformBuffer } },
+            ],
+        });
+    }
+
+    /**
+     * Create bind groups for tree force (BH walk) pipeline.
+     * Group 0: nodes (read-only) + uniforms
+     * Group 1: particle SoA (15 read-only) + ghostOriginalIdx
+     * Group 2: force accumulators (5 read-write)
+     */
+    _createTreeForceBindGroups(layouts) {
+        const b = this.buffers;
+
+        // Group 0: tree nodes + uniforms
+        this._treeForceGroup0 = this.device.createBindGroup({
+            label: 'treeForce_g0',
+            layout: layouts[0],
+            entries: [
+                { binding: 0, resource: { buffer: b.qtNodeBuffer } },
+                { binding: 1, resource: { buffer: this.uniformBuffer } },
+            ],
+        });
+
+        // Group 1: particle SoA (matches shader @group(1) bindings 0-14)
+        this._treeForceGroup1 = this.device.createBindGroup({
+            label: 'treeForce_g1',
+            layout: layouts[1],
+            entries: [
+                { binding: 0, resource: { buffer: b.posX } },
+                { binding: 1, resource: { buffer: b.posY } },
+                { binding: 2, resource: { buffer: b.velWX } },
+                { binding: 3, resource: { buffer: b.velWY } },
+                { binding: 4, resource: { buffer: b.mass } },
+                { binding: 5, resource: { buffer: b.charge } },
+                { binding: 6, resource: { buffer: b.angW } },
+                { binding: 7, resource: { buffer: b.flags } },
+                { binding: 8, resource: { buffer: b.radius } },
+                { binding: 9, resource: { buffer: b.magMoment } },
+                { binding: 10, resource: { buffer: b.angMomentum } },
+                { binding: 11, resource: { buffer: b.axMod } },
+                { binding: 12, resource: { buffer: b.yukMod } },
+                { binding: 13, resource: { buffer: b.particleId } },
+                { binding: 14, resource: { buffer: b.ghostOriginalIdx } },
+            ],
+        });
+
+        // Group 2: force accumulators (forces0, forces1, forces3, bFields, torques)
+        this._treeForceGroup2 = this.device.createBindGroup({
+            label: 'treeForce_g2',
+            layout: layouts[2],
+            entries: [
+                { binding: 0, resource: { buffer: b.forces0 } },
+                { binding: 1, resource: { buffer: b.forces1 } },
+                { binding: 2, resource: { buffer: b.forces3 } },
+                { binding: 3, resource: { buffer: b.bFields } },
+                { binding: 4, resource: { buffer: b.torques } },
             ],
         });
     }
@@ -646,14 +711,26 @@ export default class GPUPhysics {
         pass2.dispatchWorkgroups(workgroups);
         pass2.end();
 
-        // Pass 5: pairForce (O(N^2) tiled)
-        const pass5 = encoder.beginComputePass({ label: 'pairForce' });
-        pass5.setPipeline(p2.pairForce.pipeline);
-        pass5.setBindGroup(0, this._bg_pairForce0);
-        pass5.setBindGroup(1, this._bg_pairForce1);
-        pass5.setBindGroup(2, this._bg_pairForce2);
-        pass5.dispatchWorkgroups(workgroups);
-        pass5.end();
+        // Pass 5: force computation — BH tree walk or O(N^2) pairwise
+        if (this._barnesHutEnabled) {
+            // Tree walk force computation (O(N log N))
+            const passTree = encoder.beginComputePass({ label: 'treeForce' });
+            passTree.setPipeline(this._treeForcePipeline);
+            passTree.setBindGroup(0, this._treeForceGroup0);
+            passTree.setBindGroup(1, this._treeForceGroup1);
+            passTree.setBindGroup(2, this._treeForceGroup2);
+            passTree.dispatchWorkgroups(workgroups);
+            passTree.end();
+        } else {
+            // Pairwise force computation (O(N^2) tiled)
+            const pass5 = encoder.beginComputePass({ label: 'pairForce' });
+            pass5.setPipeline(p2.pairForce.pipeline);
+            pass5.setBindGroup(0, this._bg_pairForce0);
+            pass5.setBindGroup(1, this._bg_pairForce1);
+            pass5.setBindGroup(2, this._bg_pairForce2);
+            pass5.dispatchWorkgroups(workgroups);
+            pass5.end();
+        }
 
         // Pass 5b: externalFields
         const pass5b = encoder.beginComputePass({ label: 'externalFields' });

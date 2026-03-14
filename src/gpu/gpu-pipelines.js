@@ -204,6 +204,63 @@ export async function createTreeBuildPipelines(device) {
 }
 
 /**
+ * Create tree force (Barnes-Hut walk) compute pipeline.
+ * Standalone shader — defines its own SimUniforms and node accessors.
+ * Bind groups:
+ *   Group 0: nodes (read-only storage) + uniforms
+ *   Group 1: particle SoA (15 read-only bindings) + ghostOriginalIdx
+ *   Group 2: force accumulators (5 read-write bindings)
+ */
+export async function createTreeForcePipeline(device) {
+    const code = await fetchShader('forces-tree.wgsl');
+    const module = device.createShaderModule({ label: 'treeForce', code });
+
+    // Group 0: tree nodes (read-only) + uniforms
+    const group0Layout = device.createBindGroupLayout({
+        label: 'treeForce_group0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+        ],
+    });
+
+    // Group 1: particle SoA inputs (15 read-only bindings)
+    const group1Entries = [];
+    for (let i = 0; i < 15; i++) {
+        group1Entries.push({
+            binding: i,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: 'read-only-storage' },
+        });
+    }
+    const group1Layout = device.createBindGroupLayout({
+        label: 'treeForce_group1',
+        entries: group1Entries,
+    });
+
+    // Group 2: force accumulators (5 read-write bindings)
+    const group2Layout = device.createBindGroupLayout({
+        label: 'treeForce_group2',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        ],
+    });
+
+    const bindGroupLayouts = [group0Layout, group1Layout, group2Layout];
+    const pipeline = device.createComputePipeline({
+        label: 'treeForce',
+        layout: device.createPipelineLayout({ bindGroupLayouts }),
+        compute: { module, entryPoint: 'main' },
+    });
+
+    return { pipeline, bindGroupLayouts };
+}
+
+/**
  * Create ghost generation compute pipeline.
  * Standalone shader (not prepended with common.wgsl) — defines its own SimUniforms.
  * Bind groups:
