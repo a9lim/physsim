@@ -62,14 +62,15 @@ src/
   relativity.js           25 lines  angwToAngVel(), setVelocity()
   canvas-renderer.js      20 lines  CanvasRenderer: thin adapter wrapping Renderer to RenderBackend
   gpu/
-    gpu-physics.js      3011 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
-                                     all dispatch methods, bind group creation, adaptive substepping, readback
+    gpu-physics.js      3070 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
+                                     all dispatch methods, bind group creation, adaptive substepping, readback,
+                                     per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
     gpu-pipelines.js    1448 lines  Pipeline + bind group layout creation for all compute/render shaders
     gpu-renderer.js      977 lines  WebGPU instanced rendering: particles, bosons, field overlays, heatmap,
                                      trails, force arrows, spin rings (dual light/dark pipeline variants)
     gpu-buffers.js       592 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
                                      trail buffers, staging
-    gpu-constants.js     253 lines  buildWGSLConstants(): generates WGSL const block from config.js +
+    gpu-constants.js     257 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                      _PALETTE colors, single source of truth for JS/WGSL constants
     shaders/
       common.wgsl        209 lines  Shared structs (SimUniforms, ParticleState, ParticleAux, ParticleDerived,
@@ -526,9 +527,9 @@ Worst-case pipeline (radiation) uses 10 storage buffers (was 42 before packing).
 
 - `addParticle()` writes packed `ParticleState` (36B) + `ParticleAux` (20B) + `color` (4B) + `axYukMod` (8B, initialized to 1.0/1.0) + `radiationState` (32B, zeroed) via `queue.writeBuffer()`
 - `setToggles(physics)` packs CPU toggle booleans into `toggles0`/`toggles1` u32 bitfields. Called from `ui.js` `updateAllDeps()` on every toggle change. Heatmap state passed via `Object.create(sim.physics)` with `heatmapEnabled` added.
-- `_writeFieldUniforms(dt)` writes `FieldUniforms` struct to shared field uniform buffer. Must match `field-common.wgsl` `FieldUniforms` struct layout exactly. Called before both field forces (Pass 4) and field evolve (Pass 10). Includes `currentFieldType` (0=higgs, 1=axion) for dispatching each field's passes.
+- `_writeFieldUniforms(dt)` writes `FieldUniforms` struct to shared field uniform buffer (used by field forces pass). Must match `field-common.wgsl` `FieldUniforms` struct layout exactly. `_writePerFieldUniforms(dt, fieldType)` writes to per-field dedicated uniform buffers (`_higgsUniformBuffer`/`_axionUniformBuffer`) with `currentFieldType` baked in — eliminates encoder split when both Higgs and Axion are active.
 - Slider changes (yukawaMu, axionMass, higgsMass, external fields, etc.) sync to GPU via `setToggles()` on toggle change, but NOT on slider-only changes — slider values are cached in `_yukawaMu`, `_higgsMass`, etc. and written to uniforms each substep.
-- `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load. `deserialize()` initializes `axYukMod` to (1,1) and zeroes `radiationState`.
+- `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load. `deserialize()` initializes `axYukMod` to (1,1), zeroes `radiationState`, and restores slider parameters (`higgsMass`, `axionMass`, `yukawaMu`, `hubbleParam`).
 - CPU-side `particles[]` array maintained in parallel for sidebar UI, presets, stats
 - `device.lost` handler falls back to CPU mode, restores from periodic auto-save
 

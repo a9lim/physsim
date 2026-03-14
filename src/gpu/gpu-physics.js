@@ -54,6 +54,22 @@ const _qtBoundsResetData = new Int32Array([2147483647, 2147483647, -2147483647, 
 const _bosonRootData = new Uint32Array(20);
 const _bosonRootF32 = new Float32Array(_bosonRootData.buffer);
 
+// Pre-allocated field uniform data (avoids per-substep GC from _writeFieldUniforms)
+const _fieldUniformData = new ArrayBuffer(256);
+const _fieldUniformF32 = new Float32Array(_fieldUniformData);
+const _fieldUniformU32 = new Uint32Array(_fieldUniformData);
+
+// Pre-allocated addParticle buffers (avoids per-call allocation)
+const _addParticleStateData = new ArrayBuffer(36);  // PARTICLE_STATE_SIZE
+const _addParticleStateF32 = new Float32Array(_addParticleStateData);
+const _addParticleStateU32 = new Uint32Array(_addParticleStateData);
+const _addParticleAuxData = new ArrayBuffer(20);     // PARTICLE_AUX_SIZE
+const _addParticleAuxF32 = new Float32Array(_addParticleAuxData);
+const _addParticleAuxU32 = new Uint32Array(_addParticleAuxData);
+const _addParticleColorData = new Uint32Array(1);
+const _addParticleModData = new Float32Array(2);
+const _addParticleRadData = new Float32Array(8);     // RADIATION_STATE_SIZE / 4
+
 export default class GPUPhysics {
     /**
      * @param {GPUDevice} device
@@ -1164,47 +1180,41 @@ export default class GPUPhysics {
             this.aliveCount++;
         }
 
-        // Write packed ParticleState struct (36 bytes = 9 × f32/u32)
-        const stateData = new ArrayBuffer(PARTICLE_STATE_SIZE);
-        const stateF32 = new Float32Array(stateData);
-        const stateU32 = new Uint32Array(stateData);
-        stateF32[0] = x;          // posX
-        stateF32[1] = y;          // posY
-        stateF32[2] = vx;         // velWX
-        stateF32[3] = vy;         // velWY
-        stateF32[4] = m;          // mass
-        stateF32[5] = q;          // charge
-        stateF32[6] = angw;       // angW
-        stateF32[7] = m;          // baseMass
+        // Write packed ParticleState struct (36 bytes = 9 × f32/u32) using pre-allocated buffers
+        _addParticleStateF32[0] = x;          // posX
+        _addParticleStateF32[1] = y;          // posY
+        _addParticleStateF32[2] = vx;         // velWX
+        _addParticleStateF32[3] = vy;         // velWY
+        _addParticleStateF32[4] = m;          // mass
+        _addParticleStateF32[5] = q;          // charge
+        _addParticleStateF32[6] = angw;       // angW
+        _addParticleStateF32[7] = m;          // baseMass
         let flags = FLAG_ALIVE;
         if (antimatter) flags |= FLAG_ANTIMATTER;
-        stateU32[8] = flags;
-        this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE, stateData);
+        _addParticleStateU32[8] = flags;
+        this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE, _addParticleStateData);
 
         // Write packed ParticleAux struct (20 bytes = 5 × f32/u32)
-        const auxData = new ArrayBuffer(PARTICLE_AUX_SIZE);
-        const auxF32 = new Float32Array(auxData);
-        const auxU32 = new Uint32Array(auxData);
-        auxF32[0] = Math.cbrt(m); // radius
-        auxU32[1] = idx;          // particleId
-        auxF32[2] = Infinity;     // deathTime (not dead)
-        auxF32[3] = 0;            // deathMass
-        auxF32[4] = 0;            // deathAngVel
-        this.device.queue.writeBuffer(this.buffers.particleAux, idx * PARTICLE_AUX_SIZE, auxData);
+        _addParticleAuxF32[0] = Math.cbrt(m); // radius
+        _addParticleAuxU32[1] = idx;          // particleId
+        _addParticleAuxF32[2] = Infinity;     // deathTime (not dead)
+        _addParticleAuxF32[3] = 0;            // deathMass
+        _addParticleAuxF32[4] = 0;            // deathAngVel
+        this.device.queue.writeBuffer(this.buffers.particleAux, idx * PARTICLE_AUX_SIZE, _addParticleAuxData);
 
         // Pack color: neutral slate = #8A7E72 -> RGBA
-        const u32 = new Uint32Array([0xFF727E8A]); // ABGR packed
-        this.device.queue.writeBuffer(this.buffers.color, idx * 4, u32);
+        _addParticleColorData[0] = 0xFF727E8A; // ABGR packed
+        this.device.queue.writeBuffer(this.buffers.color, idx * 4, _addParticleColorData);
 
         // cacheDerived shader computes derived state before forces each substep.
         // No need to initialize derived here — but axYukMod must be set to (1, 1).
-        // axMod=1 (no EM modulation), yukMod=1 (no Yukawa modulation) is the default.
-        const modData = new Float32Array([1.0, 1.0]); // axMod, yukMod
-        this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 8, modData);
+        _addParticleModData[0] = 1.0; // axMod
+        _addParticleModData[1] = 1.0; // yukMod
+        this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 8, _addParticleModData);
 
         // Initialize radiationState to zero (jerk, accumulators, display force)
-        const radData = new Float32Array(RADIATION_STATE_SIZE / 4);
-        this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, radData);
+        _addParticleRadData.fill(0);
+        this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, _addParticleRadData);
         return idx;
     }
 
@@ -1317,6 +1327,17 @@ export default class GPUPhysics {
                 size: 256,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
+            // Per-field uniform buffers: eliminate encoder split when both Higgs + Axion enabled
+            this._higgsUniformBuffer = this.device.createBuffer({
+                label: 'higgsFieldUniforms',
+                size: 256,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            this._axionUniformBuffer = this.device.createBuffer({
+                label: 'axionFieldUniforms',
+                size: 256,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
         }
         if (which === 'higgs' && !this._higgsBuffers) {
             this._higgsBuffers = createFieldBuffers(this.device, 'higgs', MAX_PARTICLES);
@@ -1394,9 +1415,8 @@ export default class GPUPhysics {
      */
     _writeFieldUniforms(dt) {
         if (!this._fieldUniformBuffer) return;
-        const data = new ArrayBuffer(256);
-        const f = new Float32Array(data);
-        const u = new Uint32Array(data);
+        const f = _fieldUniformF32;
+        const u = _fieldUniformU32;
         // Must match FieldUniforms struct in field-common.wgsl exactly:
         f[0] = dt;                              // dt
         f[1] = this.domainW;                    // domainW
@@ -1422,7 +1442,42 @@ export default class GPUPhysics {
         u[18] = this.aliveCount;                  // particleCount
         f[19] = this._blackHoleEnabled ? 16 : 64;  // softeningSq
         u[20] = 0;                                // currentFieldType (0=higgs default, set per-dispatch)
-        this.device.queue.writeBuffer(this._fieldUniformBuffer, 0, data);
+        this.device.queue.writeBuffer(this._fieldUniformBuffer, 0, _fieldUniformData);
+    }
+
+    /**
+     * Write per-field uniforms to the dedicated field uniform buffer.
+     * Eliminates the need for encoder split when both Higgs and Axion are active.
+     * @param {number} dt
+     * @param {number} fieldType - 0=higgs, 1=axion
+     */
+    _writePerFieldUniforms(dt, fieldType) {
+        const buf = fieldType === 0 ? this._higgsUniformBuffer : this._axionUniformBuffer;
+        if (!buf) return;
+        const f = _fieldUniformF32;
+        const u = _fieldUniformU32;
+        f[0] = dt;
+        f[1] = this.domainW;
+        f[2] = this.domainH;
+        u[3] = this.boundaryMode;
+        u[4] = this.topologyMode;
+        f[5] = this._higgsMass;
+        f[6] = this._higgsCoupling;
+        f[7] = 0.05;
+        f[8] = 4.0;
+        f[9] = this._axionMass;
+        f[10] = this._axionCoupling;
+        u[11] = this._higgsEnabled ? 1 : 0;
+        u[12] = this._axionEnabled ? 1 : 0;
+        u[13] = (this._toggles0 & 2) ? 1 : 0;
+        u[14] = (this._toggles0 & 2048) ? 1 : 0;
+        u[15] = this._fieldGravEnabled ? 1 : 0;
+        u[16] = this._relativityEnabled ? 1 : 0;
+        u[17] = this._blackHoleEnabled ? 1 : 0;
+        u[18] = this.aliveCount;
+        f[19] = this._blackHoleEnabled ? 16 : 64;
+        u[20] = fieldType;
+        this.device.queue.writeBuffer(buf, 0, _fieldUniformData);
     }
 
     /**
@@ -1444,6 +1499,9 @@ export default class GPUPhysics {
             ],
         });
 
+        // Use per-field uniform buffer
+        const uBuf = which === 'higgs' ? this._higgsUniformBuffer : this._axionUniformBuffer;
+
         // Group 1: scratch + target grid + uniforms (for source deposition)
         const g1Source = this.device.createBindGroup({
             label: `fieldDeposit_g1_source_${which}`,
@@ -1452,7 +1510,7 @@ export default class GPUPhysics {
                 { binding: 0, resource: { buffer: this._pqsScratch } },
                 { binding: 1, resource: { buffer: this._pqsIndices } },
                 { binding: 2, resource: { buffer: fb.source } },
-                { binding: 3, resource: { buffer: this._fieldUniformBuffer } },
+                { binding: 3, resource: { buffer: uBuf } },
             ],
         });
 
@@ -1464,7 +1522,7 @@ export default class GPUPhysics {
                 { binding: 0, resource: { buffer: this._pqsScratch } },
                 { binding: 1, resource: { buffer: this._pqsIndices } },
                 { binding: 2, resource: { buffer: fb.thermal } },
-                { binding: 3, resource: { buffer: this._fieldUniformBuffer } },
+                { binding: 3, resource: { buffer: uBuf } },
             ],
         });
 
@@ -1478,6 +1536,9 @@ export default class GPUPhysics {
         if (this._fieldEvolveBGs[which]) return;
         const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
         if (!fb || !this._fieldEvolve) return;
+
+        // Use per-field uniform buffer to avoid encoder split when both fields active
+        const uBuf = which === 'higgs' ? this._higgsUniformBuffer : this._axionUniformBuffer;
 
         // Evolve bind group (gradX/Y are read-only for self-gravity cross-terms)
         this._fieldEvolveBGs[which] = this.device.createBindGroup({
@@ -1494,7 +1555,7 @@ export default class GPUPhysics {
                 { binding: 7, resource: { buffer: fb.sgGradY } },
                 { binding: 8, resource: { buffer: fb.gradX } },
                 { binding: 9, resource: { buffer: fb.gradY } },
-                { binding: 10, resource: { buffer: this._fieldUniformBuffer } },
+                { binding: 10, resource: { buffer: uBuf } },
             ],
         });
 
@@ -1513,7 +1574,7 @@ export default class GPUPhysics {
                 { binding: 7, resource: { buffer: fb.sgGradY } },
                 { binding: 8, resource: { buffer: fb.gradX } },
                 { binding: 9, resource: { buffer: fb.gradY } },
-                { binding: 10, resource: { buffer: this._fieldUniformBuffer } },
+                { binding: 10, resource: { buffer: uBuf } },
             ],
         });
     }
@@ -1526,6 +1587,9 @@ export default class GPUPhysics {
         const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
         if (!fb || !this._fieldSelfGrav) return;
 
+        // Use per-field uniform buffer
+        const uBuf = which === 'higgs' ? this._higgsUniformBuffer : this._axionUniformBuffer;
+
         // Group 0: core field arrays + uniform (6 storage + 1 uniform)
         this._fieldSelfGravBGs[which] = this.device.createBindGroup({
             label: `fieldSelfGrav_${which}_g0`,
@@ -1537,7 +1601,7 @@ export default class GPUPhysics {
                 { binding: 3, resource: { buffer: fb.gradY } },
                 { binding: 4, resource: { buffer: fb.energyDensity } },
                 { binding: 5, resource: { buffer: fb.coarseRho } },
-                { binding: 6, resource: { buffer: this._fieldUniformBuffer } },
+                { binding: 6, resource: { buffer: uBuf } },
             ],
         });
         // Group 1: self-gravity arrays (4 storage — sgInvR computed inline)
@@ -1902,13 +1966,14 @@ export default class GPUPhysics {
             if (!fb) return;
 
             if (!this._fieldExcitationBGs[which]) {
+                const uBuf = which === 'higgs' ? this._higgsUniformBuffer : this._axionUniformBuffer;
                 this._fieldExcitationBGs[which] = this.device.createBindGroup({
                     label: `fieldExcitation_${which}`,
                     layout: exc.bindGroupLayouts[0],
                     entries: [
                         { binding: 0, resource: { buffer: fb.fieldDot } },
                         { binding: 1, resource: { buffer: this._excitationBuffers.events } },
-                        { binding: 2, resource: { buffer: this._fieldUniformBuffer } },
+                        { binding: 2, resource: { buffer: uBuf } },
                         { binding: 3, resource: { buffer: this._excitationBuffers.counter } },
                     ],
                 });
@@ -1940,16 +2005,13 @@ export default class GPUPhysics {
             });
         }
 
-        // Write ExpansionUniforms
-        const data = new ArrayBuffer(32);
-        const f = new Float32Array(data);
-        const u = new Uint32Array(data);
-        f[0] = this._hubbleParam;
-        f[1] = dt;
-        f[2] = this.domainW * 0.5;
-        f[3] = this.domainH * 0.5;
-        u[4] = this.aliveCount;
-        this.device.queue.writeBuffer(this._expansionUniformBuffer, 0, data);
+        // Write ExpansionUniforms (reuse pre-allocated field uniform buffer)
+        _fieldUniformF32[0] = this._hubbleParam;
+        _fieldUniformF32[1] = dt;
+        _fieldUniformF32[2] = this.domainW * 0.5;
+        _fieldUniformF32[3] = this.domainH * 0.5;
+        _fieldUniformU32[4] = this.aliveCount;
+        this.device.queue.writeBuffer(this._expansionUniformBuffer, 0, _fieldUniformData, 0, 32);
 
         if (!this._expansionBG) {
             const b = this.buffers;
@@ -2587,26 +2649,16 @@ export default class GPUPhysics {
         this._dispatch1PNVV(encoder);
 
         // Pass 15: scalar field evolution (Higgs, Axion)
-        // Field uniforms already written at Pass 5c (same dtSub). Only need currentFieldType update.
-        // When both fields are enabled, must submit between them to avoid currentFieldType
-        // uniform race: queue.writeBuffer executes before submit, so the second writeBuffer
-        // would overwrite the first before any dispatches run.
+        // Use per-field uniform buffers to avoid encoder split when both fields active.
+        // Each field gets its own uniform buffer with the correct currentFieldType baked in.
         if (this._fieldDeposit) {
-            // Write field uniforms only if Pass 5c didn't (fields enabled but forces not dispatched)
             if (!(this._higgsEnabled || this._axionEnabled)) this._writeFieldUniforms(dtSub);
             if (this._higgsEnabled) {
-                // Set currentFieldType=0 (Higgs) for Laplacian/gradient vacuum value
-                this.device.queue.writeBuffer(this._fieldUniformBuffer, 20 * 4, new Uint32Array([0]));
+                this._writePerFieldUniforms(dtSub, 0); // currentFieldType=0 (Higgs)
                 this._dispatchFieldEvolve(encoder, 'higgs', dtSub);
-                if (this._axionEnabled) {
-                    // Must submit Higgs dispatches before changing currentFieldType to Axion
-                    this.device.queue.submit([encoder.finish()]);
-                    encoder = this.device.createCommandEncoder({ label: 'physics-substep-axion' });
-                }
             }
             if (this._axionEnabled) {
-                // Set currentFieldType=1 (Axion) for Laplacian/gradient vacuum value
-                this.device.queue.writeBuffer(this._fieldUniformBuffer, 20 * 4, new Uint32Array([1]));
+                this._writePerFieldUniforms(dtSub, 1); // currentFieldType=1 (Axion)
                 this._dispatchFieldEvolve(encoder, 'axion', dtSub);
             }
         }
@@ -2809,6 +2861,7 @@ export default class GPUPhysics {
         state.toggles.fieldGravEnabled = !!(t1 & 1);
 
         state.yukawaMu = this._yukawaMu;
+        state.higgsMass = this._higgsMass;
         state.axionMass = this._axionMass;
         state.hubbleParam = this._hubbleParam;
 
@@ -2873,6 +2926,12 @@ export default class GPUPhysics {
 
             this.aliveCount++;
         }
+
+        // Restore slider parameters from save state
+        if (state.higgsMass !== undefined) this._higgsMass = state.higgsMass;
+        if (state.axionMass !== undefined) this._axionMass = state.axionMass;
+        if (state.yukawaMu !== undefined) this._yukawaMu = state.yukawaMu;
+        if (state.hubbleParam !== undefined) this._hubbleParam = state.hubbleParam;
 
         this.syncUniforms();
         return true;

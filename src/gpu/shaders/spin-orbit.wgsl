@@ -27,7 +27,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (abs(aVel) < EPSILON) { return; }
 
     let angMom = d.angMomentum;
-    if (abs(angMom) < EPSILON) { return; }
 
     let m = particles[idx].mass;
     let q = particles[idx].charge;
@@ -54,9 +53,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var scX: f32 = 0.0;  // spin-curvature display force
     var scY: f32 = 0.0;
 
+    // Clamp angMom denominator to avoid division-by-zero in energy transfer terms.
+    // Translational kicks (Stern-Gerlach, Mathisson-Papapetrou) still apply when angMom is small.
+    let angMomSign = select(-1.0, 1.0, angMom >= 0.0);
+    let safeAngMom = select(angMom, angMomSign * EPSILON, abs(angMom) < EPSILON);
+
     if (hasMag && abs(q) > EPSILON) {
         // Energy transfer: angw -= mu * (v . grad(Bz)) * dt / (I*omega)
-        newAngW -= mu * (vx * dBzdx + vy * dBzdy) * uniforms.dt / angMom;
+        newAngW -= mu * (vx * dBzdx + vy * dBzdy) * uniforms.dt / safeAngMom;
         // Stern-Gerlach translational kick
         let sgX = mu * dBzdx * dtOverM;
         let sgY = mu * dBzdy * dtOverM;
@@ -68,7 +72,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (hasGM) {
         // Energy transfer: angw -= L * (v . grad(Bgz)) * dt / (I*omega)
-        newAngW -= L * (vx * dBgzdx + vy * dBgzdy) * uniforms.dt / angMom;
+        newAngW -= L * (vx * dBgzdx + vy * dBgzdy) * uniforms.dt / safeAngMom;
         // Mathisson-Papapetrou translational kick (GEM sign flip)
         let mpX = -L * dBgzdx * dtOverM;
         let mpY = -L * dBgzdy * dtOverM;

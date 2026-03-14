@@ -25,6 +25,7 @@ import {
     TORUS, KLEIN, RP2,
     GPU_SCALAR_GRID, GPU_SELFGRAV_GRID, GPU_NR_TOLERANCE,
     GPU_HEATMAP_GRID, GPU_MAX_PARTICLES, GPU_MAX_SPEED_RATIO,
+    DESPAWN_MARGIN,
 } from '../config.js';
 
 const _PAL = window._PALETTE;
@@ -220,6 +221,9 @@ const HERTZ_BOUNCE_BIT: u32 = 2u;
 // Barnes-Hut tree constants
 // NOTE: QT_CAPACITY intentionally NOT included — GPU uses 1 (lock-free), CPU uses 4.
 const MAX_DEPTH: u32 = 48u;
+
+// Boundary
+const DESPAWN_MARGIN: f32 = ${wf(DESPAWN_MARGIN)};
 
 // Disintegration / pair production
 const MAX_DISINT_EVENTS: u32 = 64u;

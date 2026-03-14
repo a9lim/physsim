@@ -101,8 +101,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     } else {
         // Despawn: mark particles outside domain + margin as dead
-        // DESPAWN_MARGIN = 64 world units (matches CPU config.js)
-        let margin: f32 = 64.0;
+        let margin: f32 = DESPAWN_MARGIN;
         if (x < -margin || x >= w + margin || y < -margin || y >= h + margin) {
             // Mark dead + retired so dead GC can reclaim the slot
             ps.flags = (ps.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
