@@ -242,7 +242,7 @@ export default class GPURenderer {
      * so no additional dirty-flag gating is needed here.
      */
     render(aliveCount, opts = {}) {
-        if (!this._ready || aliveCount === 0) return;
+        if (!this._ready) return;
 
         const textureView = this.context.getCurrentTexture().createView();
 
@@ -261,10 +261,12 @@ export default class GPURenderer {
             }],
         });
 
-        pass.setPipeline(this._pipeline);
-        pass.setBindGroup(0, this._bindGroup);
-        // 6 vertices per quad (2 triangles), aliveCount instances
-        pass.draw(6, aliveCount);
+        if (aliveCount > 0) {
+            pass.setPipeline(this._pipeline);
+            pass.setBindGroup(0, this._bindGroup);
+            // 6 vertices per quad (2 triangles), aliveCount instances
+            pass.draw(6, aliveCount);
+        }
         pass.end();
 
         // Submit particle render immediately (isolate from optional passes that may fail)
@@ -506,7 +508,7 @@ export default class GPURenderer {
 }
 
 async function fetchShader(filename) {
-    const resp = await fetch(`src/gpu/shaders/${filename}`);
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=2`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
     return resp.text();
 }

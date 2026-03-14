@@ -8,9 +8,12 @@
  * Photon (32B), Pion (48B) packed structs reduce storage buffer count per stage to ≤10.
  */
 
+/** Shader version — bump to invalidate browser cache after shader edits */
+const SHADER_VERSION = 2;
+
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename) {
-    const resp = await fetch(`src/gpu/shaders/${filename}`);
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=${SHADER_VERSION}`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
     return resp.text();
 }
