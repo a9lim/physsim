@@ -2559,6 +2559,40 @@ export default class GPUPhysics {
         this._frameCount = 0;
         this._heatmapFrame = 0;
         this._pendingMergeEvents = [];
+        this.resetFields();
+    }
+
+    /**
+     * Sync all toggle/slider state to the GPU uniforms buffer.
+     * Called once per frame before compute dispatch.
+     */
+    syncUniforms() {
+        writeUniforms(this.device, this.uniformBuffer, {
+            dt: 0,
+            simTime: this.simTime,
+            domainW: this.domainW,
+            domainH: this.domainH,
+            aliveCount: this.aliveCount,
+            ghostCount: this._ghostCount,
+            toggles0: this._toggles0,
+            toggles1: this._toggles1,
+            boundaryMode: this.boundaryMode,
+            topologyMode: this.topologyMode,
+            collisionMode: this._collisionMode,
+            bounceFriction: this._bounceFriction,
+            yukawaCoupling: this._yukawaCoupling,
+            yukawaMu: this._yukawaMu,
+            higgsMass: this._higgsMass,
+            axionMass: this._axionMass,
+            higgsCoupling: this._higgsCoupling,
+            axionCoupling: this._axionCoupling,
+            extGravX: this._extGravity * Math.cos(this._extGravityAngle),
+            extGravY: this._extGravity * Math.sin(this._extGravityAngle),
+            extElecX: this._extElectric * Math.cos(this._extElectricAngle),
+            extElecY: this._extElectric * Math.sin(this._extElectricAngle),
+            extBz: this._extBz,
+            hubbleParam: this._hubbleParam,
+        });
     }
 
     /** Reset field buffers to vacuum on preset load */

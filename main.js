@@ -340,6 +340,23 @@ class Simulation {
         this._dirty = true;
     }
 
+    /** Backend-agnostic reset: clears all simulation state. */
+    reset() {
+        // CPU state
+        this.particles = [];
+        this.deadParticles = [];
+        this.clearBosons();
+        this.totalRadiated = 0;
+        this.totalRadiatedPx = 0;
+        this.totalRadiatedPy = 0;
+        this.selectedParticle = null;
+        this.physics._forcesInit = false;
+        if (this.higgsField) this.higgsField.reset();
+        if (this.axionField) this.axionField.reset();
+        // GPU state (if active)
+        if (this._gpuPhysics) this._gpuPhysics.reset();
+    }
+
     /** Release all active photons/pions to their pools and clear the arrays. */
     clearBosons() {
         for (let i = 0; i < this.photons.length; i++) MasslessBoson.release(this.photons[i]);
