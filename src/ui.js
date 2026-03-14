@@ -60,18 +60,9 @@ export function setupUI(sim) {
 
     // ─── Clear ───
     document.getElementById('clearBtn').addEventListener('click', () => {
-        sim.particles = [];
-        sim.deadParticles = [];
-        sim.stats.resetBaseline();
-        sim.selectedParticle = null;
-        sim.physics._forcesInit = false;
-        sim.clearBosons();
-        sim.totalRadiated = 0;
-        sim.totalRadiatedPx = 0;
-        sim.totalRadiatedPy = 0;
-        if (sim.higgsField) sim.higgsField.reset();
-        if (sim.axionField) sim.axionField.reset();
+        sim.reset();
         sim.camera.reset(sim.domainW / 2, sim.domainH / 2, WORLD_SCALE);
+        sim.stats.resetBaseline();
         sim._dirty = true;
         showToast('Simulation cleared');
         _haptics.trigger('warning');

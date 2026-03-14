@@ -95,12 +95,11 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    // Circle with soft edge
     let dist = length(in.uv);
     if (dist > 1.0) { discard; }
 
-    // Smooth falloff at edge (replaces Canvas2D shadowBlur)
-    let alpha = smoothstep(1.0, 0.7, dist) * in.particleColor.a;
+    // Sharp circle with 1-pixel anti-aliased edge (softness = 1/pixelRadius)
+    let alpha = smoothstep(1.0, 1.0 - in.softness * 2.0, dist) * in.particleColor.a;
 
     // Premultiplied alpha output (required by alphaMode: 'premultiplied')
     return vec4(in.particleColor.rgb * alpha, alpha);
