@@ -447,16 +447,17 @@ Instanced rendering via vertex shaders. Reads directly from GPU compute buffers 
 1. Ghost generation (periodic boundary)
 2. Tree build (Barnes-Hut, if enabled)
 3. resetForces → cacheDerived → pairForce (or treeForce) → externalFields
-4. Boris integrator: halfKick → rotate → halfKick → spinOrbit → applyTorques
-5. Radiation reaction (Larmor, Hawking, pion emission)
-6. borisDrift → expansion
-7. 1PN velocity-Verlet correction
-8. Scalar field evolution (Higgs, Axion)
-9. Scalar field forces → collisions → field excitations → disintegration
-10. Boson update (photon/pion drift, absorption, decay) → pair production
-11. Boundary conditions
+4. Scalar field forces (Higgs gradient + mass mod, Axion gradient + axMod/yukMod) — BEFORE Boris
+5. Boris integrator: halfKick → rotate → halfKick → spinOrbit → applyTorques
+6. Radiation reaction (Larmor, Hawking, pion emission)
+7. borisDrift → expansion
+8. 1PN velocity-Verlet correction
+9. Scalar field evolution (deposit → [self-grav] → KDK → gradients)
+10. Collisions → field excitations → disintegration
+11. Boson update (photon/pion drift, absorption, decay) → pair production
+12. Boundary conditions
 
-Post-substep (once per frame, separate encoder): heatmap, boson gravity, dead GC, history recording.
+Post-substep (once per frame, separate encoder): heatmap, boson gravity, dead GC, history recording, updateColors, trail recording.
 
 ### Packed Struct Buffers
 
@@ -496,14 +497,30 @@ Worst-case pipeline (radiation) uses 10 storage buffers (was 42 before packing).
 - **Shared entry points**: When a shader has multiple entry points using the same module (e.g., `field-evolve.wgsl` with `computeLaplacian` + `computeGridGradients`), ALL bindings must use the most permissive access mode (`read_write` even if some entry points only read).
 - **Buffer aliasing**: WebGPU disallows binding the same buffer twice in a dispatch. Radiation handles charge transfer by making `particleState` read-write in group 1 (not a separate binding).
 - **Staging buffer mapping**: Readback staging buffers (`maxAccelStaging`, `ghostCountStaging`, `mergeCountStaging`) must not be copied to while still mapped from a previous `mapAsync`. Guard copies with `_pending` flags.
+- **Uniform struct layout**: JS `writeUniforms`/`_writeFieldUniforms` field order must exactly match WGSL struct member order. WGSL structs use natural alignment (f32=4, u32=4, vec4=16). Off-by-one index errors silently corrupt all downstream fields.
+- **Buffer initialization**: `addParticle()` must initialize ALL per-particle buffers. `axYukMod` defaults to (1.0, 1.0) not (0, 0) — zero would multiply all Yukawa/axion-modulated forces to zero. `radiationState` must be zeroed explicitly.
 
 ### GPU ↔ CPU Sync
 
-- `addParticle()` writes packed `ParticleState` (36B) + `ParticleAux` (20B) + `color` (4B) via `queue.writeBuffer()`
-- `setToggles(physics)` packs CPU toggle booleans into `toggles0`/`toggles1` u32 bitfields
-- `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load
+- `addParticle()` writes packed `ParticleState` (36B) + `ParticleAux` (20B) + `color` (4B) + `axYukMod` (8B, initialized to 1.0/1.0) + `radiationState` (32B, zeroed) via `queue.writeBuffer()`
+- `setToggles(physics)` packs CPU toggle booleans into `toggles0`/`toggles1` u32 bitfields. Called from `ui.js` `updateAllDeps()` on every toggle change. Heatmap state passed via `Object.create(sim.physics)` with `heatmapEnabled` added.
+- `_writeFieldUniforms(dt)` writes `FieldUniforms` struct (21 fields) to shared field uniform buffer. Must match `field-common.wgsl` `FieldUniforms` struct layout exactly. Called before both field forces (Pass 4) and field evolve (Pass 9).
+- Slider changes (yukawaMu, axionMass, higgsMass, external fields, etc.) sync to GPU via `setToggles()` on toggle change, but NOT on slider-only changes — slider values are cached in `_yukawaMu`, `_higgsMass`, etc. and written to uniforms each substep.
+- `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load. `deserialize()` initializes `axYukMod` to (1,1) and zeroes `radiationState`.
 - CPU-side `particles[]` array maintained in parallel for sidebar UI, presets, stats
 - `device.lost` handler falls back to CPU mode, restores from periodic auto-save
+
+### GPU Renderer
+
+`GPURenderer` in `gpu-renderer.js` handles all visual output in GPU mode. Render passes (each in isolated command encoder for error containment):
+
+1. **Particles**: Instanced quad rendering from `particleState` + `color` buffers. Color computed by `updateColors` compute pass (post-substep).
+2. **Trails**: Line-strip per particle from ring buffer (`trailX`/`trailY`). Trail recording via `trails.wgsl` compute (post-substep). Lazy buffer allocation via `setTrailsEnabled()`.
+3. **Field overlays**: Fullscreen triangle, bilinear-upscaled 64×64 grid. Per-field uniform buffers (higgs/axion) to avoid writeBuffer race. Lazy pipeline init via `initFieldOverlay()`.
+4. **Heatmap overlay**: Fullscreen triangle, gravity/electric/Yukawa potential channels. Lazy pipeline init via `initHeatmapOverlay()`.
+5. **Bosons**: Instanced point rendering for photons (yellow/red) and pions (green).
+6. **Spin rings**: Line-strip arcs around particles, arc length proportional to |angVel|.
+7. **Force arrows**: Instanced arrow geometry, 11 force types with distinct colors.
 
 ## Key Patterns
 
