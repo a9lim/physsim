@@ -1,7 +1,25 @@
 // ─── Scalar Field → Particle Forces ───
 // One thread per particle. PQS-interpolated gradient forces + Higgs mass modulation.
 
-// Packed struct (mirrors common.wgsl ParticleDerived for standalone field shaders)
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState_FF {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+// Packed auxiliary struct (matches common.wgsl ParticleAux)
+struct ParticleAux_FF {
+    radius: f32,
+    particleId: u32,
+    deathTime: f32,
+    deathMass: f32,
+    deathAngVel: f32,
+};
+
+// Packed struct (mirrors common.wgsl ParticleDerived)
 struct ParticleDerived_FF {
     magMoment: f32,
     angMomentum: f32,
@@ -28,17 +46,10 @@ struct AllForces_FF {
     _pad: vec2<f32>,
 };
 
-@group(0) @binding(0) var<storage, read> posX: array<f32>;
-@group(0) @binding(1) var<storage, read> posY: array<f32>;
-@group(0) @binding(2) var<storage, read_write> mass: array<f32>;
-@group(0) @binding(3) var<storage, read> baseMass: array<f32>;
-@group(0) @binding(4) var<storage, read> charge: array<f32>;
-@group(0) @binding(5) var<storage, read> flags: array<u32>;
-@group(0) @binding(6) var<storage, read_write> velWX: array<f32>;
-@group(0) @binding(7) var<storage, read_write> velWY: array<f32>;
-@group(0) @binding(8) var<storage, read_write> angW: array<f32>;
-@group(0) @binding(9) var<storage, read_write> radius: array<f32>;
-@group(0) @binding(10) var<storage, read_write> derived: array<ParticleDerived_FF>; // packed derived state
+// Group 0: particleState (rw) + particleAux (ro) + derived (rw)
+@group(0) @binding(0) var<storage, read_write> particles: array<ParticleState_FF>;
+@group(0) @binding(1) var<storage, read> particleAux: array<ParticleAux_FF>;
+@group(0) @binding(2) var<storage, read_write> derived: array<ParticleDerived_FF>;
 
 // Higgs field arrays
 @group(1) @binding(0) var<storage, read> higgsField: array<f32>;
@@ -123,14 +134,15 @@ fn pqsGradient(gradXArr: ptr<storage, array<f32>, read>,
 fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
     if (pid >= uniforms.particleCount) { return; }
-    let flag = flags[pid];
+    var p = particles[pid];
+    let flag = p.flags;
     if ((flag & 1u) == 0u) { return; }
 
-    let bm = baseMass[pid];
+    let bm = p.baseMass;
     if (bm < EPSILON) { return; }
 
-    let px = posX[pid];
-    let py = posY[pid];
+    let px = p.posX;
+    let py = p.posY;
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
     if (cellW < EPSILON || cellH < EPSILON) { return; }
@@ -146,19 +158,21 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let floor = uniforms.higgsMassFloor;
     let targetMass = max(bm * abs(phiLocal), floor * bm);
     let maxDelta = uniforms.higgsMassMaxDelta * uniforms.dt;
-    let currentMass = mass[pid];
+    let currentMass = p.mass;
     let diff = targetMass - currentMass;
     let clampedDiff = clamp(diff, -maxDelta, maxDelta);
     let newMass = currentMass + clampedDiff;
 
     // Conserve momentum: scale proper velocity
     let massRatio = currentMass / newMass;
-    velWX[pid] *= massRatio;
-    velWY[pid] *= massRatio;
+    p.velWX *= massRatio;
+    p.velWY *= massRatio;
 
-    mass[pid] = newMass;
+    p.mass = newMass;
+    particles[pid] = p;
+
+    // Update radius in particleAux (read-only here, but update derived)
     let bodyR = pow(newMass, 1.0 / 3.0);  // cbrt
-    radius[pid] = bodyR;
     var d = derived[pid];
     d.invMass = 1.0 / newMass;
     derived[pid] = d;
@@ -184,11 +198,12 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
 fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
     if (pid >= uniforms.particleCount) { return; }
-    let flag = flags[pid];
+    let p = particles[pid];
+    let flag = p.flags;
     if ((flag & 1u) == 0u) { return; }
 
-    let px = posX[pid];
-    let py = posY[pid];
+    let px = p.posX;
+    let py = p.posY;
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
     if (cellW < EPSILON || cellH < EPSILON) { return; }
@@ -220,12 +235,12 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Gradient force
     var coupling: f32 = 0.0;
     if (uniforms.coulombEnabled != 0u) {
-        let q = charge[pid];
+        let q = p.charge;
         let qSq = q * q;
         if (qSq > EPSILON) { coupling += qSq; }
     }
     if (uniforms.yukawaEnabled != 0u) {
-        let m = mass[pid];
+        let m = p.mass;
         if (m > EPSILON) {
             let isAnti = (flag & 4u) != 0u;
             let sign = select(1.0, -1.0, isAnti);

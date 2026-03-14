@@ -75,11 +75,9 @@ export default class GPURenderer {
             label: 'particle render',
             entries: [
                 { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
-                { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-                { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-                { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-                { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-                { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+                { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleState
+                { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleAux
+                { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // color
             ],
         });
 
@@ -117,11 +115,9 @@ export default class GPURenderer {
             layout: bindGroupLayout,
             entries: [
                 { binding: 0, resource: { buffer: this.cameraBuffer } },
-                { binding: 1, resource: { buffer: this.buffers.posX } },
-                { binding: 2, resource: { buffer: this.buffers.posY } },
-                { binding: 3, resource: { buffer: this.buffers.radius } },
-                { binding: 4, resource: { buffer: this.buffers.color } },
-                { binding: 5, resource: { buffer: this.buffers.flags } },
+                { binding: 1, resource: { buffer: this.buffers.particleState } },
+                { binding: 2, resource: { buffer: this.buffers.particleAux } },
+                { binding: 3, resource: { buffer: this.buffers.color } },
             ],
         });
 
@@ -152,7 +148,7 @@ export default class GPURenderer {
         const b = this.buffers;
 
         // Check that boson buffers exist (allocated lazily)
-        if (!b.phPosX || !b.piPosX) {
+        if (!b.photonPool || !b.pionPool) {
             console.warn('[physsim] Boson buffers not yet allocated, skipping boson render init');
             return;
         }
@@ -167,29 +163,23 @@ export default class GPURenderer {
                 ],
             });
 
-            // Group 1: photon pool (5 read-only)
+            // Group 1: photon pool (packed) + phCount
             const g1 = this.device.createBindGroup({
                 label: 'bosonRender_g1',
                 layout: bindGroupLayouts[1],
                 entries: [
-                    { binding: 0, resource: { buffer: b.phPosX } },
-                    { binding: 1, resource: { buffer: b.phPosY } },
-                    { binding: 2, resource: { buffer: b.phAge } },
-                    { binding: 3, resource: { buffer: b.phFlags } },
-                    { binding: 4, resource: { buffer: b.phCount } },
+                    { binding: 0, resource: { buffer: b.photonPool } },
+                    { binding: 1, resource: { buffer: b.phCount } },
                 ],
             });
 
-            // Group 2: pion pool (5 read-only)
+            // Group 2: pion pool (packed) + piCount
             const g2 = this.device.createBindGroup({
                 label: 'bosonRender_g2',
                 layout: bindGroupLayouts[2],
                 entries: [
-                    { binding: 0, resource: { buffer: b.piPosX } },
-                    { binding: 1, resource: { buffer: b.piPosY } },
-                    { binding: 2, resource: { buffer: b.piAge } },
-                    { binding: 3, resource: { buffer: b.piFlags } },
-                    { binding: 4, resource: { buffer: b.piCount } },
+                    { binding: 0, resource: { buffer: b.pionPool } },
+                    { binding: 1, resource: { buffer: b.piCount } },
                 ],
             });
 

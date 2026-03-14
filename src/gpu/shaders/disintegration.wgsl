@@ -5,6 +5,24 @@
 
 const EPSILON: f32 = 1e-9;
 
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState_DI {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+// Packed auxiliary struct (matches common.wgsl ParticleAux)
+struct ParticleAux_DI {
+    radius: f32,
+    particleId: u32,
+    deathTime: f32,
+    deathMass: f32,
+    deathAngVel: f32,
+};
+
 // Packed struct (mirrors common.wgsl ParticleDerived)
 struct DisintDerived {
     magMoment: f32,
@@ -46,13 +64,10 @@ struct DisintEvent {
     spawnVY: f32,
 };
 
-@group(0) @binding(0) var<storage, read> posX: array<f32>;
-@group(0) @binding(1) var<storage, read> posY: array<f32>;
-@group(0) @binding(2) var<storage, read> mass: array<f32>;
-@group(0) @binding(3) var<storage, read> charge: array<f32>;
-@group(0) @binding(4) var<storage, read> radiusBuf: array<f32>;
-@group(0) @binding(5) var<storage, read> derived: array<DisintDerived>;
-@group(0) @binding(6) var<storage, read> flags: array<u32>;
+// Group 0: particleState (ro) + particleAux (ro) + derived (ro)
+@group(0) @binding(0) var<storage, read> particles: array<ParticleState_DI>;
+@group(0) @binding(1) var<storage, read> particleAux: array<ParticleAux_DI>;
+@group(0) @binding(2) var<storage, read> derived: array<DisintDerived>;
 
 @group(1) @binding(0) var<storage, read_write> events: array<DisintEvent>;
 @group(1) @binding(1) var<storage, read_write> eventCounter: atomic<u32>;
@@ -64,19 +79,20 @@ const MAX_DISINT_EVENTS: u32 = 64u;
 fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
     if (pid >= du.particleCount) { return; }
-    let flag = flags[pid];
+    let p = particles[pid];
+    let flag = p.flags;
     if ((flag & 1u) == 0u) { return; }
 
-    let m = mass[pid];
+    let m = p.mass;
     if (m < du.minMass * f32(du.spawnCount)) { return; }
 
     let d = derived[pid];
     let rSq = d.radiusSq;
-    let r = radiusBuf[pid];
+    let r = particleAux[pid].radius;
     let selfGravity = m / rSq;
     let w = d.angVel;
     let centrifugal = w * w * r;
-    let q = charge[pid];
+    let q = p.charge;
     let coulombSelf = (q * q) / (4.0 * rSq);
 
     // Pure centrifugal/Coulomb breakup
@@ -97,18 +113,19 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
     var strongestDx: f32 = 0.0;
     var strongestDy: f32 = 0.0;
     var strongestDist: f32 = 0.0;
-    let px = posX[pid];
-    let py = posY[pid];
+    let px = p.posX;
+    let py = p.posY;
     let halfDomW = du.domainW * 0.5;
     let halfDomH = du.domainH * 0.5;
 
     for (var oi = 0u; oi < du.particleCount; oi++) {
         if (oi == pid) { continue; }
-        let oflag = flags[oi];
+        let op = particles[oi];
+        let oflag = op.flags;
         if ((oflag & 1u) == 0u) { continue; }
 
-        var dx = posX[oi] - px;
-        var dy = posY[oi] - py;
+        var dx = op.posX - px;
+        var dy = op.posY - py;
 
         // Minimum image (torus only for simplicity)
         if (du.periodic != 0u) {
@@ -120,7 +137,7 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let distSq = dx * dx + dy * dy + du.softeningSq;
         let invDistSq = 1.0 / distSq;
-        let tidalAccel = du.tidalStrength * mass[oi] * r * sqrt(invDistSq) * invDistSq;
+        let tidalAccel = du.tidalStrength * op.mass * r * sqrt(invDistSq) * invDistSq;
 
         if (tidalAccel > maxTidal) {
             maxTidal = tidalAccel;
@@ -145,11 +162,12 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Roche lobe overflow (Eggleton 1983)
     if (strongestDist > EPSILON && m > du.minMass * 4.0) {
-        let d = strongestDist;
-        let qRatio = m / (m + mass[strongestIdx]);
+        let rocheDist = strongestDist;
+        let oMass = particles[strongestIdx].mass;
+        let qRatio = m / (m + oMass);
         let q13 = pow(qRatio, 1.0 / 3.0);
         let q23 = q13 * q13;
-        let rRoche = d * 0.49 * q23 / (0.6 * q23 + log(1.0 + q13));
+        let rRoche = rocheDist * 0.49 * q23 / (0.6 * q23 + log(1.0 + q13));
 
         if (r > rRoche * du.rocheThreshold) {
             let l1Mag = sqrt(strongestDx * strongestDx + strongestDy * strongestDy);
@@ -169,11 +187,10 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
                         evt.transferMass = dM;
                         evt.spawnX = px + l1x * r * 1.2;
                         evt.spawnY = py + l1y * r * 1.2;
-                        let oMass = mass[strongestIdx];
                         let dvd = derived[pid];
                         let dv = vec2<f32>(dvd.velX, dvd.velY);
-                        evt.spawnVX = dv.x + (-l1y) * sqrt(oMass / d) * 0.5;
-                        evt.spawnVY = dv.y + l1x * sqrt(oMass / d) * 0.5;
+                        evt.spawnVX = dv.x + (-l1y) * sqrt(oMass / rocheDist) * 0.5;
+                        evt.spawnVY = dv.y + l1x * sqrt(oMass / rocheDist) * 0.5;
                         events[slot] = evt;
                     }
                 }

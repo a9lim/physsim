@@ -15,13 +15,28 @@ struct CameraUniforms {
     _pad: f32,
 };
 
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+// Packed auxiliary struct (matches common.wgsl ParticleAux)
+struct ParticleAux {
+    radius: f32,
+    particleId: u32,
+    deathTime: f32,
+    deathMass: f32,
+    deathAngVel: f32,
+};
+
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
-@group(0) @binding(1) var<storage, read> posX: array<f32>;
-@group(0) @binding(2) var<storage, read> posY: array<f32>;
-@group(0) @binding(3) var<storage, read> radius: array<f32>;
-@group(0) @binding(4) var<storage, read> angW: array<f32>;
-@group(0) @binding(5) var<storage, read> flags: array<u32>;
-@group(0) @binding(6) var<storage, read> color: array<u32>;
+@group(0) @binding(1) var<storage, read> particles: array<ParticleState>;
+@group(0) @binding(2) var<storage, read> particleAux: array<ParticleAux>;
+@group(0) @binding(3) var<storage, read> color: array<u32>;
 
 const ALIVE_BIT: u32 = 1u;
 const ARC_SEGMENTS: u32 = 32u;
@@ -48,22 +63,23 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    if ((flags[instIdx] & ALIVE_BIT) == 0u || vertIdx >= ARC_SEGMENTS) {
+    let p = particles[instIdx];
+    if ((p.flags & ALIVE_BIT) == 0u || vertIdx >= ARC_SEGMENTS) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
         out.color = vec4f(0.0);
         return out;
     }
 
-    let aw = angW[instIdx];
+    let aw = p.angW;
     if (abs(aw) < MIN_ANGVEL) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
         out.color = vec4f(0.0);
         return out;
     }
 
-    let r = radius[instIdx];
-    let cx = posX[instIdx];
-    let cy = posY[instIdx];
+    let r = particleAux[instIdx].radius;
+    let cx = p.posX;
+    let cy = p.posY;
 
     // Arc length proportional to |angVel|, clamped to full circle
     let arcFrac = clamp(abs(aw) * 2.0, 0.1, 1.0);

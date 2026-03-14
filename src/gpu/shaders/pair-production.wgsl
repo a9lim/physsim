@@ -2,6 +2,23 @@
 // Photon → particle-antiparticle pair near massive bodies.
 // One thread per photon. Writes spawn events to append buffer.
 
+// Packed photon struct (matches common.wgsl Photon)
+struct Photon {
+    posX: f32, posY: f32,
+    velX: f32, velY: f32,
+    energy: f32,
+    emitterId: u32, age: u32, flags: u32,
+};
+
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState_PP {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
 struct PairProdUniforms {
     minEnergy: f32,       // 0.5
     proximity: f32,       // 8.0
@@ -28,18 +45,12 @@ struct PairEvent {
     _pad: f32,
 };
 
-@group(0) @binding(0) var<storage, read> photonPosX: array<f32>;
-@group(0) @binding(1) var<storage, read> photonPosY: array<f32>;
-@group(0) @binding(2) var<storage, read> photonEnergy: array<f32>;
-@group(0) @binding(3) var<storage, read> photonVelX: array<f32>;
-@group(0) @binding(4) var<storage, read> photonVelY: array<f32>;
-@group(0) @binding(5) var<storage, read> photonAge: array<u32>;
-@group(0) @binding(6) var<storage, read> photonAlive: array<u32>;
+// Group 0: photonPool (ro) + phCount (ro)
+@group(0) @binding(0) var<storage, read> photonPool: array<Photon>;
+@group(0) @binding(1) var<storage, read> phCount: array<u32>;
 
-@group(1) @binding(0) var<storage, read> particlePosX: array<f32>;
-@group(1) @binding(1) var<storage, read> particlePosY: array<f32>;
-@group(1) @binding(2) var<storage, read> particleMass: array<f32>;
-@group(1) @binding(3) var<storage, read> particleFlags: array<u32>;
+// Group 1: particleState (ro)
+@group(1) @binding(0) var<storage, read> particles: array<ParticleState_PP>;
 
 @group(2) @binding(0) var<storage, read_write> pairEvents: array<PairEvent>;
 @group(2) @binding(1) var<storage, read_write> pairCounter: atomic<u32>;
@@ -63,9 +74,11 @@ fn checkPairProduction(@builtin(global_invocation_id) gid: vec3<u32>) {
     let phIdx = gid.x;
     if (phIdx >= pu.photonCount) { return; }
     if (pu.blackHoleEnabled != 0u) { return; }
-    if (photonAlive[phIdx] == 0u) { return; }
-    if (photonEnergy[phIdx] < pu.minEnergy) { return; }
-    if (photonAge[phIdx] < pu.minAge) { return; }
+
+    let ph = photonPool[phIdx];
+    if ((ph.flags & 1u) == 0u) { return; }
+    if (ph.energy < pu.minEnergy) { return; }
+    if (ph.age < pu.minAge) { return; }
     if (pu.currentParticleCount >= pu.maxParticles) { return; }
 
     // Check probability
@@ -73,19 +86,20 @@ fn checkPairProduction(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (randomFloat(seed) > pu.probability) { return; }
 
     // Find nearest massive body within proximity
-    let phX = photonPosX[phIdx];
-    let phY = photonPosY[phIdx];
+    let phX = ph.posX;
+    let phY = ph.posY;
     let proxSq = pu.proximity * pu.proximity;
     var minDistSq: f32 = proxSq;
     var nearestIdx: u32 = 0xFFFFFFFFu;
 
     for (var i = 0u; i < pu.currentParticleCount; i++) {
-        let pflag = particleFlags[i];
+        let p = particles[i];
+        let pflag = p.flags;
         if ((pflag & 1u) == 0u) { continue; }
-        if (particleMass[i] < 1e-9) { continue; }
+        if (p.mass < 1e-9) { continue; }
 
-        let dx = particlePosX[i] - phX;
-        let dy = particlePosY[i] - phY;
+        let dx = p.posX - phX;
+        let dy = p.posY - phY;
         let dSq = dx * dx + dy * dy;
         if (dSq < minDistSq) {
             minDistSq = dSq;
@@ -101,11 +115,11 @@ fn checkPairProduction(@builtin(global_invocation_id) gid: vec3<u32>) {
         var evt: PairEvent;
         evt.photonIdx = phIdx;
         evt.nearestParticleIdx = nearestIdx;
-        evt.photonEnergy = photonEnergy[phIdx];
+        evt.photonEnergy = ph.energy;
         evt.photonPosX = phX;
         evt.photonPosY = phY;
-        evt.photonVelX = photonVelX[phIdx];
-        evt.photonVelY = photonVelY[phIdx];
+        evt.photonVelX = ph.velX;
+        evt.photonVelY = ph.velY;
         pairEvents[slot] = evt;
     }
 }

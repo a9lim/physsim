@@ -4,15 +4,17 @@
 // Pass 2 (gather): One thread per grid cell. Scans all particles, checks
 //   if stencil overlaps this cell, accumulates contributions.
 
-// Bindings (set by JS for each field and deposition target)
-@group(0) @binding(0) var<storage, read> posX: array<f32>;
-@group(0) @binding(1) var<storage, read> posY: array<f32>;
-@group(0) @binding(2) var<storage, read> mass: array<f32>;
-@group(0) @binding(3) var<storage, read> baseMass: array<f32>;
-@group(0) @binding(4) var<storage, read> charge: array<f32>;
-@group(0) @binding(5) var<storage, read> flags: array<u32>;
-@group(0) @binding(6) var<storage, read> velWX: array<f32>;
-@group(0) @binding(7) var<storage, read> velWY: array<f32>;
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+// Bindings: 1 packed buffer replaces 8 individual SoA arrays
+@group(0) @binding(0) var<storage, read> particles: array<ParticleState>;
 
 @group(1) @binding(0) var<storage, read_write> scratchWeights: array<f32>;  // maxParticles * 16
 @group(1) @binding(1) var<storage, read_write> scratchIndices: array<i32>;  // maxParticles * 2 (ix, iy)
@@ -39,11 +41,12 @@ fn scatterDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (pid >= uniforms.particleCount) { return; }
 
     // Check alive flag
-    let flag = flags[pid];
+    let p = particles[pid];
+    let flag = p.flags;
     if ((flag & 1u) == 0u) { return; }  // not alive
 
-    let px = posX[pid];
-    let py = posY[pid];
+    let px = p.posX;
+    let py = p.posY;
 
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
@@ -60,7 +63,7 @@ fn scatterDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
     var value: f32 = 0.0;
 
     // Higgs source: g * baseMass
-    let bm = baseMass[pid];
+    let bm = p.baseMass;
     if (bm < EPSILON) { return; }
 
     // For Higgs source mode (default path — JS selects target grid)
@@ -87,11 +90,12 @@ fn scatterDepositAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
     if (pid >= uniforms.particleCount) { return; }
 
-    let flag = flags[pid];
+    let p = particles[pid];
+    let flag = p.flags;
     if ((flag & 1u) == 0u) { return; }
 
-    let px = posX[pid];
-    let py = posY[pid];
+    let px = p.posX;
+    let py = p.posY;
 
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
@@ -105,12 +109,12 @@ fn scatterDepositAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
     var value: f32 = 0.0;
     let g = uniforms.axionCoupling;
     if (uniforms.coulombEnabled != 0u) {
-        let q = charge[pid];
+        let q = p.charge;
         let qSq = q * q;
         if (qSq > EPSILON) { value += g * qSq; }
     }
     if (uniforms.yukawaEnabled != 0u) {
-        let m = mass[pid];
+        let m = p.mass;
         if (m > EPSILON) {
             let isAntimatter = (flag & 4u) != 0u;  // antimatter bit
             let sign = select(1.0, -1.0, isAntimatter);
@@ -138,11 +142,12 @@ fn scatterDepositThermal(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
     if (pid >= uniforms.particleCount) { return; }
 
-    let flag = flags[pid];
+    let p = particles[pid];
+    let flag = p.flags;
     if ((flag & 1u) == 0u) { return; }
 
-    let px = posX[pid];
-    let py = posY[pid];
+    let px = p.posX;
+    let py = p.posY;
 
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
@@ -153,15 +158,15 @@ fn scatterDepositThermal(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pqs = pqsWeights(px, py, invCellW, invCellH);
 
     // Compute KE
-    let wx = velWX[pid];
-    let wy = velWY[pid];
+    let wx = p.velWX;
+    let wy = p.velWY;
     let wSq = wx * wx + wy * wy;
     var ke: f32;
     if (uniforms.relativityEnabled != 0u) {
-        ke = wSq / (sqrt(1.0 + wSq) + 1.0) * mass[pid];
+        ke = wSq / (sqrt(1.0 + wSq) + 1.0) * p.mass;
     } else {
         // vel = w when relativity off
-        ke = 0.5 * mass[pid] * wSq;
+        ke = 0.5 * p.mass * wSq;
     }
     if (ke < EPSILON) { return; }
 
@@ -195,7 +200,7 @@ fn gatherDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // For each particle, check if this cell falls within its 4x4 stencil
     for (var pid = 0u; pid < uniforms.particleCount; pid++) {
-        let flag = flags[pid];
+        let flag = particles[pid].flags;
         if ((flag & 1u) == 0u) { continue; }
 
         let base = pid * 2u;

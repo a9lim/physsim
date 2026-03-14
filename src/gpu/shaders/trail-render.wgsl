@@ -23,6 +23,15 @@ struct TrailUniforms {
     _pad: f32,
 };
 
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var<uniform> trailParams: TrailUniforms;
 @group(0) @binding(2) var<storage, read> trailX: array<f32>;
@@ -30,7 +39,7 @@ struct TrailUniforms {
 @group(0) @binding(4) var<storage, read> trailWriteIdx: array<u32>;
 @group(0) @binding(5) var<storage, read> trailCount: array<u32>;
 @group(0) @binding(6) var<storage, read> color: array<u32>;
-@group(0) @binding(7) var<storage, read> flags: array<u32>;
+@group(0) @binding(7) var<storage, read> particles: array<ParticleState>;
 
 const ALIVE_BIT: u32 = 1u;
 
@@ -56,7 +65,8 @@ fn vs_main(
     var out: VertexOutput;
 
     // Skip dead particles
-    if ((flags[instIdx] & ALIVE_BIT) == 0u) {
+    let p = particles[instIdx];
+    if ((p.flags & ALIVE_BIT) == 0u) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);  // clip away
         out.alpha = 0.0;
         out.color = vec4f(0.0);

@@ -12,6 +12,23 @@ struct CameraUniforms {
     _pad: f32,
 };
 
+// Packed photon struct (matches common.wgsl Photon)
+struct Photon {
+    posX: f32, posY: f32,
+    velX: f32, velY: f32,
+    energy: f32,
+    emitterId: u32, age: u32, flags: u32,
+};
+
+// Packed pion struct (matches common.wgsl Pion)
+struct Pion {
+    posX: f32, posY: f32,
+    wX: f32, wY: f32,
+    mass: f32, charge: i32, energy: f32,
+    emitterId: u32, age: u32, flags: u32,
+    _pad0: u32, _pad1: u32,
+};
+
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) color: vec4f,
@@ -20,19 +37,13 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 
-// Photon pool (read-only for rendering)
-@group(1) @binding(0) var<storage, read> phPosX: array<f32>;
-@group(1) @binding(1) var<storage, read> phPosY: array<f32>;
-@group(1) @binding(2) var<storage, read> phAge: array<u32>;
-@group(1) @binding(3) var<storage, read> phFlags: array<u32>;
-@group(1) @binding(4) var<storage, read> phCount: array<u32>;
+// Photon pool (packed, read-only for rendering)
+@group(1) @binding(0) var<storage, read> photonPool: array<Photon>;
+@group(1) @binding(1) var<storage, read> phCount: array<u32>;
 
-// Pion pool (read-only for rendering)
-@group(2) @binding(0) var<storage, read> piPosX: array<f32>;
-@group(2) @binding(1) var<storage, read> piPosY: array<f32>;
-@group(2) @binding(2) var<storage, read> piAge: array<u32>;
-@group(2) @binding(3) var<storage, read> piFlags: array<u32>;
-@group(2) @binding(4) var<storage, read> piCount: array<u32>;
+// Pion pool (packed, read-only for rendering)
+@group(2) @binding(0) var<storage, read> pionPool: array<Pion>;
+@group(2) @binding(1) var<storage, read> piCount: array<u32>;
 
 // Quad vertex positions (triangle strip: 4 verts -> 2 triangles via index buffer)
 fn quadOffset(vertexIdx: u32) -> vec2f {
@@ -53,14 +64,16 @@ fn vertexPhoton(
         out.position = vec4f(0.0, 0.0, -2.0, 1.0); // cull
         return out;
     }
-    if ((phFlags[instanceIdx] & 1u) == 0u) {
+
+    let ph = photonPool[instanceIdx];
+    if ((ph.flags & 1u) == 0u) {
         out.position = vec4f(0.0, 0.0, -2.0, 1.0);
         return out;
     }
 
-    let px = phPosX[instanceIdx];
-    let py = phPosY[instanceIdx];
-    let age = f32(phAge[instanceIdx]);
+    let px = ph.posX;
+    let py = ph.posY;
+    let age = f32(ph.age);
     let maxAge = 256.0 * 128.0; // PHOTON_LIFETIME * PHYSICS_DT_INV approx
     let alpha = max(0.0, 1.0 - age / maxAge);
 
@@ -73,7 +86,7 @@ fn vertexPhoton(
     out.position = clipPos + vec4f(qOff * spriteSize / vec2f(camera.canvasWidth, camera.canvasHeight), 0.0, 0.0);
 
     // Color: yellow for EM, red for grav
-    let isGrav = (phFlags[instanceIdx] & 2u) != 0u;
+    let isGrav = (ph.flags & 2u) != 0u;
     if (isGrav) {
         out.color = vec4f(1.0, 0.2, 0.1, alpha);
     } else {
@@ -94,13 +107,15 @@ fn vertexPion(
         out.position = vec4f(0.0, 0.0, -2.0, 1.0);
         return out;
     }
-    if ((piFlags[instanceIdx] & 1u) == 0u) {
+
+    let pi = pionPool[instanceIdx];
+    if ((pi.flags & 1u) == 0u) {
         out.position = vec4f(0.0, 0.0, -2.0, 1.0);
         return out;
     }
 
-    let px = piPosX[instanceIdx];
-    let py = piPosY[instanceIdx];
+    let px = pi.posX;
+    let py = pi.posY;
 
     let qOff = quadOffset(vertexIdx);
     let spriteSize = 4.0; // slightly larger than photons

@@ -22,13 +22,29 @@ struct QTNode {
     particleCount: u32,
 };
 
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+// Packed auxiliary struct (matches common.wgsl ParticleAux)
+struct ParticleAux {
+    radius: f32,
+    particleId: u32,
+    deathTime: f32,
+    deathMass: f32,
+    deathAngVel: f32,
+};
+
 @group(0) @binding(0) var<uniform> hit: HitUniforms;
 @group(0) @binding(1) var<storage, read> tree: array<QTNode>;
-@group(0) @binding(2) var<storage, read> posX: array<f32>;
-@group(0) @binding(3) var<storage, read> posY: array<f32>;
-@group(0) @binding(4) var<storage, read> radius: array<f32>;
-@group(0) @binding(5) var<storage, read> flags: array<u32>;
-@group(0) @binding(6) var<storage, read_write> hitResult: array<i32>;  // single element
+@group(0) @binding(2) var<storage, read> particles: array<ParticleState>;
+@group(0) @binding(3) var<storage, read> particleAux: array<ParticleAux>;
+@group(0) @binding(4) var<storage, read_write> hitResult: array<i32>;  // single element
 
 const ALIVE_BIT: u32 = 1u;
 
@@ -67,11 +83,12 @@ fn main() {
         // Leaf node — check particle
         if (node.particleIndex >= 0) {
             let pi = u32(node.particleIndex);
-            if ((flags[pi] & ALIVE_BIT) != 0u) {
-                let dx = cx - posX[pi];
-                let dy = cy - posY[pi];
+            let p = particles[pi];
+            if ((p.flags & ALIVE_BIT) != 0u) {
+                let dx = cx - p.posX;
+                let dy = cy - p.posY;
                 let distSq = dx * dx + dy * dy;
-                let r = radius[pi];
+                let r = particleAux[pi].radius;
                 if (distSq < r * r && distSq < bestDistSq) {
                     bestDistSq = distSq;
                     bestIdx = node.particleIndex;

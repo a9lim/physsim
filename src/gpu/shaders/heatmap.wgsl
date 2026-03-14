@@ -3,6 +3,15 @@
 // Signal-delay-aware when relativity enabled.
 // Direct O(N*GRID^2) pairwise — tree acceleration deferred to future optimization.
 
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState_HM {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
 struct HeatmapUniforms {
     // Camera/viewport for world-space grid
     viewLeft: f32,
@@ -32,11 +41,8 @@ struct HeatmapUniforms {
     _pad3: f32,
 };
 
-@group(0) @binding(0) var<storage, read> posX: array<f32>;
-@group(0) @binding(1) var<storage, read> posY: array<f32>;
-@group(0) @binding(2) var<storage, read> mass: array<f32>;
-@group(0) @binding(3) var<storage, read> charge: array<f32>;
-@group(0) @binding(4) var<storage, read> flags: array<u32>;
+// Group 0: particleState (ro)
+@group(0) @binding(0) var<storage, read> particles: array<ParticleState_HM>;
 
 @group(1) @binding(0) var<storage, read_write> gravPotential: array<f32>;
 @group(1) @binding(1) var<storage, read_write> elecPotential: array<f32>;
@@ -72,19 +78,20 @@ fn computeHeatmap(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Direct pairwise (signal delay not supported on GPU heatmap — uses current positions)
     for (var i = 0u; i < hu.particleCount; i++) {
-        let flag = flags[i];
+        let p = particles[i];
+        let flag = p.flags;
         if ((flag & 1u) == 0u) { continue; }
 
-        let dx = posX[i] - wx;
-        let dy = posY[i] - wy;
+        let dx = p.posX - wx;
+        let dy = p.posY - wy;
         let rSq = dx * dx + dy * dy + hu.softeningSq;
         let invR = 1.0 / sqrt(rSq);
 
-        if (doG) { gPhi -= mass[i] * invR; }
-        if (doC) { ePhi += charge[i] * invR; }
+        if (doG) { gPhi -= p.mass * invR; }
+        if (doC) { ePhi += p.charge * invR; }
         if (doY && rSq < yCutSq) {
             let r = 1.0 / invR;
-            yPhi -= hu.yukawaCoupling * mass[i] * exp(-hu.yukawaMu * r) * invR;
+            yPhi -= hu.yukawaCoupling * p.mass * exp(-hu.yukawaMu * r) * invR;
         }
     }
 

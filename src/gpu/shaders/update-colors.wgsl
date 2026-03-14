@@ -7,6 +7,15 @@
 //   BH mode → override to pure white
 //   antimatter → invert RGB channels
 
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
 struct ColorUniforms {
     blackHoleEnabled: u32,
     _pad0: u32,
@@ -15,9 +24,8 @@ struct ColorUniforms {
 };
 
 @group(0) @binding(0) var<uniform> params: ColorUniforms;
-@group(0) @binding(1) var<storage, read> charge: array<f32>;
-@group(0) @binding(2) var<storage, read> flags: array<u32>;
-@group(0) @binding(3) var<storage, read_write> color: array<u32>;
+@group(0) @binding(1) var<storage, read> particles: array<ParticleState>;
+@group(0) @binding(2) var<storage, read_write> color: array<u32>;
 
 const ALIVE_BIT: u32 = 1u;
 const ANTIMATTER_BIT: u32 = 4u;
@@ -48,8 +56,9 @@ fn packRGBA(r: f32, g: f32, b: f32, a: f32) -> u32 {
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let idx = gid.x;
-    if (idx >= arrayLength(&charge)) { return; }
-    if ((flags[idx] & ALIVE_BIT) == 0u) { return; }
+    if (idx >= arrayLength(&particles)) { return; }
+    let p = particles[idx];
+    if ((p.flags & ALIVE_BIT) == 0u) { return; }
 
     // BH mode: all particles are white
     if (params.blackHoleEnabled != 0u) {
@@ -57,7 +66,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-    let q = charge[idx];
+    let q = p.charge;
     let absQ = abs(q);
     let intensity = clamp(absQ / 5.0, 0.0, 1.0);
 
@@ -81,7 +90,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     // Antimatter: invert
-    if ((flags[idx] & ANTIMATTER_BIT) != 0u) {
+    if ((p.flags & ANTIMATTER_BIT) != 0u) {
         r = 1.0 - r;
         g = 1.0 - g;
         b = 1.0 - b;

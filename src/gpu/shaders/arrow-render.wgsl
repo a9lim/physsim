@@ -29,13 +29,24 @@ struct ArrowUniforms {
     _pad1: f32,
 };
 
-@group(0) @binding(0) var<uniform> camera: CameraUniforms;
-@group(0) @binding(1) var<uniform> arrowParams: ArrowUniforms;
-@group(0) @binding(2) var<storage, read> posX: array<f32>;
-@group(0) @binding(3) var<storage, read> posY: array<f32>;
-@group(0) @binding(4) var<storage, read> radius: array<f32>;
-@group(0) @binding(5) var<storage, read> mass: array<f32>;
-@group(0) @binding(6) var<storage, read> flags: array<u32>;
+// Packed particle state struct (matches common.wgsl ParticleState)
+struct ParticleState_AR {
+    posX: f32, posY: f32,
+    velWX: f32, velWY: f32,
+    mass: f32, charge: f32, angW: f32,
+    baseMass: f32,
+    flags: u32,
+};
+
+// Packed auxiliary struct (matches common.wgsl ParticleAux)
+struct ParticleAux_AR {
+    radius: f32,
+    particleId: u32,
+    deathTime: f32,
+    deathMass: f32,
+    deathAngVel: f32,
+};
+
 // Packed force struct (mirrors common.wgsl AllForces)
 struct AllForces_AR {
     f0: vec4<f32>,
@@ -51,7 +62,11 @@ struct AllForces_AR {
     _pad: vec2<f32>,
 };
 
-@group(0) @binding(7) var<storage, read> allForces: array<AllForces_AR>;
+@group(0) @binding(0) var<uniform> camera: CameraUniforms;
+@group(0) @binding(1) var<uniform> arrowParams: ArrowUniforms;
+@group(0) @binding(2) var<storage, read> particles: array<ParticleState_AR>;
+@group(0) @binding(3) var<storage, read> particleAux: array<ParticleAux_AR>;
+@group(0) @binding(4) var<storage, read> allForces: array<AllForces_AR>;
 
 const ALIVE_BIT: u32 = 1u;
 
@@ -91,7 +106,8 @@ fn vs_main(
     var out: VertexOutput;
     out.alpha = 0.8;
 
-    if ((flags[instIdx] & ALIVE_BIT) == 0u) {
+    let p = particles[instIdx];
+    if ((p.flags & ALIVE_BIT) == 0u) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
         return out;
     }
@@ -107,10 +123,10 @@ fn vs_main(
     let dir = f / mag;
     let perp = vec2f(-dir.y, dir.x);
     let scaledLen = mag * arrowParams.arrowScale;
-    let r = radius[instIdx];
+    let r = particleAux[instIdx].radius;
 
     // Arrow starts at particle edge, extends outward
-    let base = vec2f(posX[instIdx], posY[instIdx]) + dir * r;
+    let base = vec2f(p.posX, p.posY) + dir * r;
     let tip = base + dir * scaledLen;
     let headBase = tip - dir * HEAD_LEN;
 
