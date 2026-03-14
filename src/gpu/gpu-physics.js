@@ -2464,7 +2464,7 @@ export default class GPUPhysics {
         if (workgroups === 0) return; // no particles, skip dispatch
         const p2 = this._phase2;
 
-        const encoder = this.device.createCommandEncoder({ label: 'physics-substep' });
+        let encoder = this.device.createCommandEncoder({ label: 'physics-substep' });
 
         // Pass 0: ghost generation (Phase 3 — before tree build)
         this._dispatchGhostGen(encoder);
