@@ -151,8 +151,8 @@ export function createParticleBuffers(device, maxParticles) {
     // Packed into one buffer: [aliveCount: u32, freeTop: u32, freeStack: u32[maxParticles]]
     const poolMgmt = storageBuffer('poolMgmt', UINT_SIZE, maxParticles + 2);
 
-    // Stats readback buffer (double-buffered: aggregates + selected particle data)
-    const STATS_BUFFER_SIZE = 256; // 64 f32: 16 aggregates + 48 selected particle
+    // Stats readback buffer (double-buffered: aggregates + PE + field energy + selected particle)
+    const STATS_BUFFER_SIZE = 512; // 128 f32
     const statsBuffer = device.createBuffer({
         label: 'statsBuffer',
         size: STATS_BUFFER_SIZE,

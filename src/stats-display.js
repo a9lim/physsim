@@ -81,46 +81,50 @@ export default class StatsDisplay {
 
     /**
      * Update energy/momentum display from GPU readback data.
-     * PE, Darwin field energy, and scalar field energy are unavailable from GPU
-     * (require O(N²) pair computation or field state) — shown as "—".
+     * All quantities computed on GPU: KE, PE (O(N²)), Darwin field energy/momentum,
+     * scalar field energy/momentum, particle-field interaction energy.
      */
     updateEnergyGPU(gpuStats, sim) {
-        const angMom = gpuStats.orbitalAngMom + gpuStats.spinAngMom;
-        const pMag = Math.sqrt(gpuStats.px * gpuStats.px + gpuStats.py * gpuStats.py);
-        // KE-only total (PE/field energy not available from GPU reduction)
-        const keTotal = gpuStats.linearKE + gpuStats.spinKE + sim.totalRadiated;
-        const totalPx = gpuStats.px + sim.totalRadiatedPx;
-        const totalPy = gpuStats.py + sim.totalRadiatedPy;
-        const totalPMag = Math.sqrt(totalPx * totalPx + totalPy * totalPy);
+        const e = gpuStats;
+        const angMom = e.orbitalAngMom + e.spinAngMom;
+        const pe = e.pe + e.pfiEnergy;
+        const allFieldE = e.fieldEnergy + e.higgsFieldEnergy + e.axionFieldEnergy;
+        const total = e.linearKE + e.spinKE + pe + allFieldE + sim.totalRadiated;
 
-        if (this.initialEnergy === null && gpuStats.aliveCount > 0) {
-            this.initialEnergy = keTotal;
-            this.initialMomentum = totalPMag;
+        const totalFieldPx = e.fieldPx + e.scalarFieldMomX;
+        const totalFieldPy = e.fieldPy + e.scalarFieldMomY;
+        const totalPx = e.px + totalFieldPx + sim.totalRadiatedPx;
+        const totalPy = e.py + totalFieldPy + sim.totalRadiatedPy;
+        const pMag = Math.sqrt(totalPx * totalPx + totalPy * totalPy);
+
+        if (this.initialEnergy === null && e.aliveCount > 0) {
+            this.initialEnergy = total;
+            this.initialMomentum = pMag;
             this.initialAngMom = angMom;
         }
 
         const eDrift = this.initialEnergy !== null && this.initialEnergy !== 0
-            ? ((keTotal - this.initialEnergy) / Math.abs(this.initialEnergy) * 100) : 0;
+            ? ((total - this.initialEnergy) / Math.abs(this.initialEnergy) * 100) : 0;
         const pDrift = this.initialMomentum !== null && this.initialMomentum !== 0
-            ? ((totalPMag - this.initialMomentum) / Math.abs(this.initialMomentum) * 100) : 0;
+            ? ((pMag - this.initialMomentum) / Math.abs(this.initialMomentum) * 100) : 0;
         const aDrift = this.initialAngMom !== null && this.initialAngMom !== 0
             ? ((angMom - this.initialAngMom) / Math.abs(this.initialAngMom) * 100) : 0;
 
-        _set(this.dom.linearKE, fmt(gpuStats.linearKE));
-        _set(this.dom.spinKE, fmt(gpuStats.spinKE));
-        _set(this.dom.potentialE, '—');
-        _set(this.dom.totalE, '—');
-        _set(this.dom.energyDrift, '—');
-        _set(this.dom.fieldE, '—');
+        _set(this.dom.linearKE, fmt(e.linearKE));
+        _set(this.dom.spinKE, fmt(e.spinKE));
+        _set(this.dom.potentialE, fmt(pe));
+        _set(this.dom.totalE, fmt(total));
+        _set(this.dom.energyDrift, fmtDrift(eDrift));
+        _set(this.dom.fieldE, fmt(allFieldE));
         _set(this.dom.radiatedE, fmt(sim.totalRadiated));
-        _set(this.dom.momentum, fmt(totalPMag));
-        _set(this.dom.particleMom, fmt(pMag));
-        _set(this.dom.fieldMom, '—');
+        _set(this.dom.momentum, fmt(pMag));
+        _set(this.dom.particleMom, fmt(Math.sqrt(e.px * e.px + e.py * e.py)));
+        _set(this.dom.fieldMom, fmt(Math.sqrt(totalFieldPx * totalFieldPx + totalFieldPy * totalFieldPy)));
         _set(this.dom.radiatedMom, fmt(Math.sqrt(sim.totalRadiatedPx * sim.totalRadiatedPx + sim.totalRadiatedPy * sim.totalRadiatedPy)));
         _set(this.dom.momentumDrift, fmtDrift(pDrift));
         _set(this.dom.angularMomentum, fmt(angMom));
-        _set(this.dom.orbitalAngMom, fmt(gpuStats.orbitalAngMom));
-        _set(this.dom.spinAngMom, fmt(gpuStats.spinAngMom));
+        _set(this.dom.orbitalAngMom, fmt(e.orbitalAngMom));
+        _set(this.dom.spinAngMom, fmt(e.spinAngMom));
         _set(this.dom.angMomDrift, fmtDrift(aDrift));
     }
 

@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 22;
+const SHADER_VERSION = 23;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename, prepend = '') {
@@ -1724,13 +1724,14 @@ export async function createHitTestPipeline(device, wgslConstants = '') {
 /**
  * Create compute-stats pipeline for aggregate stats reduction + selected particle readback.
  * Standalone shader (defines own structs, receives wgslConstants).
- * Bindings: uniforms, particleState(ro), derived(ro), allForces(ro), stats(rw).
+ * Group 0: uniforms, particleState(ro), derived(ro), allForces(ro), stats(rw), axYukMod(ro).
+ * Group 1: higgs field(ro), higgs fieldDot(ro), axion field(ro), axion fieldDot(ro).
  */
 export async function createComputeStatsPipeline(device, wgslConstants = '') {
     const code = await fetchShader('compute-stats.wgsl', wgslConstants);
     const module = device.createShaderModule({ label: 'computeStats', code });
 
-    const bindGroupLayout = device.createBindGroupLayout({
+    const group0Layout = device.createBindGroupLayout({
         label: 'computeStats_g0',
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
@@ -1738,14 +1739,25 @@ export async function createComputeStatsPipeline(device, wgslConstants = '') {
             { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
             { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        ],
+    });
+
+    const group1Layout = device.createBindGroupLayout({
+        label: 'computeStats_g1',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         ],
     });
 
     const pipeline = device.createComputePipeline({
         label: 'computeStats',
-        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        layout: device.createPipelineLayout({ bindGroupLayouts: [group0Layout, group1Layout] }),
         compute: { module, entryPoint: 'main' },
     });
 
-    return { pipeline, bindGroupLayout };
+    return { pipeline, group0Layout, group1Layout };
 }

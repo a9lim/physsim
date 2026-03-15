@@ -251,12 +251,18 @@ export default class GPUPhysics {
 
         // Stats readback (compute-stats.wgsl)
         this._statsPipeline = null;
-        this._statsBindGroup = null;
+        this._statsBindGroup0 = null;
+        this._statsBindGroup1 = null;
+        this._statsGroup0Layout = null;
+        this._statsGroup1Layout = null;
         this._statsUniformBuffer = null;
+        this._statsDummyBuffer = null;
         this._statsPending = false;
         this._statsResultReady = false;
-        this._statsData = null; // Float32Array(64) from readback
+        this._statsData = null; // Float32Array(128) from readback
         this._statsStagingFlip = false; // double-buffer flip
+        this._statsFieldHasHiggs = false;
+        this._statsFieldHasAxion = false;
 
         // Free slot management: CPU-side mirror of GPU free stack
         this._cpuFreeSlots = [];
@@ -396,21 +402,32 @@ export default class GPUPhysics {
         {
             const cs = await createComputeStatsPipeline(this.device, wgslConstants);
             this._statsPipeline = cs.pipeline;
+            this._statsGroup0Layout = cs.group0Layout;
+            this._statsGroup1Layout = cs.group1Layout;
             this._statsUniformBuffer = this.device.createBuffer({
-                label: 'statsUniforms', size: 16,
+                label: 'statsUniforms', size: 48, // StatsUniforms struct
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
-            this._statsBindGroup = this.device.createBindGroup({
-                label: 'computeStats',
-                layout: cs.bindGroupLayout,
+            // Dummy 4-byte buffer for inactive field bindings
+            this._statsDummyBuffer = this.device.createBuffer({
+                label: 'statsDummy', size: 4,
+                usage: GPUBufferUsage.STORAGE,
+            });
+            this._statsBindGroup0 = this.device.createBindGroup({
+                label: 'computeStats_g0',
+                layout: cs.group0Layout,
                 entries: [
                     { binding: 0, resource: { buffer: this._statsUniformBuffer } },
                     { binding: 1, resource: { buffer: this.buffers.particleState } },
                     { binding: 2, resource: { buffer: this.buffers.derived } },
                     { binding: 3, resource: { buffer: this.buffers.allForces } },
                     { binding: 4, resource: { buffer: this.buffers.statsBuffer } },
+                    { binding: 5, resource: { buffer: this.buffers.axYukMod } },
                 ],
             });
+            // Field bind group rebuilt when fields toggle on/off
+            this._statsBindGroup1 = null;
+            this._rebuildStatsFieldBindGroup();
         }
 
         this._ready = true;
@@ -3269,6 +3286,24 @@ export default class GPUPhysics {
         };
     }
 
+    /** Rebuild group 1 bind group for stats shader (field buffers). Call when fields toggle. */
+    _rebuildStatsFieldBindGroup() {
+        if (!this._statsGroup1Layout) return;
+        const dummy = this._statsDummyBuffer;
+        const hb = this._higgsBuffers;
+        const ab = this._axionBuffers;
+        this._statsBindGroup1 = this.device.createBindGroup({
+            label: 'computeStats_g1',
+            layout: this._statsGroup1Layout,
+            entries: [
+                { binding: 0, resource: { buffer: hb ? hb.field : dummy } },
+                { binding: 1, resource: { buffer: hb ? hb.fieldDot : dummy } },
+                { binding: 2, resource: { buffer: ab ? ab.field : dummy } },
+                { binding: 3, resource: { buffer: ab ? ab.fieldDot : dummy } },
+            ],
+        });
+    }
+
     /**
      * Dispatch the stats compute shader and start async readback.
      * @param {number} selectedGpuIdx  GPU buffer index of selected particle, or -1
@@ -3277,21 +3312,40 @@ export default class GPUPhysics {
         if (!this._statsPipeline || !this._statsUniformBuffer) return;
         if (this._statsPending) return; // readback still in flight
 
-        // Write uniforms
-        const data = new Uint8Array(16);
-        const u32 = new Uint32Array(data.buffer);
-        const i32 = new Int32Array(data.buffer);
+        // Write uniforms (StatsUniforms: 48 bytes = 12 u32/f32)
+        const data = new ArrayBuffer(48);
+        const u32 = new Uint32Array(data);
+        const i32 = new Int32Array(data);
+        const f32 = new Float32Array(data);
         u32[0] = this.aliveCount;
         i32[1] = selectedGpuIdx;
-        u32[2] = this._relativityEnabled ? 1 : 0;
-        u32[3] = 0;
+        u32[2] = this._toggles0;
+        f32[3] = this.domainW;
+        f32[4] = this.domainH;
+        f32[5] = this._yukawaMu;
+        f32[6] = this._higgsMass;
+        f32[7] = this._axionMass || 0.05;
+        u32[8] = 64; // fieldGridRes (GPU_SCALAR_GRID)
+        u32[9] = 0;
+        u32[10] = 0;
+        u32[11] = 0;
         this.device.queue.writeBuffer(this._statsUniformBuffer, 0, data);
+
+        // Rebuild field bind group if needed (field buffers may have been lazily allocated)
+        if (!this._statsBindGroup1 ||
+            (this._higgsBuffers && !this._statsFieldHasHiggs) ||
+            (this._axionBuffers && !this._statsFieldHasAxion)) {
+            this._rebuildStatsFieldBindGroup();
+            this._statsFieldHasHiggs = !!this._higgsBuffers;
+            this._statsFieldHasAxion = !!this._axionBuffers;
+        }
 
         // Dispatch
         const encoder = this.device.createCommandEncoder({ label: 'computeStats' });
         const pass = encoder.beginComputePass({ label: 'computeStats' });
         pass.setPipeline(this._statsPipeline);
-        pass.setBindGroup(0, this._statsBindGroup);
+        pass.setBindGroup(0, this._statsBindGroup0);
+        pass.setBindGroup(1, this._statsBindGroup1);
         pass.dispatchWorkgroups(1);
         pass.end();
 
@@ -3300,7 +3354,7 @@ export default class GPUPhysics {
             ? this.buffers.statsStagingB
             : this.buffers.statsStagingA;
         this._statsStagingFlip = !this._statsStagingFlip;
-        encoder.copyBufferToBuffer(this.buffers.statsBuffer, 0, staging, 0, 256);
+        encoder.copyBufferToBuffer(this.buffers.statsBuffer, 0, staging, 0, 512);
         this.device.queue.submit([encoder.finish()]);
 
         // Async readback
@@ -3329,35 +3383,40 @@ export default class GPUPhysics {
             orbitalAngMom: d[4], spinAngMom: d[5],
             comX: d[6], comY: d[7],
             totalMass: d[8], aliveCount: d[9],
+            pe: d[10],
+            fieldEnergy: d[11], // Darwin
+            fieldPx: d[12], fieldPy: d[13], // Darwin momentum
+            higgsFieldEnergy: d[14], axionFieldEnergy: d[15],
+            pfiEnergy: d[16] + d[17], // higgs + axion particle-field interaction
+            scalarFieldMomX: d[18], scalarFieldMomY: d[19],
             selected: null,
         };
 
-        // Selected particle data (mass = -1 signals no selection)
-        if (d[20] > 0) {
-            const flags = new Uint32Array(d.buffer, 24 * 4, 1)[0];
+        // Selected particle data at offset 32 (mass = -1 signals no selection)
+        if (d[36] > 0) {
+            const flags = new Uint32Array(d.buffer, 40 * 4, 1)[0];
             result.selected = {
-                posX: d[16], posY: d[17],
-                velWX: d[18], velWY: d[19],
-                mass: d[20], charge: d[21],
-                angW: d[22], baseMass: d[23],
+                posX: d[32], posY: d[33],
+                velWX: d[34], velWY: d[35],
+                mass: d[36], charge: d[37],
+                angW: d[38], baseMass: d[39],
                 flags,
-                radius: d[25],
-                velX: d[26], velY: d[27],
-                angVel: d[28],
-                magMoment: d[29], angMomentum: d[30],
-                antimatter: d[31] > 0.5,
-                // 11 force vec2s
-                forceGravity:    { x: d[32], y: d[33] },
-                forceCoulomb:    { x: d[34], y: d[35] },
-                forceMagnetic:   { x: d[36], y: d[37] },
-                forceGravitomag: { x: d[38], y: d[39] },
-                force1PN:        { x: d[40], y: d[41] },
-                forceSpinCurv:   { x: d[42], y: d[43] },
-                forceRadiation:  { x: d[44], y: d[45] },
-                forceYukawa:     { x: d[46], y: d[47] },
-                forceExternal:   { x: d[48], y: d[49] },
-                forceHiggs:      { x: d[50], y: d[51] },
-                forceAxion:      { x: d[52], y: d[53] },
+                radius: d[41],
+                velX: d[42], velY: d[43],
+                angVel: d[44],
+                magMoment: d[45], angMomentum: d[46],
+                antimatter: d[47] > 0.5,
+                forceGravity:    { x: d[48], y: d[49] },
+                forceCoulomb:    { x: d[50], y: d[51] },
+                forceMagnetic:   { x: d[52], y: d[53] },
+                forceGravitomag: { x: d[54], y: d[55] },
+                force1PN:        { x: d[56], y: d[57] },
+                forceSpinCurv:   { x: d[58], y: d[59] },
+                forceRadiation:  { x: d[60], y: d[61] },
+                forceYukawa:     { x: d[62], y: d[63] },
+                forceExternal:   { x: d[64], y: d[65] },
+                forceHiggs:      { x: d[66], y: d[67] },
+                forceAxion:      { x: d[68], y: d[69] },
             };
         }
         return result;
