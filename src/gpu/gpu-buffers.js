@@ -401,8 +401,7 @@ export function createFieldBuffers(device, label, maxParticles) {
         sgPhiFull:     device.createBuffer({ label: `${label}-sgPhiFull`,     size: gridBytes, usage }),
         sgGradX:       device.createBuffer({ label: `${label}-sgGradX`,       size: gridBytes, usage }),
         sgGradY:       device.createBuffer({ label: `${label}-sgGradY`,       size: gridBytes, usage }),
-        // Cached 1/sqrt table for coarse potential (SG^4 = 4096 entries)
-        sgInvR:        device.createBuffer({ label: `${label}-sgInvR`,        size: COARSE_SQ * COARSE_SQ * 4, usage }),
+        // sgInvR removed — computed inline in field-selfgrav.wgsl
     };
 }
 

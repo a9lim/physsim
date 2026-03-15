@@ -120,5 +120,6 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    return vec4f(in.color.rgb, in.alpha);
+    // Premultiplied alpha output (required by alphaMode: 'premultiplied')
+    return vec4f(in.color.rgb * in.alpha, in.alpha);
 }

@@ -214,8 +214,8 @@ fn main(
                 // (v_s x r)_z for Biot-Savart
                 let crossSV = s.velX * ry - s.velY * rx;
 
-                // Axion modulation (geometric mean)
-                let axModPair = select(1.0, sqrt(pAxMod * s.axMod), needAxMod);
+                // Axion modulation (geometric mean, guarded against negative products)
+                let axModPair = select(1.0, sqrt(max(pAxMod * s.axMod, 0.0)), needAxMod);
 
                 // -- Gravity --
                 if (gravOn) {
@@ -363,8 +363,9 @@ fn main(
                 // F = -g^2 * m1 * m2 * e^{-mu*r}/r^2 * (1+mu*r), with aberration pre-multiplied
                 if (yukawaOn && rawRSq < yukCutoffSq) {
                     let r_dist = 1.0 / invR;
-                    let expMuR = exp(-yukMu * r_dist);
-                    let yukModPair = sqrt(pYukMod * s.yukMod);
+                    let muR = yukMu * r_dist;
+                    let expMuR = select(0.0, exp(-muR), muR < 80.0); // guard exp overflow
+                    let yukModPair = sqrt(max(pYukMod * s.yukMod, 0.0));
                     let coupling = uniforms.yukawaCoupling;
                     let yukInvRa = select(invR, invR * aberr, signalDelayed);
                     let fDir = coupling * yukModPair * pMass * s.mass * expMuR
@@ -421,20 +422,28 @@ fn main(
         af.bFieldGrads = vec4(accDBzdx, accDBzdy, accDBgzdx, accDBgzdy);
         af.totalForce = vec2(accTotalX, accTotalY);
         af._pad = vec2(0.0, 0.0);
+
+        // NaN guard on total force — must happen BEFORE writing to global memory
+        if (accTotalX != accTotalX) { af.totalForce = vec2(0.0, af.totalForce.y); }
+        if (accTotalY != accTotalY) { af.totalForce = vec2(af.totalForce.x, 0.0); }
+
         allForces[idx] = af;
 
-        // Write jerk to RadiationState
+        // Write jerk to RadiationState (NaN guard — jerk can diverge from ill-conditioned pairs)
         var rs = radState[idx];
-        rs.jerkX = accJerkX;
-        rs.jerkY = accJerkY;
+        rs.jerkX = select(accJerkX, 0.0, accJerkX != accJerkX);
+        rs.jerkY = select(accJerkY, 0.0, accJerkY != accJerkY);
         radState[idx] = rs;
 
         // Adaptive substepping: atomicMax of |F/m|^2 as fixed-point u32
         // dtSafe = sqrt(softening / a_max), so we track max acceleration magnitude
-        let totalFSq = accTotalX * accTotalX + accTotalY * accTotalY;
+        let totalFSq = af.totalForce.x * af.totalForce.x + af.totalForce.y * af.totalForce.y;
         let accelSq = totalFSq * pInvMass * pInvMass;
         // Encode as u32 via bitcast of f32 (works for positive f32: same ordering as u32)
-        let accelBits = bitcast<u32>(sqrt(accelSq));
-        atomicMax(&maxAccel[0], accelBits);
+        // Guard against NaN/Inf which would corrupt adaptive stepping
+        if (accelSq == accelSq && accelSq < 1e20) {
+            let accelBits = bitcast<u32>(sqrt(accelSq));
+            atomicMax(&maxAccel[0], accelBits);
+        }
     }
 }

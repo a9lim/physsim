@@ -485,10 +485,10 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
     const radLayouts = [radG0, radG1, radG2, radG3];
     const radPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: radLayouts });
 
-    const lamrorRadiation = {
+    const larmorRadiation = {
         pipeline: device.createComputePipeline({
-            label: 'lamrorRadiation', layout: radPipelineLayout,
-            compute: { module: radiationModule, entryPoint: 'lamrorRadiation' },
+            label: 'larmorRadiation', layout: radPipelineLayout,
+            compute: { module: radiationModule, entryPoint: 'larmorRadiation' },
         }),
         bindGroupLayouts: radLayouts,
     };
@@ -619,7 +619,7 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
     return {
         recordHistory,
         compute1PN, vvKick1PN,
-        lamrorRadiation, hawkingRadiation, pionEmission,
+        larmorRadiation, hawkingRadiation, pionEmission,
         ...bosonPipelines,
         ...bosonTreePipelines,
     };

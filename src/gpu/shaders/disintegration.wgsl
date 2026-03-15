@@ -85,8 +85,8 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (m < du.minMass * f32(du.spawnCount)) { return; }
 
     let d = derived[pid];
-    let rSq = d.radiusSq;
-    let r = particleAux[pid].radius;
+    let rSq = max(d.radiusSq, EPSILON);
+    let r = max(particleAux[pid].radius, EPSILON);
     let selfGravity = m / rSq;
     let w = d.angVel;
     let centrifugal = w * w * r;
@@ -244,8 +244,9 @@ fn checkDisintegration(@builtin(global_invocation_id) gid: vec3<u32>) {
                         evt.spawnY = py + l1y * r * 1.2;
                         let dvd = derived[pid];
                         let dv = vec2<f32>(dvd.velX, dvd.velY);
-                        evt.spawnVX = dv.x + (-l1y) * sqrt(oMass / rocheDist) * 0.5;
-                        evt.spawnVY = dv.y + l1x * sqrt(oMass / rocheDist) * 0.5;
+                        let escapeV = sqrt(oMass / max(rocheDist, EPSILON));
+                        evt.spawnVX = dv.x + (-l1y) * escapeV * 0.5;
+                        evt.spawnVY = dv.y + l1x * escapeV * 0.5;
                         events[slot] = evt;
                     }
                 }

@@ -356,8 +356,8 @@ fn computeBosonGravity(@builtin(global_invocation_id) gid: vec3u) {
             let f = pMass * nodeMass * sqrt(invRSq) * invRSq;
             fx += dx * f;
             fy += dy * f;
-        } else {
-            // Open: push children
+        } else if (top + 4 <= 48) {
+            // Open: push children (with stack overflow guard)
             stack[top] = nodeU32(nIdx, N_NW); top++;
             stack[top] = nodeU32(nIdx, N_NE); top++;
             stack[top] = nodeU32(nIdx, N_SW); top++;
@@ -433,7 +433,7 @@ fn applyBosonBosonGravity(@builtin(global_invocation_id) gid: vec3u) {
             let f = grFactor * nodeMass * sqrt(invRSq) * invRSq * dt;
             kx += dx * f;
             ky += dy * f;
-        } else {
+        } else if (top + 4 <= 48) {
             stack[top] = nodeU32(nIdx, N_NW); top++;
             stack[top] = nodeU32(nIdx, N_NE); top++;
             stack[top] = nodeU32(nIdx, N_SW); top++;
@@ -443,17 +443,22 @@ fn applyBosonBosonGravity(@builtin(global_invocation_id) gid: vec3u) {
 
     // Apply impulse
     if (i < phN) {
-        photons[i].velX += kx;
-        photons[i].velY += ky;
+        var pvx = photons[i].velX + kx;
+        var pvy = photons[i].velY + ky;
         // Renormalize photon to c=1
-        let vSq = photons[i].velX * photons[i].velX + photons[i].velY * photons[i].velY;
-        if (abs(vSq - 1.0) > 1e-6) {
-            let v = sqrt(vSq);
-            if (v > EPSILON) { photons[i].velX /= v; photons[i].velY /= v; }
+        let vSq = pvx * pvx + pvy * pvy;
+        if (vSq > EPSILON) {
+            let invV = inverseSqrt(vSq);
+            pvx *= invV;
+            pvy *= invV;
         }
+        // NaN guard
+        if (pvx != pvx || pvy != pvy) { pvx = 1.0; pvy = 0.0; }
+        photons[i].velX = pvx;
+        photons[i].velY = pvy;
     } else {
-        let pi = i - phN;
-        pions[pi].wX += kx;
-        pions[pi].wY += ky;
+        let pi2 = i - phN;
+        pions[pi2].wX += kx;
+        pions[pi2].wY += ky;
     }
 }

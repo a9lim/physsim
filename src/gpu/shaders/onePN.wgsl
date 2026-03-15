@@ -191,12 +191,13 @@ fn accum1PN(
     // Scalar Breit (Yukawa + 1PN)
     if (yukOn) {
         let mu = yukawaMu;
-        let expMuR = exp(-mu * r_val);
+        let muR_val = mu * r_val;
+        let expMuR = select(0.0, exp(-muR_val), muR_val < 80.0);
         let nDotV1 = nx * pvx + ny * pvy;
         let nDotV2 = nx * svx + ny * svy;
         let v1DotV2 = pvx * svx + pvy * svy;
         let alpha = 1.0 + mu * r_val;
-        let beta = 0.5 * yukawaCoupling * sqrt(pYukMod * sYukMod)
+        let beta = 0.5 * yukawaCoupling * sqrt(max(pYukMod * sYukMod, 0.0))
                    * pMass * sMass * expMuR * invRSq;
         let radial = -(alpha * v1DotV2
                        + (alpha * alpha + alpha + 1.0) * nDotV1 * nDotV2);

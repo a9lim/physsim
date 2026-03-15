@@ -59,6 +59,18 @@ const _fieldUniformData = new ArrayBuffer(256);
 const _fieldUniformF32 = new Float32Array(_fieldUniformData);
 const _fieldUniformU32 = new Uint32Array(_fieldUniformData);
 
+// Pre-allocated dispatch uniform buffers (avoids per-frame GC from dispatch methods)
+const _disintUniformData = new ArrayBuffer(48);
+const _disintUniformF32 = new Float32Array(_disintUniformData);
+const _disintUniformU32 = new Uint32Array(_disintUniformData);
+const _pairProdUniformData = new ArrayBuffer(48);
+const _pairProdUniformF32 = new Float32Array(_pairProdUniformData);
+const _pairProdUniformU32 = new Uint32Array(_pairProdUniformData);
+const _heatmapUniformData = new ArrayBuffer(96);
+const _heatmapUniformF32 = new Float32Array(_heatmapUniformData);
+const _heatmapUniformU32 = new Uint32Array(_heatmapUniformData);
+const _colorUniformData = new Uint32Array(4);
+
 // Pre-allocated addParticle buffers (avoids per-call allocation)
 const _addParticleStateData = new ArrayBuffer(36);  // PARTICLE_STATE_SIZE
 const _addParticleStateF32 = new Float32Array(_addParticleStateData);
@@ -626,17 +638,17 @@ export default class GPUPhysics {
         this._phase4BindGroups.onePNG2 = bg('onePN_g2', p4.compute1PN.bindGroupLayouts[2],
             [b.allForces, b.f1pnOld]);
 
-        // ── Radiation (lamrorRadiation, hawkingRadiation, pionEmission share bind groups) ──
-        this._phase4BindGroups.radG0 = bg('radiation_g0', p4.lamrorRadiation.bindGroupLayouts[0],
+        // ── Radiation (larmorRadiation, hawkingRadiation, pionEmission share bind groups) ──
+        this._phase4BindGroups.radG0 = bg('radiation_g0', p4.larmorRadiation.bindGroupLayouts[0],
             [this.uniformBuffer]);
         // Group 1: packed particle state + aux + derived + allForces + radiationState + axYukMod
-        this._phase4BindGroups.radG1 = bg('radiation_g1', p4.lamrorRadiation.bindGroupLayouts[1],
+        this._phase4BindGroups.radG1 = bg('radiation_g1', p4.larmorRadiation.bindGroupLayouts[1],
             [b.particleState, b.particleAux, b.derived, b.allForces, b.radiationState, b.axYukMod]);
         // Group 2: photon pool (packed) + phCount
-        this._phase4BindGroups.radG2 = bg('radiation_g2', p4.lamrorRadiation.bindGroupLayouts[2],
+        this._phase4BindGroups.radG2 = bg('radiation_g2', p4.larmorRadiation.bindGroupLayouts[2],
             [b.photonPool, b.phCount]);
         // Group 3: pion pool (packed) + piCount
-        this._phase4BindGroups.radG3 = bg('radiation_g3', p4.lamrorRadiation.bindGroupLayouts[3],
+        this._phase4BindGroups.radG3 = bg('radiation_g3', p4.larmorRadiation.bindGroupLayouts[3],
             [b.pionPool, b.piCount]);
 
         // ── Bosons (updatePhotons, updatePions, absorbPhotons, absorbPions, decayPions) ──
@@ -696,8 +708,8 @@ export default class GPUPhysics {
         const p4 = this._phase4;
 
         // Larmor radiation (requires Coulomb + Radiation)
-        const passLarmor = encoder.beginComputePass({ label: 'lamrorRadiation' });
-        passLarmor.setPipeline(p4.lamrorRadiation.pipeline);
+        const passLarmor = encoder.beginComputePass({ label: 'larmorRadiation' });
+        passLarmor.setPipeline(p4.larmorRadiation.pipeline);
         passLarmor.setBindGroup(0, bgs.radG0);
         passLarmor.setBindGroup(1, bgs.radG1);
         passLarmor.setBindGroup(2, bgs.radG2);
@@ -2052,22 +2064,19 @@ export default class GPUPhysics {
             });
         }
 
-        // Write DisintUniforms
-        const data = new ArrayBuffer(48);
-        const f = new Float32Array(data);
-        const u = new Uint32Array(data);
-        f[0] = this._blackHoleEnabled ? 16 : 64; // softeningSq
-        f[1] = this.domainW;
-        f[2] = this.domainH;
-        f[3] = 0.3;   // tidalStrength
-        f[4] = 0.9;   // rocheThreshold
-        f[5] = 0.01;  // rocheTransferRate
-        f[6] = 0.01;  // minMass
-        u[7] = 4;     // spawnCount
-        u[8] = this.aliveCount;
-        u[9] = this.boundaryMode === BOUND_LOOP ? 1 : 0;
-        u[10] = this.topologyMode;
-        this.device.queue.writeBuffer(this._disintUniformBuffer, 0, data);
+        // Write DisintUniforms (pre-allocated buffers, no per-frame GC)
+        _disintUniformF32[0] = this._blackHoleEnabled ? 16 : 64; // softeningSq
+        _disintUniformF32[1] = this.domainW;
+        _disintUniformF32[2] = this.domainH;
+        _disintUniformF32[3] = 0.3;   // tidalStrength
+        _disintUniformF32[4] = 0.9;   // rocheThreshold
+        _disintUniformF32[5] = 0.01;  // rocheTransferRate
+        _disintUniformF32[6] = 0.01;  // minMass
+        _disintUniformU32[7] = 4;     // spawnCount
+        _disintUniformU32[8] = this.aliveCount;
+        _disintUniformU32[9] = this.boundaryMode === BOUND_LOOP ? 1 : 0;
+        _disintUniformU32[10] = this.topologyMode;
+        this.device.queue.writeBuffer(this._disintUniformBuffer, 0, _disintUniformData);
 
         // Reset event counter
         encoder.clearBuffer(this._disintBuffers.counter, 0, 4);
@@ -2123,20 +2132,17 @@ export default class GPUPhysics {
             });
         }
 
-        // Write PairProdUniforms
-        const data = new ArrayBuffer(48);
-        const f = new Float32Array(data);
-        const u = new Uint32Array(data);
-        f[0] = 0.5;     // minEnergy
-        f[1] = 8.0;     // proximity
-        f[2] = 0.005;   // probability
-        f[3] = 64.0;    // minAge (time units, matches CPU PAIR_PROD_MIN_AGE)
-        u[4] = 32;      // maxParticles (PAIR_PROD_MAX_PARTICLES)
-        u[5] = this.aliveCount;
-        u[6] = MAX_PHOTONS;
-        u[7] = this._blackHoleEnabled ? 1 : 0;
-        f[8] = this.simTime;
-        this.device.queue.writeBuffer(this._pairProdUniformBuffer, 0, data);
+        // Write PairProdUniforms (pre-allocated buffers, no per-frame GC)
+        _pairProdUniformF32[0] = 0.5;     // minEnergy
+        _pairProdUniformF32[1] = 8.0;     // proximity
+        _pairProdUniformF32[2] = 0.005;   // probability
+        _pairProdUniformF32[3] = 64.0;    // minAge (time units, matches CPU PAIR_PROD_MIN_AGE)
+        _pairProdUniformU32[4] = 32;      // maxParticles (PAIR_PROD_MAX_PARTICLES)
+        _pairProdUniformU32[5] = this.aliveCount;
+        _pairProdUniformU32[6] = MAX_PHOTONS;
+        _pairProdUniformU32[7] = this._blackHoleEnabled ? 1 : 0;
+        _pairProdUniformF32[8] = this.simTime;
+        this.device.queue.writeBuffer(this._pairProdUniformBuffer, 0, _pairProdUniformData);
 
         // Reset pair counter
         encoder.clearBuffer(this._pairProdBuffers.counter, 0, 4);
@@ -2209,28 +2215,26 @@ export default class GPUPhysics {
         const cellH = (2 * halfH) / 64;
 
         // Write HeatmapUniforms
-        const data = new ArrayBuffer(96);
-        const f = new Float32Array(data);
-        const u = new Uint32Array(data);
-        f[0] = viewLeft;
-        f[1] = viewTop;
-        f[2] = cellW;
-        f[3] = cellH;
-        f[4] = this._blackHoleEnabled ? 16 : 64; // softeningSq
-        f[5] = this._yukawaCoupling;
-        f[6] = this._yukawaMu;
-        f[7] = this.simTime;
-        f[8] = this.domainW;
-        f[9] = this.domainH;
-        u[10] = (this._toggles0 & 1) ? 1 : 0; // doGravity
-        u[11] = (this._toggles0 & 2) ? 1 : 0; // doCoulomb
-        u[12] = (this._toggles0 & 2048) ? 1 : 0; // doYukawa
-        u[13] = (this._relativityEnabled && this.buffers.historyAllocated) ? 1 : 0; // useDelay
-        u[14] = this.boundaryMode === BOUND_LOOP ? 1 : 0;
-        u[15] = this.topologyMode;
-        u[16] = this.aliveCount;
-        u[17] = 0; // deadCount (not tracked on GPU yet)
-        this.device.queue.writeBuffer(this._heatmapUniformBuffer, 0, data);
+        // Write HeatmapUniforms (pre-allocated buffers, no per-frame GC)
+        _heatmapUniformF32[0] = viewLeft;
+        _heatmapUniformF32[1] = viewTop;
+        _heatmapUniformF32[2] = cellW;
+        _heatmapUniformF32[3] = cellH;
+        _heatmapUniformF32[4] = this._blackHoleEnabled ? 16 : 64; // softeningSq
+        _heatmapUniformF32[5] = this._yukawaCoupling;
+        _heatmapUniformF32[6] = this._yukawaMu;
+        _heatmapUniformF32[7] = this.simTime;
+        _heatmapUniformF32[8] = this.domainW;
+        _heatmapUniformF32[9] = this.domainH;
+        _heatmapUniformU32[10] = (this._toggles0 & 1) ? 1 : 0; // doGravity
+        _heatmapUniformU32[11] = (this._toggles0 & 2) ? 1 : 0; // doCoulomb
+        _heatmapUniformU32[12] = (this._toggles0 & 2048) ? 1 : 0; // doYukawa
+        _heatmapUniformU32[13] = (this._relativityEnabled && this.buffers.historyAllocated) ? 1 : 0; // useDelay
+        _heatmapUniformU32[14] = this.boundaryMode === BOUND_LOOP ? 1 : 0;
+        _heatmapUniformU32[15] = this.topologyMode;
+        _heatmapUniformU32[16] = this.aliveCount;
+        _heatmapUniformU32[17] = 0; // deadCount (not tracked on GPU yet)
+        this.device.queue.writeBuffer(this._heatmapUniformBuffer, 0, _heatmapUniformData);
 
         if (!this._heatmapBGs) {
             const b = this.buffers;
@@ -2450,8 +2454,8 @@ export default class GPUPhysics {
 
             // Update particle colors from charge/mass/antimatter state
             if (this._updateColorsPipeline && this.aliveCount > 0) {
-                const colorData = new Uint32Array([this._blackHoleEnabled ? 1 : 0, 0, 0, 0]);
-                this.device.queue.writeBuffer(this._colorUniformBuffer, 0, colorData);
+                _colorUniformData[0] = this._blackHoleEnabled ? 1 : 0;
+                this.device.queue.writeBuffer(this._colorUniformBuffer, 0, _colorUniformData);
                 const p = encoder.beginComputePass({ label: 'updateColors' });
                 p.setPipeline(this._updateColorsPipeline);
                 p.setBindGroup(0, this._updateColorsBindGroup);

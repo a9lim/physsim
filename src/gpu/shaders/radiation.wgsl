@@ -146,7 +146,7 @@ struct Uniforms {
 // ─── Landau-Lifshitz Larmor Radiation ───
 // Ports integrator.js Larmor radiation. Requires Coulomb + Radiation.
 @compute @workgroup_size(64)
-fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
+fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= u.aliveCount) { return; }
     if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
@@ -195,7 +195,7 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
     let ftv2 = allForces[i].totalForce;
     let fExtMag = sqrt(ftv2.x * ftv2.x + ftv2.y * ftv2.y);
     let maxFRad = LL_FORCE_CLAMP * fExtMag;
-    if (fRadMag > maxFRad && fRadMag > EPSILON * EPSILON) {
+    if (fRadMag > maxFRad && fRadMag > EPSILON) {
         let scale = maxFRad / fRadMag;
         fRadX *= scale;
         fRadY *= scale;
@@ -252,7 +252,7 @@ fn lamrorRadiation(@builtin(global_invocation_id) gid: vec3u) {
                 }
                 // Relativistic aberration: beam forward at high γ
                 if (gamma > 1.01) {
-                    let beta = sqrt(1.0 - 1.0 / (gamma * gamma));
+                    let beta = sqrt(max(1.0 - 1.0 / (gamma * gamma), 0.0));
                     let vx2 = wx * (1.0 / gamma); let vy2 = wy * (1.0 / gamma);
                     let velAngle = atan2(vy2, vx2);
                     let delta = emitAngle - velAngle;
@@ -306,7 +306,8 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     var power: f32 = 0.0;
     if (disc > EPSILON) {
         let rPlus = M + sqrt(disc);
-        let kappa = sqrt(disc) / (2.0 * M * rPlus);
+        let denom = max(2.0 * M * rPlus, EPSILON);
+        let kappa = sqrt(disc) / denom;
         let T = kappa / 6.2831853; // 2*PI
         let A = 4.0 * 3.14159265 * (rPlus * rPlus + a * a);
         let sigma = 3.14159265 * 3.14159265 / 60.0;
@@ -315,14 +316,17 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     // else extremal: no radiation
 
     let dt = u.dt;
-    let dE = min(power * dt, particles[i].mass);
+    // Guard: never evaporate below MIN_MASS to prevent div-by-zero in invMass
+    let maxEvap = max(particles[i].mass - MIN_MASS, 0.0);
+    let dE = min(power * dt, maxEvap);
     if (dE <= 0.0) { return; }
 
+    let preMass = particles[i].mass;
     particles[i].mass -= dE;
-    particles[i].baseMass *= 1.0 - dE / (particles[i].mass + dE);
+    particles[i].baseMass *= 1.0 - dE / preMass;
 
     // Update derived state after mass loss (match CPU integrator.js Hawking path)
-    let newM = particles[i].mass;
+    let newM = max(particles[i].mass, MIN_MASS);
     let newBodyRSq = pow(newM, 2.0 / 3.0);
     let newAngVel = particles[i].angW / sqrt(1.0 + particles[i].angW * particles[i].angW * newBodyRSq);
     let newA = INERTIA_K * newBodyRSq * abs(newAngVel);
@@ -330,7 +334,7 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     let newRadius = select(newM * BH_NAKED_FLOOR, newM + sqrt(max(0.0, newDisc)), newDisc >= 0.0);
 
     var drd = derived[i];
-    drd.invMass = 1.0 / newM;
+    drd.invMass = select(0.0, 1.0 / newM, newM > EPSILON);
     drd.radiusSq = newRadius * newRadius;
     derived[i] = drd;
     particleAux[i].radius = newRadius;
@@ -423,16 +427,17 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
                 if (wSqPi > EPSILON * EPSILON) {
                     let betaP = min(sqrt(wSqPi / (1.0 + wSqPi)), MAX_SPEED_RATIO);
                     if (betaP > EPSILON) {
-                        let gammaP = 1.0 / sqrt(1.0 - betaP * betaP);
-                        let boostAngle = atan2(wy2 / sqrt(1.0 + wSqPi), wx2 / sqrt(1.0 + wSqPi));
+                        let gammaP = 1.0 / sqrt(max(1.0 - betaP * betaP, EPSILON));
+                        let invGammaPi = 1.0 / sqrt(1.0 + wSqPi);
+                        let boostAngle = atan2(wy2 * invGammaPi, wx2 * invGammaPi);
                         let phiRel = angle - boostAngle;
                         let labRel = atan2(sin(phiRel), gammaP * (cos(phiRel) + betaP));
                         angle = labRel + boostAngle;
                     }
                 }
 
-                let speed = min(sqrt(ke * (ke + 2.0 * pionMass)) / (ke + pionMass), MAX_SPEED_RATIO);
-                let gammaPI = 1.0 / sqrt(1.0 - speed * speed);
+                let speed = min(sqrt(max(ke * (ke + 2.0 * pionMass), 0.0)) / max(ke + pionMass, EPSILON), MAX_SPEED_RATIO);
+                let gammaPI = 1.0 / sqrt(max(1.0 - speed * speed, EPSILON));
                 let piWx = gammaPI * speed * cos(angle);
                 let piWy = gammaPI * speed * sin(angle);
 

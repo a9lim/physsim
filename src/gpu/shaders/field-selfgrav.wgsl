@@ -25,8 +25,8 @@ fn computeEnergyDensityHiggs(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (ix >= GRID || iy >= GRID) { return; }
 
     let idx = iy * GRID + ix;
-    let cellW = uniforms.domainW / f32(GRID);
-    let cellH = uniforms.domainH / f32(GRID);
+    let cellW = max(uniforms.domainW / f32(GRID), EPSILON);
+    let cellH = max(uniforms.domainH / f32(GRID), EPSILON);
     let invCWsq = 1.0 / (cellW * cellW);
     let invCHsq = 1.0 / (cellH * cellH);
 
@@ -51,8 +51,8 @@ fn computeEnergyDensityAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (ix >= GRID || iy >= GRID) { return; }
 
     let idx = iy * GRID + ix;
-    let cellW = uniforms.domainW / f32(GRID);
-    let cellH = uniforms.domainH / f32(GRID);
+    let cellW = max(uniforms.domainW / f32(GRID), EPSILON);
+    let cellH = max(uniforms.domainH / f32(GRID), EPSILON);
     let invCWsq = 1.0 / (cellW * cellW);
     let invCHsq = 1.0 / (cellH * cellH);
 
@@ -127,7 +127,7 @@ fn computeCoarsePotential(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
             // Use softening for self-cell (matches CPU: 1/sqrt(dx²+dy²+softeningSq))
             let rSq = dx * dx + dy * dy + uniforms.softeningSq;
-            pot -= rhoJ * cellArea / sqrt(rSq);
+            pot -= rhoJ * cellArea * inverseSqrt(rSq);
         }
     }
 

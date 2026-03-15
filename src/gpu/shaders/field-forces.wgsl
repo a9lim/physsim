@@ -160,9 +160,10 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let currentMass = p.mass;
     let diff = targetMass - currentMass;
     let clampedDiff = clamp(diff, -maxDelta, maxDelta);
-    let newMass = currentMass + clampedDiff;
+    // Guard: never modulate below MIN_MASS to prevent div-by-zero
+    let newMass = max(currentMass + clampedDiff, MIN_MASS);
 
-    // Conserve momentum: scale proper velocity
+    // Conserve momentum: scale proper velocity (newMass guaranteed > 0)
     let massRatio = currentMass / newMass;
     p.velWX *= massRatio;
     p.velWY *= massRatio;
@@ -174,7 +175,7 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let bodyR = pow(newMass, 1.0 / 3.0);  // cbrt
     let bodyRSq = bodyR * bodyR;
     var d = derived[pid];
-    d.invMass = 1.0 / newMass;
+    d.invMass = select(0.0, 1.0 / newMass, newMass > EPSILON);
     d.radiusSq = bodyRSq;
 
     // Recompute coordinate velocity from scaled proper velocity

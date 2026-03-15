@@ -290,7 +290,7 @@ fn getRetardedPosition(
                 let disc = h * h - a * c;
                 if (disc < 0.0) { continue; }
 
-                let sqrtDisc = sqrt(disc);
+                let sqrtDisc = sqrt(max(disc, 0.0));
                 var s_sol: f32;
                 if (abs(a) < NR_TOLERANCE) {
                     if (abs(h) < NR_TOLERANCE) { continue; }

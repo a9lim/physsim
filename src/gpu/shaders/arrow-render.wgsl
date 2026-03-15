@@ -176,5 +176,7 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    return vec4f(arrowParams.colorR, arrowParams.colorG, arrowParams.colorB, in.alpha);
+    // Premultiplied alpha output
+    let a = in.alpha;
+    return vec4f(arrowParams.colorR * a, arrowParams.colorG * a, arrowParams.colorB * a, a);
 }

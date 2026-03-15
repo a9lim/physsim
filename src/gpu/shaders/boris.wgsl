@@ -27,6 +27,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     derived[idx] = d;
 
     // Drift position
-    particles[idx].posX = particles[idx].posX + vx * uniforms.dt;
-    particles[idx].posY = particles[idx].posY + vy * uniforms.dt;
+    var newPosX = particles[idx].posX + vx * uniforms.dt;
+    var newPosY = particles[idx].posY + vy * uniforms.dt;
+
+    // NaN guard — freeze particle rather than corrupt simulation
+    if (newPosX != newPosX) { newPosX = particles[idx].posX; }
+    if (newPosY != newPosY) { newPosY = particles[idx].posY; }
+
+    particles[idx].posX = newPosX;
+    particles[idx].posY = newPosY;
 }

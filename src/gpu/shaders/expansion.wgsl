@@ -40,8 +40,8 @@ fn applyExpansion(@builtin(global_invocation_id) gid: vec3<u32>) {
     p.posX += H * (p.posX - eu.centerX) * dt;
     p.posY += H * (p.posY - eu.centerY) * dt;
 
-    // Momentum drag
-    let decay = 1.0 - H * dt;
+    // Momentum drag (clamp decay to prevent sign reversal with large H*dt)
+    let decay = max(1.0 - H * dt, 0.0);
     p.velWX *= decay;
     p.velWY *= decay;
 

@@ -47,8 +47,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Boris rotation: w- -> w+ via two cross products
     let wpx = wx + wy * t;
     let wpy = wy - wx * t;
-    let newWx = wx + wpy * s;
-    let newWy = wy - wpx * s;
+    var newWx = wx + wpy * s;
+    var newWy = wy - wpx * s;
+
+    // NaN guard (Boris rotation is exact in exact arithmetic, but FP drift possible)
+    if (newWx != newWx || newWy != newWy) { newWx = 0.0; newWy = 0.0; }
 
     particles[idx].velWX = newWx;
     particles[idx].velWY = newWy;

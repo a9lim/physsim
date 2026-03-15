@@ -253,7 +253,7 @@ fn accumulateForce(
     let needAxMod = ((toggles & COULOMB_BIT) != 0u || (toggles & MAGNETIC_BIT) != 0u) && (toggles & AXION_BIT) != 0u;
     var axModPair: f32 = 1.0;
     if (needAxMod) {
-        axModPair = sqrt(pAxMod * sAxMod);
+        axModPair = sqrt(max(pAxMod * sAxMod, 0.0));
     }
 
     // Relative velocity for jerk computation
@@ -375,8 +375,9 @@ fn accumulateForce(
         let cutoffSq = (6.0 / mu) * (6.0 / mu);
         if (rawRSq < cutoffSq) {
             let r = 1.0 / invR;
-            let expMuR = exp(-mu * r);
-            let yukModPair = sqrt(pYukMod * sYukMod);
+            let muR = mu * r;
+            let expMuR = select(0.0, exp(-muR), muR < 80.0);
+            let yukModPair = sqrt(max(pYukMod * sYukMod, 0.0));
             let yukInvRa = select(invR, invR * aberr, signalDelayed);
             let fDir = uniforms.yukawaCoupling * yukModPair * pMass * sMass * expMuR * (invRSq + mu * invR) * yukInvRa;
             let fx = rx * fDir;
@@ -628,18 +629,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         );
     }
 
+    // NaN guard on total force — must happen BEFORE writing to global memory
+    if (localAF.totalForce.x != localAF.totalForce.x) { localAF.totalForce = vec2(0.0, localAF.totalForce.y); }
+    if (localAF.totalForce.y != localAF.totalForce.y) { localAF.totalForce = vec2(localAF.totalForce.x, 0.0); }
+
     // Write accumulated forces back to global memory ONCE
     allForces[pIdx] = localAF;
 
-    // Write accumulated jerk for radiation reaction
+    // Write accumulated jerk for radiation reaction (NaN guard)
     var rs = radiationState[pIdx];
-    rs.jerkX = localJerk.x;
-    rs.jerkY = localJerk.y;
+    rs.jerkX = select(localJerk.x, 0.0, localJerk.x != localJerk.x);
+    rs.jerkY = select(localJerk.y, 0.0, localJerk.y != localJerk.y);
     radiationState[pIdx] = rs;
 
     // Adaptive substepping: atomicMax of |F/m| as fixed-point u32
     let totalFSq = localAF.totalForce.x * localAF.totalForce.x + localAF.totalForce.y * localAF.totalForce.y;
     let accelSq = totalFSq * pInvMass * pInvMass;
-    let accelBits = bitcast<u32>(sqrt(accelSq));
-    atomicMax(&maxAccel[0], accelBits);
+    if (accelSq == accelSq && accelSq < 1e20) {
+        let accelBits = bitcast<u32>(sqrt(accelSq));
+        atomicMax(&maxAccel[0], accelBits);
+    }
 }

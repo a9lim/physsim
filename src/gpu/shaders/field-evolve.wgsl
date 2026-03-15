@@ -22,8 +22,8 @@ fn computeLaplacian(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (ix >= GRID || iy >= GRID) { return; }
 
     let idx = iy * GRID + ix;
-    let cellW = uniforms.domainW / f32(GRID);
-    let cellH = uniforms.domainH / f32(GRID);
+    let cellW = max(uniforms.domainW / f32(GRID), EPSILON);
+    let cellH = max(uniforms.domainH / f32(GRID), EPSILON);
     let invCWsq = 1.0 / (cellW * cellW);
     let invCHsq = 1.0 / (cellH * cellH);
     let fC = field[idx];
@@ -145,15 +145,20 @@ fn fieldDrift(@builtin(global_invocation_id) gid: vec3<u32>) {
                        -SCALAR_FIELD_MAX, SCALAR_FIELD_MAX);
 }
 
-// ─── NaN Fixup (post second half-kick) ───
+// ─── NaN/Inf Fixup (post second half-kick) ───
 // Higgs: reset to VEV=1, Axion: reset to 0
+// Checks BOTH field and fieldDot for NaN/Inf to prevent corruption propagation.
 @compute @workgroup_size(8, 8)
 fn nanFixupHiggs(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.y * GRID + gid.x;
     if (gid.x >= GRID || gid.y >= GRID) { return; }
     let phi = field[idx];
-    if (phi != phi) {  // NaN check
+    let phiDot = fieldDot[idx];
+    // NaN check: x != x is true only for NaN. Also clamp Inf.
+    if (phi != phi || abs(phi) > 1e6) {
         field[idx] = 1.0;
+        fieldDot[idx] = 0.0;
+    } else if (phiDot != phiDot || abs(phiDot) > 1e6) {
         fieldDot[idx] = 0.0;
     }
 }
@@ -163,8 +168,11 @@ fn nanFixupAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.y * GRID + gid.x;
     if (gid.x >= GRID || gid.y >= GRID) { return; }
     let a = field[idx];
-    if (a != a) {
+    let aDot = fieldDot[idx];
+    if (a != a || abs(a) > 1e6) {
         field[idx] = 0.0;
+        fieldDot[idx] = 0.0;
+    } else if (aDot != aDot || abs(aDot) > 1e6) {
         fieldDot[idx] = 0.0;
     }
 }

@@ -264,9 +264,11 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
     var ps1 = particleState[idx1];
     var ps2 = particleState[idx2];
 
-    // Check both particles are still alive (another pair may have consumed one)
+    // Check both particles are still alive (another pair may have consumed one).
+    // Race condition guard: use <= to catch partially-consumed particles from
+    // concurrent merge threads modifying the same particle.
     if ((ps1.flags & FLAG_ALIVE) == 0u || (ps2.flags & FLAG_ALIVE) == 0u) { return; }
-    if (ps1.mass == 0.0 || ps2.mass == 0.0) { return; }
+    if (ps1.mass <= EPSILON || ps2.mass <= EPSILON) { return; }
 
     let isAntimatter1 = (ps1.flags & FLAG_ANTIMATTER) != 0u;
     let isAntimatter2 = (ps2.flags & FLAG_ANTIMATTER) != 0u;
@@ -304,11 +306,15 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         ps1.mass -= annihilated;
         ps2.mass -= annihilated;
-        if (ps1.mass > 0.0) {
+        if (ps1.mass > EPSILON) {
             ps1.baseMass *= ps1.mass / (ps1.mass + annihilated);
+        } else {
+            ps1.baseMass = 0.0;
         }
-        if (ps2.mass > 0.0) {
+        if (ps2.mass > EPSILON) {
             ps2.baseMass *= ps2.mass / (ps2.mass + annihilated);
+        } else {
+            ps2.baseMass = 0.0;
         }
 
         // Retire particles with zero mass
@@ -337,11 +343,14 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         let keBefore = particleKE(ps1) + particleKE(ps2);
 
         let totalMass = ps1.mass + ps2.mass;
-        let newWx = (ps1.mass * ps1.velWX + ps2.mass * ps2.velWX) / totalMass;
-        let newWy = (ps1.mass * ps1.velWY + ps2.mass * ps2.velWY) / totalMass;
+        // Guard against zero total mass (shouldn't happen, but protects against concurrent races)
+        if (totalMass <= EPSILON) { return; }
+        let invTotalMass = 1.0 / totalMass;
+        let newWx = (ps1.mass * ps1.velWX + ps2.mass * ps2.velWX) * invTotalMass;
+        let newWy = (ps1.mass * ps1.velWY + ps2.mass * ps2.velWY) * invTotalMass;
         // Use minimum-image displacement: newPos = p1 + dx12 * (m2 / totalMass)
-        let newX = ps1.posX + dx12 * (ps2.mass / totalMass);
-        let newY = ps1.posY + dy12 * (ps2.mass / totalMass);
+        let newX = ps1.posX + dx12 * (ps2.mass * invTotalMass);
+        let newY = ps1.posY + dy12 * (ps2.mass * invTotalMass);
 
         // Angular momentum conservation — arms relative to new CoM, using minimum-image positions.
         // p2_miPos = p1 + dx12 (minimum-image position of p2 relative to p1's frame)
@@ -523,12 +532,12 @@ fn resolveBouncePairwise(@builtin(global_invocation_id) gid: vec3<u32>) {
     var ps2 = particleState[idx2];
 
     if ((ps1.flags & FLAG_ALIVE) == 0u || (ps2.flags & FLAG_ALIVE) == 0u) { return; }
-    if (ps1.mass == 0.0 || ps2.mass == 0.0) { return; }
+    if (ps1.mass <= EPSILON || ps2.mass <= EPSILON) { return; }
 
     let aux1 = particleAux[idx1];
     let aux2 = particleAux[idx2];
-    let r1 = aux1.radius;
-    let r2 = aux2.radius;
+    let r1 = max(aux1.radius, EPSILON);
+    let r2 = max(aux2.radius, EPSILON);
 
     let boundLoop = uniforms.boundaryMode == BOUND_LOOP;
     var dx = ps2.posX - ps1.posX;
