@@ -2,8 +2,7 @@
 // Quadtree-accelerated overlap detection with merge resolution.
 
 import { INERTIA_K, COL_MERGE, EPSILON, TORUS } from './config.js';
-import { angwToAngVel } from './relativity.js';
-import { minImage, wrapPosition } from './topology.js';
+import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
 
@@ -11,7 +10,8 @@ const _miOut = { x: 0, y: 0 };
 const _annihilations = [];
 const _merges = [];
 const _removed = [];
-const _collisionResult = { annihilations: _annihilations, merges: _merges, removed: _removed };
+const _spawns = [];
+const _collisionResult = { annihilations: _annihilations, merges: _merges, removed: _removed, spawns: _spawns };
 
 /** Relativistic KE: wSq / (gamma + 1) * m. Avoids catastrophic cancellation at low v. */
 function _particleKE(p) {
@@ -27,8 +27,10 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
     _annihilations.length = 0;
     _merges.length = 0;
     _removed.length = 0;
+    _spawns.length = 0;
     const annihilations = _annihilations;
     const merges = _merges;
+    const spawns = _spawns;
 
     for (let ci = 0; ci < particles.length; ci++) {
         const p1 = particles[ci];
@@ -53,7 +55,6 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
             const minDist = p1.radius + real2.radius;
 
             if (distSq < minDist * minDist) {
-                const dist = Math.sqrt(distSq);
                 // Annihilation: matter + antimatter -> energy
                 if (p1.antimatter !== real2.antimatter && mode === COL_MERGE) {
                     const annihilated = Math.min(p1.mass, real2.mass);
@@ -79,25 +80,20 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
                 } else if (mode === COL_MERGE) {
                     // Compute KE before merge for field excitation energy (relativistic)
                     const keBefore = _particleKE(p1) + _particleKE(real2);
-                    const p2miX = p1.pos.x + dx, p2miY = p1.pos.y + dy;
-                    const mx = (p1.pos.x * p1.mass + p2miX * real2.mass) / (p1.mass + real2.mass);
-                    const my = (p1.pos.y * p1.mass + p2miY * real2.mass) / (p1.mass + real2.mass);
-                    // Save pre-merge mass for signal delay retirement
+                    // Save pre-merge mass for signal delay retirement (both particles die)
+                    p1._deathMass = p1.mass;
                     real2._deathMass = real2.mass;
-                    resolveMerge(p1, real2, relativityEnabled, periodic, dx, dy);
-                    const keAfter = _particleKE(p1);
-                    const keLost = Math.max(0, keBefore - keAfter);
-                    if (keLost > 0) merges.push({ x: mx, y: my, energy: keLost });
-                    if (periodic) {
-                        wrapPosition(p1, topology, domW, domH);
-                    }
+                    const spawn = resolveMerge(p1, real2, relativityEnabled, periodic, dx, dy);
+                    const keLost = Math.max(0, keBefore - spawn.ke);
+                    if (keLost > 0) merges.push({ x: spawn.x, y: spawn.y, energy: keLost });
+                    spawns.push(spawn);
                 }
             }
         }
     }
 
     const removed = _removed;
-    if (mode === COL_MERGE && (annihilations.length > 0 || merges.length > 0)) {
+    if (mode === COL_MERGE && (annihilations.length > 0 || spawns.length > 0)) {
         let write = 0;
         for (let read = 0; read < particles.length; read++) {
             if (particles[read].mass !== 0) {
@@ -112,7 +108,7 @@ export function handleCollisions(particles, pool, root, mode, bounceFriction, re
     return _collisionResult;
 }
 
-/** Merge p2 into p1, conserving mass, charge, linear and angular momentum. */
+/** Compute merged state from p1+p2, kill both, return spawn data for new particle. */
 export function resolveMerge(p1, p2, relativityEnabled, periodic, miDx, miDy) {
     const totalMass = p1.mass + p2.mass;
     const newWx = (p1.mass * p1.w.x + p2.mass * p2.w.x) / totalMass;
@@ -131,22 +127,32 @@ export function resolveMerge(p1, p2, relativityEnabled, periodic, miDx, miDy) {
     const Lspin = INERTIA_K * p1.mass * p1.radius * p1.radius * p1.angw
         + INERTIA_K * p2.mass * p2.radius * p2.radius * p2.angw;
 
-    p1.mass = totalMass;
-    p1.baseMass = p1.baseMass + p2.baseMass;
-    p2.baseMass = 0;
-    p1.charge = p1.charge + p2.charge;
-    p1.w.set(newWx, newWy);
-    p1.pos.set(newX, newY);
-    p1.updateColor();
+    const newRadius = Math.cbrt(totalMass);
+    const newI = INERTIA_K * totalMass * newRadius * newRadius;
+    const newAngw = newI > EPSILON ? (Lorb + Lspin) / newI : 0;
+    const newBaseMass = p1.baseMass + p2.baseMass;
+    const newCharge = p1.charge + p2.charge;
+    const newAntimatter = p1.antimatter;
 
-    const newI = INERTIA_K * totalMass * p1.radius * p1.radius;
-    p1.angw = newI > EPSILON ? (Lorb + Lspin) / newI : 0;
-    p1.angVel = relativityEnabled ? angwToAngVel(p1.angw, p1.radius) : p1.angw;
+    // Compute KE of merged particle for excitation energy accounting
+    const wSq = newWx * newWx + newWy * newWy;
+    const ke = wSq / (Math.sqrt(1 + wSq) + 1) * totalMass;
 
-    const invG = relativityEnabled ? 1 / Math.sqrt(1 + p1.w.x * p1.w.x + p1.w.y * p1.w.y) : 1;
-    p1.vel.x = p1.w.x * invG;
-    p1.vel.y = p1.w.y * invG;
-
+    // Kill both originals
+    p1.mass = 0;
     p2.mass = 0;
+    p1.baseMass = 0;
+    p2.baseMass = 0;
+
+    return {
+        x: newX, y: newY,
+        wx: newWx, wy: newWy,
+        mass: totalMass,
+        baseMass: newBaseMass,
+        charge: newCharge,
+        antimatter: newAntimatter,
+        angw: newAngw,
+        ke,
+    };
 }
 

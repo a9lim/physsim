@@ -339,7 +339,7 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         particleAux[idx1] = aux1;
         particleAux[idx2] = aux2;
     } else {
-        // Inelastic merge: p2 merges into p1
+        // Inelastic merge: both particles die, new particle created in idx1's slot
         let keBefore = particleKE(ps1) + particleKE(ps2);
 
         let totalMass = ps1.mass + ps2.mass;
@@ -367,44 +367,51 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         let Lspin = INERTIA_K * ps1.mass * r1 * r1 * ps1.angW
                    + INERTIA_K * ps2.mass * r2 * r2 * ps2.angW;
 
-        // Update p1 (winner)
-        ps1.mass = totalMass;
-        ps1.baseMass += ps2.baseMass;
-        ps1.charge += ps2.charge;
-        ps1.velWX = newWx;
-        ps1.velWY = newWy;
-        ps1.posX = newX;
-        ps1.posY = newY;
-
-        let newRadius = pow(totalMass, 1.0 / 3.0);
-        let newI = INERTIA_K * totalMass * newRadius * newRadius;
-        if (newI > EPSILON) {
-            ps1.angW = (Lorb + Lspin) / newI;
-        } else {
-            ps1.angW = 0.0;
-        }
-
-        // Update winner radius in aux
-        aux1.radius = newRadius;
-        particleAux[idx1] = aux1;
-
-        // Retire p2 (loser) — save death metadata before zeroing mass
-        // Store coordinate angular velocity, not proper velocity
+        // Retire p2 — save death metadata before zeroing mass
         aux2.deathTime = uniforms.simTime;
         aux2.deathMass = ps2.mass;
-        let srM = ps2.angW * aux2.radius;
-        aux2.deathAngVel = select(ps2.angW, ps2.angW / sqrt(1.0 + srM * srM), relOn);
+        let sr2 = ps2.angW * r2;
+        aux2.deathAngVel = select(ps2.angW, ps2.angW / sqrt(1.0 + sr2 * sr2), relOn);
 
+        // Write new merged particle to idx1's slot (fresh identity, both parents die)
+        let newRadius = pow(totalMass, 1.0 / 3.0);
+        let newI = INERTIA_K * totalMass * newRadius * newRadius;
+        var newAngW = 0.0;
+        if (newI > EPSILON) {
+            newAngW = (Lorb + Lspin) / newI;
+        }
+
+        var newPs: ParticleState;
+        newPs.posX = newX;
+        newPs.posY = newY;
+        newPs.velWX = newWx;
+        newPs.velWY = newWy;
+        newPs.mass = totalMass;
+        newPs.charge = ps1.charge + ps2.charge;
+        newPs.angW = newAngW;
+        newPs.baseMass = ps1.baseMass + ps2.baseMass;
+        // Preserve antimatter flag from p1; FLAG_REBORN signals history/trail reset
+        newPs.flags = FLAG_ALIVE | FLAG_REBORN | (ps1.flags & FLAG_ANTIMATTER);
+
+        // Fresh aux for new particle (unique ID, clean death state)
+        aux1.radius = newRadius;
+        aux1.particleId = 0x80000000u | (uniforms.frameCount * MAX_PARTICLES + idx1);
+        aux1.deathTime = 3.4028235e38; // FLT_MAX — alive
+        aux1.deathMass = 0.0;
+        aux1.deathAngVel = 0.0;
+
+        // Retire p2
         ps2.mass = 0.0;
         ps2.baseMass = 0.0;
         ps2.flags = (ps2.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
 
-        particleState[idx1] = ps1;
+        particleState[idx1] = newPs;
         particleState[idx2] = ps2;
+        particleAux[idx1] = aux1;
         particleAux[idx2] = aux2;
 
         // Compute KE lost for field excitation
-        let keAfter = particleKE(ps1);
+        let keAfter = particleKE(newPs);
         let keLost = max(0.0, keBefore - keAfter);
         if (keLost > 0.0) {
             let slot = atomicAdd(&mergeCounter, 1u);

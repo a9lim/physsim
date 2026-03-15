@@ -49,7 +49,7 @@ src/
   potential.js           211 lines  computePE(), treePE(), pairPE() (7 PE terms)
   energy.js              191 lines  KE, spin KE, PE, field energy, momentum, angular momentum
   config.js              166 lines  Named constants, mode enums (COL_*/BOUND_*/TORUS/KLEIN/RP²), helpers
-  collisions.js          152 lines  handleCollisions(), resolveMerge(), annihilation, relativistic merge KE
+  collisions.js          159 lines  handleCollisions(), resolveMerge(), annihilation, relativistic merge KE
   stats-display.js       138 lines  Sidebar energy/momentum/drift readout, textContent change detection
   phase-plot.js          137 lines  Phase space r-v_r plot (512-sample ring buffer)
   particle.js            135 lines  Particle: pos, vel, w, angw, baseMass, 11 force Vec2s, signal delay history
@@ -382,7 +382,7 @@ Do NOT flip these signs.
 
 **Energy** (`energy.js`): Relativistic KE = `wSq/(γ+1)·mass`. `pfiEnergy` = particle-field interaction from Higgs + Axion, added to PE. Conservation exact with gravity + Coulomb, pairwise only.
 
-**Collisions**: Pass / bounce (Hertz) / merge. `handleCollisions()` returns `{ annihilations, merges, removed }`. Merge uses relativistic KE. Integrator emits photons from annihilations, deposits field excitations, retires removed particles.
+**Collisions**: Pass / bounce (Hertz) / merge. `handleCollisions()` returns `{ annihilations, merges, removed, spawns }`. Merge kills both parents and returns spawn data; integrator creates a new particle via `addParticle()` with fresh ID, creation time, and empty signal delay history. Both parents are retired via `_retireParticle()` for signal delay fade-out. Integrator emits photons from annihilations, deposits field excitations.
 
 ## Topology
 
