@@ -5,6 +5,7 @@ const _PAL = window._PALETTE;
 const _hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const _nRGB = _hex(_PAL.neutral);
 const _bhLightRGB = _hex(_PAL.light.text); // BH base color in light mode
+const _bhDarkRGB = _hex(_PAL.dark.text);   // BH base color in dark mode
 const _posRGB = _hex(_PAL.extended.red);
 const _negRGB = _hex(_PAL.extended.blue);
 
@@ -100,11 +101,11 @@ export default class Particle {
     getColor() {
         const bh = window.sim && window.sim.physics.blackHoleEnabled;
         const isLight = document.documentElement.dataset.theme !== 'dark';
-        const base = (bh && isLight) ? _bhLightRGB : _nRGB;
+        const base = bh ? (isLight ? _bhLightRGB : _bhDarkRGB) : _nRGB;
         const t = Math.max(-1, Math.min(1, this.charge / 5));
         const absT = Math.abs(t);
         if (absT < 1e-6) {
-            return (bh && isLight) ? _PAL.light.text : _PAL.neutral;
+            return bh ? (isLight ? _PAL.light.text : _PAL.dark.text) : _PAL.neutral;
         }
         const tgt = t > 0 ? _posRGB : _negRGB;
         const r = Math.round(base[0] + (tgt[0] - base[0]) * absT);

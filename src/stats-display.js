@@ -63,6 +63,7 @@ export default class StatsDisplay {
 
         _set(this.dom.linearKE, fmt(e.linearKE));
         _set(this.dom.spinKE, fmt(e.spinKE));
+        _set(this.dom.massE, fmt(e.totalMass));
         _set(this.dom.potentialE, fmt(e.pe));
         _set(this.dom.totalE, fmt(total));
         _set(this.dom.energyDrift, fmtDrift(eDrift));
@@ -112,6 +113,7 @@ export default class StatsDisplay {
 
         _set(this.dom.linearKE, fmt(e.linearKE));
         _set(this.dom.spinKE, fmt(e.spinKE));
+        _set(this.dom.massE, fmt(e.totalMass));
         _set(this.dom.potentialE, fmt(pe));
         _set(this.dom.totalE, fmt(total));
         _set(this.dom.energyDrift, fmtDrift(eDrift));

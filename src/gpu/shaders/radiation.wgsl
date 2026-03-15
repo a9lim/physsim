@@ -340,7 +340,7 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     let blackHoleOn = (u.toggles0 & BLACK_HOLE_BIT) != 0u;
     let radiationOn = (u.toggles0 & RADIATION_BIT) != 0u;
     if (!blackHoleOn || !radiationOn) { return; }
-    if (particles[i].mass <= MIN_MASS) { return; }
+    if (particles[i].mass <= 0.0) { return; }
 
     let M = particles[i].mass;
     let bodyRSq = pow(M, 2.0 / 3.0); // cbrt(M)^2
@@ -363,17 +363,49 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     // else extremal: no radiation
 
     let dt = u.dt;
-    // Guard: never evaporate below MIN_MASS to prevent div-by-zero in invMass
-    let maxEvap = max(particles[i].mass - MIN_MASS, 0.0);
-    let dE = min(power * dt, maxEvap);
+    let dE = min(power * dt, particles[i].mass);
     if (dE <= 0.0) { return; }
 
     let preMass = particles[i].mass;
     particles[i].mass -= dE;
     particles[i].baseMass *= 1.0 - dE / preMass;
 
-    // Update derived state after mass loss (match CPU integrator.js Hawking path)
-    let newM = max(particles[i].mass, MIN_MASS);
+    var rs = radState[i];
+    rs.hawkAccum += dE;
+
+    // Full evaporation: mass dropped to or below MIN_MASS
+    if (particles[i].mass <= MIN_MASS) {
+        // Emit all remaining mass + accumulated energy as final photon burst
+        let finalEnergy = rs.hawkAccum + particles[i].mass;
+        if (finalEnergy > 0.0) {
+            let phIdx = atomicAdd(&phCount, 1u);
+            if (phIdx < MAX_PHOTONS) {
+                let angle = pcgRand((i * 12345u) ^ u.frameCount) * 6.2831853;
+                let cosA = cos(angle); let sinA = sin(angle);
+                var ph: Photon;
+                ph.posX = particles[i].posX + cosA;
+                ph.posY = particles[i].posY + sinA;
+                ph.velX = cosA; ph.velY = sinA;
+                ph.energy = finalEnergy;
+                ph.emitterId = particleAux[i].particleId;
+                ph.lifetime = 0.0; ph.flags = 1u;
+                photons[phIdx] = ph;
+            } else { atomicSub(&phCount, 1u); }
+        }
+        rs.hawkAccum = 0.0;
+        radState[i] = rs;
+
+        // Kill the particle
+        particles[i].mass = 0.0;
+        particles[i].flags = (particles[i].flags & ~FLAG_ALIVE) | FLAG_RETIRED;
+        particleAux[i].deathTime = u.simTime;
+        particleAux[i].deathMass = preMass;
+        particleAux[i].deathAngVel = angvel;
+        return;
+    }
+
+    // Update derived state after mass loss
+    let newM = particles[i].mass;
     let newBodyRSq = pow(newM, 2.0 / 3.0);
     let newAngVel = particles[i].angW / sqrt(1.0 + particles[i].angW * particles[i].angW * newBodyRSq);
     let newA = INERTIA_K * newBodyRSq * abs(newAngVel);
@@ -386,13 +418,10 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     derived[i] = drd;
     particleAux[i].radius = newRadius;
 
-    var rs = radState[i];
-    rs.hawkAccum += dE;
-
+    // Emit photon when accumulated energy reaches threshold
     if (rs.hawkAccum >= MIN_MASS) {
         let phIdx = atomicAdd(&phCount, 1u);
         if (phIdx < MAX_PHOTONS) {
-            // Isotropic emission with pseudo-random angle
             let angle = pcgRand((i * 12345u) ^ u.frameCount) * 6.2831853;
             let cosA = cos(angle); let sinA = sin(angle);
             let offset = max(newRadius * 1.5, 1.0);

@@ -90,7 +90,6 @@ export default class Renderer {
         this.isLight = isLight;
         // Cache theme-dependent RGBA strings to avoid per-frame allocation
         this._ergoStyle = isLight ? _r(_PAL.light.text, 0.3) : _r(_PAL.dark.text, 0.4);
-        this._neutralGlow = isLight ? null : _r(_PAL.dark.text, 0.5);
         this._photonEmGlow = _r(_PAL.extended.yellow, 0.5);
         this._photonGravGlow = _r(_PAL.extended.red, 0.5);
         this._pionGlow = _r(_PAL.extended.green, 0.5);
@@ -292,59 +291,19 @@ export default class Renderer {
 
         const bhEnabled = window.sim && window.sim.physics.blackHoleEnabled;
         const ergoStyle = this._ergoStyle;
-        const neutralGlow = this._neutralGlow;
 
         // Viewport culling bounds with margin for glow/ergosphere
         const vpL = this._vpLeft - 10, vpR = this._vpRight + 10;
         const vpT = this._vpTop - 10, vpB = this._vpBottom + 10;
 
-        if (isLight) {
-            ctx.shadowBlur = 0;
-            for (let i = 0, len = particles.length; i < len; i++) {
-                const p = particles[i];
-                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
-                ctx.fill();
-            }
-        } else {
-            ctx.shadowBlur = 5;
-            ctx.shadowColor = neutralGlow;
-            for (let i = 0, len = particles.length; i < len; i++) {
-                const p = particles[i];
-                if (p.charge !== 0) continue;
-                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
-                ctx.fill();
-            }
-            // R2: Bucket charged particles by shadowBlur level (reduces state changes)
-            // Blur levels: low (|q|≤1: blur≤13), medium (|q|≤5: blur≤25), high (|q|>5: blur=50)
-            const _chargedBuckets = [[], [], []];
-            for (let i = 0, len = particles.length; i < len; i++) {
-                const p = particles[i];
-                if (p.charge === 0) continue;
-                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
-                const absQ = p.charge > 0 ? p.charge : -p.charge;
-                _chargedBuckets[absQ <= 1 ? 0 : absQ <= 5 ? 1 : 2].push(p);
-            }
-            const _blurLevels = [13, 25, 50];
-            for (let b = 0; b < 3; b++) {
-                const bucket = _chargedBuckets[b];
-                if (bucket.length === 0) continue;
-                ctx.shadowBlur = _blurLevels[b];
-                for (let j = 0; j < bucket.length; j++) {
-                    const p = bucket[j];
-                    ctx.shadowColor = p.color;
-                    ctx.fillStyle = p.color;
-                    ctx.beginPath();
-                    ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
-                    ctx.fill();
-                }
-                bucket.length = 0;
-            }
+        ctx.shadowBlur = 0;
+        for (let i = 0, len = particles.length; i < len; i++) {
+            const p = particles[i];
+            if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.pos.x, p.pos.y, p.radius, 0, TWO_PI);
+            ctx.fill();
         }
 
         // R5: Batch spin rings by sign — two passes (pos/neg), one stroke + one fill each

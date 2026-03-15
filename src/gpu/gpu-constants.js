@@ -108,6 +108,7 @@ export function buildWGSLConstants() {
 
     // Theme colors
     const textLight = paletteRGB(_PAL.light.text);
+    const textDark = paletteRGB(_PAL.dark.text);
     const accent = paletteRGB(_PAL.accent);
     const accentLight = paletteRGB(_PAL.accentLight);
 
@@ -252,6 +253,7 @@ const COLOR_MAGENTA: vec3f = ${wv3(colors.MAGENTA)};
 
 // Theme colors
 const COLOR_TEXT_LIGHT: vec3f = ${wv3(textLight)};
+const COLOR_TEXT_DARK: vec3f = ${wv3(textDark)};
 const COLOR_ACCENT: vec3f = ${wv3(accent)};
 const COLOR_ACCENT_LIGHT: vec3f = ${wv3(accentLight)};
 

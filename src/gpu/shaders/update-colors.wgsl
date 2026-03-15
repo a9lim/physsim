@@ -1,10 +1,10 @@
 // update-colors.wgsl — Recompute per-particle packed RGBA from charge/mass/antimatter.
 //
 // Matches CPU Particle.getColor() logic:
-//   neutral → slate (#8A7E72), or text (#1A1612) in BH light mode
+//   neutral → slate (#8A7E72), or theme text color in BH mode
 //   positive charge → lerp base toward red (#C05048), intensity = |q|/5
 //   negative charge → lerp base toward blue (#5C92A8), intensity = |q|/5
-//   BH mode + light theme → use text color as base (darker, more visible)
+//   BH mode → use theme text color as base (light: #1A1612, dark: #E8DED4)
 //   antimatter → visual distinction via dashed ring overlay (rendered separately)
 
 // Packed particle state struct (matches common.wgsl ParticleState)
@@ -49,9 +49,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let absQ = abs(q);
     let intensity = clamp(absQ / 5.0, 0.0, 1.0);
 
-    // BH mode in light theme: use text color as base instead of slate
-    let useBHBase = (params.blackHoleEnabled != 0u) && (params.isDarkMode == 0u);
-    let baseColor = select(COLOR_SLATE, COLOR_TEXT_LIGHT, useBHBase);
+    // BH mode: use theme text color as base instead of slate
+    let isBH = (params.blackHoleEnabled != 0u);
+    let isDark = (params.isDarkMode != 0u);
+    let bhColor = select(COLOR_TEXT_LIGHT, COLOR_TEXT_DARK, isDark);
+    let baseColor = select(COLOR_SLATE, bhColor, isBH);
 
     var r: f32;
     var g: f32;

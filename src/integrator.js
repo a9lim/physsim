@@ -797,7 +797,7 @@ export default class Physics {
             if (this.blackHoleEnabled && this.radiationEnabled && this.sim) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
-                    if (p.mass <= MIN_MASS) continue;
+                    if (p.mass <= 0) continue;
                     const M = p.mass;
                     const a = INERTIA_K * Math.cbrt(M) ** 2 * Math.abs(p.angVel);
                     const Q = p.charge;
@@ -816,16 +816,20 @@ export default class Physics {
                     const dE = Math.min(power * dtSub, p.mass);
                     if (dE <= 0) continue;
                     p.mass -= dE;
+                    this.sim.totalRadiated += dE;
+                    p.baseMass *= 1 - dE / (p.mass + dE);
+                    p._hawkAccum += dE;
+
+                    // Full evaporation — mark for removal (main.js cleanup emits final burst)
+                    if (p.mass <= MIN_MASS) continue;
+
                     p.invMass = 1 / p.mass;
                     // Update Kerr-Newman radius (use body r² = cbrt(mass)², not horizon radiusSq)
                     const bodyRSq = Math.cbrt(p.mass) ** 2;
                     p.bodyRadiusSq = bodyRSq;
                     p.radius = kerrNewmanRadius(p.mass, bodyRSq, p.angVel, p.charge);
                     p.radiusSq = p.radius * p.radius;
-                    this.sim.totalRadiated += dE;
 
-                    p.baseMass *= 1 - dE / (p.mass + dE);
-                    p._hawkAccum += dE;
                     if (p._hawkAccum >= MIN_MASS && this.sim.photons.length < MAX_PHOTONS) {
                         const emitAngle = Math.random() * TWO_PI;
                         const cosA = Math.cos(emitAngle), sinA = Math.sin(emitAngle);

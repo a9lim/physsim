@@ -337,7 +337,7 @@ Self-absorption permanently blocked by `emitterId` for both photons and pions.
 Requires Gravity + Relativity. Locks collision to Merge.
 - **No hair**: Antimatter erased. `addParticle()` blocks antimatter. Pair production disabled. Charged pion decay products forced to matter.
 - **Kerr-Newman**: `r₊ = M + √(M² - a² - Q²)`, `a = INERTIA_K·r²·|ω|`, naked singularity floor.
-- **Hawking** (requires Radiation): `T = κ/(2π)`, `P = σT⁴A`. Uses `∛(mass)²` (not stale `radiusSq`). Extremal BHs stop. Evaporation → photon burst.
+- **Hawking** (requires Radiation): `T = κ/(2π)`, `P = σT⁴A`. Uses `∛(mass)²` (not stale `radiusSq`). Extremal BHs stop. Full evaporation when mass ≤ MIN_MASS: emits accumulated + remaining mass as final photon burst, retires particle for signal delay fade-out. GPU shader handles evaporation in-place (clears ALIVE, sets RETIRED with deathTime/deathMass/deathAngVel).
 - BH_SOFTENING_SQ = 16. Ergosphere at `r_ergo = M + √(M² - a²)` (visual only).
 
 ### Signal Delay
@@ -432,7 +432,7 @@ Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit
 
 ## UI
 
-4-tab sidebar: Settings (mass/charge/spin, spawn mode, force/physics toggles), Engine (GPU toggle, BH, collisions, boundary/topology, external fields, visuals, speed), Stats (energy/momentum/drift), Particle (selected details, force breakdown, phase plot, effective potential).
+4-tab sidebar: Settings (mass/charge/spin, spawn mode, force/physics toggles), Engine (GPU toggle, BH, collisions, boundary/topology, external fields, visuals, speed), Stats (energy/momentum/drift/mass), Particle (selected details, force breakdown, phase plot, effective potential).
 
 Topbar: Home | "No-Hair" | Pause/Step/Reset/Save/Load | Theme | Panel toggle.
 
@@ -451,7 +451,7 @@ Falls back to CPU on WebGPU unavailability or device loss (with auto-save recove
 
 ### CPU Renderer (Canvas 2D)
 
-Dark mode: additive blending (`lighter`). WORLD_SCALE = 16. Camera starts at zoom = WORLD_SCALE. Viewport culling: particles, photons, pions skip draw when outside camera bounds. Rendering batched: shadowBlur buckets, alpha buckets (photons), spin rings by sign, pion fills.
+Dark mode: additive blending (`lighter`). WORLD_SCALE = 16. Camera starts at zoom = WORLD_SCALE. Viewport culling: particles, photons, pions skip draw when outside camera bounds. No particle glow in either mode. Rendering batched: alpha buckets (photons), spin rings by sign, pion fills.
 
 ### GPU Renderer (WebGPU)
 
@@ -459,12 +459,12 @@ Instanced rendering via vertex shaders. Reads directly from GPU compute buffers 
 
 ### Visual Style (both backends)
 
-- **Particles**: r = ∛(mass) (BH: r₊), glow in dark. Neutral=slate (BH light mode: text color `#1A1612`). Charged: RGB lerp base→red(+)/blue(-), intensity=|q|/5.
+- **Particles**: r = ∛(mass) (BH: r₊), no glow. Neutral=slate (BH mode: theme text color — light `#1A1612`, dark `#E8DED4`). Charged: RGB lerp base→red(+)/blue(-), intensity=|q|/5.
 - **Trails**: circular Float32Array[256], wrap-detection for periodic boundaries
 - **Force vectors**: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green, external=brown, higgs=lime, axion=indigo
 - **Field overlays**: 64×64 offscreen, bilinear-upscaled. Higgs: purple(depleted)/lime(enhanced). Axion: indigo(+)/yellow(-).
 - **Photons**: yellow (EM) / red (grav), alpha fades over PHOTON_LIFETIME=256
-- **Pions**: green, glow in dark, constant alpha (decay is probabilistic)
+- **Pions**: green, constant alpha (decay is probabilistic)
 - **V_eff plot**: 200-sample sidebar canvas
 
 ## GPU Acceleration (WebGPU)
@@ -533,7 +533,7 @@ Worst-case pipeline (radiation) uses 10 storage buffers (was 42 before packing).
 
 All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf propagation:
 
-**Division-by-zero prevention**: All `1/mass`, `1/r`, `1/gamma` paths use `select(0, 1/x, x > EPSILON)` or `max(x, EPSILON)` guards. Hawking radiation clamps evaporation to never reduce mass below `MIN_MASS`. Higgs mass modulation clamps `newMass >= MIN_MASS`.
+**Division-by-zero prevention**: All `1/mass`, `1/r`, `1/gamma` paths use `select(0, 1/x, x > EPSILON)` or `max(x, EPSILON)` guards. Hawking radiation allows full evaporation (mass → 0, particle retired). Higgs mass modulation clamps `newMass >= MIN_MASS`.
 
 **NaN barriers**: `totalForce` and `jerk` accumulators are NaN-checked **before** writing to global memory (not after). Fused Boris integrator has a single consolidated NaN guard covering all three stages (halfKick+rotate+halfKick). Drift position updates have post-operation NaN guards. Adaptive substepping readback guards against NaN/Inf from corrupted GPU data (`val === val && val < 1e20`). `deathTime` sentinel uses `FLT_MAX` (3.4028235e38) instead of `Infinity` to avoid implementation-defined f32 infinity behavior.
 
@@ -571,7 +571,7 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 
 `GPURenderer` in `gpu-renderer.js` handles all visual output in GPU mode. All render pipelines have dual light/dark variants — light uses premultiplied alpha-over blend, dark uses additive blend (matching Canvas 2D `lighter`). All fragment shaders output premultiplied alpha (`color.rgb * alpha`). Render passes (each in isolated command encoder for error containment):
 
-1. **Particles**: Instanced quad rendering from `particleState` + `color` buffers. Sharp circle edge (`select` step at dist=1), charge-dependent exponential glow halo in dark mode (quad extended by `DARK_QUAD_SCALE=1.8`). Color computed by `updateColors` compute pass (post-substep).
+1. **Particles**: Instanced quad rendering from `particleState` + `color` buffers. Sharp circle edge (`select` step at dist=1), no glow. Color computed by `updateColors` compute pass (post-substep).
 2. **Trails**: Triangle-strip ribbon per particle from ring buffer (`trailX`/`trailY`), width = `0.5 * radius` (matching CPU). Each trail point becomes 2 vertices offset perpendicular to the trail tangent. Trail recording via `trails.wgsl` compute (post-substep). Lazy buffer allocation via `setTrailsEnabled()`. Binds `particleAux` (binding 8) for radius.
 3. **Field overlays**: Fullscreen triangle, bilinear-upscaled 64×64 grid. Per-field uniform buffers (higgs/axion) to avoid writeBuffer race. Lazy pipeline init via `initFieldOverlay()`.
 4. **Heatmap overlay**: Fullscreen triangle, gravity/electric/Yukawa potential channels. Lazy pipeline init via `initHeatmapOverlay()`.
@@ -600,7 +600,6 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 - **Batched force arrows**: Renderer accumulates arrows into pre-allocated `Float32Array` buffers, one `stroke()`+`fill()` per color. O(forces) canvas calls instead of O(particles×forces).
 - **Batched spin rings**: Grouped by angular velocity sign, two passes (pos/neg) with one `stroke()`+`fill()` each. 4 canvas calls total instead of 9×N.
 - **Photon alpha buckets**: 4 alpha bands (bright/med/dim/faint) → 4 `stroke()` calls instead of per-photon style changes.
-- **shadowBlur bucketing**: Particles sorted into glow tiers, one `shadowBlur` set per tier instead of per-particle.
 - **Inline torus minImage**: `pairForce()`, `_accum1PN()`, `calculateForce()`, `_compute1PNTreeWalk()` inline the torus fast path to eliminate cross-module function call overhead in O(N²) loops. Klein/RP² still dispatch to `minImage()`.
 - **Yukawa cutoff**: `exp(-μr) < 0.002` ⟹ skip `Math.exp` when `μr > 6` in `pairForce()`.
 - **Aberration pre-multiply**: Signal-delay aberration factor `(1 - n̂·v)^{-3}` pre-multiplied into `invR3a`/`invR5a` once per pair, reused across gravity/Coulomb/dipole/Yukawa terms.

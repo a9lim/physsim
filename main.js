@@ -154,6 +154,7 @@ class Simulation {
             speedInput: document.getElementById('speedInput'),
             linearKE: document.getElementById('linearKE'),
             spinKE: document.getElementById('spinKE'),
+            massE: document.getElementById('massE'),
             potentialE: document.getElementById('potentialE'),
             totalE: document.getElementById('totalE'),
             energyDrift: document.getElementById('energyDrift'),
@@ -635,12 +636,13 @@ class Simulation {
                         let writeIdx = 0;
                         for (let i = 0; i < this.particles.length; i++) {
                             const p = this.particles[i];
-                            if (p.mass >= MIN_MASS) {
+                            if (p.mass > MIN_MASS) {
                                 this.particles[writeIdx++] = p;
                                 continue;
                             }
-                            // Final burst: emit remaining mass-energy as photons
-                            if (p.mass > 0) this.emitPhotonBurst(p.pos.x, p.pos.y, p.mass, p.radius, p.id);
+                            // Final burst: emit accumulated + remaining mass-energy as photons
+                            const finalE = p._hawkAccum + p.mass;
+                            if (finalE > 0) this.emitPhotonBurst(p.pos.x, p.pos.y, finalE, p.radius, p.id);
                             this.physics._retireParticle(p);
                             if (this.selectedParticle === p) this.selectedParticle = null;
                         }

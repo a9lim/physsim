@@ -179,7 +179,7 @@ export function computeEnergies(particles, physics, sim) {
     }
 
     return {
-        linearKE, spinKE,
+        linearKE, spinKE, totalMass,
         pe: physics.potentialEnergy + pfiEnergy,
         pfiEnergy,
         fieldEnergy, fieldPx, fieldPy,

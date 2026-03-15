@@ -7,7 +7,7 @@ struct CameraUniforms {
     zoom: f32,
     canvasWidth: f32,
     canvasHeight: f32,
-    isDarkMode: f32,   // 0.0 = light, 1.0 = dark (was _pad)
+    isDarkMode: f32,   // 0.0 = light, 1.0 = dark
 };
 
 // Packed particle state struct (matches common.wgsl ParticleState)
@@ -35,10 +35,8 @@ struct ParticleAux {
 
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,       // -1..+1 within quad (extended for glow)
+    @location(0) uv: vec2<f32>,       // -1..+1 within quad
     @location(1) particleColor: vec4<f32>,
-    @location(2) isDark: f32,         // 0 or 1, passed through from camera uniform
-    @location(3) glowIntensity: f32,  // charge-dependent glow: 0.1 (neutral) to 1.0 (high charge)
 };
 
 // Quad vertices: 2 triangles forming a [-1,1] square
@@ -46,10 +44,6 @@ const QUAD_POS = array<vec2<f32>, 6>(
     vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
     vec2(-1.0, 1.0),  vec2(1.0, -1.0), vec2(1.0, 1.0),
 );
-
-// In dark mode, we extend the quad by this factor so the glow halo fits inside.
-// 1.0 = no extension (light mode), 1.8 = 80% extra radius for glow halo (dark mode).
-const DARK_QUAD_SCALE: f32 = 1.8;
 
 @vertex
 fn vs_main(
@@ -73,22 +67,16 @@ fn vs_main(
     // Transform world position to clip space via camera
     let worldPos = camera.viewMatrix * vec4(px, py, 0.0, 1.0);
 
-    // In dark mode, expand the quad to accommodate the glow halo
-    let isDark = camera.isDarkMode;
-    let quadScale = 1.0 + isDark * (DARK_QUAD_SCALE - 1.0);
-
     // Quad corner offset in pixels, then to clip space
     let quadCorner = QUAD_POS[vertexIndex];
     let pixelRadius = max(r * camera.zoom, 2.0); // minimum 2px
-    let offsetPx = quadCorner * pixelRadius * quadScale;
+    let offsetPx = quadCorner * pixelRadius;
 
     let clipX = worldPos.x + offsetPx.x * 2.0 / camera.canvasWidth;
     let clipY = worldPos.y + offsetPx.y * 2.0 / camera.canvasHeight;
 
     out.position = vec4(clipX, clipY, 0.0, 1.0);
-    // UV stays in [-1,1] relative to the *un-extended* quad so dist==1 is the circle edge.
-    // We scale UV back: in dark mode quadCorner maps to uv = quadCorner * quadScale.
-    out.uv = quadCorner * quadScale;
+    out.uv = quadCorner;
 
     // Unpack RGBA from u32 (ABGR packed)
     let packed = color[instanceIndex];
@@ -99,10 +87,6 @@ fn vs_main(
         f32((packed >> 24u) & 0xFFu) / 255.0,
     );
 
-    out.isDark = isDark;
-    // Charge-dependent glow: neutral=0.1, scales up to 1.0 at |charge|=5
-    out.glowIntensity = clamp(abs(p.charge) / 5.0, 0.1, 1.0);
-
     return out;
 }
 
@@ -110,25 +94,10 @@ fn vs_main(
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let dist = length(in.uv);
 
-    // Discard fully beyond glow range (slightly past DARK_QUAD_SCALE)
-    if (dist > DARK_QUAD_SCALE + 0.05) { discard; }
-
-    // Sharp circle edge (matches CPU ctx.arc fill)
-    let circleAlpha = select(0.0, 1.0, dist <= 1.0) * in.particleColor.a;
-
-    // Dark mode glow halo: exponential falloff beyond the circle edge.
-    // The halo only contributes outside the solid circle radius.
-    // glowDist = how far past the edge we are (0 at edge, 1 at DARK_QUAD_SCALE).
-    let glowRange = DARK_QUAD_SCALE - 1.0;
-    let glowDist = clamp((dist - 1.0) / glowRange, 0.0, 1.0);
-    // Charge-dependent glow: higher charge = slower decay = wider glow (matches CPU shadowBlur buckets)
-    let decayRate = 6.0 - 4.0 * in.glowIntensity;  // neutral: 5.6, high charge: 2.0
-    let glowAlpha = exp(-glowDist * decayRate) * (1.0 - glowDist) * in.particleColor.a * in.isDark * in.glowIntensity;
-
-    let totalAlpha = clamp(circleAlpha + glowAlpha * 0.55, 0.0, 1.0);
+    // Discard outside the circle
+    if (dist > 1.0) { discard; }
 
     // Premultiplied alpha output (required by alphaMode: 'premultiplied').
-    // In additive dark mode the blend is: src.rgb * 1 + dst.rgb * 1
-    // so we output premultiplied color and the pipeline blend handles the rest.
-    return vec4(in.particleColor.rgb * totalAlpha, totalAlpha);
+    let alpha = in.particleColor.a;
+    return vec4(in.particleColor.rgb * alpha, alpha);
 }
