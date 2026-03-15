@@ -73,6 +73,9 @@ fn main(
     var pRadiusSq: f32 = 0.0;
     var pBodyRadiusSq: f32 = 0.0;  // cbrt(mass)^2
 
+    // Pre-hoisted tidal locking constant: ri5 = mass^(5/3) = bodyRadiusSq^2 * bodyRadius
+    var pRi5: f32 = 0.0;
+
     if (alive) {
         let p = particles[idx];
         pPosX = p.posX;
@@ -90,8 +93,12 @@ fn main(
         let aym = axYukMod[idx];
         pAxMod = aym.x;
         pYukMod = aym.y;
-        // Body radius squared for tidal locking: cbrt(mass)^2
+        // Body radius for tidal locking: cbrt(mass)
         pBodyRadiusSq = pow(pMass, 2.0 / 3.0);
+        // Hoist ri5 out of inner loop: ri5 = bodyRadiusSq^2 * bodyRadius = mass^(5/3)
+        // Uses sqrt(bodyRadiusSq) = mass^(1/3) to avoid a second pow() transcendental
+        let pBodyRadius = sqrt(pBodyRadiusSq);
+        pRi5 = pBodyRadiusSq * pBodyRadiusSq * pBodyRadius;
     }
 
     // Read toggle bits
@@ -241,9 +248,9 @@ fn main(
                     if (coulOn && pMass > EPSILON) {
                         coupling += pCharge * s.charge / pMass;
                     }
-                    let ri5 = pBodyRadiusSq * pBodyRadiusSq * pow(pMass, 1.0 / 3.0);
+                    // ri5 = mass^(5/3), pre-hoisted above inner loop (was pow() per source particle)
                     let invR6 = invRSq * invRSq * invRSq;
-                    accTidal -= TIDAL_STRENGTH * coupling * coupling * ri5 * invR6 * dw;
+                    accTidal -= TIDAL_STRENGTH * coupling * coupling * pRi5 * invR6 * dw;
                 }
 
                 // -- Coulomb --

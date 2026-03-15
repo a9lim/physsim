@@ -38,19 +38,32 @@ const DEPOSIT_HIGGS_THERMAL: u32 = 2u;
 @compute @workgroup_size(256)
 fn scatterDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
-    if (pid >= uniforms.particleCount) { return; }
+    if (pid >= uniforms.particleCount) {
+        // Out-of-range: write sentinel so gather pass skips without reading particle buffer
+        if (pid < arrayLength(&scratchIndices) / 2u) {
+            scratchIndices[pid * 2u] = -9999;
+        }
+        return;
+    }
 
     // Check alive flag
     let p = particles[pid];
     let flag = p.flags;
-    if ((flag & 1u) == 0u) { return; }  // not alive
+    if ((flag & 1u) == 0u) {
+        // Dead particle: write sentinel to avoid gather reading particle buffer
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
 
     let px = p.posX;
     let py = p.posY;
 
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
-    if (cellW < EPSILON || cellH < EPSILON) { return; }
+    if (cellW < EPSILON || cellH < EPSILON) {
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
     let invCellW = 1.0 / cellW;
     let invCellH = 1.0 / cellH;
 
@@ -58,13 +71,14 @@ fn scatterDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pqs = pqsWeights(px, py, invCellW, invCellH);
 
     // Compute deposit value based on mode
-    // Mode is encoded in uniforms — we use a combined shader with branching
-    // The JS side dispatches with the appropriate mode uniform
     var value: f32 = 0.0;
 
     // Higgs source: g * baseMass
     let bm = p.baseMass;
-    if (bm < EPSILON) { return; }
+    if (bm < EPSILON) {
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
 
     // For Higgs source mode (default path — JS selects target grid)
     value = uniforms.higgsCoupling * bm;
@@ -88,18 +102,29 @@ fn scatterDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
 @compute @workgroup_size(256)
 fn scatterDepositAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
-    if (pid >= uniforms.particleCount) { return; }
+    if (pid >= uniforms.particleCount) {
+        if (pid < arrayLength(&scratchIndices) / 2u) {
+            scratchIndices[pid * 2u] = -9999;
+        }
+        return;
+    }
 
     let p = particles[pid];
     let flag = p.flags;
-    if ((flag & 1u) == 0u) { return; }
+    if ((flag & 1u) == 0u) {
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
 
     let px = p.posX;
     let py = p.posY;
 
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
-    if (cellW < EPSILON || cellH < EPSILON) { return; }
+    if (cellW < EPSILON || cellH < EPSILON) {
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
     let invCellW = 1.0 / cellW;
     let invCellH = 1.0 / cellH;
 
@@ -121,7 +146,10 @@ fn scatterDepositAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
             value += g * m * sign;
         }
     }
-    if (abs(value) < EPSILON) { return; }
+    if (abs(value) < EPSILON) {
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
 
     let base = pid * 2u;
     scratchIndices[base] = pqs.ix;
@@ -140,18 +168,29 @@ fn scatterDepositAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
 @compute @workgroup_size(256)
 fn scatterDepositThermal(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
-    if (pid >= uniforms.particleCount) { return; }
+    if (pid >= uniforms.particleCount) {
+        if (pid < arrayLength(&scratchIndices) / 2u) {
+            scratchIndices[pid * 2u] = -9999;
+        }
+        return;
+    }
 
     let p = particles[pid];
     let flag = p.flags;
-    if ((flag & 1u) == 0u) { return; }
+    if ((flag & 1u) == 0u) {
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
 
     let px = p.posX;
     let py = p.posY;
 
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
-    if (cellW < EPSILON || cellH < EPSILON) { return; }
+    if (cellW < EPSILON || cellH < EPSILON) {
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
     let invCellW = 1.0 / cellW;
     let invCellH = 1.0 / cellH;
 
@@ -165,10 +204,12 @@ fn scatterDepositThermal(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (uniforms.relativityEnabled != 0u) {
         ke = wSq / (sqrt(1.0 + wSq) + 1.0) * p.mass;
     } else {
-        // vel = w when relativity off
         ke = 0.5 * p.mass * wSq;
     }
-    if (ke < EPSILON) { return; }
+    if (ke < EPSILON) {
+        scratchIndices[pid * 2u] = -9999;
+        return;
+    }
 
     let base = pid * 2u;
     scratchIndices[base] = pqs.ix;
@@ -198,13 +239,13 @@ fn gatherDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
     let bcMode = uniforms.boundaryMode;
     let topoMode = uniforms.topologyMode;
 
-    // For each particle, check if this cell falls within its 4x4 stencil
+    // For each particle, check if this cell falls within its 4x4 stencil.
+    // Read sentinel from scratchIndices instead of loading full 36-byte ParticleState struct.
+    // Sentinel -9999 written by scatter pass for dead/skipped particles.
     for (var pid = 0u; pid < uniforms.particleCount; pid++) {
-        let flag = particles[pid].flags;
-        if ((flag & 1u) == 0u) { continue; }
-
         let base = pid * 2u;
         let ix = scratchIndices[base];
+        if (ix <= -9999) { continue; }  // sentinel: dead or skipped particle
         let iy = scratchIndices[base + 1u];
 
         // Stencil covers [ix-1..ix+2] x [iy-1..iy+2]

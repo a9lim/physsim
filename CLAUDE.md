@@ -83,9 +83,10 @@ src/
       pair-force.wgsl          O(N²) tiled pairwise force (gravity, Coulomb, dipoles, Yukawa, 1PN, jerk)
       external-fields.wgsl     Uniform background gravity/electric/magnetic
       save-f1pn.wgsl           Save 1PN forces to f1pnOld buffer before Boris (for velocity-Verlet)
-      boris-half-kick.wgsl     w += F/m · dt/2
-      boris-rotate.wgsl        Boris rotation in B+Bg+extBz plane
-      drift.wgsl               Drift: pos += vel·dt
+      boris-fused.wgsl         Fused halfKick + rotation + halfKick (single dispatch, 3→1 passes)
+      boris-half-kick.wgsl     w += F/m · dt/2 (legacy, kept as fallback)
+      boris-rotate.wgsl        Boris rotation in B+Bg+extBz plane (legacy, kept as fallback)
+      drift.wgsl               Drift: pos += vel·dt (Phase 1 legacy, unused)
       boris.wgsl               Combined drift + derive coordinate velocity
       spin-orbit.wgsl          Stern-Gerlach + Mathisson-Papapetrou + frame-drag
       apply-torques.wgsl       Angular acceleration from torque accumulator
@@ -468,7 +469,7 @@ Instanced rendering via vertex shaders. Reads directly from GPU compute buffers 
 3. resetForces → cacheDerived → pairForce (or treeForce) → externalFields
 4. Scalar field forces (Higgs gradient + mass mod, Axion gradient + axMod/yukMod) — BEFORE Boris
 5. saveF1pn (save 1PN forces for velocity-Verlet correction)
-6. Boris integrator: halfKick → rotate → halfKick → spinOrbit → applyTorques
+6. Boris integrator: **fused** halfKick+rotate+halfKick (single dispatch) → spinOrbit → applyTorques
 7. Radiation reaction (Larmor, Hawking, pion emission)
 8. borisDrift → expansion
 9. 1PN velocity-Verlet correction (recompute + correction kick using saved f1pnOld)
@@ -520,7 +521,7 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 
 **Division-by-zero prevention**: All `1/mass`, `1/r`, `1/gamma` paths use `select(0, 1/x, x > EPSILON)` or `max(x, EPSILON)` guards. Hawking radiation clamps evaporation to never reduce mass below `MIN_MASS`. Higgs mass modulation clamps `newMass >= MIN_MASS`.
 
-**NaN barriers**: `totalForce` and `jerk` accumulators are NaN-checked **before** writing to global memory (not after). Boris rotation, drift position, and angular velocity updates all have post-operation NaN guards. Adaptive substepping guards against NaN/Inf in acceleration readback.
+**NaN barriers**: `totalForce` and `jerk` accumulators are NaN-checked **before** writing to global memory (not after). Fused Boris integrator has a single consolidated NaN guard covering all three stages (halfKick+rotate+halfKick). Drift position updates have post-operation NaN guards. Adaptive substepping readback guards against NaN/Inf from corrupted GPU data (`val === val && val < 1e20`). `deathTime` sentinel uses `FLT_MAX` (3.4028235e38) instead of `Infinity` to avoid implementation-defined f32 infinity behavior.
 
 **sqrt/exp overflow guards**: `sqrt(max(x, 0))` on all quadratic discriminants and axMod/yukMod geometric means. `exp(-μr)` guarded with `select(0, exp(-μr), μr < 80)` to prevent overflow from corrupted distances. All Lorentz boost gammas use `1/sqrt(max(1-v², EPSILON))`.
 
@@ -528,7 +529,7 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 
 **Collision race conditions**: Merge resolve uses `mass <= EPSILON` guards (not `== 0`) to catch partially-consumed particles from concurrent threads. `totalMass` divisor guarded before momentum computation.
 
-**Render shaders**: All fragment outputs use premultiplied alpha (`color.rgb * alpha`) matching the pipeline's `alphaMode: 'premultiplied'` configuration.
+**Render shaders**: All fragment outputs use premultiplied alpha (`color.rgb * alpha`) matching the pipeline's `alphaMode: 'premultiplied'` configuration. All render pipelines (particles, bosons, spin rings, trails, force arrows, field overlays, heatmap) use `srcFactor: 'one'` (not `'src-alpha'`) for premultiplied-correct blending.
 
 ### WGSL Gotchas
 
@@ -587,7 +588,10 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 - **Jerk guard**: Analytical jerk for Larmor radiation gated behind `radiationEnabled` flag — skips computation when radiation off.
 - **Precomputed per-frame flags**: `_needAxMod`, conditional photon renorm flag computed once in `computeAllForces()` before pair loop.
 - **Quadtree iterative insert**: Stack-based iterative insert replaces recursion. Direct quadrant child selection via `_childFor()` eliminates linear scan.
-- **Pre-allocated GPU uniforms**: Module-level `ArrayBuffer`/`Float32Array`/`Uint32Array` for disintegration, pair production, heatmap, and color uniform writes — eliminates per-frame heap allocations in dispatch methods.
+- **Pre-allocated GPU uniforms**: Module-level `ArrayBuffer`/`Float32Array`/`Uint32Array` for disintegration, pair production, heatmap, color, camera, trail, arrow, field overlay, and heatmap overlay uniform writes — eliminates ALL per-frame heap allocations in both `GPUPhysics` dispatch methods and `GPURenderer` render methods. `deserialize()` and `reset()` also reuse pre-allocated buffers.
+- **Fused Boris integrator**: `boris-fused.wgsl` combines halfKick1 + borisRotate + halfKick2 into a single compute dispatch. Eliminates 2 barrier syncs + 4 redundant global memory loads/stores per particle per substep. Single consolidated NaN guard.
+- **Field deposit sentinel**: Scatter passes write `-9999` sentinel to `scratchIndices` for dead/skipped particles; gather pass checks the 4-byte sentinel instead of loading the full 36-byte `ParticleState` struct — eliminates N×GRID² unnecessary global memory reads.
+- **Hoisted tidal ri5**: `pair-force.wgsl` precomputes `ri5 = mass^(5/3)` once per observer using `sqrt(bodyRadiusSq)` before the O(N²) tile loop, replacing a per-source-particle `pow()` transcendental.
 - **Lazy field init**: Higgs/Axion fields are `null` until first toggle-on (`ensureHiggsField()`/`ensureAxionField()` in main.js). Avoids 64×64 grid allocation + per-frame update when fields unused.
 - **KaTeX render cache**: `ui.js` caches rendered KaTeX HTML by expression string, avoiding re-render on repeated info-tip opens.
 - **KaTeX CSS preload**: Non-render-blocking `<link rel="preload" as="style">` pattern with `onload` swap.

@@ -81,6 +81,8 @@ const _addParticleAuxU32 = new Uint32Array(_addParticleAuxData);
 const _addParticleColorData = new Uint32Array(1);
 const _addParticleModData = new Float32Array(2);
 const _addParticleRadData = new Float32Array(8);     // RADIATION_STATE_SIZE / 4
+const _zeroU32 = new Uint32Array([0]);                // reusable zero for counter resets
+const _retiredFlagU32 = new Uint32Array([2]);         // FLAG_RETIRED for removeParticle
 
 export default class GPUPhysics {
     /**
@@ -376,6 +378,10 @@ export default class GPUPhysics {
 
         // borisRotate (reads from particleState + allForces)
         this._bg_rotate = bg('rotate', p2.borisRotate.bindGroupLayouts[0],
+            [this.uniformBuffer, b.particleState, b.allForces]);
+
+        // borisFused (halfKick + rotate + halfKick in one pass)
+        this._bg_borisFused = bg('borisFused', p2.borisFused.bindGroupLayouts[0],
             [this.uniformBuffer, b.particleState, b.allForces]);
 
         // borisDrift (writes vel to derived, reads/writes particleState)
@@ -1209,7 +1215,7 @@ export default class GPUPhysics {
         // Write packed ParticleAux struct (20 bytes = 5 × f32/u32)
         _addParticleAuxF32[0] = Math.cbrt(m); // radius
         _addParticleAuxU32[1] = idx;          // particleId
-        _addParticleAuxF32[2] = Infinity;     // deathTime (not dead)
+        _addParticleAuxF32[2] = 3.4028235e38;     // deathTime (not dead)
         _addParticleAuxF32[3] = 0;            // deathMass
         _addParticleAuxF32[4] = 0;            // deathAngVel
         this.device.queue.writeBuffer(this.buffers.particleAux, idx * PARTICLE_AUX_SIZE, _addParticleAuxData);
@@ -1239,8 +1245,7 @@ export default class GPUPhysics {
         if (idx < 0 || idx >= this.aliveCount) return;
         // Clear ALIVE bit, set RETIRED bit in flags (byte offset 8 in ParticleState = 32 bytes in)
         // ParticleState: posX(0), posY(4), velWX(8), velWY(12), mass(16), charge(20), angW(24), baseMass(28), flags(32)
-        const flagData = new Uint32Array([FLAG_RETIRED]); // ALIVE cleared, RETIRED set
-        this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE + 32, flagData);
+        this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE + 32, _retiredFlagU32);
     }
 
     /**
@@ -2599,26 +2604,13 @@ export default class GPUPhysics {
             passSave.end();
         }
 
-        // Pass 6: borisHalfKick (first)
-        const pass6 = encoder.beginComputePass({ label: 'halfKick1' });
-        pass6.setPipeline(p2.borisHalfKick.pipeline);
-        pass6.setBindGroup(0, this._bg_halfKick);
-        pass6.dispatchWorkgroups(workgroups);
-        pass6.end();
-
-        // Pass 7: borisRotation
-        const pass7 = encoder.beginComputePass({ label: 'borisRotate' });
-        pass7.setPipeline(p2.borisRotate.pipeline);
-        pass7.setBindGroup(0, this._bg_rotate);
-        pass7.dispatchWorkgroups(workgroups);
-        pass7.end();
-
-        // Pass 8: borisHalfKick (second — reuse same pipeline + bind group)
-        const pass8 = encoder.beginComputePass({ label: 'halfKick2' });
-        pass8.setPipeline(p2.borisHalfKick.pipeline);
-        pass8.setBindGroup(0, this._bg_halfKick);
-        pass8.dispatchWorkgroups(workgroups);
-        pass8.end();
+        // Pass 6-8 fused: halfKick1 + borisRotate + halfKick2 in one dispatch.
+        // Eliminates 2 barrier syncs + 4 redundant global memory loads/stores per particle.
+        const passFused = encoder.beginComputePass({ label: 'borisFused' });
+        passFused.setPipeline(p2.borisFused.pipeline);
+        passFused.setBindGroup(0, this._bg_borisFused);
+        passFused.dispatchWorkgroups(workgroups);
+        passFused.end();
 
         // Pass 9: spinOrbit
         const pass9 = encoder.beginComputePass({ label: 'spinOrbit' });
@@ -2711,7 +2703,9 @@ export default class GPUPhysics {
         const data = new Float32Array(this.buffers.maxAccelStaging.getMappedRange().slice(0));
         this.buffers.maxAccelStaging.unmap();
 
-        this._maxAccel = data[0];
+        // NaN/Inf guard: corrupted GPU readback would break adaptive substepping
+        const val = data[0];
+        this._maxAccel = (val === val && val < 1e20) ? val : 0;
         this._maxAccelPending = false;
     }
 
@@ -2754,7 +2748,7 @@ export default class GPUPhysics {
                 }
 
                 // Reset GPU free stack (we've consumed all entries)
-                this.device.queue.writeBuffer(b.freeTop, 0, new Uint32Array([0]));
+                this.device.queue.writeBuffer(b.freeTop, 0, _zeroU32);
             }
         } catch (e) {
             // Device lost or other error — don't block future readbacks
@@ -2883,7 +2877,7 @@ export default class GPUPhysics {
 
         this.reset();
 
-        // Upload particles to GPU using packed structs
+        // Upload particles to GPU using packed structs (reuse pre-allocated buffers)
         for (const pd of state.particles) {
             const idx = this.aliveCount;
             if (idx >= MAX_PARTICLES) break;
@@ -2894,39 +2888,29 @@ export default class GPUPhysics {
             const angw = pd.angw || 0;
             const flagBits = FLAG_ALIVE | (pd.antimatter ? FLAG_ANTIMATTER : 0);
 
-            // Write packed ParticleState struct (36 bytes)
-            const stateData = new ArrayBuffer(PARTICLE_STATE_SIZE);
-            const sf = new Float32Array(stateData);
-            const su = new Uint32Array(stateData);
-            sf[0] = pd.x;    sf[1] = pd.y;
-            sf[2] = pd.wx || 0;  sf[3] = pd.wy || 0;
-            sf[4] = m;        sf[5] = q;
-            sf[6] = angw;     sf[7] = bm;
-            su[8] = flagBits;
-            this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE, stateData);
+            // Reuse pre-allocated addParticle buffers (zero-alloc per particle)
+            _addParticleStateF32[0] = pd.x;    _addParticleStateF32[1] = pd.y;
+            _addParticleStateF32[2] = pd.wx || 0;  _addParticleStateF32[3] = pd.wy || 0;
+            _addParticleStateF32[4] = m;        _addParticleStateF32[5] = q;
+            _addParticleStateF32[6] = angw;     _addParticleStateF32[7] = bm;
+            _addParticleStateU32[8] = flagBits;
+            this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE, _addParticleStateData);
 
-            // Write packed ParticleAux struct (20 bytes)
-            const auxData = new ArrayBuffer(PARTICLE_AUX_SIZE);
-            const af = new Float32Array(auxData);
-            const au = new Uint32Array(auxData);
-            af[0] = Math.cbrt(m); // radius
-            au[1] = idx;          // particleId
-            af[2] = Infinity;     // deathTime
-            af[3] = 0;            // deathMass
-            af[4] = 0;            // deathAngVel
-            this.device.queue.writeBuffer(this.buffers.particleAux, idx * PARTICLE_AUX_SIZE, auxData);
+            _addParticleAuxF32[0] = Math.cbrt(m);
+            _addParticleAuxU32[1] = idx;
+            _addParticleAuxF32[2] = 3.4028235e38;
+            _addParticleAuxF32[3] = 0;
+            _addParticleAuxF32[4] = 0;
+            this.device.queue.writeBuffer(this.buffers.particleAux, idx * PARTICLE_AUX_SIZE, _addParticleAuxData);
 
-            // Write color
-            const u32 = new Uint32Array([0xFF727E8A]);
-            this.device.queue.writeBuffer(this.buffers.color, idx * 4, u32);
+            _addParticleColorData[0] = 0xFF727E8A;
+            this.device.queue.writeBuffer(this.buffers.color, idx * 4, _addParticleColorData);
 
-            // Initialize axMod=1, yukMod=1 (no modulation)
-            const modData = new Float32Array([1.0, 1.0]);
-            this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 8, modData);
+            _addParticleModData[0] = 1.0; _addParticleModData[1] = 1.0;
+            this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 8, _addParticleModData);
 
-            // Initialize radiationState to zero
-            const radData = new Float32Array(RADIATION_STATE_SIZE / 4);
-            this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, radData);
+            _addParticleRadData.fill(0);
+            this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, _addParticleRadData);
 
             this.aliveCount++;
         }
@@ -2949,17 +2933,17 @@ export default class GPUPhysics {
         this._heatmapFrame = 0;
         this._pendingMergeEvents = [];
         this._cpuFreeSlots = [];
-        // Reset GPU free stack
+        // Reset GPU free stack (reuse pre-allocated zero buffer)
         if (this.buffers.freeTop) {
-            this.device.queue.writeBuffer(this.buffers.freeTop, 0, new Uint32Array([0]));
+            this.device.queue.writeBuffer(this.buffers.freeTop, 0, _zeroU32);
         }
         this.resetFields();
-        // Clear boson pools
+        // Clear boson pools (reuse pre-allocated zero buffer)
         if (this.buffers.phCount) {
-            this.device.queue.writeBuffer(this.buffers.phCount, 0, new Uint32Array([0]));
+            this.device.queue.writeBuffer(this.buffers.phCount, 0, _zeroU32);
         }
         if (this.buffers.piCount) {
-            this.device.queue.writeBuffer(this.buffers.piCount, 0, new Uint32Array([0]));
+            this.device.queue.writeBuffer(this.buffers.piCount, 0, _zeroU32);
         }
         // Clear trail ring buffers
         if (this._trailBuffers) {
