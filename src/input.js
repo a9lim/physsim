@@ -63,7 +63,7 @@ export default class InputHandler {
         return this.sim.camera.screenToWorld(sx, sy, new Vec2(0, 0));
     }
 
-    refreshCanvasRect() { this.canvasRect = this.canvas.getBoundingClientRect(); }
+    updateRect() { this.canvasRect = this.canvas.getBoundingClientRect(); }
 
     // ─── Touch events ───
 
