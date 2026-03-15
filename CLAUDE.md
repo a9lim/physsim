@@ -430,9 +430,9 @@ Topbar: Home | "No-Hair" | Pause/Step/Reset/Save/Load | Theme | Panel toggle.
 Two interchangeable backends selected at startup via `selectBackend()`. Backends conform to `PhysicsBackend`/`RenderBackend` interfaces defined in `backend-interface.js`.
 
 - **CPU**: `CPUPhysics` (wraps `Physics` from integrator.js) + `CanvasRenderer` (wraps `Renderer`). Thin adapters — all logic stays in integrator.js and renderer.js.
-- **GPU**: `GPUPhysics` (compute pipelines) + `GPURenderer` (instanced rendering). GPU overlays a separate `<canvas id="gpuCanvas">` with `alphaMode: 'premultiplied'`.
+- **GPU**: `GPUPhysics` (compute pipelines) + `GPURenderer` (instanced rendering). GPU renders to a separate `<canvas id="gpuCanvas">` with `alphaMode: 'premultiplied'`, positioned behind the CPU canvas (`z-index: -1`). The CPU canvas (`z-index: 0`) sits on top — transparent when GPU is active, used for 2D overlays like the drag indicator via `drawDragOverlay()`.
 
-Falls back to CPU on WebGPU unavailability or device loss (with auto-save recovery). Force CPU via `?cpu=1` URL parameter. Runtime GPU/CPU toggle in Engine tab (`#gpu-toggle`): disabled when WebGPU unavailable, auto-enabled and checked on successful GPU init, disabled on device loss. Toggling off switches to CPU (hides gpuCanvas), toggling on resyncs all particles to GPU via `reset()` + `addParticle()`.
+Falls back to CPU on WebGPU unavailability or device loss (with auto-save recovery). Force CPU via `?cpu=1` URL parameter. Runtime GPU/CPU toggle in Engine tab (`#gpu-toggle`): disabled when WebGPU unavailable, auto-enabled and checked on successful GPU init, disabled on device loss. Toggling off reads back GPU particle state via `serialize()` and rebuilds the CPU `sim.particles` array (bosons are cleared, stats baseline reset). Toggling on resyncs all particles to GPU via `reset()` + `addParticle()`.
 
 ## Renderer
 
@@ -546,7 +546,7 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 - `setToggles(physics)` packs CPU toggle booleans into `toggles0`/`toggles1` u32 bitfields. Called from `ui.js` `updateAllDeps()` on every toggle change AND from `_syncSlidersToGPU()` on every slider change. Heatmap state passed via `Object.create(sim.physics)` with `heatmapEnabled` added.
 - `_writeFieldUniforms(dt)` writes `FieldUniforms` struct to shared field uniform buffer (used by field forces pass). Must match `field-common.wgsl` `FieldUniforms` struct layout exactly. `_writePerFieldUniforms(dt, fieldType)` writes to per-field dedicated uniform buffers (`_higgsUniformBuffer`/`_axionUniformBuffer`) with `currentFieldType` baked in — eliminates encoder split when both Higgs and Axion are active.
 - Slider changes (yukawaMu, axionMass, higgsMass, external fields, bounceFriction, hubbleParam) sync to GPU via `_syncSlidersToGPU()` → `setToggles()` on every slider `input` event. Values are cached in `_yukawaMu`, `_higgsMass`, etc. and written to uniforms each substep.
-- `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load. `deserialize()` initializes `axYukMod` to (1,1), zeroes `radiationState`, and restores slider parameters (`higgsMass`, `axionMass`, `yukawaMu`, `hubbleParam`).
+- `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load and GPU→CPU toggle. `deserialize()` initializes `axYukMod` to (1,1), zeroes `radiationState`, and restores slider parameters (`higgsMass`, `axionMass`, `yukawaMu`, `hubbleParam`). `serialize()` also used by GPU toggle-off in `ui.js` to rebuild CPU `particles[]` array from GPU readback.
 - CPU-side `particles[]` array maintained in parallel for sidebar UI, presets, stats
 - `device.lost` handler falls back to CPU mode, restores from periodic auto-save
 

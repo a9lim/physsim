@@ -244,7 +244,7 @@ class Simulation {
                     gpuCanvas.id = 'gpuCanvas';
                     gpuCanvas.width = this.width;
                     gpuCanvas.height = this.height;
-                    gpuCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1;';
+                    gpuCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:-1;';
                     this.canvas.parentElement.appendChild(gpuCanvas);
 
                     this._gpuPhysics = new GPUPhysics(device, this.domainW, this.domainH);
@@ -751,6 +751,9 @@ class Simulation {
                 }
 
                 this._gpuRenderer.render(gpuPh.aliveCount, renderOpts);
+
+                // Draw drag indicator on CPU canvas (sits above GPU canvas)
+                this.renderer.drawDragOverlay(this.camera);
             } else {
                 // ─── CPU render path ───
                 // Throttle heatmap to every HEATMAP_INTERVAL frames (default 4 = ~15fps)

@@ -51,8 +51,6 @@ const _photonBuckets = Array.from({length: 16}, () => []);
 const _ERGO_DASH = [0.3, 0.3];
 const _ANTI_DASH = [0.5, 0.3];
 const _NO_DASH = [];
-const _DRAG_DASH = [5, 5];
-const _DRAG_DASH_AM = [3, 3];
 
 export default class Renderer {
     constructor(ctx, width, height) {
@@ -178,11 +176,32 @@ export default class Renderer {
                 ? (isLight ? 'rgba(136,136,136,0.6)' : 'rgba(204,204,204,0.7)')
                 : this._dragColor;
             ctx.lineWidth = 1 / (camera ? camera.zoom : 1);
-            ctx.setLineDash(this.input._rightButton ? _DRAG_DASH_AM : _DRAG_DASH);
             ctx.stroke();
-            ctx.setLineDash(_NO_DASH);
         }
 
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
+    /** Draw drag indicator on a cleared canvas (for GPU overlay). */
+    drawDragOverlay(camera) {
+        const ctx = this.ctx;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, this.width, this.height);
+        if (!this.input || !this.input.isDragging) return;
+        if (camera) {
+            const z = camera.zoom;
+            ctx.setTransform(z, 0, 0, z, this.width / 2 - camera.x * z, this.height / 2 - camera.y * z);
+        }
+        const start = this.input.dragStart;
+        const end = this.input.currentPos;
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.strokeStyle = this.input._rightButton
+            ? (this.isLight ? 'rgba(136,136,136,0.6)' : 'rgba(204,204,204,0.7)')
+            : this._dragColor;
+        ctx.lineWidth = 1 / (camera ? camera.zoom : 1);
+        ctx.stroke();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
