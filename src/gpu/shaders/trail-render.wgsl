@@ -1,11 +1,10 @@
-// trail-render.wgsl — Instanced line-strip rendering for particle trails.
+// trail-render.wgsl — Instanced triangle-strip rendering for particle trails.
 //
-// Each particle's trail is drawn as a series of line segments.
-// Vertex shader reads from the ring buffer, applies camera transform,
-// fades alpha by age. Fragment shader outputs the faded color.
+// Each particle's trail is drawn as a ribbon (triangle strip) with width
+// proportional to particle radius (0.5 * radius), matching CPU renderer.
 //
-// Draw call: drawIndirect with vertexCount = TRAIL_LEN, instanceCount = aliveCount.
-// Each instance = one particle's trail.
+// Draw call: drawIndirect with vertexCount = TRAIL_LEN * 2, instanceCount = aliveCount.
+// Each instance = one particle's trail. Each trail point → 2 vertices (left/right).
 
 struct CameraUniforms {
     viewMatrix: mat4x4<f32>,
@@ -32,6 +31,15 @@ struct ParticleState {
     flags: u32,
 };
 
+// Packed auxiliary struct (matches common.wgsl ParticleAux)
+struct ParticleAux {
+    radius: f32,
+    particleId: u32,
+    deathTime: f32,
+    deathMass: f32,
+    deathAngVel: f32,
+};
+
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var<uniform> trailParams: TrailUniforms;
 @group(0) @binding(2) var<storage, read> trailX: array<f32>;
@@ -40,6 +48,7 @@ struct ParticleState {
 @group(0) @binding(5) var<storage, read> trailCount: array<u32>;
 @group(0) @binding(6) var<storage, read> color: array<u32>;
 @group(0) @binding(7) var<storage, read> particles: array<ParticleState>;
+@group(0) @binding(8) var<storage, read> particleAux: array<ParticleAux>;
 
 // FLAG_ALIVE provided by generated wgslConstants block.
 
@@ -57,60 +66,101 @@ fn unpackRGBA(packed: u32) -> vec4f {
     return vec4f(r, g, b, a);
 }
 
+fn clipVert() -> VertexOutput {
+    var out: VertexOutput;
+    out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
+    out.alpha = 0.0;
+    out.color = vec4f(0.0);
+    return out;
+}
+
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertIdx: u32,
     @builtin(instance_index) instIdx: u32,
 ) -> VertexOutput {
-    var out: VertexOutput;
-
     // Skip dead particles
     let p = particles[instIdx];
-    if ((p.flags & FLAG_ALIVE) == 0u) {
-        out.pos = vec4f(0.0, 0.0, -2.0, 1.0);  // clip away
-        out.alpha = 0.0;
-        out.color = vec4f(0.0);
-        return out;
-    }
+    if ((p.flags & FLAG_ALIVE) == 0u) { return clipVert(); }
+
+    let pointIdx = vertIdx >> 1u;  // which trail point
+    let side = vertIdx & 1u;       // 0 = left, 1 = right
 
     let count = trailCount[instIdx];
-    if (vertIdx >= count) {
-        out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
-        out.alpha = 0.0;
-        out.color = vec4f(0.0);
-        return out;
-    }
+    if (pointIdx >= count || count < 2u) { return clipVert(); }
 
     let writeIdx = trailWriteIdx[instIdx];
     let trailLen = trailParams.trailLen;
     let base = instIdx * trailLen;
 
-    // Read from ring buffer: oldest first
-    let readIdx = (writeIdx + trailLen - count + vertIdx) % trailLen;
+    // Read current point from ring buffer (oldest first)
+    let readIdx = (writeIdx + trailLen - count + pointIdx) % trailLen;
     let wx = trailX[base + readIdx];
     let wy = trailY[base + readIdx];
 
-    // Wrap-break detection: if gap to previous point > half domain, hide this vertex
-    if (vertIdx > 0u) {
-        let prevReadIdx = (writeIdx + trailLen - count + vertIdx - 1u) % trailLen;
-        let prevX = trailX[base + prevReadIdx];
-        let prevY = trailY[base + prevReadIdx];
-        let dx = abs(wx - prevX);
-        let dy = abs(wy - prevY);
-        if (dx > trailParams.domainW * 0.5 || dy > trailParams.domainH * 0.5) {
-            out.pos = vec4f(0.0, 0.0, -2.0, 1.0);  // clip to break strip
-            out.alpha = 0.0;
-            out.color = vec4f(0.0);
-            return out;
-        }
+    // Read prev/next points for direction + wrap detection
+    let hasPrev = pointIdx > 0u;
+    let hasNext = pointIdx < count - 1u;
+    let halfW = trailParams.domainW * 0.5;
+    let halfH = trailParams.domainH * 0.5;
+
+    var prevX = wx; var prevY = wy;
+    var nextX = wx; var nextY = wy;
+    var wrapPrev = false;
+    var wrapNext = false;
+
+    if (hasPrev) {
+        let prevRI = (writeIdx + trailLen - count + pointIdx - 1u) % trailLen;
+        prevX = trailX[base + prevRI];
+        prevY = trailY[base + prevRI];
+        wrapPrev = abs(wx - prevX) > halfW || abs(wy - prevY) > halfH;
+    }
+    if (hasNext) {
+        let nextRI = (writeIdx + trailLen - count + pointIdx + 1u) % trailLen;
+        nextX = trailX[base + nextRI];
+        nextY = trailY[base + nextRI];
+        wrapNext = abs(nextX - wx) > halfW || abs(nextY - wy) > halfH;
     }
 
-    // Camera transform (world → clip)
-    let worldPos = vec4f(wx, wy, 0.0, 1.0);
-    out.pos = camera.viewMatrix * worldPos;
+    // Clip if any adjacent segment wraps (prevents cross-screen triangles)
+    if (wrapPrev || wrapNext) { return clipVert(); }
+
+    // Compute tangent direction (average of prev→curr and curr→next for smooth joins)
+    var dx: f32; var dy: f32;
+    if (hasPrev && hasNext) {
+        dx = nextX - prevX;
+        dy = nextY - prevY;
+    } else if (hasNext) {
+        dx = nextX - wx;
+        dy = nextY - wy;
+    } else {
+        dx = wx - prevX;
+        dy = wy - prevY;
+    }
+
+    // Perpendicular offset: halfWidth = 0.25 * radius (total width = 0.5 * radius)
+    let halfWidth = 0.25 * particleAux[instIdx].radius;
+    let len = sqrt(dx * dx + dy * dy);
+    var perpX: f32; var perpY: f32;
+    if (len > 0.0001) {
+        let invLen = halfWidth / len;
+        perpX = -dy * invLen;
+        perpY = dx * invLen;
+    } else {
+        perpX = halfWidth;
+        perpY = 0.0;
+    }
+
+    // Offset to left (-1) or right (+1) side
+    let s = select(-1.0, 1.0, side == 1u);
+    let finalX = wx + perpX * s;
+    let finalY = wy + perpY * s;
+
+    var out: VertexOutput;
+    out.pos = camera.viewMatrix * vec4f(finalX, finalY, 0.0, 1.0);
 
     // Alpha fades from 0 (oldest) to alphaMax (newest): 0.7 light / 0.9 dark
-    let age = f32(vertIdx) / f32(max(count - 1u, 1u));
+    let age = f32(pointIdx) / f32(max(count - 1u, 1u));
     let alphaMax = select(0.7, 0.9, camera.isDarkMode > 0.5);
     out.alpha = age * alphaMax;
 

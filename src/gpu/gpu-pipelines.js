@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 13;
+const SHADER_VERSION = 16;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename, prepend = '') {
@@ -1218,9 +1218,10 @@ export async function createUpdateColorsPipeline(device, wgslConstants = '') {
 }
 
 /**
- * Create spin ring render pipeline.
+ * Create spin ring render pipelines (arc line-strip + arrowhead triangle-list).
  * Standalone shader (defines own structs).
  * Bindings: camera (uniform), particleState (ro), particleAux (ro), derived (ro).
+ * Returns { arcPipeline, arrowPipeline, bindGroupLayout }.
  */
 export async function createSpinRenderPipeline(device, format, isLight, wgslConstants = '') {
     const code = await fetchShader('spin-render.wgsl', wgslConstants);
@@ -1247,18 +1248,33 @@ export async function createSpinRenderPipeline(device, format, isLight, wgslCons
             alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
         };
 
-    const pipeline = device.createRenderPipeline({
-        label: 'spinRender',
-        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+
+    // Arc pipeline (triangle-strip ribbon, ARC_SEGMENTS * 2 vertices per instance)
+    const arcPipeline = device.createRenderPipeline({
+        label: 'spinRender_arc',
+        layout: pipelineLayout,
         vertex: { module, entryPoint: 'vs_main' },
         fragment: {
             module, entryPoint: 'fs_main',
             targets: [{ format, blend: blendState }],
         },
-        primitive: { topology: 'line-strip' },
+        primitive: { topology: 'triangle-strip' },
     });
 
-    return { pipeline, bindGroupLayout };
+    // Arrowhead pipeline (triangle-list, 3 vertices per instance)
+    const arrowPipeline = device.createRenderPipeline({
+        label: 'spinRender_arrow',
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_arrow' },
+        fragment: {
+            module, entryPoint: 'fs_arrow',
+            targets: [{ format, blend: blendState }],
+        },
+        primitive: { topology: 'triangle-list' },
+    });
+
+    return { arcPipeline, arrowPipeline, bindGroupLayout };
 }
 
 /**
@@ -1291,9 +1307,9 @@ export async function createTrailRecordPipeline(device, wgslConstants = '') {
 }
 
 /**
- * Create trail render pipeline (line-strip per particle instance).
- * Standalone shader.
- * Bindings: camera (uniform), trailParams (uniform), trailX/Y (ro), trailWriteIdx/Count (ro), color (ro), particles (ro).
+ * Create trail render pipeline (triangle-strip ribbon per particle instance).
+ * Standalone shader. Width scales with particle radius (0.5 * radius), matching CPU.
+ * Bindings: camera (uniform), trailParams (uniform), trailX/Y (ro), trailWriteIdx/Count (ro), color (ro), particles (ro), particleAux (ro).
  */
 export async function createTrailRenderPipeline(device, format, isLight, wgslConstants = '') {
     const code = await fetchShader('trail-render.wgsl', wgslConstants);
@@ -1310,6 +1326,7 @@ export async function createTrailRenderPipeline(device, format, isLight, wgslCon
             { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
             { binding: 6, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
             { binding: 7, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 8, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, // particleAux (for radius)
         ],
     });
 
@@ -1332,7 +1349,7 @@ export async function createTrailRenderPipeline(device, format, isLight, wgslCon
             module, entryPoint: 'fs_main',
             targets: [{ format, blend: blendState }],
         },
-        primitive: { topology: 'line-strip' },
+        primitive: { topology: 'triangle-strip' },
     });
 
     return { pipeline, bindGroupLayout };
