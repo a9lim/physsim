@@ -38,6 +38,7 @@ struct SimUniforms {
 
 @group(0) @binding(0) var<uniform> u: SimUniforms;
 @group(0) @binding(1) var<storage, read_write> particles: array<ParticleState>;
+// Note: particles bound as read_write so we can clear FLAG_REBORN
 
 // History ring buffers
 @group(1) @binding(0) var<storage, read_write> histPosX: array<f32>;
@@ -56,6 +57,15 @@ fn recordHistory(@builtin(global_invocation_id) gid: vec3u) {
     if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
 
     let metaBase = i * 2u;
+
+    // Reborn particles (new particle in recycled slot after merge):
+    // clear stale history from the old particle and reset the flag
+    if ((particles[i].flags & FLAG_REBORN) != 0u) {
+        histMeta[metaBase] = 0u;
+        histMeta[metaBase + 1u] = 0u;
+        particles[i].flags &= ~FLAG_REBORN;
+    }
+
     var writeIdx = histMeta[metaBase];
     var count = histMeta[metaBase + 1u];
 

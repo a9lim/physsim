@@ -1017,11 +1017,42 @@ export default class Physics {
 
             // Step 6: Collisions (bounce uses force-based Hertz repulsion; only merge goes here)
             if (collisionMode === COL_MERGE) {
-                const { annihilations, merges, removed } = handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled, this.periodic, this.domainW, this.domainH, this._topologyConst);
+                const { annihilations, merges, removed, spawns } = handleCollisions(particles, this.pool, root, collisionMode, this.bounceFriction, this.relativityEnabled, this.periodic, this.domainW, this.domainH, this._topologyConst);
                 this._collisionCount += annihilations.length + merges.length;
-                n = particles.length;
                 // Retire removed particles for signal delay fade-out
                 for (let ri = 0; ri < removed.length; ri++) this._retireParticle(removed[ri]);
+                // Deselect removed particles
+                if (this.sim && this.sim.selectedParticle) {
+                    for (let ri = 0; ri < removed.length; ri++) {
+                        if (this.sim.selectedParticle === removed[ri]) {
+                            this.sim.selectedParticle = null;
+                            break;
+                        }
+                    }
+                }
+                // Spawn new particles from merges
+                if (spawns.length > 0 && this.sim) {
+                    for (let si = 0; si < spawns.length; si++) {
+                        const s = spawns[si];
+                        this.sim.addParticle(s.x, s.y, 0, 0, {
+                            mass: s.mass, baseMass: s.baseMass,
+                            charge: s.charge, antimatter: s.antimatter,
+                            skipBaseline: true,
+                        });
+                        // addParticle sets velocity via setVelocity (from vx,vy),
+                        // but we need to set proper velocity (w) directly
+                        const p = particles[particles.length - 1];
+                        p.w.set(s.wx, s.wy);
+                        p.angw = s.angw;
+                        p.angVel = this.relativityEnabled ? angwToAngVel(p.angw, p.radius) : p.angw;
+                        const wSq = s.wx * s.wx + s.wy * s.wy;
+                        const invG = this.relativityEnabled ? 1 / Math.sqrt(1 + wSq) : 1;
+                        p.vel.x = s.wx * invG;
+                        p.vel.y = s.wy * invG;
+                        if (this.periodic) wrapPosition(p, this._topologyConst, this.domainW, this.domainH);
+                    }
+                }
+                n = particles.length;
                 // Annihilation: emit photon burst from matter-antimatter collisions
                 if (annihilations.length > 0 && this.sim) {
                     for (let ai = 0; ai < annihilations.length; ai++) {

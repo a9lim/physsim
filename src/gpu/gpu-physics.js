@@ -2506,6 +2506,7 @@ export default class GPUPhysics {
             this._dispatchDeadGC(encoder);
 
             // Record signal delay history (once every HISTORY_STRIDE frames)
+            // Clears FLAG_REBORN after resetting stale history for recycled slots
             this._histStride++;
             if (this._relativityEnabled && this._histStride >= HISTORY_STRIDE) {
                 this._histStride = 0;
