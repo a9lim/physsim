@@ -776,20 +776,22 @@ class Simulation {
                 this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons, this.pions);
             }
 
-            // Sidebar plots + stats (shared across both backends)
-            const sidebarFrame = !(++this._sbFrame & SIDEBAR_THROTTLE_MASK);
-            if (sidebarFrame) {
-                this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
-                this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
-            }
-            if (sidebarFrame) {
-                this.phasePlot.draw(this.renderer.isLight);
-                this.effPotPlot.draw(this.renderer.isLight);
-            }
-            if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);
-            if (sidebarFrame) {
-                const sel = this.stats.updateSelected(this.selectedParticle, this.particles, this.physics);
-                if (!sel && this.selectedParticle) this.selectedParticle = null;
+            // Sidebar plots + stats (CPU-only — GPU renders directly from buffers)
+            if (!this._gpuReady || this.backend !== BACKEND_GPU) {
+                const sidebarFrame = !(++this._sbFrame & SIDEBAR_THROTTLE_MASK);
+                if (sidebarFrame) {
+                    this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
+                    this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
+                }
+                if (sidebarFrame) {
+                    this.phasePlot.draw(this.renderer.isLight);
+                    this.effPotPlot.draw(this.renderer.isLight);
+                }
+                if (this.running) this.stats.updateEnergy(this.particles, this.physics, this);
+                if (sidebarFrame) {
+                    const sel = this.stats.updateSelected(this.selectedParticle, this.particles, this.physics);
+                    if (!sel && this.selectedParticle) this.selectedParticle = null;
+                }
             }
         }
 
