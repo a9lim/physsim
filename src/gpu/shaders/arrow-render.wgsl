@@ -23,7 +23,7 @@ struct ArrowUniforms {
     colorB: f32,
     // Scale factor for arrow length
     arrowScale: f32,
-    // Minimum force magnitude to draw (skip tiny arrows)
+    // Minimum scaled arrow length to draw (skip tiny arrows)
     minMag: f32,
     _pad0: f32,
     _pad1: f32,
@@ -83,8 +83,8 @@ struct ParticleDerived_AR {
 
 // Constants (FLAG_ALIVE, VELOCITY_VECTOR_SCALE) provided by generated wgslConstants block.
 // Shaft/head sizes in world units — scale naturally with camera zoom.
-const SHAFT_HALF_W: f32 = 0.15;
-const HEAD_HALF_W: f32 = 0.35;
+const SHAFT_HALF_W: f32 = 0.125;  // matches CPU lineWidth 0.25 / 2
+const HEAD_HALF_W: f32 = 0.25;   // matches CPU headLen * 0.5
 const HEAD_LEN: f32 = 0.5;
 
 fn getForceVector(idx: u32, forceType: u32) -> vec2f {
@@ -121,7 +121,7 @@ fn vs_main(
     @builtin(instance_index) instIdx: u32,
 ) -> VertexOutput {
     var out: VertexOutput;
-    out.alpha = 0.8;
+    out.alpha = 1.0;
 
     let p = particles[instIdx];
     if ((p.flags & FLAG_ALIVE) == 0u) {
@@ -136,22 +136,26 @@ fn vs_main(
     let m = p.mass;
     let f = select(select(rawF, rawF / m, m > 1e-9), rawF, isVelocity);
     let mag = length(f);
-    if (mag < arrowParams.minMag) {
+    let scaledLen = mag * arrowParams.arrowScale;
+    // Threshold on scaled length (matching CPU: threshold & minLen on F/m * scale)
+    if (scaledLen < arrowParams.minMag) {
         out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
         return out;
     }
 
     let dir = f / mag;
     let perp = vec2f(-dir.y, dir.x);
-    let scaledLen = mag * arrowParams.arrowScale;
     let r = particleAux[instIdx].radius;
 
     // Arrow starts at particle center
     let base = vec2f(p.posX, p.posY);
     let tip = base + dir * scaledLen;
-    let headBase = tip - dir * HEAD_LEN;
+    // Only draw arrowhead if arrow is long enough (matches CPU hasHead = mag >= 0.5)
+    let hasHead = scaledLen >= 0.5;
+    let headBase = select(tip, tip - dir * HEAD_LEN, hasHead);
 
     // 9 vertices (triangle-list): shaft quad (2 tris) + head (1 tri)
+    // When hasHead is false, head triangle collapses to a degenerate point at tip
     var localPos: vec2f;
     switch (vertIdx) {
         // Shaft triangle 1: bottom-left, bottom-right, top-left
@@ -162,9 +166,9 @@ fn vs_main(
         case 3u: { localPos = headBase - perp * SHAFT_HALF_W; }
         case 4u: { localPos = base + perp * SHAFT_HALF_W; }
         case 5u: { localPos = headBase + perp * SHAFT_HALF_W; }
-        // Head triangle: left, right, tip
-        case 6u: { localPos = headBase - perp * HEAD_HALF_W; }
-        case 7u: { localPos = headBase + perp * HEAD_HALF_W; }
+        // Head triangle: left, right, tip — collapses when !hasHead
+        case 6u: { localPos = select(tip, headBase - perp * HEAD_HALF_W, hasHead); }
+        case 7u: { localPos = select(tip, headBase + perp * HEAD_HALF_W, hasHead); }
         case 8u: { localPos = tip; }
         default: { localPos = vec2f(0.0); }
     }

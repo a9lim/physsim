@@ -52,6 +52,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var kickY: f32 = 0.0;
     var scX: f32 = 0.0;  // spin-curvature display force
     var scY: f32 = 0.0;
+    var soTorque: f32 = 0.0;  // spin-orbit energy coupling torque (for display)
 
     // Clamp angMom denominator to avoid division-by-zero in energy transfer terms.
     // Translational kicks (Stern-Gerlach, Mathisson-Papapetrou) still apply when angMom is small.
@@ -60,7 +61,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (hasMag && abs(q) > EPSILON) {
         // Energy transfer: angw -= mu * (v . grad(Bz)) * dt / (I*omega)
-        newAngW -= mu * (vx * dBzdx + vy * dBzdy) * uniforms.dt / safeAngMom;
+        let sgCoupling = mu * (vx * dBzdx + vy * dBzdy);
+        newAngW -= sgCoupling * uniforms.dt / safeAngMom;
+        soTorque -= sgCoupling;  // record for display (matches CPU torqueSpinOrbit)
         // Stern-Gerlach translational kick
         let sgX = mu * dBzdx * dtOverM;
         let sgY = mu * dBzdy * dtOverM;
@@ -72,7 +75,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (hasGM) {
         // Energy transfer: angw -= L * (v . grad(Bgz)) * dt / (I*omega)
-        newAngW -= L * (vx * dBgzdx + vy * dBgzdy) * uniforms.dt / safeAngMom;
+        let mpCoupling = L * (vx * dBgzdx + vy * dBgzdy);
+        newAngW -= mpCoupling * uniforms.dt / safeAngMom;
+        soTorque -= mpCoupling;  // record for display (matches CPU torqueSpinOrbit)
         // Mathisson-Papapetrou translational kick (GEM sign flip)
         let mpX = -L * dBgzdx * dtOverM;
         let mpY = -L * dBgzdy * dtOverM;
@@ -101,8 +106,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     particles[idx].velWY = particles[idx].velWY + kickY;
 
     // Store spin-curvature display force in allForces.f2.zw
+    // Store spin-orbit energy coupling torque in allForces.torques.x
     var afOut = allForces[idx];
     afOut.f2.z = scX;
     afOut.f2.w = scY;
+    afOut.torques.x = soTorque;
     allForces[idx] = afOut;
 }

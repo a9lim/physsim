@@ -119,6 +119,7 @@ src/
       particle.wgsl            Instanced particle circles
       boson-render.wgsl        Photon/pion point rendering
       spin-render.wgsl         Angular velocity ring indicators
+      torque-render.wgsl       Torque arc indicators (4 types + total)
       trail-render.wgsl        Position history trail lines
       arrow-render.wgsl        Force vector arrows
       update-colors.wgsl       Particle charge→color mapping
@@ -563,7 +564,8 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 4. **Heatmap overlay**: Fullscreen triangle, gravity/electric/Yukawa potential channels. Lazy pipeline init via `initHeatmapOverlay()`.
 5. **Bosons**: Instanced quad rendering for photons (yellow/red) and pions (green). Sharp circle edge with exponential dark-mode glow halo (`BOSON_GLOW_INTENSITY=0.5`, `BOSON_GLOW_DECAY=4.0`). Separate photon and pion pipelines.
 6. **Spin rings**: Two pipelines per theme: triangle-strip arc ribbon (64 vertices, width 0.2 world units matching CPU `lineWidth`) + triangle-list arrowheads (3 vertices). Same bind group for both. CW/CCW colors from `_PALETTE.spinPos`/`_PALETTE.spinNeg`.
-7. **Force arrows**: Instanced arrow geometry, 11 force types with distinct colors.
+7. **Force arrows**: Instanced arrow geometry (9 vertices: shaft quad + head triangle), 11 force types with distinct colors. Shaft half-width 0.125, head half-width 0.25, head length 0.5 (matching CPU). Fully opaque (alpha 1.0). Threshold on scaled length (`0.5 * invZoom`), graceful degradation (shaft-only for short arrows, arrowhead collapses). One submit per force type with separate uniform writeBuffer.
+8. **Torque arcs**: Two pipelines per theme: triangle-strip arc ribbon (32 segments, width 0.25 matching CPU `lineWidth`) + triangle-list arrowheads (3 vertices). 4 component types (spinOrbit/frameDrag/tidal/contact at offsets 2.5/2.0/1.5/1.0) + total torque (offset 3.0). Reads torques from `AllForces.torques` vec4. Colors match CPU: purple/rose/red/brown. One submit per torque type.
 
 ## Key Patterns
 

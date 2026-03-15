@@ -266,9 +266,9 @@ export async function createTreeForcePipeline(device, wgslConstants = '') {
  * Create collision detection/resolution pipelines (Phase 3).
  * Bind groups:
  *   Group 0: nodes (ro) + uniforms = 2
- *   Group 1: particleState (rw) + particleAux (rw) + ghostOriginalIdx (ro) = 3
+ *   Group 1: particleState (rw) + particleAux (rw) + ghostOriginalIdx (ro) + allForces (rw) = 4
  *   Group 2: collisionPairs + pairCounter + mergeResults + mergeCounter = 4
- *   Total: 8 storage buffers per stage
+ *   Total: 9 storage buffers per stage
  */
 export async function createCollisionPipelines(device, wgslConstants = '') {
     const code = await fetchShader('collision.wgsl', wgslConstants);
@@ -282,13 +282,14 @@ export async function createCollisionPipelines(device, wgslConstants = '') {
         ],
     });
 
-    // Group 1: packed particle structs (rw for resolve + encoder compat)
+    // Group 1: packed particle structs + allForces (rw for resolve + encoder compat)
     const group1Layout = device.createBindGroupLayout({
         label: 'collision_group1',
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // particleState
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // particleAux
             { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // ghostOriginalIdx (rw for encoder compat)
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // allForces (contact torque display)
         ],
     });
 
@@ -1500,6 +1501,64 @@ export async function createArrowRenderPipeline(device, format, isLight, wgslCon
     });
 
     return { pipeline, bindGroupLayout };
+}
+
+/**
+ * Create torque arc render pipelines (arc triangle-strip + arrowhead triangle-list).
+ * Standalone shader (defines own structs).
+ * Bindings: camera (uniform), torqueParams (uniform), particleState (ro), particleAux (ro), allForces (ro).
+ * Returns { arcPipeline, arrowPipeline, bindGroupLayout }.
+ */
+export async function createTorqueRenderPipeline(device, format, isLight, wgslConstants = '') {
+    const code = await fetchShader('torque-render.wgsl', wgslConstants);
+    const module = device.createShaderModule({ label: 'torqueRender', code });
+
+    const bindGroupLayout = device.createBindGroupLayout({
+        label: 'torqueRender_g0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+            { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+        ],
+    });
+
+    const blendState = isLight
+        ? {
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        }
+        : {
+            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+        };
+
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+
+    const arcPipeline = device.createRenderPipeline({
+        label: 'torqueRender_arc',
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main' },
+        fragment: {
+            module, entryPoint: 'fs_main',
+            targets: [{ format, blend: blendState }],
+        },
+        primitive: { topology: 'triangle-strip' },
+    });
+
+    const arrowPipeline = device.createRenderPipeline({
+        label: 'torqueRender_arrow',
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_arrow' },
+        fragment: {
+            module, entryPoint: 'fs_arrow',
+            targets: [{ format, blend: blendState }],
+        },
+        primitive: { topology: 'triangle-list' },
+    });
+
+    return { arcPipeline, arrowPipeline, bindGroupLayout };
 }
 
 /**

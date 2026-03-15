@@ -556,6 +556,12 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     radState[i] = rs;
+
+    // Update allForces.f3.xy with final display force (Larmor + quadrupole combined)
+    var afRad = allForces[i];
+    afRad.f3.x = rs.radDisplayX;
+    afRad.f3.y = rs.radDisplayY;
+    allForces[i] = afRad;
 }
 
 // ── Quadrupole rejection sampling ──

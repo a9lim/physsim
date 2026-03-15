@@ -8,7 +8,7 @@
  * dark mode uses additive blending ('lighter' equivalent, matching CPU Canvas 2D).
  * On theme change setTheme() swaps _pipeline / _photonPipeline / _pionPipeline.
  */
-import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
+import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTorqueRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
 import { TRAIL_LEN } from './gpu-buffers.js';
 import { buildWGSLConstants, paletteRGB } from './gpu-constants.js';
 import { HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA, MAX_PHOTONS, MAX_PIONS } from '../config.js';
@@ -22,6 +22,9 @@ const _trailF32 = new Float32Array(_trailData);
 const _arrowData = new ArrayBuffer(32);
 const _arrowU32 = new Uint32Array(_arrowData);
 const _arrowF32 = new Float32Array(_arrowData);
+const _torqueData = new ArrayBuffer(32);
+const _torqueU32 = new Uint32Array(_torqueData);
+const _torqueF32 = new Float32Array(_torqueData);
 const _fieldRenderData = new ArrayBuffer(128);
 const _fieldRenderF32 = new Float32Array(_fieldRenderData);
 const _fieldRenderU32 = new Uint32Array(_fieldRenderData);
@@ -129,6 +132,13 @@ export default class GPURenderer {
         this._spinBindGroup = null;
         this._spinReady = false;
 
+        // Torque arc rendering (arc + arrowhead pipelines)
+        this._torqueArcPipeline = null;
+        this._torqueArrowPipeline = null;
+        this._torqueBindGroup = null;
+        this._torqueUniformBuffer = null;
+        this._torqueReady = false;
+
         // Trail rendering
         this._trailPipeline = null;
         this._trailBindGroup = null;
@@ -218,6 +228,9 @@ export default class GPURenderer {
 
         // --- Spin ring render pipeline ---
         await this._initSpinRendering();
+
+        // --- Torque arc render pipeline ---
+        await this._initTorqueRendering();
     }
 
     /** Create boson (photon + pion) render pipelines — both light and dark variants. */
@@ -354,6 +367,40 @@ export default class GPURenderer {
             this._spinReady = true;
         } catch (e) {
             console.warn('[physsim] Spin render pipeline creation failed, skipping:', e.message);
+        }
+    }
+
+    /** Create torque arc render pipelines (arc ribbon + arrowhead triangles). */
+    async _initTorqueRendering() {
+        try {
+            const { arcPipeline, arrowPipeline, bindGroupLayout } =
+                await createTorqueRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
+            this._torqueArcPipeline = arcPipeline;
+            this._torqueArrowPipeline = arrowPipeline;
+
+            if (!this._torqueUniformBuffer) {
+                this._torqueUniformBuffer = this.device.createBuffer({
+                    label: 'torqueUniforms',
+                    size: 32,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+            }
+
+            const b = this.buffers;
+            this._torqueBindGroup = this.device.createBindGroup({
+                label: 'torqueRender',
+                layout: bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: this.cameraBuffer } },
+                    { binding: 1, resource: { buffer: this._torqueUniformBuffer } },
+                    { binding: 2, resource: { buffer: b.particleState } },
+                    { binding: 3, resource: { buffer: b.particleAux } },
+                    { binding: 4, resource: { buffer: b.allForces } },
+                ],
+            });
+            this._torqueReady = true;
+        } catch (e) {
+            console.warn('[physsim] Torque render pipeline creation failed, skipping:', e.message);
         }
     }
 
@@ -613,7 +660,8 @@ export default class GPURenderer {
                 const zoom = this.zoom || 16;
                 const invZoom = 1 / zoom;
                 const arrowScale = 256.0;
-                const minMag = 0.1 * invZoom;
+                // Threshold on scaled length (F/m * arrowScale), matching CPU minLen
+                const minMag = 0.5 * invZoom;
 
                 if (this.showForceComponents) {
                     const forceTypes = [];
@@ -639,11 +687,44 @@ export default class GPURenderer {
 
                 if (this.showVelocity) {
                     const textColor = this.isLight ? _textLight : _textDark;
-                    this._submitArrowDraw(textureView, aliveCount, 12, textColor, 1.0, minMag, invZoom);
+                    // Velocity uses minMag = 1 * invZoom (matching CPU), not force threshold
+                    this._submitArrowDraw(textureView, aliveCount, 12, textColor, 1.0, 1.0 * invZoom, invZoom);
                 }
             } catch (e) {
                 console.warn('[physsim] Arrow render failed, disabling:', e.message);
                 this._arrowReady = false;
+            }
+        }
+
+        // Pass 5: Torque arcs — one arc + arrowhead submit per torque type.
+        const wantsTorques = this._torqueReady && aliveCount > 0 &&
+            (this.showForce || this.showForceComponents);
+        if (wantsTorques) {
+            try {
+                const torqueScale = 640.0; // FORCE_VECTOR_SCALE / INERTIA_K = 256 / 0.4
+                if (this.showForceComponents) {
+                    const enabledForces = opts.enabledForces || {};
+                    // spinOrbit torque: type 0, purple
+                    if (enabledForces.spinOrbit) {
+                        this._submitTorqueDraw(textureView, aliveCount, 0, GPURenderer.TORQUE_COLORS[0], torqueScale);
+                    }
+                    // frameDrag torque: type 1, rose (requires gravitomag)
+                    if (enabledForces.gravitomag) {
+                        this._submitTorqueDraw(textureView, aliveCount, 1, GPURenderer.TORQUE_COLORS[1], torqueScale);
+                    }
+                    // tidal torque: type 2, red (requires gravity)
+                    if (enabledForces.gravity) {
+                        this._submitTorqueDraw(textureView, aliveCount, 2, GPURenderer.TORQUE_COLORS[2], torqueScale);
+                    }
+                    // contact torque: type 3, brown (always active with bounce)
+                    this._submitTorqueDraw(textureView, aliveCount, 3, GPURenderer.TORQUE_COLORS[3], torqueScale);
+                } else if (this.showForce) {
+                    const accentColor = this.isLight ? _accentLight : _accentDark;
+                    this._submitTorqueDraw(textureView, aliveCount, 11, accentColor, torqueScale);
+                }
+            } catch (e) {
+                console.warn('[physsim] Torque render failed, disabling:', e.message);
+                this._torqueReady = false;
             }
         }
     }
@@ -702,6 +783,71 @@ export default class GPURenderer {
         pass.draw(9, aliveCount);
         pass.end();
         this.device.queue.submit([enc.finish()]);
+    }
+
+    /**
+     * Torque type colors matching CPU renderer.
+     * 0: spinOrbit (purple), 1: frameDrag (rose), 2: tidal (red), 3: contact (brown).
+     */
+    static TORQUE_COLORS = (() => {
+        const ext = window._PALETTE.extended;
+        const rgb = paletteRGB;
+        return [
+            rgb(ext.purple),    // 0: spinOrbit
+            rgb(ext.rose),      // 1: frameDrag
+            rgb(ext.red),       // 2: tidal
+            rgb(ext.brown),     // 3: contact
+        ];
+    })();
+
+    /**
+     * Submit a single torque arc + arrowhead draw.
+     * Each torque type needs its own submit for correct uniforms.
+     */
+    _submitTorqueDraw(textureView, aliveCount, torqueType, color, torqueScale) {
+        if (!this._torqueReady || aliveCount <= 0) return;
+
+        _torqueU32[0] = torqueType;
+        _torqueF32[1] = color[0];
+        _torqueF32[2] = color[1];
+        _torqueF32[3] = color[2];
+        _torqueF32[4] = torqueScale;
+        _torqueF32[5] = 0;
+        _torqueF32[6] = 0;
+        _torqueF32[7] = 0;
+        this.device.queue.writeBuffer(this._torqueUniformBuffer, 0, _torqueData);
+
+        // Arc ribbon
+        const enc1 = this.device.createCommandEncoder({ label: `torque-arc-${torqueType}` });
+        const pass1 = enc1.beginRenderPass({
+            label: `torque arc ${torqueType}`,
+            colorAttachments: [{
+                view: textureView,
+                loadOp: 'load',
+                storeOp: 'store',
+            }],
+        });
+        pass1.setPipeline(this._torqueArcPipeline);
+        pass1.setBindGroup(0, this._torqueBindGroup);
+        pass1.draw(64, aliveCount);  // ARC_SEGMENTS * 2 = 64 vertices
+        pass1.end();
+        this.device.queue.submit([enc1.finish()]);
+
+        // Arrowhead triangles
+        const enc2 = this.device.createCommandEncoder({ label: `torque-arrow-${torqueType}` });
+        const pass2 = enc2.beginRenderPass({
+            label: `torque arrow ${torqueType}`,
+            colorAttachments: [{
+                view: textureView,
+                loadOp: 'load',
+                storeOp: 'store',
+            }],
+        });
+        pass2.setPipeline(this._torqueArrowPipeline);
+        pass2.setBindGroup(0, this._torqueBindGroup);
+        pass2.draw(3, aliveCount);
+        pass2.end();
+        this.device.queue.submit([enc2.finish()]);
     }
 
     /** Initialize field overlay render pipeline. Call after GPUPhysics has field buffers. */
@@ -886,6 +1032,12 @@ export default class GPURenderer {
         if (this._arrowReady) {
             this._arrowReady = false;
             this._initArrowRendering();
+        }
+
+        // Rebuild torque pipeline (blend mode depends on theme).
+        if (this._torqueReady) {
+            this._torqueReady = false;
+            this._initTorqueRendering();
         }
     }
 

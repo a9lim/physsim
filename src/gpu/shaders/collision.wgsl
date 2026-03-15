@@ -90,6 +90,21 @@ struct ParticleAux {
     deathAngVel: f32,
 };
 
+// Packed AllForces struct (mirrors common.wgsl, only torques.w used here)
+struct AllForces_Col {
+    f0: vec4<f32>,
+    f1: vec4<f32>,
+    f2: vec4<f32>,
+    f3: vec4<f32>,
+    f4: vec4<f32>,
+    f5: vec4<f32>,
+    torques: vec4<f32>,
+    bFields: vec4<f32>,
+    bFieldGrads: vec4<f32>,
+    totalForce: vec2<f32>,
+    _pad: vec2<f32>,
+};
+
 struct SimUniforms {
     dt: f32,
     simTime: f32,
@@ -147,6 +162,9 @@ fn getParticleIndex(idx: u32) -> i32 { return bitcast<i32>(nodes[nodeOffset(idx)
 @group(1) @binding(0) var<storage, read_write> particleState: array<ParticleState>;
 @group(1) @binding(1) var<storage, read_write> particleAux: array<ParticleAux>;
 @group(1) @binding(2) var<storage, read_write> ghostOriginalIdx: array<u32>;
+
+// Group 1 continued: force accumulators (for contact torque display)
+@group(1) @binding(3) var<storage, read_write> allForces: array<AllForces_Col>;
 
 // Group 2: collision pairs + counters + merge results
 @group(2) @binding(0) var<storage, read_write> collisionPairs: array<u32>;
@@ -623,6 +641,13 @@ fn resolveBouncePairwise(@builtin(global_invocation_id) gid: vec3<u32>) {
         let I2 = INERTIA_K * ps2.mass * r2 * r2;
         if (I1 > EPSILON) { ps1.angW += r1 * Ft * dt / I1; }
         if (I2 > EPSILON) { ps2.angW -= r2 * Ft * dt / I2; }
+        // Record contact torque for display (torques.w)
+        var af1 = allForces[idx1];
+        af1.torques.w += r1 * Ft;
+        allForces[idx1] = af1;
+        var af2 = allForces[idx2];
+        af2.torques.w -= r2 * Ft;
+        allForces[idx2] = af2;
     }
 
     particleState[idx1] = ps1;

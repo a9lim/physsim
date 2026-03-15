@@ -253,6 +253,11 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
     // Store display force (reuse rs from backward-diff section, already loaded + modified)
     rs.radDisplayX = fRadX;
     rs.radDisplayY = fRadY;
+    // Copy to allForces.f3.xy for arrow rendering
+    var afRad = allForces[i];
+    afRad.f3.x = fRadX;
+    afRad.f3.y = fRadY;
+    allForces[i] = afRad;
 
     // Compute energy lost
     let wx2 = particles[i].velWX; let wy2 = particles[i].velWY;

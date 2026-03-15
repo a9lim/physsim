@@ -579,7 +579,7 @@ export default class GPUPhysics {
             ],
         });
 
-        // Group 1: packed particle structs + ghost mapping
+        // Group 1: packed particle structs + ghost mapping + allForces (contact torque)
         this._collisionBG1 = this.device.createBindGroup({
             label: 'collision_g1',
             layout: layouts[1],
@@ -587,6 +587,7 @@ export default class GPUPhysics {
                 { binding: 0, resource: { buffer: b.particleState } },
                 { binding: 1, resource: { buffer: b.particleAux } },
                 { binding: 2, resource: { buffer: b.ghostOriginalIdx } },
+                { binding: 3, resource: { buffer: b.allForces } },
             ],
         });
 
