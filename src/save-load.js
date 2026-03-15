@@ -113,11 +113,41 @@ export function loadState(state, sim) {
     if (!state || state.version !== 1) return false;
 
     if (sim.backend === BACKEND_GPU && sim._gpuPhysics) {
+        // deserialize() calls reset() internally, then uploads particles to GPU
         const ok = sim._gpuPhysics.deserialize(state, sim);
         if (ok) {
-            // Also clear CPU-side state for consistency
-            sim.reset();
+            // Clear CPU-side state (GPU is authoritative)
+            sim.particles.length = 0;
+            sim.deadParticles.length = 0;
+            sim.clearBosons();
+            sim.selectedParticle = null;
+            sim.totalRadiated = 0;
+            sim.totalRadiatedPx = 0;
+            sim.totalRadiatedPy = 0;
+
+            // Restore toggles to CPU physics (for UI sync and slider state)
+            const ph = sim.physics;
+            if (state.toggles) {
+                for (const [key, val] of Object.entries(state.toggles)) {
+                    if (key in ph) ph[key] = val;
+                }
+            }
+            if (state.yukawaMu != null) ph.yukawaMu = state.yukawaMu;
+            if (state.axionMass != null) ph.axionMass = state.axionMass;
+            if (state.hubbleParam != null) ph.hubbleParam = state.hubbleParam;
+            if (state.settings && state.settings.friction != null) ph.bounceFriction = state.settings.friction;
+
             _restoreSettings(state, sim);
+
+            // Sync GPU toggles/modes from restored CPU physics state
+            const gpuToggles = Object.create(ph);
+            gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
+            sim._gpuPhysics.setToggles(gpuToggles);
+            sim._gpuPhysics.boundaryMode = sim.boundaryMode;
+            sim._gpuPhysics.topologyMode = sim.topology;
+            sim._gpuPhysics._collisionMode = sim.collisionMode;
+
+            sim.stats.resetBaseline();
             syncUI(sim);
         }
         return ok;
