@@ -295,26 +295,13 @@ export default class InputHandler {
     _cpuFindParticleAt(worldPos) {
         const physics = this.sim.physics;
         const root = physics._lastRoot;
-        if (root >= 0) {
-            // Tree-accelerated: query a small AABB around click point
-            const searchR = 4; // conservative max particle radius
-            const candidates = physics.pool.queryReuse(root, worldPos.x, worldPos.y, searchR, searchR);
-            let best = null;
-            let bestDist = Infinity;
-            for (let i = 0; i < candidates.length; i++) {
-                const p = candidates[i].isGhost ? candidates[i].original : candidates[i];
-                const d = p.pos.dist(worldPos);
-                if (d < p.radius && d < bestDist) {
-                    bestDist = d;
-                    best = p;
-                }
-            }
-            return best;
-        }
-        // Fallback O(N) scan (tree not yet built, e.g. first frame)
+        if (root < 0) return null;
+        const searchR = 4; // conservative max particle radius
+        const candidates = physics.pool.queryReuse(root, worldPos.x, worldPos.y, searchR, searchR);
         let best = null;
         let bestDist = Infinity;
-        for (const p of this.sim.particles) {
+        for (let i = 0; i < candidates.length; i++) {
+            const p = candidates[i].isGhost ? candidates[i].original : candidates[i];
             const d = p.pos.dist(worldPos);
             if (d < p.radius && d < bestDist) {
                 bestDist = d;
