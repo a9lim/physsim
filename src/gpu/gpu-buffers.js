@@ -151,22 +151,23 @@ export function createParticleBuffers(device, maxParticles) {
     // Packed into one buffer: [aliveCount: u32, freeTop: u32, freeStack: u32[maxParticles]]
     const poolMgmt = storageBuffer('poolMgmt', UINT_SIZE, maxParticles + 2);
 
-    // Stats readback buffer (small, double-buffered)
+    // Stats readback buffer (double-buffered: aggregates + selected particle data)
+    const STATS_BUFFER_SIZE = 256; // 64 f32: 16 aggregates + 48 selected particle
     const statsBuffer = device.createBuffer({
         label: 'statsBuffer',
-        size: 64, // 16 floats
+        size: STATS_BUFFER_SIZE,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     const statsStagingA = device.createBuffer({
         label: 'statsStagingA',
-        size: 64,
+        size: STATS_BUFFER_SIZE,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
 
     const statsStagingB = device.createBuffer({
         label: 'statsStagingB',
-        size: 64,
+        size: STATS_BUFFER_SIZE,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
 

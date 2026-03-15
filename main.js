@@ -9,7 +9,7 @@ import PhasePlot from './src/phase-plot.js';
 import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS, HEATMAP_INTERVAL, SIDEBAR_THROTTLE_MASK } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS, HEATMAP_INTERVAL, STATS_THROTTLE_MASK, SIDEBAR_THROTTLE_MASK } from './src/config.js';
 import MasslessBoson from './src/massless-boson.js';
 import Pion from './src/pion.js';
 
@@ -147,6 +147,7 @@ class Simulation {
         this._loopScheduled = false; // prevent duplicate rAF chains
         this._hmFrame = 0; // heatmap throttle counter
         this._sbFrame = 0;
+        this._ttFrame = 0; // tooltip refresh throttle counter
         this._dirty = true; // render dirty flag — skip frames when nothing changed
 
         this.dom = {
@@ -670,6 +671,11 @@ class Simulation {
             this.input.pollGPUHitResult();
         }
 
+        // Refresh hover tooltip periodically (every 8th frame, matching stats rate)
+        if (this.running && !(++this._ttFrame & STATS_THROTTLE_MASK)) {
+            this.input.refreshTooltip();
+        }
+
         // Skip render entirely when nothing has changed (paused, no interaction)
         if (this._dirty) {
             this._dirty = false;
@@ -777,8 +783,24 @@ class Simulation {
                 this.renderer.render(this.particles, PHYSICS_DT, this.camera, this.photons, this.pions);
             }
 
-            // Sidebar plots + stats (CPU-only — GPU renders directly from buffers)
-            if (!this._gpuReady || this.backend !== BACKEND_GPU) {
+            // Sidebar plots + stats
+            if (this._gpuReady && this.backend === BACKEND_GPU) {
+                // GPU mode: request stats at throttle rate, read results each frame
+                if (this.running && !(this._sbFrame & STATS_THROTTLE_MASK)) {
+                    const selIdx = this.selectedParticle ? (this.selectedParticle._gpuIdx ?? -1) : -1;
+                    this._gpuPhysics.requestStats(selIdx);
+                }
+                this._sbFrame++;
+                const gpuStats = this._gpuPhysics.readStats();
+                if (gpuStats) {
+                    this.stats.updateEnergyGPU(gpuStats, this);
+                    if (gpuStats.selected) {
+                        this.stats.updateSelectedGPU(gpuStats.selected, this.physics);
+                    } else if (this.selectedParticle) {
+                        this.stats.updateSelectedGPU(null, this.physics);
+                    }
+                }
+            } else {
                 const sidebarFrame = !(++this._sbFrame & SIDEBAR_THROTTLE_MASK);
                 if (sidebarFrame) {
                     this.phasePlot.update(this.particles, this.selectedParticle, this.physics);

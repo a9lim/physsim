@@ -79,6 +79,112 @@ export default class StatsDisplay {
         _set(this.dom.angMomDrift, fmtDrift(aDrift));
     }
 
+    /**
+     * Update energy/momentum display from GPU readback data.
+     * PE, Darwin field energy, and scalar field energy are unavailable from GPU
+     * (require O(N²) pair computation or field state) — shown as "—".
+     */
+    updateEnergyGPU(gpuStats, sim) {
+        const angMom = gpuStats.orbitalAngMom + gpuStats.spinAngMom;
+        const pMag = Math.sqrt(gpuStats.px * gpuStats.px + gpuStats.py * gpuStats.py);
+        // KE-only total (PE/field energy not available from GPU reduction)
+        const keTotal = gpuStats.linearKE + gpuStats.spinKE + sim.totalRadiated;
+        const totalPx = gpuStats.px + sim.totalRadiatedPx;
+        const totalPy = gpuStats.py + sim.totalRadiatedPy;
+        const totalPMag = Math.sqrt(totalPx * totalPx + totalPy * totalPy);
+
+        if (this.initialEnergy === null && gpuStats.aliveCount > 0) {
+            this.initialEnergy = keTotal;
+            this.initialMomentum = totalPMag;
+            this.initialAngMom = angMom;
+        }
+
+        const eDrift = this.initialEnergy !== null && this.initialEnergy !== 0
+            ? ((keTotal - this.initialEnergy) / Math.abs(this.initialEnergy) * 100) : 0;
+        const pDrift = this.initialMomentum !== null && this.initialMomentum !== 0
+            ? ((totalPMag - this.initialMomentum) / Math.abs(this.initialMomentum) * 100) : 0;
+        const aDrift = this.initialAngMom !== null && this.initialAngMom !== 0
+            ? ((angMom - this.initialAngMom) / Math.abs(this.initialAngMom) * 100) : 0;
+
+        _set(this.dom.linearKE, fmt(gpuStats.linearKE));
+        _set(this.dom.spinKE, fmt(gpuStats.spinKE));
+        _set(this.dom.potentialE, '—');
+        _set(this.dom.totalE, '—');
+        _set(this.dom.energyDrift, '—');
+        _set(this.dom.fieldE, '—');
+        _set(this.dom.radiatedE, fmt(sim.totalRadiated));
+        _set(this.dom.momentum, fmt(totalPMag));
+        _set(this.dom.particleMom, fmt(pMag));
+        _set(this.dom.fieldMom, '—');
+        _set(this.dom.radiatedMom, fmt(Math.sqrt(sim.totalRadiatedPx * sim.totalRadiatedPx + sim.totalRadiatedPy * sim.totalRadiatedPy)));
+        _set(this.dom.momentumDrift, fmtDrift(pDrift));
+        _set(this.dom.angularMomentum, fmt(angMom));
+        _set(this.dom.orbitalAngMom, fmt(gpuStats.orbitalAngMom));
+        _set(this.dom.spinAngMom, fmt(gpuStats.spinAngMom));
+        _set(this.dom.angMomDrift, fmtDrift(aDrift));
+    }
+
+    /**
+     * Update selected particle display from GPU readback data.
+     * @param {Object} sel - GPU readback selected particle object, or null.
+     * @param {Object} physics - for relativityEnabled check.
+     * @returns {Object|null}
+     */
+    updateSelectedGPU(sel, physics) {
+        const dom = this.selDom;
+        if (!sel || sel.mass <= 0) {
+            dom.details.hidden = true;
+            dom.hint.hidden = false;
+            dom.phaseSection.hidden = true;
+            if (dom.effPotSection) dom.effPotSection.hidden = true;
+            return null;
+        }
+
+        dom.details.hidden = false;
+        dom.hint.hidden = true;
+        dom.phaseSection.hidden = true; // phase plot not available in GPU mode
+        if (dom.effPotSection) dom.effPotSection.hidden = true; // eff potential not available
+        const speed = Math.sqrt(sel.velX * sel.velX + sel.velY * sel.velY);
+        const wSq = sel.velWX * sel.velWX + sel.velWY * sel.velWY;
+        const gamma = physics.relativityEnabled ? Math.sqrt(1 + wSq) : 1;
+        const totalFx = sel.forceGravity.x + sel.forceCoulomb.x + sel.forceMagnetic.x + sel.forceGravitomag.x + sel.force1PN.x + sel.forceSpinCurv.x + sel.forceRadiation.x + sel.forceYukawa.x + sel.forceExternal.x + sel.forceHiggs.x + sel.forceAxion.x;
+        const totalFy = sel.forceGravity.y + sel.forceCoulomb.y + sel.forceMagnetic.y + sel.forceGravitomag.y + sel.force1PN.y + sel.forceSpinCurv.y + sel.forceRadiation.y + sel.forceYukawa.y + sel.forceExternal.y + sel.forceHiggs.y + sel.forceAxion.y;
+        const forceMag = Math.sqrt(totalFx * totalFx + totalFy * totalFy);
+
+        _set(dom.mass, fmtRaw(sel.mass) + (sel.antimatter ? ' (anti)' : ''));
+        _set(dom.charge, fmtRaw(sel.charge));
+        const surfaceV = sel.angVel * sel.radius;
+        _set(dom.spin, surfaceV.toFixed(4) + 'c');
+        _set(dom.speed, speed.toFixed(4) + 'c');
+        _set(dom.gamma, gamma.toFixed(3));
+        _set(dom.force, fmt(forceMag));
+
+        const forces = this._forceDescs;
+        forces[0].vec = sel.forceGravity;
+        forces[1].vec = sel.forceCoulomb;
+        forces[2].vec = sel.forceMagnetic;
+        forces[3].vec = sel.forceGravitomag;
+        forces[4].vec = sel.force1PN;
+        forces[5].vec = sel.forceSpinCurv;
+        forces[6].vec = sel.forceRadiation;
+        forces[7].vec = sel.forceYukawa;
+        forces[8].vec = sel.forceExternal;
+        forces[9].vec = sel.forceHiggs;
+        forces[10].vec = sel.forceAxion;
+        for (const f of forces) {
+            if (!f.row) continue;
+            const mag = Math.sqrt(f.vec.x * f.vec.x + f.vec.y * f.vec.y);
+            if (mag > EPSILON) {
+                f.row.hidden = false;
+                _set(f.val, fmt(mag));
+            } else {
+                f.row.hidden = true;
+            }
+        }
+
+        return sel;
+    }
+
     updateSelected(particle, particles, physics) {
         const p = particle;
         const dom = this.selDom;

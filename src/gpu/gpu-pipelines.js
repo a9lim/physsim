@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 21;
+const SHADER_VERSION = 22;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename, prepend = '') {
@@ -1719,4 +1719,33 @@ export async function createHitTestPipeline(device, wgslConstants = '') {
     });
 
     return { pipeline, bindGroupLayout: group0Layout };
+}
+
+/**
+ * Create compute-stats pipeline for aggregate stats reduction + selected particle readback.
+ * Standalone shader (defines own structs, receives wgslConstants).
+ * Bindings: uniforms, particleState(ro), derived(ro), allForces(ro), stats(rw).
+ */
+export async function createComputeStatsPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('compute-stats.wgsl', wgslConstants);
+    const module = device.createShaderModule({ label: 'computeStats', code });
+
+    const bindGroupLayout = device.createBindGroupLayout({
+        label: 'computeStats_g0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        ],
+    });
+
+    const pipeline = device.createComputePipeline({
+        label: 'computeStats',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        compute: { module, entryPoint: 'main' },
+    });
+
+    return { pipeline, bindGroupLayout };
 }

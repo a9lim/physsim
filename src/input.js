@@ -316,6 +316,25 @@ export default class InputHandler {
     }
 
     /**
+     * Refresh the hover tooltip with current particle data.
+     * CPU mode: re-reads live particle properties.
+     * GPU mode: re-dispatches hit test at last cursor position for fresh readback.
+     * Call periodically from the main loop (e.g. every 8th frame via STATS_THROTTLE_MASK).
+     */
+    refreshTooltip() {
+        if (this.tooltip.hidden) return;
+        if (this.sim.backend === 'gpu' && this.sim._gpuReady) {
+            // Re-dispatch hit test at the current world position for fresh data
+            this.sim._gpuPhysics.hitTest(this.currentPos.x, this.currentPos.y);
+        } else if (this.hoveredParticle) {
+            const hit = this.hoveredParticle;
+            const speed = Math.sqrt(hit.vel.x * hit.vel.x + hit.vel.y * hit.vel.y);
+            const spin = (hit.angVel * hit.radius).toFixed(3);
+            this.tooltip.textContent = `m=${hit.mass.toFixed(2)}  q=${hit.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
+        }
+    }
+
+    /**
      * Poll for GPU hit test result. Call once per frame in GPU mode.
      * Completes deferred click actions and updates hover state.
      */

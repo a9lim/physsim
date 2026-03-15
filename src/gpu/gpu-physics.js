@@ -37,7 +37,7 @@
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createPQSScratchBuffer, createPQSIndexBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, COARSE_RES, COARSE_SQ, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
-import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline } from './gpu-pipelines.js';
+import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
 import { buildWGSLConstants } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, MAX_PHOTONS, MAX_PIONS,
@@ -249,6 +249,15 @@ export default class GPUPhysics {
         this._hitStagingI32 = null;
         this._hitStagingF32 = null;
 
+        // Stats readback (compute-stats.wgsl)
+        this._statsPipeline = null;
+        this._statsBindGroup = null;
+        this._statsUniformBuffer = null;
+        this._statsPending = false;
+        this._statsResultReady = false;
+        this._statsData = null; // Float32Array(64) from readback
+        this._statsStagingFlip = false; // double-buffer flip
+
         // Free slot management: CPU-side mirror of GPU free stack
         this._cpuFreeSlots = [];
         this._freeTopPending = false;
@@ -379,6 +388,27 @@ export default class GPUPhysics {
                     { binding: 3, resource: { buffer: this.buffers.particleAux } },
                     { binding: 4, resource: { buffer: this._hitResultBuffer } },
                     { binding: 5, resource: { buffer: this.buffers.derived } },
+                ],
+            });
+        }
+
+        // --- Compute stats pipeline ---
+        {
+            const cs = await createComputeStatsPipeline(this.device, wgslConstants);
+            this._statsPipeline = cs.pipeline;
+            this._statsUniformBuffer = this.device.createBuffer({
+                label: 'statsUniforms', size: 16,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            this._statsBindGroup = this.device.createBindGroup({
+                label: 'computeStats',
+                layout: cs.bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: this._statsUniformBuffer } },
+                    { binding: 1, resource: { buffer: this.buffers.particleState } },
+                    { binding: 2, resource: { buffer: this.buffers.derived } },
+                    { binding: 3, resource: { buffer: this.buffers.allForces } },
+                    { binding: 4, resource: { buffer: this.buffers.statsBuffer } },
                 ],
             });
         }
@@ -3237,6 +3267,100 @@ export default class GPUPhysics {
             posX: f[7],
             posY: f[8],
         };
+    }
+
+    /**
+     * Dispatch the stats compute shader and start async readback.
+     * @param {number} selectedGpuIdx  GPU buffer index of selected particle, or -1
+     */
+    requestStats(selectedGpuIdx = -1) {
+        if (!this._statsPipeline || !this._statsUniformBuffer) return;
+        if (this._statsPending) return; // readback still in flight
+
+        // Write uniforms
+        const data = new Uint8Array(16);
+        const u32 = new Uint32Array(data.buffer);
+        const i32 = new Int32Array(data.buffer);
+        u32[0] = this.aliveCount;
+        i32[1] = selectedGpuIdx;
+        u32[2] = this._relativityEnabled ? 1 : 0;
+        u32[3] = 0;
+        this.device.queue.writeBuffer(this._statsUniformBuffer, 0, data);
+
+        // Dispatch
+        const encoder = this.device.createCommandEncoder({ label: 'computeStats' });
+        const pass = encoder.beginComputePass({ label: 'computeStats' });
+        pass.setPipeline(this._statsPipeline);
+        pass.setBindGroup(0, this._statsBindGroup);
+        pass.dispatchWorkgroups(1);
+        pass.end();
+
+        // Copy to staging (double-buffered)
+        const staging = this._statsStagingFlip
+            ? this.buffers.statsStagingB
+            : this.buffers.statsStagingA;
+        this._statsStagingFlip = !this._statsStagingFlip;
+        encoder.copyBufferToBuffer(this.buffers.statsBuffer, 0, staging, 0, 256);
+        this.device.queue.submit([encoder.finish()]);
+
+        // Async readback
+        this._statsPending = true;
+        staging.mapAsync(GPUMapMode.READ).then(() => {
+            this._statsData = new Float32Array(staging.getMappedRange().slice(0));
+            staging.unmap();
+            this._statsResultReady = true;
+            this._statsPending = false;
+        }).catch(() => {
+            this._statsPending = false;
+        });
+    }
+
+    /**
+     * Read the result of a previously requested stats computation.
+     * Returns null if not ready, or an object with aggregate stats + selected particle data.
+     */
+    readStats() {
+        if (!this._statsResultReady || !this._statsData) return null;
+        this._statsResultReady = false;
+        const d = this._statsData;
+        const result = {
+            linearKE: d[0], spinKE: d[1],
+            px: d[2], py: d[3],
+            orbitalAngMom: d[4], spinAngMom: d[5],
+            comX: d[6], comY: d[7],
+            totalMass: d[8], aliveCount: d[9],
+            selected: null,
+        };
+
+        // Selected particle data (mass = -1 signals no selection)
+        if (d[20] > 0) {
+            const flags = new Uint32Array(d.buffer, 24 * 4, 1)[0];
+            result.selected = {
+                posX: d[16], posY: d[17],
+                velWX: d[18], velWY: d[19],
+                mass: d[20], charge: d[21],
+                angW: d[22], baseMass: d[23],
+                flags,
+                radius: d[25],
+                velX: d[26], velY: d[27],
+                angVel: d[28],
+                magMoment: d[29], angMomentum: d[30],
+                antimatter: d[31] > 0.5,
+                // 11 force vec2s
+                forceGravity:    { x: d[32], y: d[33] },
+                forceCoulomb:    { x: d[34], y: d[35] },
+                forceMagnetic:   { x: d[36], y: d[37] },
+                forceGravitomag: { x: d[38], y: d[39] },
+                force1PN:        { x: d[40], y: d[41] },
+                forceSpinCurv:   { x: d[42], y: d[43] },
+                forceRadiation:  { x: d[44], y: d[45] },
+                forceYukawa:     { x: d[46], y: d[47] },
+                forceExternal:   { x: d[48], y: d[49] },
+                forceHiggs:      { x: d[50], y: d[51] },
+                forceAxion:      { x: d[52], y: d[53] },
+            };
+        }
+        return result;
     }
 
     /**
