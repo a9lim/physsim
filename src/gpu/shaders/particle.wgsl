@@ -37,9 +37,8 @@ struct VertexOut {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,       // -1..+1 within quad (extended for glow)
     @location(1) particleColor: vec4<f32>,
-    @location(2) softness: f32,       // for edge falloff (= 1/pixelRadius)
-    @location(3) isDark: f32,         // 0 or 1, passed through from camera uniform
-    @location(4) glowIntensity: f32,  // charge-dependent glow: 0.1 (neutral) to 1.0 (high charge)
+    @location(2) isDark: f32,         // 0 or 1, passed through from camera uniform
+    @location(3) glowIntensity: f32,  // charge-dependent glow: 0.1 (neutral) to 1.0 (high charge)
 };
 
 // Quad vertices: 2 triangles forming a [-1,1] square
@@ -100,7 +99,6 @@ fn vs_main(
         f32((packed >> 24u) & 0xFFu) / 255.0,
     );
 
-    out.softness = 1.0 / max(pixelRadius, 1.0);
     out.isDark = isDark;
     // Charge-dependent glow: neutral=0.1, scales up to 1.0 at |charge|=5
     out.glowIntensity = clamp(abs(p.charge) / 5.0, 0.1, 1.0);
@@ -115,8 +113,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // Discard fully beyond glow range (slightly past DARK_QUAD_SCALE)
     if (dist > DARK_QUAD_SCALE + 0.05) { discard; }
 
-    // Solid circle with 1-pixel anti-aliased edge
-    let circleAlpha = smoothstep(1.0, 1.0 - in.softness * 2.0, dist) * in.particleColor.a;
+    // Sharp circle edge (matches CPU ctx.arc fill)
+    let circleAlpha = select(0.0, 1.0, dist <= 1.0) * in.particleColor.a;
 
     // Dark mode glow halo: exponential falloff beyond the circle edge.
     // The halo only contributes outside the solid circle radius.

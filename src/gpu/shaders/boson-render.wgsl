@@ -34,8 +34,7 @@ struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) color: vec4f,
     @location(1) uv: vec2f,
-    @location(2) softness: f32,
-    @location(3) isDark: f32,
+    @location(2) isDark: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
@@ -102,7 +101,6 @@ fn vertexPhoton(
     out.color = select(vec4f(COLOR_YELLOW, alpha), vec4f(COLOR_RED, alpha), isGrav);
     // UV in [-1,1] scaled by quadScale so dist==1 is the circle edge
     out.uv = qOff * quadScale;
-    out.softness = 1.0 / max(pixelRadius, 1.0);
     out.isDark = isDark;
     return out;
 }
@@ -140,7 +138,6 @@ fn vertexPion(
     let pionAlpha = select(0.7, 0.9, isDark > 0.5);
     out.color = vec4f(COLOR_GREEN, pionAlpha);
     out.uv = qOff * quadScale;
-    out.softness = 1.0 / max(pixelRadius, 1.0);
     out.isDark = isDark;
     return out;
 }
@@ -149,16 +146,15 @@ fn vertexPion(
 fn fragmentBoson(
     @location(0) color: vec4f,
     @location(1) uv: vec2f,
-    @location(2) softness: f32,
-    @location(3) isDark: f32,
+    @location(2) isDark: f32,
 ) -> @location(0) vec4f {
     let dist = length(uv);
 
     // Discard beyond glow range
     if (dist > DARK_QUAD_SCALE + 0.05) { discard; }
 
-    // Sharp circle with anti-aliased edge (matches particle.wgsl and CPU ctx.arc fill)
-    let circleAlpha = smoothstep(1.0, 1.0 - softness * 2.0, dist) * color.a;
+    // Sharp circle edge (matches CPU ctx.arc fill)
+    let circleAlpha = select(0.0, 1.0, dist <= 1.0) * color.a;
 
     // Dark mode glow halo: exponential falloff beyond circle edge (matches CPU shadowBlur=12)
     let glowRange = DARK_QUAD_SCALE - 1.0;

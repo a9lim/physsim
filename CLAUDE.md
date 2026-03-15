@@ -554,12 +554,12 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 
 `GPURenderer` in `gpu-renderer.js` handles all visual output in GPU mode. All render pipelines have dual light/dark variants — light uses premultiplied alpha-over blend, dark uses additive blend (matching Canvas 2D `lighter`). All fragment shaders output premultiplied alpha (`color.rgb * alpha`). Render passes (each in isolated command encoder for error containment):
 
-1. **Particles**: Instanced quad rendering from `particleState` + `color` buffers. Color computed by `updateColors` compute pass (post-substep).
-2. **Trails**: Line-strip per particle from ring buffer (`trailX`/`trailY`). Trail recording via `trails.wgsl` compute (post-substep). Lazy buffer allocation via `setTrailsEnabled()`.
+1. **Particles**: Instanced quad rendering from `particleState` + `color` buffers. Sharp circle edge (`select` step at dist=1), charge-dependent exponential glow halo in dark mode (quad extended by `DARK_QUAD_SCALE=1.8`). Color computed by `updateColors` compute pass (post-substep).
+2. **Trails**: Triangle-strip ribbon per particle from ring buffer (`trailX`/`trailY`), width = `0.5 * radius` (matching CPU). Each trail point becomes 2 vertices offset perpendicular to the trail tangent. Trail recording via `trails.wgsl` compute (post-substep). Lazy buffer allocation via `setTrailsEnabled()`. Binds `particleAux` (binding 8) for radius.
 3. **Field overlays**: Fullscreen triangle, bilinear-upscaled 64×64 grid. Per-field uniform buffers (higgs/axion) to avoid writeBuffer race. Lazy pipeline init via `initFieldOverlay()`.
 4. **Heatmap overlay**: Fullscreen triangle, gravity/electric/Yukawa potential channels. Lazy pipeline init via `initHeatmapOverlay()`.
-5. **Bosons**: Instanced point rendering for photons (yellow/red) and pions (green). Separate photon and pion pipelines.
-6. **Spin rings**: Line-strip arcs around particles, arc length proportional to |angVel|. CW/CCW colors from `_PALETTE.spinPos`/`_PALETTE.spinNeg`.
+5. **Bosons**: Instanced quad rendering for photons (yellow/red) and pions (green). Sharp circle edge with exponential dark-mode glow halo (`BOSON_GLOW_INTENSITY=0.5`, `BOSON_GLOW_DECAY=4.0`). Separate photon and pion pipelines.
+6. **Spin rings**: Two pipelines per theme: triangle-strip arc ribbon (64 vertices, width 0.2 world units matching CPU `lineWidth`) + triangle-list arrowheads (3 vertices). Same bind group for both. CW/CCW colors from `_PALETTE.spinPos`/`_PALETTE.spinNeg`.
 7. **Force arrows**: Instanced arrow geometry, 11 force types with distinct colors.
 
 ## Key Patterns

@@ -947,7 +947,7 @@ export default class GPURenderer {
 }
 
 async function fetchShader(filename, prepend = '') {
-    const resp = await fetch(`src/gpu/shaders/${filename}?v=16`);
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=17`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
     const source = await resp.text();
     return prepend ? prepend + '\n' + source : source;
