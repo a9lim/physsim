@@ -486,10 +486,14 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
     let wx = particles[i].velWX;
     let wy = particles[i].velWY;
 
-    // Update display force (drag direction)
+    // Update display force (drag direction).
+    // Start from allForces.f3.xy (Larmor value, or 0 for uncharged) — NOT radState.radDisplayX
+    // which would accumulate frame-over-frame for uncharged particles (never reset by Larmor).
+    // Matches CPU: forceRadiation zeroed at start of update(), Larmor sets it, quadrupole subtracts.
     var rs = radState[i];
-    rs.radDisplayX -= particles[i].mass * wx * fOverDt;
-    rs.radDisplayY -= particles[i].mass * wy * fOverDt;
+    let afBase = allForces[i];
+    rs.radDisplayX = afBase.f3.x - particles[i].mass * wx * fOverDt;
+    rs.radDisplayY = afBase.f3.y - particles[i].mass * wy * fOverDt;
 
     // Apply drag (NaN guard per project conventions)
     let newWx = wx * scale;
