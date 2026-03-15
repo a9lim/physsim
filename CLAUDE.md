@@ -123,9 +123,10 @@ src/
       torque-render.wgsl       Torque arc indicators (4 types + total)
       trail-render.wgsl        Position history trail lines
       arrow-render.wgsl        Force vector arrows
-      update-colors.wgsl       Particle charge→color mapping
+      update-colors.wgsl       Particle charge→color mapping (BH light-mode base)
+      ring-render.wgsl         Dashed ring overlays (ergosphere + antimatter)
       trails.wgsl              Trail history recording
-      hit-test.wgsl            Mouse→particle selection
+      hit-test.wgsl            Mouse→particle selection + data readback
       field-render.wgsl        Scalar field 64×64 overlay
       heatmap-render.wgsl      Potential heatmap overlay
 ```
@@ -399,7 +400,7 @@ Boundary "loop": Torus (TORUS=0), Klein bottle (KLEIN=1, y-wrap mirrors x), RP²
 
 **CPU hit testing**: `_cpuFindParticleAt()` in `input.js` uses `pool.queryReuse(root, x, y, searchR, searchR)` for tree-accelerated point query. Returns `null` if tree not yet built.
 
-**GPU hit testing**: `hit-test.wgsl` single-thread compute shader walks the quadtree. Dispatched on click/hover via `hitTest()`, result read back async (1-frame latency). `readHitResult()` returns `null` (pending), `-1` (no hit), or GPU buffer index. Click actions deferred until result arrives via `pollGPUHitResult()` in main loop.
+**GPU hit testing**: `hit-test.wgsl` single-thread compute shader walks the quadtree + reads `ParticleDerived` for live state. Dispatched on click/hover via `hitTest()`, result read back async (48-byte staging, 1-frame latency). `readHitResult()` returns `null` (pending), `{ index: -1 }` (no hit), or `{ index, mass, charge, radius, velX, velY, angVel, posX, posY }`. Click actions deferred until result arrives via `pollGPUHitResult()` in main loop. Hover tooltip displays GPU-fresh data.
 
 ## Toggle Dependencies
 
@@ -453,11 +454,11 @@ Dark mode: additive blending (`lighter`). WORLD_SCALE = 16. Camera starts at zoo
 
 ### GPU Renderer (WebGPU)
 
-Instanced rendering via vertex shaders. Reads directly from GPU compute buffers (no readback). Separate render passes for particles, photons, pions, field overlays, heatmap, trails, force arrows, spin rings. All render pipelines have dual light/dark variants (premultiplied alpha vs additive blend).
+Instanced rendering via vertex shaders. Reads directly from GPU compute buffers (no readback). Separate render passes for particles, photons, pions, field overlays, heatmap, trails, force arrows, spin rings, dashed rings (ergosphere + antimatter). All render pipelines have dual light/dark variants (premultiplied alpha vs additive blend).
 
 ### Visual Style (both backends)
 
-- **Particles**: r = ∛(mass) (BH: r₊), glow in dark. Neutral=slate. Charged: RGB lerp red(+)/blue(-), intensity=|q|/5.
+- **Particles**: r = ∛(mass) (BH: r₊), glow in dark. Neutral=slate (BH light mode: text color `#1A1612`). Charged: RGB lerp base→red(+)/blue(-), intensity=|q|/5.
 - **Trails**: circular Float32Array[256], wrap-detection for periodic boundaries
 - **Force vectors**: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green, external=brown, higgs=lime, axion=indigo
 - **Field overlays**: 64×64 offscreen, bilinear-upscaled. Higgs: purple(depleted)/lime(enhanced). Axion: indigo(+)/yellow(-).
@@ -559,7 +560,7 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 - `_writeFieldUniforms(dt)` writes `FieldUniforms` struct to shared field uniform buffer (used by field forces pass). Must match `field-common.wgsl` `FieldUniforms` struct layout exactly. `_writePerFieldUniforms(dt, fieldType)` writes to per-field dedicated uniform buffers (`_higgsUniformBuffer`/`_axionUniformBuffer`) with `currentFieldType` baked in — eliminates encoder split when both Higgs and Axion are active.
 - Slider changes (yukawaMu, axionMass, higgsMass, external fields, bounceFriction, hubbleParam) sync to GPU via `_syncSlidersToGPU()` → `setToggles()` on every slider `input` event. Values are cached in `_yukawaMu`, `_higgsMass`, etc. and written to uniforms each substep.
 - `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load and GPU→CPU toggle. `deserialize()` initializes `axYukMod` to (1,1), zeroes `radiationState`, and restores slider parameters (`higgsMass`, `axionMass`, `yukawaMu`, `hubbleParam`). `serialize()` also used by GPU toggle-off in `ui.js` to rebuild CPU `particles[]` array from GPU readback.
-- **GPU hit test** (`hitTest()`/`readHitResult()`): Dispatches single-thread `hit-test.wgsl` compute shader that walks the quadtree (always built every substep). Async readback via staging buffer, 1-frame latency. `readHitResult()` returns `null` (not ready), `-1` (no hit), or GPU buffer index. Input handler defers click actions (select/delete/spawn) in GPU mode until result arrives via `pollGPUHitResult()`. `_deleteByGpuIdx()` handles deleting GPU-only particles without CPU counterpart.
+- **GPU hit test** (`hitTest()`/`readHitResult()`): Dispatches single-thread `hit-test.wgsl` compute shader that walks the quadtree (always built every substep). Reads `ParticleDerived` (binding 5) for live velocity/angVel. Async readback via 48-byte staging buffer, 1-frame latency. `readHitResult()` returns `null` (not ready), `{ index: -1 }` (no hit), or `{ index, mass, charge, radius, velX, velY, angVel, posX, posY }` with GPU-fresh data. Input handler defers click actions (select/delete/spawn) in GPU mode until result arrives via `pollGPUHitResult()`. Hover tooltip uses readback data directly (not stale CPU-side values). `_deleteByGpuIdx()` handles deleting GPU-only particles without CPU counterpart.
 - **Save/load GPU path**: `saveState()` uses `serialize()` (async GPU readback). `loadState()` uses `deserialize()` (uploads to GPU), clears CPU-side state, restores toggles/modes to CPU physics for UI sync, then syncs GPU toggles/modes. Does NOT call `sim.reset()` after deserialize (would wipe loaded particles).
 - CPU-side `particles[]` array maintained for presets and CPU mode. Not synced from GPU during GPU mode — positions stale. Sidebar stats/plots/energy skipped in GPU mode (read stale data). GPU renders directly from buffers.
 - `device.lost` handler falls back to CPU mode, restores from periodic auto-save
@@ -576,6 +577,7 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 6. **Spin rings**: Two pipelines per theme: triangle-strip arc ribbon (64 vertices, width 0.2 world units matching CPU `lineWidth`) + triangle-list arrowheads (3 vertices). Same bind group for both. CW/CCW colors from `_PALETTE.spinPos`/`_PALETTE.spinNeg`.
 7. **Force arrows**: Instanced arrow geometry (9 vertices: shaft quad + head triangle), 11 force types with distinct colors. Shaft half-width 0.125, head half-width 0.25, head length 0.5 (matching CPU). Fully opaque (alpha 1.0). Threshold on scaled length (`0.5 * invZoom`), graceful degradation (shaft-only for short arrows, arrowhead collapses). One submit per force type with separate uniform writeBuffer.
 8. **Torque arcs**: Two pipelines per theme: triangle-strip arc ribbon (32 segments, width 0.25 matching CPU `lineWidth`) + triangle-list arrowheads (3 vertices). 4 component types (spinOrbit/frameDrag/tidal/contact at offsets 2.5/2.0/1.5/1.0) + total torque (offset 3.0). Reads torques from `AllForces.torques` vec4. Colors match CPU: purple/rose/red/brown. One submit per torque type.
+9. **Dashed rings**: Triangle-strip full-circle ribbon (64 segments, 130 vertices to close strip) with fragment-shader dashing. Dash period snapped to circumference for seamless tiling. Two dispatches per frame (ergosphere + antimatter), each with own uniform writeBuffer + submit. Ergosphere: text-color alpha (0.3 light / 0.4 dark), dash [0.3, 0.3], half-width 0.075, only when BH mode + spin separates ergosphere from horizon. Antimatter: gray (#888 light / #ccc dark), dash [0.5, 0.3], half-width 0.125, only for antimatter-flagged particles. `RingParams` uniform selects type + color per dispatch.
 
 ## Key Patterns
 

@@ -2,7 +2,7 @@
 //
 // Dispatched as (1, 1, 1) — single thread. Walks the quadtree to find the
 // particle closest to the click point within its radius.
-// Writes the particle index (or -1) to hitResult.
+// Writes the particle index + state data to hitResult for tooltip display.
 //
 // Standalone shader — common.wgsl not prepended.
 // Constants (FLAG_ALIVE, etc.) provided by generated wgslConstants block.
@@ -32,6 +32,29 @@ struct ParticleAux {
     deathAngVel: f32,
 };
 
+// Cached derived quantities (matches common.wgsl ParticleDerived)
+struct ParticleDerived {
+    magMoment: f32,
+    angMomentum: f32,
+    invMass: f32,
+    radiusSq: f32,
+    velX: f32, velY: f32,
+    angVel: f32,
+    _pad: f32,
+};
+
+// Hit result layout (12 f32 = 48 bytes):
+//   [0]: hitIndex (as bitcast i32)
+//   [1]: mass
+//   [2]: charge
+//   [3]: radius
+//   [4]: velX  (coordinate velocity)
+//   [5]: velY
+//   [6]: angVel
+//   [7]: posX
+//   [8]: posY
+//   [9..11]: reserved
+
 // Quadtree node layout: flat array<u32>, 20 u32 per node (matches tree-build.wgsl)
 const NODE_STRIDE: u32 = 20u;
 fn nodeOffset(idx: u32) -> u32 { return idx * NODE_STRIDE; }
@@ -51,7 +74,8 @@ const NONE: i32 = -1;
 @group(0) @binding(1) var<storage, read> nodes: array<u32>;
 @group(0) @binding(2) var<storage, read> particles: array<ParticleState>;
 @group(0) @binding(3) var<storage, read> particleAux: array<ParticleAux>;
-@group(0) @binding(4) var<storage, read_write> hitResult: array<i32>;
+@group(0) @binding(4) var<storage, read_write> hitResult: array<u32>;
+@group(0) @binding(5) var<storage, read> derived: array<ParticleDerived>;
 
 @compute @workgroup_size(1)
 fn main() {
@@ -106,5 +130,22 @@ fn main() {
         }
     }
 
-    hitResult[0] = bestIdx;
+    // Write index (as bitcast u32)
+    hitResult[0] = bitcast<u32>(bestIdx);
+
+    // Write particle data if hit found
+    if (bestIdx >= 0) {
+        let idx = u32(bestIdx);
+        let p = particles[idx];
+        let aux = particleAux[idx];
+        let der = derived[idx];
+        hitResult[1] = bitcast<u32>(p.mass);
+        hitResult[2] = bitcast<u32>(p.charge);
+        hitResult[3] = bitcast<u32>(aux.radius);
+        hitResult[4] = bitcast<u32>(der.velX);
+        hitResult[5] = bitcast<u32>(der.velY);
+        hitResult[6] = bitcast<u32>(der.angVel);
+        hitResult[7] = bitcast<u32>(p.posX);
+        hitResult[8] = bitcast<u32>(p.posY);
+    }
 }

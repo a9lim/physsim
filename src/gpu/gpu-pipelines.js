@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 20;
+const SHADER_VERSION = 21;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename, prepend = '') {
@@ -1380,6 +1380,54 @@ export async function createSpinRenderPipeline(device, format, isLight, wgslCons
 }
 
 /**
+ * Create ring render pipeline for dashed circle overlays (ergosphere + antimatter).
+ * Standalone shader: ring-render.wgsl (defines own structs, receives wgslConstants).
+ * Bindings: camera (uniform), particleState/Aux/Derived (ro storage), ringParams (uniform).
+ * Single pipeline (triangle-strip), dispatched once per ring type with different uniforms.
+ */
+export async function createRingRenderPipeline(device, format, isLight, wgslConstants = '') {
+    const code = await fetchShader('ring-render.wgsl', wgslConstants);
+    const module = device.createShaderModule({ label: 'ringRender', code });
+
+    const bindGroupLayout = device.createBindGroupLayout({
+        label: 'ringRender_g0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+            { binding: 4, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        ],
+    });
+
+    // Premultiplied alpha: srcFactor='one' (not 'src-alpha')
+    const blendState = isLight
+        ? {
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        }
+        : {
+            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+        };
+
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+
+    const pipeline = device.createRenderPipeline({
+        label: 'ringRender',
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main' },
+        fragment: {
+            module, entryPoint: 'fs_main',
+            targets: [{ format, blend: blendState }],
+        },
+        primitive: { topology: 'triangle-strip' },
+    });
+
+    return { pipeline, bindGroupLayout };
+}
+
+/**
  * Create trail recording compute pipeline.
  * Standalone shader (defines own structs).
  * Bindings: particleState (ro), trailX/Y (rw), trailWriteIdx/Count (rw).
@@ -1660,6 +1708,7 @@ export async function createHitTestPipeline(device, wgslConstants = '') {
             { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
             { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         ],
     });
 

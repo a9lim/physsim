@@ -707,6 +707,7 @@ class Simulation {
                 // Build render opts with field/heatmap buffers
                 const gpuPh = this._gpuPhysics;
                 const renderOpts = {
+                    blackHoleEnabled: ph.blackHoleEnabled,
                     enabledForces: {
                         gravity: ph.gravityEnabled,
                         coulomb: ph.coulombEnabled,

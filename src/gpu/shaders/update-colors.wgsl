@@ -1,11 +1,11 @@
 // update-colors.wgsl — Recompute per-particle packed RGBA from charge/mass/antimatter.
 //
-// Matches CPU Particle.updateColor() logic:
-//   neutral → slate (#8A7E72)
-//   positive charge → lerp toward red (#C05048), intensity = |q|/5
-//   negative charge → lerp toward blue (#5C92A8), intensity = |q|/5
-//   BH mode → override to pure white
-//   antimatter → invert RGB channels
+// Matches CPU Particle.getColor() logic:
+//   neutral → slate (#8A7E72), or text (#1A1612) in BH light mode
+//   positive charge → lerp base toward red (#C05048), intensity = |q|/5
+//   negative charge → lerp base toward blue (#5C92A8), intensity = |q|/5
+//   BH mode + light theme → use text color as base (darker, more visible)
+//   antimatter → visual distinction via dashed ring overlay (rendered separately)
 
 // Packed particle state struct (matches common.wgsl ParticleState)
 struct ParticleState {
@@ -18,7 +18,7 @@ struct ParticleState {
 
 struct ColorUniforms {
     blackHoleEnabled: u32,
-    _pad0: u32,
+    isDarkMode: u32,
     _pad1: u32,
     _pad2: u32,
 };
@@ -49,23 +49,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let absQ = abs(q);
     let intensity = clamp(absQ / 5.0, 0.0, 1.0);
 
+    // BH mode in light theme: use text color as base instead of slate
+    let useBHBase = (params.blackHoleEnabled != 0u) && (params.isDarkMode == 0u);
+    let baseColor = select(COLOR_SLATE, COLOR_TEXT_LIGHT, useBHBase);
+
     var r: f32;
     var g: f32;
     var b: f32;
 
     if (absQ < 0.001) {
         // Neutral
-        r = COLOR_SLATE.r; g = COLOR_SLATE.g; b = COLOR_SLATE.b;
+        r = baseColor.r; g = baseColor.g; b = baseColor.b;
     } else if (q > 0.0) {
-        // Positive: lerp slate → red
-        r = mix(COLOR_SLATE.r, COLOR_RED.r, intensity);
-        g = mix(COLOR_SLATE.g, COLOR_RED.g, intensity);
-        b = mix(COLOR_SLATE.b, COLOR_RED.b, intensity);
+        // Positive: lerp base → red
+        r = mix(baseColor.r, COLOR_RED.r, intensity);
+        g = mix(baseColor.g, COLOR_RED.g, intensity);
+        b = mix(baseColor.b, COLOR_RED.b, intensity);
     } else {
-        // Negative: lerp slate → blue
-        r = mix(COLOR_SLATE.r, COLOR_BLUE.r, intensity);
-        g = mix(COLOR_SLATE.g, COLOR_BLUE.g, intensity);
-        b = mix(COLOR_SLATE.b, COLOR_BLUE.b, intensity);
+        // Negative: lerp base → blue
+        r = mix(baseColor.r, COLOR_BLUE.r, intensity);
+        g = mix(baseColor.g, COLOR_BLUE.g, intensity);
+        b = mix(baseColor.b, COLOR_BLUE.b, intensity);
     }
 
     // Antimatter: no color inversion — charge is already negated at spawn time,

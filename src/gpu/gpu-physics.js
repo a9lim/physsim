@@ -246,7 +246,8 @@ export default class GPUPhysics {
         this._hitResultStaging = null;
         this._hitPending = false;
         this._hitResultReady = false;
-        this._hitStagingData = null;
+        this._hitStagingI32 = null;
+        this._hitStagingF32 = null;
 
         // Free slot management: CPU-side mirror of GPU free stack
         this._cpuFreeSlots = [];
@@ -359,12 +360,13 @@ export default class GPUPhysics {
                 label: 'hitUniforms', size: 16,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
+            // 12 u32s = 48 bytes: index + mass/charge/radius/vel/angVel/pos + reserved
             this._hitResultBuffer = this.device.createBuffer({
-                label: 'hitResult', size: 4,
+                label: 'hitResult', size: 48,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
             });
             this._hitResultStaging = this.device.createBuffer({
-                label: 'hitResultStaging', size: 4,
+                label: 'hitResultStaging', size: 48,
                 usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
             });
             this._hitTestBindGroup = this.device.createBindGroup({
@@ -376,6 +378,7 @@ export default class GPUPhysics {
                     { binding: 2, resource: { buffer: this.buffers.particleState } },
                     { binding: 3, resource: { buffer: this.buffers.particleAux } },
                     { binding: 4, resource: { buffer: this._hitResultBuffer } },
+                    { binding: 5, resource: { buffer: this.buffers.derived } },
                 ],
             });
         }
@@ -2627,6 +2630,7 @@ export default class GPUPhysics {
             // Update particle colors from charge/mass/antimatter state
             if (this._updateColorsPipeline && this.aliveCount > 0) {
                 _colorUniformData[0] = this._blackHoleEnabled ? 1 : 0;
+                _colorUniformData[1] = document.documentElement.dataset.theme === 'dark' ? 1 : 0;
                 this.device.queue.writeBuffer(this._colorUniformBuffer, 0, _colorUniformData);
                 const p = encoder.beginComputePass({ label: 'updateColors' });
                 p.setPipeline(this._updateColorsPipeline);
@@ -3193,15 +3197,16 @@ export default class GPUPhysics {
         pass.end();
 
         // Copy result to staging for readback
-        encoder.copyBufferToBuffer(this._hitResultBuffer, 0, this._hitResultStaging, 0, 4);
+        encoder.copyBufferToBuffer(this._hitResultBuffer, 0, this._hitResultStaging, 0, 48);
         this.device.queue.submit([encoder.finish()]);
 
         // Async readback
         this._hitPending = true;
         this._hitResultStaging.mapAsync(GPUMapMode.READ).then(() => {
-            const result = new Int32Array(this._hitResultStaging.getMappedRange().slice(0));
+            const buf = this._hitResultStaging.getMappedRange().slice(0);
             this._hitResultStaging.unmap();
-            this._hitStagingData = result;
+            this._hitStagingI32 = new Int32Array(buf);
+            this._hitStagingF32 = new Float32Array(buf);
             this._hitResultReady = true;
             this._hitPending = false;
         }).catch(() => {
@@ -3211,13 +3216,27 @@ export default class GPUPhysics {
 
     /**
      * Read the result of a previously queued GPU hit test.
-     * Returns null if not ready yet, GPU buffer index if particle found,
-     * or -1 if result is ready but no particle was hit.
+     * Returns null if not ready yet, or an object:
+     *   { index, mass, charge, radius, velX, velY, angVel, posX, posY }
+     * index is -1 if no particle was hit.
      */
     readHitResult() {
-        if (!this._hitResultReady || !this._hitStagingData) return null;
+        if (!this._hitResultReady || !this._hitStagingI32) return null;
         this._hitResultReady = false;
-        return this._hitStagingData[0];
+        const idx = this._hitStagingI32[0];
+        if (idx < 0) return { index: -1 };
+        const f = this._hitStagingF32;
+        return {
+            index: idx,
+            mass: f[1],
+            charge: f[2],
+            radius: f[3],
+            velX: f[4],
+            velY: f[5],
+            angVel: f[6],
+            posX: f[7],
+            posY: f[8],
+        };
     }
 
     /**
