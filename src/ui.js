@@ -3,6 +3,7 @@
 import { loadPreset, PRESETS, PRESET_ORDER } from './presets.js';
 import { PHYSICS_DT, WORLD_SCALE, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, colFromString, boundFromString, topoFromString } from './config.js';
 import { REFERENCE } from './reference.js';
+import { BACKEND_CPU, BACKEND_GPU } from './backend-interface.js';
 
 const HINT_FADE_DELAY = 5000;
 
@@ -292,6 +293,61 @@ export function setupUI(sim) {
     });
 
     updateAllDeps();
+
+    // ─── GPU backend toggle ───
+    const gpuToggle = document.getElementById('gpu-toggle');
+    // Enable the toggle once GPU is ready (async init in main.js)
+    sim._onGPUReady = () => {
+        gpuToggle.disabled = false;
+        gpuToggle.checked = true;
+        gpuToggle.setAttribute('aria-checked', 'true');
+        const lbl = gpuToggle.closest('.checkbox-label');
+        if (lbl) lbl.classList.remove('ctrl-disabled');
+    };
+    sim._onGPULost = () => {
+        gpuToggle.disabled = true;
+        gpuToggle.checked = false;
+        gpuToggle.setAttribute('aria-checked', 'false');
+        const lbl = gpuToggle.closest('.checkbox-label');
+        if (lbl) lbl.classList.add('ctrl-disabled');
+    };
+    gpuToggle.addEventListener('change', () => {
+        const on = gpuToggle.checked;
+        gpuToggle.setAttribute('aria-checked', String(on));
+        const gpuCanvas = document.getElementById('gpuCanvas');
+        if (on && sim._gpuReady) {
+            sim.backend = BACKEND_GPU;
+            if (gpuCanvas) gpuCanvas.style.display = '';
+            // Clear stale CPU canvas underneath
+            sim.ctx.clearRect(0, 0, sim.width, sim.height);
+            // Sync current state to GPU
+            const gpuToggles = Object.create(sim.physics);
+            gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
+            sim._gpuPhysics.setToggles(gpuToggles);
+            _syncModesToGPU();
+            // Re-sync all particles to GPU
+            sim._gpuPhysics.reset();
+            for (const p of sim.particles) {
+                p._gpuIdx = sim._gpuPhysics.addParticle({
+                    x: p.pos.x, y: p.pos.y,
+                    vx: p.w.x, vy: p.w.y,
+                    mass: p.mass, charge: p.charge,
+                    angw: p.angw, antimatter: p.antimatter,
+                });
+            }
+        } else {
+            sim.backend = BACKEND_CPU;
+            if (gpuCanvas) gpuCanvas.style.display = 'none';
+        }
+        const badge = document.getElementById('backend-badge');
+        if (badge) {
+            badge.textContent = sim.backend.toUpperCase();
+            badge.classList.toggle('gpu', sim.backend === BACKEND_GPU);
+            badge.title = sim.backend === BACKEND_GPU ? 'WebGPU compute + render' : 'CPU physics + Canvas 2D';
+        }
+        sim._dirty = true;
+        _haptics.trigger('light');
+    });
 
     // ─── Visual toggles ───
     document.getElementById('trailsToggle').addEventListener('change', (e) => {

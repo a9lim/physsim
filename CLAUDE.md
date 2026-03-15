@@ -419,7 +419,7 @@ Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit
 
 ## UI
 
-4-tab sidebar: Settings (mass/charge/spin, spawn mode, force/physics toggles), Engine (BH, collisions, boundary/topology, external fields, visuals, speed), Stats (energy/momentum/drift), Particle (selected details, force breakdown, phase plot, effective potential).
+4-tab sidebar: Settings (mass/charge/spin, spawn mode, force/physics toggles), Engine (GPU toggle, BH, collisions, boundary/topology, external fields, visuals, speed), Stats (energy/momentum/drift), Particle (selected details, force breakdown, phase plot, effective potential).
 
 Topbar: Home | "No-Hair" | Pause/Step/Reset/Save/Load | Theme | Panel toggle.
 
@@ -432,7 +432,7 @@ Two interchangeable backends selected at startup via `selectBackend()`. Backends
 - **CPU**: `CPUPhysics` (wraps `Physics` from integrator.js) + `CanvasRenderer` (wraps `Renderer`). Thin adapters — all logic stays in integrator.js and renderer.js.
 - **GPU**: `GPUPhysics` (compute pipelines) + `GPURenderer` (instanced rendering). GPU overlays a separate `<canvas id="gpuCanvas">` with `alphaMode: 'premultiplied'`.
 
-Falls back to CPU on WebGPU unavailability or device loss (with auto-save recovery). Force CPU via `?cpu=1` URL parameter.
+Falls back to CPU on WebGPU unavailability or device loss (with auto-save recovery). Force CPU via `?cpu=1` URL parameter. Runtime GPU/CPU toggle in Engine tab (`#gpu-toggle`): disabled when WebGPU unavailable, auto-enabled and checked on successful GPU init, disabled on device loss. Toggling off switches to CPU (hides gpuCanvas), toggling on resyncs all particles to GPU via `reset()` + `addParticle()`.
 
 ## Renderer
 

@@ -276,6 +276,7 @@ class Simulation {
                     }
 
                     console.log('[physsim] GPU backend initialized');
+                    if (this._onGPUReady) this._onGPUReady();
 
                     // Register device.lost handler for error recovery
                     device.lost.then((info) => {
@@ -294,6 +295,7 @@ class Simulation {
                         }
 
                         this._dirty = true;
+                        if (this._onGPULost) this._onGPULost();
                         _attemptGPURecovery();
                     });
 
