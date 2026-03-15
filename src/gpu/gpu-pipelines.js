@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 18;
+const SHADER_VERSION = 19;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename, prepend = '') {
@@ -1633,4 +1633,41 @@ export async function createHeatmapRenderPipeline(device, format, isLight, wgslC
     });
 
     return { pipeline, bindGroupLayouts };
+}
+
+/**
+ * Create hit test compute pipeline.
+ * Standalone shader (no common.wgsl prepend). Single-thread dispatch (1,1,1).
+ * Walks BH tree to find particle nearest to click point within radius.
+ * Falls back to O(N) linear scan when tree not available.
+ *
+ * Group 0:
+ *   binding 0: HitUniforms (uniform)
+ *   binding 1: qtNodes (read-only-storage) — flat array<u32>
+ *   binding 2: particleState (read-only-storage)
+ *   binding 3: particleAux (read-only-storage)
+ *   binding 4: hitResult (storage) — single i32
+ */
+export async function createHitTestPipeline(device, wgslConstants = '') {
+    const code = await fetchShader('hit-test.wgsl', wgslConstants);
+    const module = device.createShaderModule({ label: 'hitTest', code });
+
+    const group0Layout = device.createBindGroupLayout({
+        label: 'hitTest_group0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        ],
+    });
+
+    const pipeline = device.createComputePipeline({
+        label: 'hitTest',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [group0Layout] }),
+        compute: { module, entryPoint: 'main' },
+    });
+
+    return { pipeline, bindGroupLayout: group0Layout };
 }

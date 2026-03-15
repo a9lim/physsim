@@ -37,7 +37,7 @@
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createPQSScratchBuffer, createPQSIndexBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, COARSE_RES, COARSE_SQ, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
-import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline } from './gpu-pipelines.js';
+import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline } from './gpu-pipelines.js';
 import { buildWGSLConstants } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, MAX_PHOTONS, MAX_PIONS,
@@ -238,6 +238,16 @@ export default class GPUPhysics {
         this._trailBuffers = null;
         this._trailsEnabled = true; // default on (matches CPU)
 
+        // Hit test pipeline + buffers
+        this._hitTestPipeline = null;
+        this._hitTestBindGroup = null;
+        this._hitUniformBuffer = null;
+        this._hitResultBuffer = null;
+        this._hitResultStaging = null;
+        this._hitPending = false;
+        this._hitResultReady = false;
+        this._hitStagingData = null;
+
         // Free slot management: CPU-side mirror of GPU free stack
         this._cpuFreeSlots = [];
         this._freeTopPending = false;
@@ -344,6 +354,35 @@ export default class GPUPhysics {
             const tr = await createTrailRecordPipeline(this.device, wgslConstants);
             this._trailRecordPipeline = tr.pipeline;
             this._trailRecordLayout = tr.bindGroupLayout;
+        }
+
+        // --- Hit test compute pipeline ---
+        {
+            const ht = await createHitTestPipeline(this.device, wgslConstants);
+            this._hitTestPipeline = ht.pipeline;
+            this._hitUniformBuffer = this.device.createBuffer({
+                label: 'hitUniforms', size: 16,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            this._hitResultBuffer = this.device.createBuffer({
+                label: 'hitResult', size: 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+            });
+            this._hitResultStaging = this.device.createBuffer({
+                label: 'hitResultStaging', size: 4,
+                usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+            });
+            this._hitTestBindGroup = this.device.createBindGroup({
+                label: 'hitTest',
+                layout: ht.bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: this._hitUniformBuffer } },
+                    { binding: 1, resource: { buffer: this.buffers.qtNodeBuffer } },
+                    { binding: 2, resource: { buffer: this.buffers.particleState } },
+                    { binding: 3, resource: { buffer: this.buffers.particleAux } },
+                    { binding: 4, resource: { buffer: this._hitResultBuffer } },
+                ],
+            });
         }
 
         this._ready = true;
@@ -3198,21 +3237,58 @@ export default class GPUPhysics {
         if (this._axionBuffers) this._initFieldToVacuum('axion');
     }
 
-    /** Queue a GPU hit test. Result available next frame via readHitResult(). */
+    /**
+     * Queue a GPU hit test. Dispatches the hit test compute shader and starts
+     * async readback. Result available via readHitResult() once ready.
+     * Uses BH tree when available, falls back to O(N) linear scan.
+     */
     hitTest(worldX, worldY) {
-        // Hit test pipeline not yet initialized — fall back to CPU selection
-        if (!this._hitUniformBuffer) return;
-        const data = new Float32Array([worldX, worldY, 0, 0]);
+        if (!this._hitTestPipeline || !this._hitUniformBuffer) return;
+        if (this._hitPending) return; // don't queue while readback is in flight
+
+        // Write click coordinates + aliveCount to uniform
+        const data = new Uint8Array(16);
+        const f32 = new Float32Array(data.buffer);
+        const u32 = new Uint32Array(data.buffer);
+        f32[0] = worldX;
+        f32[1] = worldY;
+        u32[2] = this.aliveCount;
+        u32[3] = 0;
         this.device.queue.writeBuffer(this._hitUniformBuffer, 0, data);
+
+        // Dispatch single-thread compute
+        const encoder = this.device.createCommandEncoder({ label: 'hitTest' });
+        const pass = encoder.beginComputePass({ label: 'hitTest' });
+        pass.setPipeline(this._hitTestPipeline);
+        pass.setBindGroup(0, this._hitTestBindGroup);
+        pass.dispatchWorkgroups(1);
+        pass.end();
+
+        // Copy result to staging for readback
+        encoder.copyBufferToBuffer(this._hitResultBuffer, 0, this._hitResultStaging, 0, 4);
+        this.device.queue.submit([encoder.finish()]);
+
+        // Async readback
         this._hitPending = true;
+        this._hitResultStaging.mapAsync(GPUMapMode.READ).then(() => {
+            const result = new Int32Array(this._hitResultStaging.getMappedRange().slice(0));
+            this._hitResultStaging.unmap();
+            this._hitStagingData = result;
+            this._hitResultReady = true;
+            this._hitPending = false;
+        }).catch(() => {
+            this._hitPending = false;
+        });
     }
 
-    /** Read the result of a previously queued hit test. Returns particle index or -1. */
+    /**
+     * Read the result of a previously queued GPU hit test.
+     * Returns GPU buffer index of the hit particle, or -1 if none/not ready.
+     */
     readHitResult() {
         if (!this._hitResultReady || !this._hitStagingData) return -1;
         this._hitResultReady = false;
-        const view = new Int32Array(this._hitStagingData);
-        return view[0];
+        return this._hitStagingData[0];
     }
 
     /**

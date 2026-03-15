@@ -791,6 +791,11 @@ class Simulation {
             }
         }
 
+        // Poll for async GPU hit test results (selection override)
+        if (this._gpuReady && this.backend === BACKEND_GPU) {
+            this.input.pollGPUHitResult();
+        }
+
         // Skip render entirely when nothing has changed (paused, no interaction)
         if (this._dirty) {
             this._dirty = false;
