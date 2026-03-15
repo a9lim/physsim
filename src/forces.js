@@ -641,12 +641,21 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
                 if (other.isGhost && other.original === particle) continue;
                 const real = other.isGhost ? other.original : other;
                 let sx, sy, svx, svy, sAngVel, sMagMom, sAngMom, delayed;
-                if (useSignalDelay && !other.isGhost) {
+                if (useSignalDelay) {
                     if (real.histCount < 2) continue; // no history — outside light cone
                     const ret = getDelayedState(real, particle, simTime, periodic, domW, domH, halfDomW, halfDomH, topology);
-                    if (!ret) continue; // retarded time predates particle
-                    sx = ret.x; sy = ret.y; svx = ret.vx; svy = ret.vy;
-                    // Retarded angular velocity from history
+                    if (!ret) continue; // signal delay predates particle
+                    if (other.isGhost) {
+                        // Signal-delayed original position + periodic shift
+                        const shiftX = other.pos.x - real.pos.x;
+                        const shiftY = other.pos.y - real.pos.y;
+                        sx = ret.x + shiftX;
+                        sy = ret.y + shiftY;
+                    } else {
+                        sx = ret.x;
+                        sy = ret.y;
+                    }
+                    svx = ret.vx; svy = ret.vy;
                     const retAngwSq = ret.angw * ret.angw;
                     const retRadiusSq = real.bodyRadiusSq;
                     sAngVel = ret.angw / Math.sqrt(1 + retAngwSq * retRadiusSq);
@@ -665,7 +674,7 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
             const nodeMass = pool.totalMass[nodeIdx];
             const avgVx = pool.totalMomentumX[nodeIdx] / nodeMass;
             const avgVy = pool.totalMomentumY[nodeIdx] / nodeMass;
-            pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, nodeMass, pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, 1, 1);
+            pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, nodeMass, pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, 1, 1, useSignalDelay);
         } else if (pool.divided[nodeIdx]) {
             // Push children onto stack
             _bhStack[stackTop++] = pool.nw[nodeIdx];
