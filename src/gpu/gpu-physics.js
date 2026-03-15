@@ -1527,6 +1527,13 @@ export default class GPUPhysics {
         _addParticleRadData.fill(0);
         this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, _addParticleRadData);
 
+        // Reset trail ring buffer for this slot (clear writeIdx + count)
+        if (this._trailBuffers) {
+            const tb = this._trailBuffers;
+            this.device.queue.writeBuffer(tb.trailWriteIdx, idx * 4, _zeroU32);
+            this.device.queue.writeBuffer(tb.trailCount, idx * 4, _zeroU32);
+        }
+
         // Initialize history metadata (4 u32: writeIdx, count, creationTimeBits, _pad)
         if (this.buffers.historyAllocated) {
             _addParticleMetaU32[0] = 0;  // writeIdx
