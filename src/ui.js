@@ -4,6 +4,7 @@ import { loadPreset, PRESETS, PRESET_ORDER } from './presets.js';
 import { PHYSICS_DT, WORLD_SCALE, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, colFromString, boundFromString, topoFromString } from './config.js';
 import { REFERENCE } from './reference.js';
 import { BACKEND_CPU, BACKEND_GPU } from './backend-interface.js';
+import Particle from './particle.js';
 
 const HINT_FADE_DELAY = 5000;
 
@@ -311,7 +312,7 @@ export function setupUI(sim) {
         const lbl = gpuToggle.closest('.checkbox-label');
         if (lbl) lbl.classList.add('ctrl-disabled');
     };
-    gpuToggle.addEventListener('change', () => {
+    gpuToggle.addEventListener('change', async () => {
         const on = gpuToggle.checked;
         gpuToggle.setAttribute('aria-checked', String(on));
         const gpuCanvas = document.getElementById('gpuCanvas');
@@ -336,6 +337,35 @@ export function setupUI(sim) {
                 });
             }
         } else {
+            // Read back current GPU particle state before switching to CPU
+            if (sim._gpuReady && sim._gpuPhysics) {
+                try {
+                    const gpuState = await sim._gpuPhysics.serialize(sim);
+                    // Rebuild CPU particle array from GPU readback
+                    sim.particles.length = 0;
+                    for (const pd of gpuState.particles) {
+                        const p = new Particle(pd.x, pd.y, pd.mass, pd.charge);
+                        p.baseMass = pd.baseMass;
+                        p.antimatter = pd.antimatter;
+                        p.w.set(pd.wx, pd.wy);
+                        p.angw = pd.angw;
+                        // Derive coordinate velocity from proper velocity
+                        const wSq = pd.wx * pd.wx + pd.wy * pd.wy;
+                        const gamma = Math.sqrt(1 + wSq);
+                        p.vel.set(pd.wx / gamma, pd.wy / gamma);
+                        p.angVel = sim.physics.relativityEnabled
+                            ? pd.angw / Math.sqrt(1 + pd.angw * pd.angw * p.radius * p.radius)
+                            : pd.angw;
+                        p.creationTime = sim.physics.simTime;
+                        p.updateColor();
+                        sim.particles.push(p);
+                    }
+                    sim.clearBosons();
+                    sim.stats.resetBaseline();
+                } catch (e) {
+                    console.warn('[physsim] GPU readback failed, CPU state may be stale:', e);
+                }
+            }
             sim.backend = BACKEND_CPU;
             if (gpuCanvas) gpuCanvas.style.display = 'none';
         }
