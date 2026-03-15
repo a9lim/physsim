@@ -10,6 +10,9 @@
 //   vvKick1PN — applies VV correction kick: w += (f1pn_new - f1pn_old) * dt/(2m)
 //
 // Standalone shader — defines own structs (NOT prepended with common.wgsl).
+// Requires signal-delay-common.wgsl prepended (provides getDelayedStateGPU, DelayedState).
+// Signal delay: when relativity is on, uses retarded positions/velocities for all 1PN terms.
+// No aberration — 1PN is already O(v²/c²). Dead particles excluded from 1PN.
 
 // Constants provided by generated wgslConstants block.
 
@@ -52,7 +55,7 @@ struct AllForces {
 // Fields we don't use are kept as padding to preserve alignment.
 struct Uniforms {
     dt: f32,                // [0] dt
-    _simTime: f32,          // [1] simTime (unused here)
+    simTime: f32,           // [1] simTime
     domainW: f32,           // [2] domainW
     domainH: f32,           // [3] domainH
     _speedScale: f32,       // [4] speedScale (unused here)
@@ -81,6 +84,10 @@ struct Uniforms {
 // Group 2: force outputs (particleState accessed via group 1 to avoid aliasing)
 @group(2) @binding(0) var<storage, read_write> allForces: array<AllForces>;
 @group(2) @binding(1) var<storage, read_write> f1pnOld: array<f32>; // rw for encoder compat
+
+// Group 3: signal delay history (interleaved) — used by getDelayedStateGPU()
+@group(3) @binding(0) var<storage, read_write> histData: array<f32>;
+@group(3) @binding(1) var<storage, read_write> histMeta: array<u32>;
 
 // Per-source 1PN accumulation (shared between tree and pairwise paths)
 fn accum1PN(
@@ -218,6 +225,7 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     let magOn = (u.toggles0 & MAGNETIC_BIT) != 0u;
     let yukOn = (u.toggles0 & YUKAWA_BIT) != 0u;
     let periodic = u.boundaryMode == BOUND_LOOP;
+    let signalDelayed = (u.toggles0 & RELATIVITY_BIT) != 0u;
 
     // Zero 1PN forces before accumulation (preserve spinCurv in f2.zw)
     var af = allForces[i];
@@ -242,14 +250,33 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
         if (j == i) { continue; }
         if ((particles[j].flags & FLAG_ALIVE) == 0u) { continue; }
 
-        // Use current positions/velocities (post-drift)
-        let swx = particles[j].velWX; let swy = particles[j].velWY;
-        let sg = sqrt(1.0 + swx * swx + swy * swy);
-        let sinvG = 1.0 / sg;
-        let svx = swx * sinvG; let svy = swy * sinvG;
+        var sx: f32; var sy: f32;
+        var svx: f32; var svy: f32;
+
+        if (signalDelayed) {
+            // Signal delay: use retarded position/velocity from history
+            // No aberration — 1PN is already O(v²/c²)
+            let delayed = getDelayedStateGPU(
+                j, px, py, u.simTime,
+                periodic, u.domainW, u.domainH,
+                u.topologyMode, false
+            );
+            if (!delayed.valid) { continue; }
+            sx = delayed.x; sy = delayed.y;
+            // Retarded velocity: convert proper velocity (w) to coordinate velocity
+            let swx = delayed.vx; let swy = delayed.vy;
+            let sg = sqrt(1.0 + swx * swx + swy * swy);
+            svx = swx / sg; svy = swy / sg;
+        } else {
+            // No signal delay: use current positions/velocities (post-drift)
+            sx = particles[j].posX; sy = particles[j].posY;
+            let swx = particles[j].velWX; let swy = particles[j].velWY;
+            let sg = sqrt(1.0 + swx * swx + swy * swy);
+            svx = swx / sg; svy = swy / sg;
+        }
 
         let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
-                         particles[j].posX, particles[j].posY, svx, svy,
+                         sx, sy, svx, svy,
                          particles[j].mass, particles[j].charge, axYukMod[j].y,
                          u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
                          gmOn, magOn, yukOn, u.yukawaMu,

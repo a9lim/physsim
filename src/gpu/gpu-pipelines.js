@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 26;
+const SHADER_VERSION = 27;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename, prepend = '') {
@@ -431,9 +431,14 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
 
     // ── 1PN (onePN.wgsl, entries: compute1PN, vvKick1PN) ──
     // Group 0: uniforms
-    // Group 1: particleState (ro) + derived (ro) + axYukMod (ro) = 3
-    // Group 2: allForces (rw) + f1pnOld (ro) + particleState_rw (rw) = 3
-    const onePNCode = await fetchShader('onePN.wgsl', wgslConstants);
+    // Group 1: particleState (rw) + derived (rw) + axYukMod (rw) = 3 storage
+    // Group 2: allForces (rw) + f1pnOld (rw) = 2 storage
+    // Group 3: histData (rw) + histMeta (rw) = 2 storage
+    // Total: 7 storage + 1 uniform
+    // Prepend signal-delay-common.wgsl for getDelayedStateGPU()
+    const signalDelayWGSL_1PN = await fetchShader('signal-delay-common.wgsl');
+    const onePNCode = wgslConstants + '\n' + signalDelayWGSL_1PN + '\n'
+        + await fetchShader('onePN.wgsl');
     const onePNModule = device.createShaderModule({ label: 'onePN', code: onePNCode });
 
     const onePNG0 = device.createBindGroupLayout({
@@ -457,7 +462,14 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // f1pnOld (rw for encoder compat)
         ],
     });
-    const onePNLayouts = [onePNG0, onePNG1, onePNG2];
+    const onePNG3 = device.createBindGroupLayout({
+        label: 'onePN_g3',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // histData
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // histMeta
+        ],
+    });
+    const onePNLayouts = [onePNG0, onePNG1, onePNG2, onePNG3];
     const onePNPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: onePNLayouts });
 
     const compute1PN = {
