@@ -768,6 +768,18 @@ export default class GPUPhysics {
             });
             this._treeForceGroup3_isDummy = false;
         }
+        if (this._onePNG3_isDummy && this._phase4) {
+            const p4 = this._phase4;
+            this._phase4BindGroups.onePNG3 = this.device.createBindGroup({
+                label: 'onePN_g3_history',
+                layout: p4.compute1PN.bindGroupLayouts[3],
+                entries: [
+                    { binding: 0, resource: { buffer: b.histData } },
+                    { binding: 1, resource: { buffer: b.histMeta } },
+                ],
+            });
+            this._onePNG3_isDummy = false;
+        }
     }
 
     /**
@@ -858,6 +870,23 @@ export default class GPUPhysics {
             [b.particleState, b.derived, b.axYukMod]);
         this._phase4BindGroups.onePNG2 = bg('onePN_g2', p4.compute1PN.bindGroupLayouts[2],
             [b.allForces, b.f1pnOld]);
+        // Group 3 (history) — dummy until history allocated (pipeline layout requires all groups)
+        if (!this._onePNDummyHistBuf) {
+            this._onePNDummyHistBuf = this.device.createBuffer({
+                label: 'onePN-dummy-hist',
+                size: 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+        }
+        this._phase4BindGroups.onePNG3 = this.device.createBindGroup({
+            label: 'onePN_g3_dummy',
+            layout: p4.compute1PN.bindGroupLayouts[3],
+            entries: [
+                { binding: 0, resource: { buffer: this._onePNDummyHistBuf } },
+                { binding: 1, resource: { buffer: this._onePNDummyHistBuf } },
+            ],
+        });
+        this._onePNG3_isDummy = true;
 
         // ── Radiation (larmorRadiation, hawkingRadiation, pionEmission share bind groups) ──
         this._phase4BindGroups.radG0 = bg('radiation_g0', p4.larmorRadiation.bindGroupLayouts[0],
@@ -926,7 +955,7 @@ export default class GPUPhysics {
         this._phase4BindGroups.historyG1 = bg('history_g1', p4.recordHistory.bindGroupLayouts[1],
             [b.histData, b.histMeta]);
 
-        // Upgrade dummy force history bind groups to real ones now that history is allocated
+        // Upgrade dummy force history bind groups (pair-force, tree-force, 1PN) to real ones
         this._upgradeForceHistoryBGs();
     }
 
@@ -1038,6 +1067,7 @@ export default class GPUPhysics {
         passCompute.setBindGroup(0, bgs.onePNG0);
         passCompute.setBindGroup(1, bgs.onePNG1);
         passCompute.setBindGroup(2, bgs.onePNG2);
+        passCompute.setBindGroup(3, bgs.onePNG3);
         passCompute.dispatchWorkgroups(workgroups);
         passCompute.end();
 
@@ -1047,6 +1077,7 @@ export default class GPUPhysics {
         passKick.setBindGroup(0, bgs.onePNG0);
         passKick.setBindGroup(1, bgs.onePNG1);
         passKick.setBindGroup(2, bgs.onePNG2);
+        passKick.setBindGroup(3, bgs.onePNG3);
         passKick.dispatchWorkgroups(workgroups);
         passKick.end();
     }
