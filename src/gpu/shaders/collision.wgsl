@@ -407,8 +407,10 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         newPs.charge = ps1.charge + ps2.charge;
         newPs.angW = newAngW;
         newPs.baseMass = ps1.baseMass + ps2.baseMass;
-        // Preserve antimatter flag from p1; FLAG_REBORN signals history/trail reset
-        newPs.flags = FLAG_ALIVE | FLAG_REBORN | (ps1.flags & FLAG_ANTIMATTER);
+        // Preserve antimatter flag from p1 unless BH mode (no hair); FLAG_REBORN signals history/trail reset
+        let bhOn = (uniforms.toggles0 & 256u) != 0u; // BLACK_HOLE_BIT
+        let amFlag = select(ps1.flags & FLAG_ANTIMATTER, 0u, bhOn);
+        newPs.flags = FLAG_ALIVE | FLAG_REBORN | amFlag;
 
         // Fresh aux for new particle (unique ID, clean death state)
         aux1.radius = newRadius;

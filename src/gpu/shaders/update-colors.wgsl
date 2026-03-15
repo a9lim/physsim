@@ -24,7 +24,7 @@ struct ColorUniforms {
 };
 
 @group(0) @binding(0) var<uniform> params: ColorUniforms;
-@group(0) @binding(1) var<storage, read> particles: array<ParticleState>;
+@group(0) @binding(1) var<storage, read_write> particles: array<ParticleState>;
 @group(0) @binding(2) var<storage, read_write> color: array<u32>;
 
 // Constants (FLAG_ALIVE, FLAG_ANTIMATTER, COLOR_SLATE, COLOR_RED, COLOR_BLUE)
@@ -42,15 +42,21 @@ fn packRGBA(r: f32, g: f32, b: f32, a: f32) -> u32 {
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let idx = gid.x;
     if (idx >= arrayLength(&particles)) { return; }
-    let p = particles[idx];
+    var p = particles[idx];
     if ((p.flags & FLAG_ALIVE) == 0u) { return; }
+
+    // BH no-hair: strip antimatter flag
+    let isBH = (params.blackHoleEnabled != 0u);
+    if (isBH && (p.flags & FLAG_ANTIMATTER) != 0u) {
+        p.flags = p.flags & ~FLAG_ANTIMATTER;
+        particles[idx].flags = p.flags;
+    }
 
     let q = p.charge;
     let absQ = abs(q);
     let intensity = clamp(absQ / 5.0, 0.0, 1.0);
 
     // BH mode: use theme text color as base instead of slate
-    let isBH = (params.blackHoleEnabled != 0u);
     let isDark = (params.isDarkMode != 0u);
     let bhColor = select(COLOR_TEXT_LIGHT, COLOR_TEXT_DARK, isDark);
     let baseColor = select(COLOR_SLATE, bhColor, isBH);

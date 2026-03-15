@@ -1501,7 +1501,7 @@ export default class GPUPhysics {
         _addParticleStateF32[6] = angw;       // angW
         _addParticleStateF32[7] = m;          // baseMass
         let flags = FLAG_ALIVE;
-        if (antimatter) flags |= FLAG_ANTIMATTER;
+        if (antimatter && !this._blackHoleEnabled) flags |= FLAG_ANTIMATTER;
         _addParticleStateU32[8] = flags;
         this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE, _addParticleStateData);
 
