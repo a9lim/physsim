@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 12;
+const SHADER_VERSION = 13;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename, prepend = '') {
@@ -118,10 +118,18 @@ export async function createPhase2Pipelines(device, wgslConstants = '') {
         ['uniform', 'storage', 'storage', 'storage'],
     ]);
 
+    // --- borisFused ---
+    // Fused halfKick1 + borisRotate + halfKick2 in one pass.
+    // Eliminates 2 extra dispatches + barrier overhead + redundant global memory loads.
+    // uniforms + particleState (rw) + allForces (rw) = 2 storage (same as individual shaders)
+    const borisFused = await makePipeline('borisFused', 'boris-fused.wgsl', [
+        ['uniform', 'storage', 'storage'],
+    ]);
+
     return {
         resetForces, cacheDerived, pairForce, externalFields,
         borisHalfKick, borisRotate, borisDrift, spinOrbit, applyTorques,
-        saveF1pn,
+        saveF1pn, borisFused,
     };
 }
 
@@ -1228,13 +1236,14 @@ export async function createSpinRenderPipeline(device, format, isLight, wgslCons
         ],
     });
 
+    // Premultiplied alpha: shader outputs rgb*a, use srcFactor='one' (not 'src-alpha')
     const blendState = isLight
         ? {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
         }
         : {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
         };
 
@@ -1304,13 +1313,14 @@ export async function createTrailRenderPipeline(device, format, isLight, wgslCon
         ],
     });
 
+    // Premultiplied alpha: shader outputs rgb*a, use srcFactor='one' (not 'src-alpha')
     const blendState = isLight
         ? {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
         }
         : {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
         };
 
@@ -1349,13 +1359,14 @@ export async function createArrowRenderPipeline(device, format, isLight, wgslCon
         ],
     });
 
+    // Premultiplied alpha: shader outputs rgb*a, use srcFactor='one' (not 'src-alpha')
     const blendState = isLight
         ? {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
         }
         : {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
         };
 

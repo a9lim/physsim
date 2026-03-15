@@ -13,6 +13,22 @@ import { TRAIL_LEN } from './gpu-buffers.js';
 import { buildWGSLConstants, paletteRGB } from './gpu-constants.js';
 import { HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA, MAX_PHOTONS, MAX_PIONS } from '../config.js';
 
+// Pre-allocated typed arrays for per-frame writeBuffer calls (eliminate GC pressure)
+const _cameraData = new ArrayBuffer(256);
+const _cameraF32 = new Float32Array(_cameraData);
+const _trailData = new ArrayBuffer(16);
+const _trailU32 = new Uint32Array(_trailData);
+const _trailF32 = new Float32Array(_trailData);
+const _arrowData = new ArrayBuffer(32);
+const _arrowU32 = new Uint32Array(_arrowData);
+const _arrowF32 = new Float32Array(_arrowData);
+const _fieldRenderData = new ArrayBuffer(128);
+const _fieldRenderF32 = new Float32Array(_fieldRenderData);
+const _fieldRenderU32 = new Uint32Array(_fieldRenderData);
+const _heatmapRenderData = new ArrayBuffer(64);
+const _heatmapRenderF32 = new Float32Array(_heatmapRenderData);
+const _heatmapRenderU32 = new Uint32Array(_heatmapRenderData);
+
 // Palette-derived colors (computed once at module load from _PALETTE)
 const _PAL = window._PALETTE;
 const _bgLight = (() => { const [r,g,b] = paletteRGB(_PAL.light.canvas); return {r,g,b,a:1}; })();
@@ -397,34 +413,27 @@ export default class GPURenderer {
         const tx = -this.cameraX * sx;
         const ty = -this.cameraY * sy;
 
-        // mat4x4 column-major
-        const view = new Float32Array([
-            sx, 0,  0, 0,
-            0,  sy, 0, 0,
-            0,  0,  1, 0,
-            tx, ty, 0, 1,
-        ]);
-
-        // Inverse: world = (clip - translate) / scale
+        // mat4x4 column-major — write directly into pre-allocated buffer
+        const f = _cameraF32;
+        // View matrix
+        f[0] = sx; f[1] = 0;  f[2] = 0; f[3] = 0;
+        f[4] = 0;  f[5] = sy; f[6] = 0; f[7] = 0;
+        f[8] = 0;  f[9] = 0;  f[10] = 1; f[11] = 0;
+        f[12] = tx; f[13] = ty; f[14] = 0; f[15] = 1;
+        // Inverse view matrix
         const isx = 1 / sx;
         const isy = 1 / sy;
-        const inv = new Float32Array([
-            isx, 0,   0, 0,
-            0,   isy, 0, 0,
-            0,   0,   1, 0,
-            -tx * isx, -ty * isy, 0, 1,
-        ]);
-
-        const data = new ArrayBuffer(256);
-        const f = new Float32Array(data);
-        f.set(view, 0);        // viewMatrix at offset 0 (64 bytes)
-        f.set(inv, 16);        // invViewMatrix at offset 64 (64 bytes)
-        f[32] = this.zoom;     // offset 128
+        f[16] = isx; f[17] = 0;   f[18] = 0; f[19] = 0;
+        f[20] = 0;   f[21] = isy; f[22] = 0; f[23] = 0;
+        f[24] = 0;   f[25] = 0;   f[26] = 1; f[27] = 0;
+        f[28] = -tx * isx; f[29] = -ty * isy; f[30] = 0; f[31] = 1;
+        // Extra uniforms
+        f[32] = this.zoom;
         f[33] = this.canvasWidth;
         f[34] = this.canvasHeight;
-        f[35] = this.isLight ? 0.0 : 1.0; // isDarkMode (0=light, 1=dark)
+        f[35] = this.isLight ? 0.0 : 1.0;
 
-        this.device.queue.writeBuffer(this.cameraBuffer, 0, data);
+        this.device.queue.writeBuffer(this.cameraBuffer, 0, _cameraData);
     }
 
     /**
@@ -442,15 +451,12 @@ export default class GPURenderer {
         const trailsDrawn = this._trailReady && this.showTrails && aliveCount > 0;
         if (trailsDrawn) {
             try {
-                // Write trail uniforms
-                const trailData = new ArrayBuffer(16);
-                const tu32 = new Uint32Array(trailData);
-                const tf32 = new Float32Array(trailData);
-                tu32[0] = TRAIL_LEN;
-                tf32[1] = this._domainW || 1;
-                tf32[2] = this._domainH || 1;
-                tf32[3] = 0;
-                this.device.queue.writeBuffer(this._trailUniformBuffer, 0, trailData);
+                // Write trail uniforms (pre-allocated buffer)
+                _trailU32[0] = TRAIL_LEN;
+                _trailF32[1] = this._domainW || 1;
+                _trailF32[2] = this._domainH || 1;
+                _trailF32[3] = 0;
+                this.device.queue.writeBuffer(this._trailUniformBuffer, 0, _trailData);
 
                 const trailEncoder = this.device.createCommandEncoder({ label: 'trail-render' });
                 const trailPass = trailEncoder.beginRenderPass({
@@ -681,23 +687,19 @@ export default class GPURenderer {
         pass.setPipeline(this._arrowPipeline);
         pass.setBindGroup(0, this._arrowBindGroup);
 
-        const data = new ArrayBuffer(32);
-        const u32 = new Uint32Array(data);
-        const f32 = new Float32Array(data);
-
         for (const ft of forceTypes) {
             const color = GPURenderer.FORCE_COLORS[ft] || [1, 1, 1];
 
-            u32[0] = ft;           // forceType
-            f32[1] = color[0];     // colorR
-            f32[2] = color[1];     // colorG
-            f32[3] = color[2];     // colorB
-            f32[4] = arrowScale;   // arrowScale
-            f32[5] = minMag;       // minMag
-            f32[6] = 0;            // pad0
-            f32[7] = 0;            // pad1
+            _arrowU32[0] = ft;
+            _arrowF32[1] = color[0];
+            _arrowF32[2] = color[1];
+            _arrowF32[3] = color[2];
+            _arrowF32[4] = arrowScale;
+            _arrowF32[5] = minMag;
+            _arrowF32[6] = 0;
+            _arrowF32[7] = 0;
 
-            this.device.queue.writeBuffer(this._arrowUniformBuffer, 0, data);
+            this.device.queue.writeBuffer(this._arrowUniformBuffer, 0, _arrowData);
             // 9 vertices per arrow (3 triangles), aliveCount instances
             pass.draw(9, aliveCount);
         }
@@ -711,16 +713,15 @@ export default class GPURenderer {
         pass.setPipeline(this._arrowPipeline);
         pass.setBindGroup(0, this._arrowBindGroup);
 
-        const data = new ArrayBuffer(32);
-        const u32 = new Uint32Array(data);
-        const f32 = new Float32Array(data);
-        u32[0] = forceType;
-        f32[1] = color[0];
-        f32[2] = color[1];
-        f32[3] = color[2];
-        f32[4] = arrowScale;
-        f32[5] = minMag;
-        this.device.queue.writeBuffer(this._arrowUniformBuffer, 0, data);
+        _arrowU32[0] = forceType;
+        _arrowF32[1] = color[0];
+        _arrowF32[2] = color[1];
+        _arrowF32[3] = color[2];
+        _arrowF32[4] = arrowScale;
+        _arrowF32[5] = minMag;
+        _arrowF32[6] = 0;
+        _arrowF32[7] = 0;
+        this.device.queue.writeBuffer(this._arrowUniformBuffer, 0, _arrowData);
         pass.draw(9, aliveCount);
     }
 
@@ -796,10 +797,9 @@ export default class GPURenderer {
         if (!this._fieldRenderReady || !fieldBuffer) return;
         this._ensureFieldRenderBG(which, fieldBuffer);
 
-        // Write FieldRenderUniforms
-        const data = new ArrayBuffer(128);
-        const f = new Float32Array(data);
-        const u = new Uint32Array(data);
+        // Write FieldRenderUniforms (pre-allocated buffer)
+        const f = _fieldRenderF32;
+        const u = _fieldRenderU32;
         f[0] = this.cameraX;
         f[1] = this.cameraY;
         f[2] = this.zoom;
@@ -809,11 +809,11 @@ export default class GPURenderer {
         f[6] = this._domainH || 1;
         u[7] = this.isLight ? 1 : 0;
         u[8] = which === 'higgs' ? 0 : 1;
-        // Colors: Higgs depleted=purple, enhanced=lime; Axion positive=indigo, negative=yellow
+        f[9] = 0; f[10] = 0; f[11] = 0; // clear padding
         const [c0, c1] = _fieldColors[which];
         f[12] = c0[0]; f[13] = c0[1]; f[14] = c0[2]; f[15] = 1.0;
         f[16] = c1[0]; f[17] = c1[1]; f[18] = c1[2]; f[19] = 1.0;
-        this.device.queue.writeBuffer(this._fieldRenderUniformBuffers[which], 0, data);
+        this.device.queue.writeBuffer(this._fieldRenderUniformBuffers[which], 0, _fieldRenderData);
 
         pass.setPipeline(this._fieldRenderPipeline);
         pass.setBindGroup(0, this._fieldRenderBindGroups[which]);
@@ -842,26 +842,23 @@ export default class GPURenderer {
             });
         }
 
-        // Write HeatmapRenderUniforms
-        const data = new ArrayBuffer(64);
-        const f = new Float32Array(data);
-        const u = new Uint32Array(data);
-        f[0] = this.cameraX;
-        f[1] = this.cameraY;
-        f[2] = this.zoom;
-        f[3] = this.canvasWidth;
-        f[4] = this.canvasHeight;
-        f[5] = opts.viewLeft || 0;
-        f[6] = opts.viewTop || 0;
-        f[7] = opts.cellW || 1;
-        f[8] = opts.cellH || 1;
-        f[9] = HEATMAP_SENSITIVITY;
-        f[10] = HEATMAP_MAX_ALPHA / 255;
-        u[11] = this.isLight ? 1 : 0;
-        u[12] = opts.doGravity ? 1 : 0;
-        u[13] = opts.doCoulomb ? 1 : 0;
-        u[14] = opts.doYukawa ? 1 : 0;
-        this.device.queue.writeBuffer(this._heatmapRenderUniformBuffer, 0, data);
+        // Write HeatmapRenderUniforms (pre-allocated buffer)
+        _heatmapRenderF32[0] = this.cameraX;
+        _heatmapRenderF32[1] = this.cameraY;
+        _heatmapRenderF32[2] = this.zoom;
+        _heatmapRenderF32[3] = this.canvasWidth;
+        _heatmapRenderF32[4] = this.canvasHeight;
+        _heatmapRenderF32[5] = opts.viewLeft || 0;
+        _heatmapRenderF32[6] = opts.viewTop || 0;
+        _heatmapRenderF32[7] = opts.cellW || 1;
+        _heatmapRenderF32[8] = opts.cellH || 1;
+        _heatmapRenderF32[9] = HEATMAP_SENSITIVITY;
+        _heatmapRenderF32[10] = HEATMAP_MAX_ALPHA / 255;
+        _heatmapRenderU32[11] = this.isLight ? 1 : 0;
+        _heatmapRenderU32[12] = opts.doGravity ? 1 : 0;
+        _heatmapRenderU32[13] = opts.doCoulomb ? 1 : 0;
+        _heatmapRenderU32[14] = opts.doYukawa ? 1 : 0;
+        this.device.queue.writeBuffer(this._heatmapRenderUniformBuffer, 0, _heatmapRenderData);
 
         pass.setPipeline(this._heatmapRenderPipeline);
         pass.setBindGroup(0, this._heatmapRenderBindGroup);
