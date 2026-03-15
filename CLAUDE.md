@@ -127,6 +127,7 @@ src/
       ring-render.wgsl         Dashed ring overlays (ergosphere + antimatter)
       trails.wgsl              Trail history recording
       hit-test.wgsl            Mouse→particle selection + data readback
+      compute-stats.wgsl       Aggregate stats reduction + selected particle readback
       field-render.wgsl        Scalar field 64×64 overlay
       heatmap-render.wgsl      Potential heatmap overlay
 ```
@@ -472,7 +473,7 @@ Instanced rendering via vertex shaders. Reads directly from GPU compute buffers 
 
 `GPUPhysics` in `gpu-physics.js` orchestrates all compute passes. `GPURenderer` in `gpu-renderer.js` handles instanced rendering. Pipelines and bind group layouts are created in `gpu-pipelines.js`. Buffers allocated in `gpu-buffers.js`. Constants generated at compile time by `gpu-constants.js`.
 
-**`gpu-constants.js`**: Single source of truth for JS→WGSL constant sharing. `buildWGSLConstants()` generates a WGSL `const` declaration block from `config.js` exports and `_PALETTE` hex→RGB conversions. Prepended to all shaders at pipeline creation. Includes physics constants, grid sizes, toggle bit definitions (FLAG_*, *_BIT), boundary/collision mode enums, and palette colors as `vec3f`.
+**`gpu-constants.js`**: Single source of truth for JS→WGSL constant sharing. `buildWGSLConstants()` generates a WGSL `const` declaration block from `config.js` exports and `_PALETTE` hex→RGB conversions. Prepended to all shaders at pipeline creation. Includes physics constants (YUKAWA_COUPLING, AXION_COUPLING, INERTIA_K, etc.), grid sizes, toggle bit definitions (FLAG_*, *_BIT), boundary/collision mode enums, and palette colors as `vec3f`. Also exports JS-side toggle bit constants (`GRAVITY_BIT`, `COULOMB_BIT`, etc.) matching the WGSL block — used by `gpu-physics.js` for `setToggles()` packing and `serialize()` toggle decode.
 
 **Dispatch sequence per substep** (all in one command encoder per substep):
 
@@ -491,7 +492,7 @@ Instanced rendering via vertex shaders. Reads directly from GPU compute buffers 
 12. Boson update (photon/pion drift, absorption, decay) → pair production
 13. Boundary conditions
 
-Post-substep (once per frame, separate encoder): heatmap, boson gravity, dead GC, history recording, quadrupole radiation (3 passes: CoM → d³ contrib → apply+emit), updateColors, trail recording, hit test dispatch (when pending).
+Post-substep (once per frame, separate encoder): heatmap, boson gravity, dead GC, history recording, quadrupole radiation (3 passes: CoM → d³ contrib → apply+emit), updateColors, trail recording, hit test dispatch (when pending), stats compute dispatch (when requested at STATS_THROTTLE_MASK rate).
 
 ### Packed Struct Buffers
 
@@ -556,13 +557,14 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 ### GPU ↔ CPU Sync
 
 - `addParticle()` writes packed `ParticleState` (36B) + `ParticleAux` (20B) + `color` (4B) + `axYukMod` (8B, initialized to 1.0/1.0) + `radiationState` (32B, zeroed) via `queue.writeBuffer()`
-- `setToggles(physics)` packs CPU toggle booleans into `toggles0`/`toggles1` u32 bitfields. Called from `ui.js` `updateAllDeps()` on every toggle change AND from `_syncSlidersToGPU()` on every slider change. Heatmap state passed via `Object.create(sim.physics)` with `heatmapEnabled` added.
+- `setToggles(physics)` packs CPU toggle booleans into `toggles0`/`toggles1` u32 bitfields (using named constants from `gpu-constants.js`) and caches all individual `_xxxEnabled` booleans. Called from `ui.js` `updateAllDeps()` on every toggle change AND from `_syncSlidersToGPU()` on every slider change. Heatmap state passed via `Object.create(sim.physics)` with `heatmapEnabled` added.
 - `_writeFieldUniforms(dt)` writes `FieldUniforms` struct to shared field uniform buffer (used by field forces pass). Must match `field-common.wgsl` `FieldUniforms` struct layout exactly. `_writePerFieldUniforms(dt, fieldType)` writes to per-field dedicated uniform buffers (`_higgsUniformBuffer`/`_axionUniformBuffer`) with `currentFieldType` baked in — eliminates encoder split when both Higgs and Axion are active.
 - Slider changes (yukawaMu, axionMass, higgsMass, external fields, bounceFriction, hubbleParam) sync to GPU via `_syncSlidersToGPU()` → `setToggles()` on every slider `input` event. Values are cached in `_yukawaMu`, `_higgsMass`, etc. and written to uniforms each substep.
 - `serialize()`/`deserialize()` read/write full particle state via staging buffers for save/load and GPU→CPU toggle. `deserialize()` initializes `axYukMod` to (1,1), zeroes `radiationState`, and restores slider parameters (`higgsMass`, `axionMass`, `yukawaMu`, `hubbleParam`). `serialize()` also used by GPU toggle-off in `ui.js` to rebuild CPU `particles[]` array from GPU readback.
 - **GPU hit test** (`hitTest()`/`readHitResult()`): Dispatches single-thread `hit-test.wgsl` compute shader that walks the quadtree (always built every substep). Reads `ParticleDerived` (binding 5) for live velocity/angVel. Async readback via 48-byte staging buffer, 1-frame latency. `readHitResult()` returns `null` (not ready), `{ index: -1 }` (no hit), or `{ index, mass, charge, radius, velX, velY, angVel, posX, posY }` with GPU-fresh data. Input handler defers click actions (select/delete/spawn) in GPU mode until result arrives via `pollGPUHitResult()`. Hover tooltip uses readback data directly (not stale CPU-side values). `_deleteByGpuIdx()` handles deleting GPU-only particles without CPU counterpart.
+- **GPU stats readback** (`requestStats()`/`readStats()`): Dispatches single-thread `compute-stats.wgsl` at `STATS_THROTTLE_MASK` rate (every 8th frame). Computes aggregate KE (linear + spin, relativistic), O(N²) PE (all 9 pair terms: gravity, Coulomb w/ axMod, magnetic/GM dipole, 1PN EIH/Darwin/Bazanski, Yukawa w/ yukMod, Scalar Breit), Darwin field energy/momentum, scalar field energy (64×64 grid reduction for Higgs/Axion), scalar field momentum, particle-field interaction energy (PQS interpolation). Also copies selected particle's full state + all 11 force vectors. Two bind groups: group 0 (particles + derived + forces + axYukMod + stats buffer), group 1 (higgs/axion field + fieldDot, dummy buffers when inactive). 512-byte output via double-buffered staging. `readStats()` returns `{ linearKE, spinKE, px, py, pe, fieldEnergy, fieldPx, fieldPy, higgsFieldEnergy, axionFieldEnergy, pfiEnergy, scalarFieldMomX/Y, orbitalAngMom, spinAngMom, selected: {...} }`. `updateEnergyGPU()`/`updateSelectedGPU()` on StatsDisplay format readback for sidebar. Hover tooltip refreshes every 8th frame via `refreshTooltip()`.
 - **Save/load GPU path**: `saveState()` uses `serialize()` (async GPU readback). `loadState()` uses `deserialize()` (uploads to GPU), clears CPU-side state, restores toggles/modes to CPU physics for UI sync, then syncs GPU toggles/modes. Does NOT call `sim.reset()` after deserialize (would wipe loaded particles).
-- CPU-side `particles[]` array maintained for presets and CPU mode. Not synced from GPU during GPU mode — positions stale. Sidebar stats/plots/energy skipped in GPU mode (read stale data). GPU renders directly from buffers.
+- CPU-side `particles[]` array maintained for presets and CPU mode. Not synced from GPU during GPU mode — positions stale. GPU renders directly from buffers; sidebar stats computed by `compute-stats.wgsl` readback.
 - `device.lost` handler falls back to CPU mode, restores from periodic auto-save
 
 ### GPU Renderer
