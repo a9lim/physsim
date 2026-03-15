@@ -103,7 +103,8 @@ src/
       quadrupole.wgsl          Quadrupole radiation: CoM reduce, d³I/d³Q reduce, apply+emit (3 entries)
       bosons.wgsl              Photon/pion drift, lensing, absorption, decay (5 entry points)
       boson-tree.wgsl          Boson BH tree: insert, aggregate, particle↔boson gravity
-      history.wgsl             Signal delay history ring buffer recording
+      signal-delay-common.wgsl Shared NR light-cone solver, getDelayedStateGPU(), interleaved history access
+      history.wgsl             Signal delay history ring buffer recording (recordHistory only)
       onePN.wgsl               1PN compute + velocity-Verlet correction kick
       --- Phase 5: Scalar fields & extras (field-common.wgsl or standalone) ---
       field-deposit.wgsl       PQS particle→grid deposition (scatter/gather)
@@ -353,6 +354,8 @@ Auto-activates with Relativity. Per-particle circular history buffers (Float64Ar
 
 Dead particles: always pairwise (even when BH on), excluded from `compute1PN()`. All reset paths clear `deadParticles`. `_retireParticle()` must be called BEFORE array removal.
 
+**GPU signal delay**: Full CPU parity. Force shaders (`pair-force.wgsl`, `forces-tree.wgsl`, `onePN.wgsl`) use `getDelayedStateGPU()` from `signal-delay-common.wgsl` to look up retarded positions/velocities from interleaved history ring buffers. Dead/retired particles exert forces via signal delay fade-out (RETIRED flag + deathTime/deathMass/deathAngVel). Aberration factor `(1 - n̂·v)^{-3}` applied to all force paths. History buffers bound as group 3 (histData + histMeta).
+
 ### Spin-Orbit Coupling
 
 Requires Magnetic + GM + Spin-Orbit toggle. Stern-Gerlach `F = +μ·∇(Bz)`, Mathisson-Papapetrou `F = -L·∇(Bgz)` (GEM flip). Into `forceSpinCurv`.
@@ -479,14 +482,14 @@ Instanced rendering via vertex shaders. Reads directly from GPU compute buffers 
 
 1. Ghost generation (periodic boundary)
 2. Tree build (always — used by collisions, hit test, and optionally BH force computation)
-3. resetForces → cacheDerived → pairForce (or treeForce if BH enabled) → externalFields
+3. resetForces → cacheDerived → pairForce (or treeForce if BH enabled, both with signal delay history in group 3) → externalFields
 4. Scalar field forces (Higgs gradient + mass mod, Axion gradient + axMod/yukMod) — BEFORE Boris
 4b. Particle-field gravity (O(N×GRID²), if fieldGravEnabled) — uses energyDensity from prior self-grav
 5. saveF1pn (save 1PN forces for velocity-Verlet correction)
 6. Boris integrator: **fused** halfKick+rotate+halfKick (single dispatch) → spinOrbit → applyTorques
 7. Radiation reaction (Larmor, Hawking, pion emission)
 8. borisDrift → expansion
-9. 1PN velocity-Verlet correction (recompute + correction kick using saved f1pnOld)
+9. 1PN velocity-Verlet correction (recompute + correction kick using saved f1pnOld, signal delay history in group 3)
 10. Scalar field evolution (deposit → [self-grav] → KDK → gradients)
 11. Collisions → field excitations → disintegration
 12. Boson update (photon/pion drift, absorption, decay) → pair production
@@ -503,7 +506,7 @@ WebGPU limits storage buffers to `maxStorageBuffersPerShaderStage` (typically 10
 | `ParticleState` | 36B | posX/Y, velWX/Y, mass, charge, angW, baseMass, flags | 9 fields → 1 buffer |
 | `ParticleAux` | 20B | radius, particleId, deathTime, deathMass, deathAngVel | 5 fields → 1 buffer |
 | `ParticleDerived` | 32B | magMoment, angMomentum, invMass, radiusSq, velX/Y, angVel | 7+pad fields → 1 buffer |
-| `AllForces` | 160B | 11 force vec2s, 3 torques, B-fields, B-gradients, totalForce | 10 vec4s → 1 buffer |
+| `AllForces` | 160B | 11 force vec2s, 3 torques, B-fields, B-gradients, totalForce, jerk (analytical, for Larmor) | 10 vec4s → 1 buffer |
 | `RadiationState` | 96B | jerkX/Y, radAccum, hawkAccum, yukawaRadAccum, radDisplayX/Y, qRes history, quadAccum, emQuadAccum, d3I/QContrib scratch, Larmor backward-diff history (otherFx0/Fy0/Fx1/Fy1/otherCount) | 24 fields → 1 buffer |
 | `Photon` | 32B | phPosX/Y, phVelX/Y, phEnergy, phEmitterId, phLifetime, phFlags | 8 fields → 1 buffer |
 | `Pion` | 48B | piPosX/Y, piWX/Y, piMass, piCharge, piEnergy, piEmitterId, piAge, piFlags | 10+2pad fields → 1 buffer |
@@ -516,12 +519,12 @@ Worst-case pipeline (radiation) uses 10 storage buffers (was 42 before packing).
 - `allForces`, `radiationState`, `color`, `f1pnOld`: `MAX_PARTICLES` (no ghost forces)
 - `photonPool`: `MAX_PHOTONS (1024)`, `pionPool`: `MAX_PIONS (256)` — separate atomic counters (`phCount`, `piCount`)
 - Ghost buffers: `ghostState`, `ghostAux`, `ghostDerived` — same structs, `MAX_PARTICLES` capacity
-- History: `histPosX/Y/VelWX/VelWY/AngW/Time`: `MAX_PARTICLES × 256` ring buffers (lazy-allocated)
+- History: `histData` (interleaved f32, stride 6: posX/posY/velX/velY/angW/time, `MAX_PARTICLES × 256 × 6`) + `histMeta` (4 u32 per particle: writeIdx/count/creationTimeBits/_pad) — lazy-allocated
 - Trail buffers: `trailX/Y`, `trailWriteIdx`, `trailCount` — lazy-allocated via `setTrailsEnabled()`
 
 ### Shader Organization
 
-**Prepended shaders** (get `common.wgsl` concatenated before compilation): All Phase 2 shaders + `boundary.wgsl`. Use `SimUniforms`, `ParticleState`, etc. from common.wgsl.
+**Prepended shaders** (get `common.wgsl` concatenated before compilation): All Phase 2 shaders + `boundary.wgsl`. Use `SimUniforms`, `ParticleState`, etc. from common.wgsl. Force shaders (`pair-force.wgsl`, `forces-tree.wgsl`, `onePN.wgsl`) also get `signal-delay-common.wgsl` prepended for `getDelayedStateGPU()`.
 
 **Field shaders** (get `field-common.wgsl` prepended): `field-deposit.wgsl`, `field-evolve.wgsl`, `field-forces.wgsl`, `field-selfgrav.wgsl`, `field-excitation.wgsl`, `field-render.wgsl`, `heatmap-render.wgsl`.
 
@@ -591,6 +594,7 @@ All GPU compute shaders enforce defensive numerical guards to prevent NaN/Inf pr
 - Theme: `data-theme` on `<html>` (not body)
 - `.mode-toggles` sets `display: grid` overriding `hidden` — use `style.display`
 - External field trig cached once per frame via `_cacheExternalFields()`
+- `signal-delay-common.wgsl` prepend pattern: like `common.wgsl`, prepended to force shaders that need signal delay lookup (pair-force, forces-tree, onePN). Contains `getDelayedStateGPU()` NR solver and interleaved history access helpers.
 - `forceRadiation` cleared for all particles before substep loop (stale prevention)
 - History recording counts `update()` calls, not substeps
 - `sim.clearBosons()` releases photons/pions to pools and truncates arrays — use on preset load, clear, save-load
