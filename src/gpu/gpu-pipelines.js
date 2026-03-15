@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 24;
+const SHADER_VERSION = 25;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 async function fetchShader(filename, prepend = '') {
@@ -25,6 +25,7 @@ async function fetchShader(filename, prepend = '') {
  */
 export async function createPhase2Pipelines(device, wgslConstants = '') {
     const commonWGSL = wgslConstants + '\n' + await fetchShader('common.wgsl');
+    const signalDelayWGSL = await fetchShader('signal-delay-common.wgsl');
 
     async function makePipeline(label, filename, layouts) {
         const code = commonWGSL + '\n' + await fetchShader(filename);
@@ -68,12 +69,30 @@ export async function createPhase2Pipelines(device, wgslConstants = '') {
     // Group 2: allForces (rw) + maxAccel (rw) = 2 storage
     // Group 3: histData (rw) + histMeta (rw) = 2 storage
     // Total: 8 storage buffers per stage
-    const pairForce = await makePipeline('pairForce', 'pair-force.wgsl', [
-        ['uniform'],
-        ['storage', 'storage', 'storage', 'storage'],
-        ['storage', 'storage'],
-        ['storage', 'storage'],
-    ]);
+    // Prepend signal-delay-common.wgsl for getDelayedStateGPU()
+    const pairForceCode = commonWGSL + '\n' + signalDelayWGSL + '\n'
+        + await fetchShader('pair-force.wgsl');
+    const pairForce = await (async () => {
+        const module = device.createShaderModule({ label: 'pairForce', code: pairForceCode });
+        const layouts = [['uniform'], ['storage', 'storage', 'storage', 'storage'],
+            ['storage', 'storage'], ['storage', 'storage']];
+        const bindGroupLayouts = layouts.map((entries, groupIdx) =>
+            device.createBindGroupLayout({
+                label: `pairForce_group${groupIdx}`,
+                entries: entries.map((entry, i) => ({
+                    binding: i,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: entry },
+                })),
+            })
+        );
+        const pipeline = device.createComputePipeline({
+            label: 'pairForce',
+            layout: device.createPipelineLayout({ bindGroupLayouts }),
+            compute: { module, entryPoint: 'main' },
+        });
+        return { pipeline, bindGroupLayouts };
+    })();
 
     // --- externalFields ---
     // uniforms + particleState (rw) + allForces (rw) = 2 storage

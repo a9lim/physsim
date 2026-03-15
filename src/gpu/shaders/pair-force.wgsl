@@ -2,10 +2,15 @@
 // Each workgroup loads TILE_SIZE source particles into shared memory,
 // then each thread accumulates forces from all sources onto its particle.
 //
-// Ports CPU pairForce() from forces.js. Includes signal delay aberration (Phase 4).
+// Ports CPU pairForce() from forces.js. Signal delay: when relativity is on,
+// each source uses retarded position/velocity from history via getDelayedStateGPU().
+// Dead/retired particles exert forces via signal delay fade-out (scanned after tile loop).
+// Aberration factor (1 - n_hat . v_source)^{-3} applied with retarded velocity.
+//
 // No Barnes-Hut (Phase 3). All force types gated by toggle bits.
 //
 // Uses packed ParticleState + ParticleDerived + ParticleAux structs. Jerk written to AllForces.
+// Requires signal-delay-common.wgsl prepended (provides getDelayedStateGPU, DelayedState).
 
 const TILE_SIZE: u32 = 64u;
 
@@ -23,6 +28,7 @@ struct TileParticle {
     axMod: f32,
     yukMod: f32,
     radiusSq: f32,  // body radius squared for tidal locking
+    srcIdx: u32,     // global index for signal delay lookup
 };
 
 var<workgroup> tile: array<TileParticle, TILE_SIZE>;
@@ -48,6 +54,296 @@ var<workgroup> tile: array<TileParticle, TILE_SIZE>;
 // Aberration constants
 const ABERRATION_CLAMP_MIN: f32 = 0.01;
 const ABERRATION_CLAMP_MAX: f32 = 100.0;
+
+// ── Source data struct for force computation (used by both tile loop and dead loop) ──
+struct SourceData {
+    posX: f32, posY: f32,
+    velX: f32, velY: f32,
+    mass: f32, charge: f32,
+    angVel: f32, magMoment: f32, angMomentum: f32,
+    axMod: f32, yukMod: f32,
+    useAberration: bool,
+};
+
+// ── Force accumulator struct (passed by pointer to helper) ──
+struct ForceAccum {
+    gravX: f32, gravY: f32,
+    coulX: f32, coulY: f32,
+    magX: f32, magY: f32,
+    gmX: f32, gmY: f32,
+    pnX: f32, pnY: f32,
+    yukX: f32, yukY: f32,
+    totalX: f32, totalY: f32,
+    jerkX: f32, jerkY: f32,
+    bz: f32, bgz: f32,
+    dbzdx: f32, dbzdy: f32,
+    dbgzdx: f32, dbgzdy: f32,
+    frameDrag: f32, tidal: f32,
+};
+
+// ── Accumulate pairwise forces from one source onto the observer ──
+// Modifies accum in-place. All toggle/config params are module-scope or passed explicitly.
+fn accumulatePairForce(
+    pPosX: f32, pPosY: f32, pVelX: f32, pVelY: f32,
+    pMass: f32, pCharge: f32, pAngVel: f32,
+    pMagMom: f32, pAngMom: f32,
+    pAxMod: f32, pYukMod: f32,
+    pRi5: f32,
+    src: SourceData,
+    softeningSq: f32,
+    yukMu: f32, yukCutoffSq: f32,
+    gravOn: bool, coulOn: bool, magOn: bool, gmOn: bool,
+    onePNOn: bool, yukawaOn: bool, radOn: bool,
+    needAxMod: bool, isPeriodic: bool,
+    accum: ptr<function, ForceAccum>,
+) {
+    // Minimum image displacement (full topology: Torus/Klein/RP2)
+    var rx: f32;
+    var ry: f32;
+    if (isPeriodic) {
+        let mi = fullMinImage(pPosX, pPosY, src.posX, src.posY);
+        rx = mi.x;
+        ry = mi.y;
+    } else {
+        rx = src.posX - pPosX;
+        ry = src.posY - pPosY;
+    }
+
+    let rawRSq = rx * rx + ry * ry;
+    let rSq = rawRSq + softeningSq;
+    let invRSq = 1.0 / rSq;
+    let invR = sqrt(invRSq);
+    let invR3 = invR * invRSq;
+    let invR5 = invR3 * invRSq;
+
+    // Lienard-Wiechert aberration: (1 - n_hat . v_source)^{-3}
+    var aberr: f32 = 1.0;
+    if (src.useAberration) {
+        let nDotV = -(rx * src.velX + ry * src.velY) * invR;
+        let denom = max(1.0 - nDotV, ABERRATION_CLAMP_MIN);
+        aberr = min(1.0 / (denom * denom * denom), ABERRATION_CLAMP_MAX);
+    }
+    let invR3a = select(invR3, invR3 * aberr, src.useAberration);
+    let invR5a = select(invR5, invR5 * aberr, src.useAberration);
+
+    // Relative velocity for jerk computation
+    let vrx = src.velX - pVelX;
+    let vry = src.velY - pVelY;
+    let rDotVr = rx * vrx + ry * vry;
+
+    // (v_s x r)_z for Biot-Savart
+    let crossSV = src.velX * ry - src.velY * rx;
+
+    // Axion modulation (geometric mean, guarded against negative products)
+    let axModPair = select(1.0, sqrt(max(pAxMod * src.axMod, 0.0)), needAxMod);
+
+    // -- Gravity --
+    if (gravOn) {
+        let k = pMass * src.mass;
+        let fDir = k * invR3a;
+        (*accum).gravX += rx * fDir;
+        (*accum).gravY += ry * fDir;
+        (*accum).totalX += rx * fDir;
+        (*accum).totalY += ry * fDir;
+
+        if (radOn) {
+            let jRadial = -3.0 * rDotVr * k * invRSq * invR3a;
+            (*accum).jerkX += vrx * fDir + rx * jRadial;
+            (*accum).jerkY += vry * fDir + ry * jRadial;
+        }
+
+        // Tidal locking torque
+        let crossRV = rx * (src.velY - pVelY) - ry * (src.velX - pVelX);
+        let wOrbit = crossRV * invRSq;
+        let dw = pAngVel - wOrbit;
+        var coupling = src.mass;
+        if (coulOn && pMass > EPSILON) {
+            coupling += pCharge * src.charge / pMass;
+        }
+        let invR6 = invRSq * invRSq * invRSq;
+        (*accum).tidal -= TIDAL_STRENGTH * coupling * coupling * pRi5 * invR6 * dw;
+    }
+
+    // -- Coulomb --
+    if (coulOn) {
+        let k = -(pCharge * src.charge) * axModPair;
+        let fDir = k * invR3a;
+        (*accum).coulX += rx * fDir;
+        (*accum).coulY += ry * fDir;
+        (*accum).totalX += rx * fDir;
+        (*accum).totalY += ry * fDir;
+
+        if (radOn) {
+            let jRadial = -3.0 * rDotVr * k * invRSq * invR3a;
+            (*accum).jerkX += vrx * fDir + rx * jRadial;
+            (*accum).jerkY += vry * fDir + ry * jRadial;
+        }
+    }
+
+    // -- 1PN EIH (gravity) --
+    if (onePNOn && gmOn) {
+        let r = 1.0 / invR;
+        let nx = rx * invR;
+        let ny = ry * invR;
+        let v1Sq = pVelX * pVelX + pVelY * pVelY;
+        let v2Sq = src.velX * src.velX + src.velY * src.velY;
+        let nDotV1 = nx * pVelX + ny * pVelY;
+        let nDotV2 = nx * src.velX + ny * src.velY;
+        let radial = -v1Sq - 2.0 * v2Sq
+            + 1.5 * nDotV2 * nDotV2
+            + 5.0 * pMass * invR + 4.0 * src.mass * invR;
+        let v1Coeff = 4.0 * nDotV1 - 3.0 * nDotV2;
+        let v2Coeff = 3.0 * nDotV2;
+        let base = src.mass * invR3;
+        let fx = base * (rx * radial + (pVelX * v1Coeff + src.velX * v2Coeff) * r);
+        let fy = base * (ry * radial + (pVelY * v1Coeff + src.velY * v2Coeff) * r);
+        (*accum).pnX += fx;
+        (*accum).pnY += fy;
+        (*accum).totalX += fx;
+        (*accum).totalY += fy;
+    }
+
+    // -- 1PN Darwin EM --
+    if (onePNOn && magOn) {
+        let nx = rx * invR;
+        let ny = ry * invR;
+        let v2DotN = src.velX * nx + src.velY * ny;
+        let v1DotN = pVelX * nx + pVelY * ny;
+        let coeff = 0.5 * pCharge * src.charge * invRSq;
+        let fx = coeff * (pVelX * v2DotN - 3.0 * nx * v1DotN * v2DotN);
+        let fy = coeff * (pVelY * v2DotN - 3.0 * ny * v1DotN * v2DotN);
+        (*accum).pnX += fx;
+        (*accum).pnY += fy;
+        (*accum).totalX += fx;
+        (*accum).totalY += fy;
+    }
+
+    // -- 1PN Bazanski (mixed gravity+EM) --
+    if (onePNOn && gmOn && magOn) {
+        let crossCoeff = pCharge * src.charge * (pMass + src.mass)
+            - (pCharge * pCharge * src.mass + src.charge * src.charge * pMass);
+        let fDir = crossCoeff * invRSq * invRSq;
+        (*accum).pnX += rx * fDir;
+        (*accum).pnY += ry * fDir;
+        (*accum).totalX += rx * fDir;
+        (*accum).totalY += ry * fDir;
+    }
+
+    // -- Magnetic dipole-dipole --
+    if (magOn) {
+        let fDir = 3.0 * (pMagMom * src.magMoment) * invR5a * axModPair;
+        (*accum).magX += rx * fDir;
+        (*accum).magY += ry * fDir;
+        (*accum).totalX += rx * fDir;
+        (*accum).totalY += ry * fDir;
+
+        // Bz from moving charge (Biot-Savart)
+        let BzMoving = src.charge * crossSV * invR3 * axModPair;
+        (*accum).bz += BzMoving;
+
+        // dBz gradients for spin-orbit
+        (*accum).dbzdx += 3.0 * BzMoving * rx * invRSq + src.charge * src.velY * invR3 * axModPair;
+        (*accum).dbzdy += 3.0 * BzMoving * ry * invRSq - src.charge * src.velX * invR3 * axModPair;
+
+        // Dipole-sourced Bz: -mu/r^3
+        (*accum).bz -= src.magMoment * invR3 * axModPair;
+        (*accum).dbzdx -= 3.0 * src.magMoment * rx * invR5 * axModPair;
+        (*accum).dbzdy -= 3.0 * src.magMoment * ry * invR5 * axModPair;
+    }
+
+    // -- Gravitomagnetic dipole-dipole --
+    if (gmOn) {
+        let fDir = 3.0 * (pAngMom * src.angMomentum) * invR5a;
+        (*accum).gmX += rx * fDir;
+        (*accum).gmY += ry * fDir;
+        (*accum).totalX += rx * fDir;
+        (*accum).totalY += ry * fDir;
+
+        // Bgz from moving mass: -m_s(v_s x r_hat)_z / r^2
+        let BgzMoving = -src.mass * crossSV * invR3;
+        (*accum).bgz += BgzMoving;
+
+        // dBgz gradients for spin-orbit
+        (*accum).dbgzdx += 3.0 * BgzMoving * rx * invRSq - src.mass * src.velY * invR3;
+        (*accum).dbgzdy += 3.0 * BgzMoving * ry * invRSq + src.mass * src.velX * invR3;
+
+        // Spin-sourced Bgz: -2L/r^3
+        (*accum).bgz -= 2.0 * src.angMomentum * invR3;
+        (*accum).dbgzdx -= 6.0 * src.angMomentum * rx * invR5;
+        (*accum).dbgzdy -= 6.0 * src.angMomentum * ry * invR5;
+
+        // Frame-dragging torque: aligns spins toward co-rotation
+        (*accum).frameDrag += 2.0 * src.angMomentum * (src.angVel - pAngVel) * invR3;
+    }
+
+    // -- Yukawa --
+    if (yukawaOn && rawRSq < yukCutoffSq) {
+        let r_dist = 1.0 / invR;
+        let muR = yukMu * r_dist;
+        let expMuR = select(0.0, exp(-muR), muR < 80.0);
+        let yukModPair = sqrt(max(pYukMod * src.yukMod, 0.0));
+        let yukCoupling = uniforms.yukawaCoupling;
+        let yukInvRa = select(invR, invR * aberr, src.useAberration);
+        let fDir = yukCoupling * yukModPair * pMass * src.mass * expMuR
+                   * (invRSq + yukMu * invR) * yukInvRa;
+        (*accum).yukX += rx * fDir;
+        (*accum).yukY += ry * fDir;
+        (*accum).totalX += rx * fDir;
+        (*accum).totalY += ry * fDir;
+
+        if (radOn) {
+            let jRadial = -(3.0 * invRSq + 3.0 * yukMu * invR + yukMu * yukMu)
+                          * rDotVr * yukCoupling * yukModPair * pMass * src.mass
+                          * expMuR * invRSq * yukInvRa;
+            (*accum).jerkX += vrx * fDir + rx * jRadial;
+            (*accum).jerkY += vry * fDir + ry * jRadial;
+        }
+
+        // Scalar Breit 1PN correction
+        if (onePNOn) {
+            let nx = rx * invR;
+            let ny = ry * invR;
+            let nDotV1 = nx * pVelX + ny * pVelY;
+            let nDotV2 = nx * src.velX + ny * src.velY;
+            let v1DotV2 = pVelX * src.velX + pVelY * src.velY;
+            let alpha = 1.0 + yukMu * r_dist;
+            let beta = 0.5 * yukCoupling * yukModPair * pMass * src.mass * expMuR * invRSq;
+            let radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1.0) * nDotV1 * nDotV2);
+            let fx = beta * (radial * nx + alpha * (nDotV2 * pVelX + nDotV1 * src.velX));
+            let fy = beta * (radial * ny + alpha * (nDotV2 * pVelY + nDotV1 * src.velY));
+            (*accum).pnX += fx;
+            (*accum).pnY += fy;
+            (*accum).totalX += fx;
+            (*accum).totalY += fy;
+        }
+    }
+}
+
+// ── Build a SourceData from signal-delayed state ──
+fn makeDelayedSource(
+    delayed: DelayedState,
+    sMass: f32, sCharge: f32,
+    sAxMod: f32, sYukMod: f32,
+    bodyRadSq: f32,
+) -> SourceData {
+    var src: SourceData;
+    src.posX = delayed.x;
+    src.posY = delayed.y;
+    src.velX = delayed.vx;
+    src.velY = delayed.vy;
+    src.mass = sMass;
+    src.charge = sCharge;
+    // Recompute dipole moments from retarded angw
+    let retAngwSq = delayed.angw * delayed.angw;
+    let sAngVel = delayed.angw / sqrt(1.0 + retAngwSq * bodyRadSq);
+    src.angVel = sAngVel;
+    src.magMoment = MAG_MOMENT_K * sCharge * sAngVel * bodyRadSq;
+    src.angMomentum = INERTIA_K * sMass * sAngVel * bodyRadSq;
+    src.axMod = sAxMod;
+    src.yukMod = sYukMod;
+    src.useAberration = true;
+    return src;
+}
 
 @compute @workgroup_size(TILE_SIZE)
 fn main(
@@ -128,38 +424,32 @@ fn main(
     // Signal delay is active when relativity is on
     let signalDelayed = relOn;
 
-    // Per-thread accumulators
-    var accGravX: f32 = 0.0; var accGravY: f32 = 0.0;
-    var accCoulX: f32 = 0.0; var accCoulY: f32 = 0.0;
-    var accMagX: f32 = 0.0; var accMagY: f32 = 0.0;
-    var accGMX: f32 = 0.0; var accGMY: f32 = 0.0;
-    var acc1PNX: f32 = 0.0; var acc1PNY: f32 = 0.0;
-    var accYukX: f32 = 0.0; var accYukY: f32 = 0.0;
-    var accTotalX: f32 = 0.0; var accTotalY: f32 = 0.0;
-    // Jerk accumulators for radiation (analytical component)
-    var accJerkX: f32 = 0.0; var accJerkY: f32 = 0.0;
-
-    // B-field accumulators
-    var accBz: f32 = 0.0;
-    var accBgz: f32 = 0.0;
-    var accDBzdx: f32 = 0.0; var accDBzdy: f32 = 0.0;
-    var accDBgzdx: f32 = 0.0; var accDBgzdy: f32 = 0.0;
-
-    // Torque accumulators
-    var accFrameDrag: f32 = 0.0;
-    var accTidal: f32 = 0.0;
+    // Per-thread force accumulator
+    var accum: ForceAccum;
+    accum.gravX = 0.0; accum.gravY = 0.0;
+    accum.coulX = 0.0; accum.coulY = 0.0;
+    accum.magX = 0.0; accum.magY = 0.0;
+    accum.gmX = 0.0; accum.gmY = 0.0;
+    accum.pnX = 0.0; accum.pnY = 0.0;
+    accum.yukX = 0.0; accum.yukY = 0.0;
+    accum.totalX = 0.0; accum.totalY = 0.0;
+    accum.jerkX = 0.0; accum.jerkY = 0.0;
+    accum.bz = 0.0; accum.bgz = 0.0;
+    accum.dbzdx = 0.0; accum.dbzdy = 0.0;
+    accum.dbgzdx = 0.0; accum.dbgzdy = 0.0;
+    accum.frameDrag = 0.0; accum.tidal = 0.0;
 
     // Number of tiles needed to cover all particles
     let numTiles = (N + TILE_SIZE - 1u) / TILE_SIZE;
 
     for (var t: u32 = 0u; t < numTiles; t++) {
         // Collaborative tile load: each thread loads one source particle
-        let srcIdx = t * TILE_SIZE + localIdx;
-        if (srcIdx < N && (particles[srcIdx].flags & FLAG_ALIVE) != 0u) {
-            let sp = particles[srcIdx];
+        let tileSrcIdx = t * TILE_SIZE + localIdx;
+        if (tileSrcIdx < N && (particles[tileSrcIdx].flags & FLAG_ALIVE) != 0u) {
+            let sp = particles[tileSrcIdx];
             tile[localIdx].posX = sp.posX;
             tile[localIdx].posY = sp.posY;
-            let sd = derived[srcIdx];
+            let sd = derived[tileSrcIdx];
             tile[localIdx].velX = sd.velX;
             tile[localIdx].velY = sd.velY;
             tile[localIdx].mass = sp.mass;
@@ -167,13 +457,15 @@ fn main(
             tile[localIdx].angVel = sd.angVel;
             tile[localIdx].magMoment = sd.magMoment;
             tile[localIdx].angMomentum = sd.angMomentum;
-            let saym = axYukMod[srcIdx];
+            let saym = axYukMod[tileSrcIdx];
             tile[localIdx].axMod = saym.x;
             tile[localIdx].yukMod = saym.y;
             tile[localIdx].radiusSq = sd.radiusSq;
+            tile[localIdx].srcIdx = tileSrcIdx;
         } else {
             // Mark as invalid (zero mass = no force contribution)
             tile[localIdx].mass = 0.0;
+            tile[localIdx].srcIdx = 0xFFFFFFFFu;
         }
 
         workgroupBarrier();
@@ -186,268 +478,124 @@ fn main(
                 let s = tile[j];
                 if (s.mass < EPSILON) { continue; }
 
-                // Minimum image displacement (full topology: Torus/Klein/RP2)
-                var rx: f32;
-                var ry: f32;
-                if (isPeriodic) {
-                    let mi = fullMinImage(pPosX, pPosY, s.posX, s.posY);
-                    rx = mi.x;
-                    ry = mi.y;
-                } else {
-                    rx = s.posX - pPosX;
-                    ry = s.posY - pPosY;
-                }
-
-                let rawRSq = rx * rx + ry * ry;
-                let rSq = rawRSq + softeningSq;
-                let invRSq = 1.0 / rSq;
-                let invR = sqrt(invRSq);
-                let invR3 = invR * invRSq;
-                let invR5 = invR3 * invRSq;
-
-                // Lienard-Wiechert aberration: (1 - n_hat . v_source)^{-3}
-                // n_hat = unit vector from source to observer = (-rx, -ry) / r
-                var aberr: f32 = 1.0;
+                // Build SourceData for this source particle
+                var src: SourceData;
                 if (signalDelayed) {
-                    let nDotV = -(rx * s.velX + ry * s.velY) * invR;
-                    let denom = max(1.0 - nDotV, ABERRATION_CLAMP_MIN);
-                    aberr = min(1.0 / (denom * denom * denom), ABERRATION_CLAMP_MAX);
-                }
-                let invR3a = select(invR3, invR3 * aberr, signalDelayed);
-                let invR5a = select(invR5, invR5 * aberr, signalDelayed);
-
-                // Relative velocity for jerk computation
-                let vrx = s.velX - pVelX;
-                let vry = s.velY - pVelY;
-                let rDotVr = rx * vrx + ry * vry;
-
-                // (v_s x r)_z for Biot-Savart
-                let crossSV = s.velX * ry - s.velY * rx;
-
-                // Axion modulation (geometric mean, guarded against negative products)
-                let axModPair = select(1.0, sqrt(max(pAxMod * s.axMod, 0.0)), needAxMod);
-
-                // -- Gravity --
-                if (gravOn) {
-                    let k = pMass * s.mass;
-                    let fDir = k * invR3a;
-                    accGravX += rx * fDir;
-                    accGravY += ry * fDir;
-                    accTotalX += rx * fDir;
-                    accTotalY += ry * fDir;
-
-                    // Analytical jerk for Larmor radiation (gravity contributes to acceleration of charged particles)
-                    if (radOn) {
-                        let jRadial = -3.0 * rDotVr * k * invRSq * invR3a;
-                        accJerkX += vrx * fDir + rx * jRadial;
-                        accJerkY += vry * fDir + ry * jRadial;
-                    }
-
-                    // Tidal locking torque: tau = -0.3 * coupling^2 * r_body^5 / r^6 * (w_spin - w_orbit)
-                    let crossRV = rx * (s.velY - pVelY) - ry * (s.velX - pVelX);
-                    let wOrbit = crossRV * invRSq;
-                    let dw = pAngVel - wOrbit;
-                    var coupling = s.mass;
-                    if (coulOn && pMass > EPSILON) {
-                        coupling += pCharge * s.charge / pMass;
-                    }
-                    // ri5 = mass^(5/3), pre-hoisted above inner loop (was pow() per source particle)
-                    let invR6 = invRSq * invRSq * invRSq;
-                    accTidal -= TIDAL_STRENGTH * coupling * coupling * pRi5 * invR6 * dw;
+                    // Look up signal-delayed state for this source
+                    let delayed = getDelayedStateGPU(
+                        s.srcIdx, pPosX, pPosY, uniforms.simTime,
+                        isPeriodic, uniforms.domainW, uniforms.domainH,
+                        uniforms.topologyMode, false
+                    );
+                    if (!delayed.valid) { continue; }
+                    let bodyRadSq = pow(s.mass, 2.0 / 3.0);
+                    src = makeDelayedSource(delayed, s.mass, s.charge, s.axMod, s.yukMod, bodyRadSq);
+                } else {
+                    src.posX = s.posX;
+                    src.posY = s.posY;
+                    src.velX = s.velX;
+                    src.velY = s.velY;
+                    src.mass = s.mass;
+                    src.charge = s.charge;
+                    src.angVel = s.angVel;
+                    src.magMoment = s.magMoment;
+                    src.angMomentum = s.angMomentum;
+                    src.axMod = s.axMod;
+                    src.yukMod = s.yukMod;
+                    src.useAberration = false;
                 }
 
-                // -- Coulomb --
-                if (coulOn) {
-                    let k = -(pCharge * s.charge) * axModPair;
-                    let fDir = k * invR3a;
-                    accCoulX += rx * fDir;
-                    accCoulY += ry * fDir;
-                    accTotalX += rx * fDir;
-                    accTotalY += ry * fDir;
-
-                    // Analytical jerk for Larmor radiation
-                    if (radOn) {
-                        let jRadial = -3.0 * rDotVr * k * invRSq * invR3a;
-                        accJerkX += vrx * fDir + rx * jRadial;
-                        accJerkY += vry * fDir + ry * jRadial;
-                    }
-                }
-
-                // -- 1PN EIH (gravity) --
-                if (onePNOn && gmOn) {
-                    let r = 1.0 / invR;
-                    let nx = rx * invR;
-                    let ny = ry * invR;
-                    let v1Sq = pVelX * pVelX + pVelY * pVelY;
-                    let v2Sq = s.velX * s.velX + s.velY * s.velY;
-                    let nDotV1 = nx * pVelX + ny * pVelY;
-                    let nDotV2 = nx * s.velX + ny * s.velY;
-                    let radial = -v1Sq - 2.0 * v2Sq
-                        + 1.5 * nDotV2 * nDotV2
-                        + 5.0 * pMass * invR + 4.0 * s.mass * invR;
-                    let v1Coeff = 4.0 * nDotV1 - 3.0 * nDotV2;
-                    let v2Coeff = 3.0 * nDotV2;
-                    let base = s.mass * invR3;
-                    let fx = base * (rx * radial + (pVelX * v1Coeff + s.velX * v2Coeff) * r);
-                    let fy = base * (ry * radial + (pVelY * v1Coeff + s.velY * v2Coeff) * r);
-                    acc1PNX += fx;
-                    acc1PNY += fy;
-                    accTotalX += fx;
-                    accTotalY += fy;
-                }
-
-                // -- 1PN Darwin EM --
-                if (onePNOn && magOn) {
-                    let nx = rx * invR;
-                    let ny = ry * invR;
-                    let v2DotN = s.velX * nx + s.velY * ny;
-                    let v1DotN = pVelX * nx + pVelY * ny;
-                    let coeff = 0.5 * pCharge * s.charge * invRSq;
-                    let fx = coeff * (pVelX * v2DotN - 3.0 * nx * v1DotN * v2DotN);
-                    let fy = coeff * (pVelY * v2DotN - 3.0 * ny * v1DotN * v2DotN);
-                    acc1PNX += fx;
-                    acc1PNY += fy;
-                    accTotalX += fx;
-                    accTotalY += fy;
-                }
-
-                // -- 1PN Bazanski (mixed gravity+EM) --
-                if (onePNOn && gmOn && magOn) {
-                    let crossCoeff = pCharge * s.charge * (pMass + s.mass)
-                        - (pCharge * pCharge * s.mass + s.charge * s.charge * pMass);
-                    let fDir = crossCoeff * invRSq * invRSq;
-                    acc1PNX += rx * fDir;
-                    acc1PNY += ry * fDir;
-                    accTotalX += rx * fDir;
-                    accTotalY += ry * fDir;
-                }
-
-                // -- Magnetic dipole-dipole --
-                if (magOn) {
-                    let fDir = 3.0 * (pMagMom * s.magMoment) * invR5a * axModPair;
-                    accMagX += rx * fDir;
-                    accMagY += ry * fDir;
-                    accTotalX += rx * fDir;
-                    accTotalY += ry * fDir;
-
-                    // Bz from moving charge (Biot-Savart)
-                    let BzMoving = s.charge * crossSV * invR3 * axModPair;
-                    accBz += BzMoving;
-
-                    // dBz gradients for spin-orbit
-                    accDBzdx += 3.0 * BzMoving * rx * invRSq + s.charge * s.velY * invR3 * axModPair;
-                    accDBzdy += 3.0 * BzMoving * ry * invRSq - s.charge * s.velX * invR3 * axModPair;
-
-                    // Dipole-sourced Bz: -mu/r^3
-                    accBz -= s.magMoment * invR3 * axModPair;
-                    accDBzdx -= 3.0 * s.magMoment * rx * invR5 * axModPair;
-                    accDBzdy -= 3.0 * s.magMoment * ry * invR5 * axModPair;
-                }
-
-                // -- Gravitomagnetic dipole-dipole --
-                if (gmOn) {
-                    let fDir = 3.0 * (pAngMom * s.angMomentum) * invR5a;
-                    accGMX += rx * fDir;
-                    accGMY += ry * fDir;
-                    accTotalX += rx * fDir;
-                    accTotalY += ry * fDir;
-
-                    // Bgz from moving mass: -m_s(v_s x r_hat)_z / r^2
-                    let BgzMoving = -s.mass * crossSV * invR3;
-                    accBgz += BgzMoving;
-
-                    // dBgz gradients for spin-orbit
-                    accDBgzdx += 3.0 * BgzMoving * rx * invRSq - s.mass * s.velY * invR3;
-                    accDBgzdy += 3.0 * BgzMoving * ry * invRSq + s.mass * s.velX * invR3;
-
-                    // Spin-sourced Bgz: -2L/r^3
-                    accBgz -= 2.0 * s.angMomentum * invR3;
-                    accDBgzdx -= 6.0 * s.angMomentum * rx * invR5;
-                    accDBgzdy -= 6.0 * s.angMomentum * ry * invR5;
-
-                    // Frame-dragging torque: aligns spins toward co-rotation
-                    accFrameDrag += 2.0 * s.angMomentum * (s.angVel - pAngVel) * invR3;
-                }
-
-                // -- Yukawa --
-                // F = -g^2 * m1 * m2 * e^{-mu*r}/r^2 * (1+mu*r), with aberration pre-multiplied
-                if (yukawaOn && rawRSq < yukCutoffSq) {
-                    let r_dist = 1.0 / invR;
-                    let muR = yukMu * r_dist;
-                    let expMuR = select(0.0, exp(-muR), muR < 80.0); // guard exp overflow
-                    let yukModPair = sqrt(max(pYukMod * s.yukMod, 0.0));
-                    let coupling = uniforms.yukawaCoupling;
-                    let yukInvRa = select(invR, invR * aberr, signalDelayed);
-                    let fDir = coupling * yukModPair * pMass * s.mass * expMuR
-                               * (invRSq + yukMu * invR) * yukInvRa;
-                    accYukX += rx * fDir;
-                    accYukY += ry * fDir;
-                    accTotalX += rx * fDir;
-                    accTotalY += ry * fDir;
-
-                    // Analytical jerk for pion emission radiation
-                    if (radOn) {
-                        let jRadial = -(3.0 * invRSq + 3.0 * yukMu * invR + yukMu * yukMu)
-                                      * rDotVr * coupling * yukModPair * pMass * s.mass
-                                      * expMuR * invRSq * yukInvRa;
-                        accJerkX += vrx * fDir + rx * jRadial;
-                        accJerkY += vry * fDir + ry * jRadial;
-                    }
-
-                    // Scalar Breit 1PN correction
-                    if (onePNOn) {
-                        let nx = rx * invR;
-                        let ny = ry * invR;
-                        let nDotV1 = nx * pVelX + ny * pVelY;
-                        let nDotV2 = nx * s.velX + ny * s.velY;
-                        let v1DotV2 = pVelX * s.velX + pVelY * s.velY;
-                        let alpha = 1.0 + yukMu * r_dist;
-                        let beta = 0.5 * coupling * yukModPair * pMass * s.mass * expMuR * invRSq;
-                        let radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1.0) * nDotV1 * nDotV2);
-                        let fx = beta * (radial * nx + alpha * (nDotV2 * pVelX + nDotV1 * s.velX));
-                        let fy = beta * (radial * ny + alpha * (nDotV2 * pVelY + nDotV1 * s.velY));
-                        acc1PNX += fx;
-                        acc1PNY += fy;
-                        accTotalX += fx;
-                        accTotalY += fy;
-                    }
-                }
+                accumulatePairForce(
+                    pPosX, pPosY, pVelX, pVelY,
+                    pMass, pCharge, pAngVel,
+                    pMagMom, pAngMom,
+                    pAxMod, pYukMod, pRi5,
+                    src, softeningSq,
+                    yukMu, yukCutoffSq,
+                    gravOn, coulOn, magOn, gmOn,
+                    onePNOn, yukawaOn, radOn,
+                    needAxMod, isPeriodic,
+                    &accum,
+                );
             }
         }
 
         workgroupBarrier();
     }
 
+    // ── Dead particle loop: signal delay fade-out ──
+    // Dead/retired particles continue exerting forces via their signal delay history
+    if (alive && signalDelayed) {
+        let totalCount = uniforms.particleCount;
+        for (var ri: u32 = 0u; ri < totalCount; ri++) {
+            let flags = particles[ri].flags;
+            // Retired but not alive = dead particle
+            if ((flags & FLAG_RETIRED) == 0u || (flags & FLAG_ALIVE) != 0u) { continue; }
+
+            let delayed = getDelayedStateGPU(
+                ri, pPosX, pPosY, uniforms.simTime,
+                isPeriodic, uniforms.domainW, uniforms.domainH,
+                uniforms.topologyMode, true
+            );
+            if (!delayed.valid) { continue; }
+
+            // Use death state from particleAux
+            let aux = particleAux[ri];
+            let deadMass = aux.deathMass;
+            let deadCharge = particles[ri].charge;
+            let bodyRadSq = pow(deadMass, 2.0 / 3.0);
+            let deadAxYuk = axYukMod[ri];
+
+            let src = makeDelayedSource(
+                delayed, deadMass, deadCharge,
+                select(deadAxYuk.x, 1.0, deadAxYuk.x == 0.0),
+                select(deadAxYuk.y, 1.0, deadAxYuk.y == 0.0),
+                bodyRadSq
+            );
+
+            accumulatePairForce(
+                pPosX, pPosY, pVelX, pVelY,
+                pMass, pCharge, pAngVel,
+                pMagMom, pAngMom,
+                pAxMod, pYukMod, pRi5,
+                src, softeningSq,
+                yukMu, yukCutoffSq,
+                gravOn, coulOn, magOn, gmOn,
+                onePNOn, yukawaOn, radOn,
+                needAxMod, isPeriodic,
+                &accum,
+            );
+        }
+    }
+
     // Write accumulated forces to packed AllForces struct
     if (alive) {
         var af: AllForces;
-        af.f0 = vec4(accGravX, accGravY, accCoulX, accCoulY);
-        af.f1 = vec4(accMagX, accMagY, accGMX, accGMY);
-        af.f2 = vec4(acc1PNX, acc1PNY, 0.0, 0.0);  // spinCurv filled by spin-orbit pass
-        af.f3 = vec4(0.0, 0.0, accYukX, accYukY);   // radiation.xy filled by Phase 4
+        af.f0 = vec4(accum.gravX, accum.gravY, accum.coulX, accum.coulY);
+        af.f1 = vec4(accum.magX, accum.magY, accum.gmX, accum.gmY);
+        af.f2 = vec4(accum.pnX, accum.pnY, 0.0, 0.0);  // spinCurv filled by spin-orbit pass
+        af.f3 = vec4(0.0, 0.0, accum.yukX, accum.yukY);   // radiation.xy filled by Phase 4
         af.f4 = vec4(0.0, 0.0, 0.0, 0.0);           // external/higgs filled by later passes
         af.f5 = vec4(0.0, 0.0, 0.0, 0.0);           // axion filled by later passes
-        af.torques = vec4(0.0, accFrameDrag, accTidal, 0.0);
-        af.bFields = vec4(accBz, accBgz, 0.0, 0.0);  // extBz added by external fields pass
-        af.bFieldGrads = vec4(accDBzdx, accDBzdy, accDBgzdx, accDBgzdy);
-        af.totalForce = vec2(accTotalX, accTotalY);
+        af.torques = vec4(0.0, accum.frameDrag, accum.tidal, 0.0);
+        af.bFields = vec4(accum.bz, accum.bgz, 0.0, 0.0);  // extBz added by external fields pass
+        af.bFieldGrads = vec4(accum.dbzdx, accum.dbzdy, accum.dbgzdx, accum.dbgzdy);
+        af.totalForce = vec2(accum.totalX, accum.totalY);
         // Write jerk to AllForces (NaN guard — jerk can diverge from ill-conditioned pairs)
         af.jerk = vec2(
-            select(accJerkX, 0.0, accJerkX != accJerkX),
-            select(accJerkY, 0.0, accJerkY != accJerkY)
+            select(accum.jerkX, 0.0, accum.jerkX != accum.jerkX),
+            select(accum.jerkY, 0.0, accum.jerkY != accum.jerkY)
         );
 
         // NaN guard on total force — must happen BEFORE writing to global memory
-        if (accTotalX != accTotalX) { af.totalForce = vec2(0.0, af.totalForce.y); }
-        if (accTotalY != accTotalY) { af.totalForce = vec2(af.totalForce.x, 0.0); }
+        if (accum.totalX != accum.totalX) { af.totalForce = vec2(0.0, af.totalForce.y); }
+        if (accum.totalY != accum.totalY) { af.totalForce = vec2(af.totalForce.x, 0.0); }
 
         allForces[idx] = af;
 
         // Adaptive substepping: atomicMax of |F/m|^2 as fixed-point u32
-        // dtSafe = sqrt(softening / a_max), so we track max acceleration magnitude
         let totalFSq = af.totalForce.x * af.totalForce.x + af.totalForce.y * af.totalForce.y;
         let accelSq = totalFSq * pInvMass * pInvMass;
-        // Encode as u32 via bitcast of f32 (works for positive f32: same ordering as u32)
         // Guard against NaN/Inf which would corrupt adaptive stepping
         if (accelSq == accelSq && accelSq < 1e20) {
             let accelBits = bitcast<u32>(sqrt(accelSq));
