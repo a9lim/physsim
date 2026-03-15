@@ -34,6 +34,7 @@ export default class InputHandler {
         // Deferred click for GPU mode (1-frame async hit test)
         this._pendingClick = null; // { pos: Vec2, rightButton: bool }
 
+        sim.camera.bindWheel(canvas);
         canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
         canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
         canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
@@ -326,23 +327,27 @@ export default class InputHandler {
         const pending = this._pendingClick;
         this._pendingClick = null;
 
-        if (result >= 0) {
+        if (result.index >= 0) {
             // GPU found a particle at this index
-            const match = this.sim.particles.find(p => p._gpuIdx === result);
+            const match = this.sim.particles.find(p => p._gpuIdx === result.index);
             if (pending && match) {
                 // Complete deferred click
                 this._resolveClickHit(match, pending.rightButton);
             } else if (pending && !match) {
                 // GPU found particle but no CPU counterpart — delete directly by GPU index
                 if (pending.rightButton) {
-                    this._deleteByGpuIdx(result);
+                    this._deleteByGpuIdx(result.index);
                 } else {
                     // Can't select without CPU particle — ignore
                 }
             } else {
-                // No pending click — this was a hover hit test, update selection
-                const hovered = this.sim.particles.find(p => p._gpuIdx === result);
-                if (hovered) this.hoveredParticle = hovered;
+                // No pending click — this was a hover hit test, show tooltip with GPU-fresh data
+                this.hoveredParticle = match || null;
+                const speed = Math.sqrt(result.velX * result.velX + result.velY * result.velY);
+                const spin = (result.angVel * result.radius).toFixed(3);
+                this.tooltip.textContent = `m=${result.mass.toFixed(2)}  q=${result.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
+                this.tooltip.style.transform = `translate(${this._screenX + 14}px,${this._screenY - 10}px)`;
+                this.tooltip.hidden = false;
             }
         } else {
             // GPU returned -1: no particle at click position

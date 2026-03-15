@@ -8,7 +8,7 @@
  * dark mode uses additive blending ('lighter' equivalent, matching CPU Canvas 2D).
  * On theme change setTheme() swaps _pipeline / _photonPipeline / _pionPipeline.
  */
-import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTorqueRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
+import { createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTorqueRenderPipeline, createRingRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
 import { TRAIL_LEN } from './gpu-buffers.js';
 import { buildWGSLConstants, paletteRGB } from './gpu-constants.js';
 import { HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA, MAX_PHOTONS, MAX_PIONS } from '../config.js';
@@ -25,6 +25,9 @@ const _arrowF32 = new Float32Array(_arrowData);
 const _torqueData = new ArrayBuffer(32);
 const _torqueU32 = new Uint32Array(_torqueData);
 const _torqueF32 = new Float32Array(_torqueData);
+const _ringData = new ArrayBuffer(32); // RingParams: vec4f color (16) + dashLen, gapLen, halfWidth (12) + ringType u32 (4)
+const _ringF32 = new Float32Array(_ringData);
+const _ringU32 = new Uint32Array(_ringData);
 const _fieldRenderData = new ArrayBuffer(128);
 const _fieldRenderF32 = new Float32Array(_fieldRenderData);
 const _fieldRenderU32 = new Uint32Array(_fieldRenderData);
@@ -139,6 +142,12 @@ export default class GPURenderer {
         this._torqueUniformBuffer = null;
         this._torqueReady = false;
 
+        // Ring rendering (ergosphere + antimatter dashed circles)
+        this._ringPipeline = null;
+        this._ringBindGroup = null;
+        this._ringUniformBuffer = null;
+        this._ringReady = false;
+
         // Trail rendering
         this._trailPipeline = null;
         this._trailBindGroup = null;
@@ -231,6 +240,9 @@ export default class GPURenderer {
 
         // --- Torque arc render pipeline ---
         await this._initTorqueRendering();
+
+        // --- Ring render pipeline (ergosphere + antimatter dashed circles) ---
+        await this._initRingRendering();
     }
 
     /** Create boson (photon + pion) render pipelines — both light and dark variants. */
@@ -401,6 +413,39 @@ export default class GPURenderer {
             this._torqueReady = true;
         } catch (e) {
             console.warn('[physsim] Torque render pipeline creation failed, skipping:', e.message);
+        }
+    }
+
+    /** Create ring render pipeline (ergosphere + antimatter dashed circles). */
+    async _initRingRendering() {
+        try {
+            const { pipeline, bindGroupLayout } =
+                await createRingRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
+            this._ringPipeline = pipeline;
+
+            if (!this._ringUniformBuffer) {
+                this._ringUniformBuffer = this.device.createBuffer({
+                    label: 'ringUniforms',
+                    size: 32, // RingParams struct
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+            }
+
+            const b = this.buffers;
+            this._ringBindGroup = this.device.createBindGroup({
+                label: 'ringRender',
+                layout: bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: this.cameraBuffer } },
+                    { binding: 1, resource: { buffer: b.particleState } },
+                    { binding: 2, resource: { buffer: b.particleAux } },
+                    { binding: 3, resource: { buffer: b.derived } },
+                    { binding: 4, resource: { buffer: this._ringUniformBuffer } },
+                ],
+            });
+            this._ringReady = true;
+        } catch (e) {
+            console.warn('[physsim] Ring render pipeline creation failed, skipping:', e.message);
         }
     }
 
@@ -645,6 +690,63 @@ export default class GPURenderer {
             } catch (e) {
                 console.warn('[physsim] Spin render failed, disabling:', e.message);
                 this._spinReady = false;
+            }
+        }
+
+        // Pass 3c: Dashed ring overlays (ergosphere + antimatter)
+        // Each ring type needs its own writeBuffer + submit (different uniform data).
+        if (this._ringReady && aliveCount > 0) {
+            try {
+                const bhEnabled = opts.blackHoleEnabled || false;
+
+                // Ergosphere rings (only when BH mode active)
+                if (bhEnabled) {
+                    const [er, eg, eb] = this.isLight ? _textLight : _textDark;
+                    const ea = this.isLight ? 0.3 : 0.4;
+                    _ringF32[0] = er; _ringF32[1] = eg; _ringF32[2] = eb; _ringF32[3] = ea;
+                    _ringF32[4] = 0.3;  // dashLen
+                    _ringF32[5] = 0.3;  // gapLen
+                    _ringF32[6] = 0.075; // halfWidth (CPU lineWidth 0.15 / 2)
+                    _ringU32[7] = 0;    // ringType = ergosphere
+                    this.device.queue.writeBuffer(this._ringUniformBuffer, 0, _ringData);
+
+                    const ergoEncoder = this.device.createCommandEncoder({ label: 'ergo-ring' });
+                    const ergoPass = ergoEncoder.beginRenderPass({
+                        label: 'ergosphere ring',
+                        colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
+                    });
+                    ergoPass.setPipeline(this._ringPipeline);
+                    ergoPass.setBindGroup(0, this._ringBindGroup);
+                    ergoPass.draw(130, aliveCount); // (RING_SEGMENTS + 1) * 2 to close strip
+                    ergoPass.end();
+                    this.device.queue.submit([ergoEncoder.finish()]);
+                }
+
+                // Antimatter rings (always, when antimatter particles exist)
+                {
+                    const [ar, ag, ab] = this.isLight ? [0.533, 0.533, 0.533] : [0.8, 0.8, 0.8];
+                    const aa = 1.0;
+                    _ringF32[0] = ar; _ringF32[1] = ag; _ringF32[2] = ab; _ringF32[3] = aa;
+                    _ringF32[4] = 0.5;   // dashLen
+                    _ringF32[5] = 0.3;   // gapLen
+                    _ringF32[6] = 0.125; // halfWidth (CPU lineWidth 0.25 / 2)
+                    _ringU32[7] = 1;     // ringType = antimatter
+                    this.device.queue.writeBuffer(this._ringUniformBuffer, 0, _ringData);
+
+                    const antiEncoder = this.device.createCommandEncoder({ label: 'anti-ring' });
+                    const antiPass = antiEncoder.beginRenderPass({
+                        label: 'antimatter ring',
+                        colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
+                    });
+                    antiPass.setPipeline(this._ringPipeline);
+                    antiPass.setBindGroup(0, this._ringBindGroup);
+                    antiPass.draw(130, aliveCount); // (RING_SEGMENTS + 1) * 2 to close strip
+                    antiPass.end();
+                    this.device.queue.submit([antiEncoder.finish()]);
+                }
+            } catch (e) {
+                console.warn('[physsim] Ring render failed, disabling:', e.message);
+                this._ringReady = false;
             }
         }
 
@@ -1038,6 +1140,12 @@ export default class GPURenderer {
         if (this._torqueReady) {
             this._torqueReady = false;
             this._initTorqueRendering();
+        }
+
+        // Rebuild ring pipeline (blend mode depends on theme).
+        if (this._ringReady) {
+            this._ringReady = false;
+            this._initRingRendering();
         }
     }
 
