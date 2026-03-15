@@ -396,7 +396,7 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
         // Fresh aux for new particle (unique ID, clean death state)
         aux1.radius = newRadius;
         aux1.particleId = 0x80000000u | (uniforms.frameCount * MAX_PARTICLES + idx1);
-        aux1.deathTime = 3.4028235e38; // FLT_MAX — alive
+        aux1.deathTime = 1e30; // large sentinel — alive
         aux1.deathMass = 0.0;
         aux1.deathAngVel = 0.0;
 

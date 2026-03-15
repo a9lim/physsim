@@ -107,23 +107,55 @@ fn computeCoarsePotential(@builtin(global_invocation_id) gid: vec3<u32>) {
     let cellArea = cellW * cellH;
     var pot: f32 = 0.0;
 
-    let periodic = uniforms.boundaryMode == 2u; // BOUND_LOOP
+    let periodic = uniforms.boundaryMode == BOUND_LOOP;
+    let topo = uniforms.topologyMode;
     let halfDomW = uniforms.domainW * 0.5;
     let halfDomH = uniforms.domainH * 0.5;
+    let domW = uniforms.domainW;
+    let domH = uniforms.domainH;
 
     for (var jy = 0u; jy < COARSE; jy++) {
         for (var jx = 0u; jx < COARSE; jx++) {
             let j = jy * COARSE + jx;
             let rhoJ = coarseRho[j];
             if (rhoJ < EPSILON) { continue; }
-            var dx = (f32(ix) + 0.5 - f32(jx) - 0.5) * cellW;
-            var dy = (f32(iy) + 0.5 - f32(jy) - 0.5) * cellH;
-            // Periodic minimum-image wrapping (Torus fast path)
+            // Source position in world coords (cell center)
+            let sx = (f32(jx) + 0.5) * cellW;
+            let sy = (f32(jy) + 0.5) * cellH;
+            // Observer position
+            let ox = (f32(ix) + 0.5) * cellW;
+            let oy = (f32(iy) + 0.5) * cellH;
+            var dx = sx - ox;
+            var dy = sy - oy;
+            // Topology-aware minimum-image wrapping
             if (periodic) {
-                if (dx > halfDomW) { dx -= uniforms.domainW; }
-                else if (dx < -halfDomW) { dx += uniforms.domainW; }
-                if (dy > halfDomH) { dy -= uniforms.domainH; }
-                else if (dy < -halfDomH) { dy += uniforms.domainH; }
+                if (topo == TOPO_TORUS) {
+                    if (dx > halfDomW) { dx -= domW; } else if (dx < -halfDomW) { dx += domW; }
+                    if (dy > halfDomH) { dy -= domH; } else if (dy < -halfDomH) { dy += domH; }
+                } else if (topo == TOPO_KLEIN) {
+                    // Direct
+                    var dx0 = dx;
+                    if (dx0 > halfDomW) { dx0 -= domW; } else if (dx0 < -halfDomW) { dx0 += domW; }
+                    var dy0 = dy;
+                    if (dy0 > halfDomH) { dy0 -= domH; } else if (dy0 < -halfDomH) { dy0 += domH; }
+                    var bestSq = dx0 * dx0 + dy0 * dy0;
+                    dx = dx0; dy = dy0;
+                    // Klein glide reflection
+                    let gx = domW - sx;
+                    var dx1 = gx - ox;
+                    if (dx1 > halfDomW) { dx1 -= domW; } else if (dx1 < -halfDomW) { dx1 += domW; }
+                    var dy1 = (sy + domH) - oy;
+                    if (dy1 > domH) { dy1 -= 2.0 * domH; } else if (dy1 < -domH) { dy1 += 2.0 * domH; }
+                    if (dx1 * dx1 + dy1 * dy1 < bestSq) { dx = dx1; dy = dy1; bestSq = dx1 * dx1 + dy1 * dy1; }
+                    var dy1b = (sy - domH) - oy;
+                    if (dy1b > domH) { dy1b -= 2.0 * domH; } else if (dy1b < -domH) { dy1b += 2.0 * domH; }
+                    if (dx1 * dx1 + dy1b * dy1b < bestSq) { dx = dx1; dy = dy1b; }
+                } else {
+                    // RP²: both axes glide reflections (use torus as approximation — matching
+                    // accuracy is acceptable for coarse 8×8 self-gravity potential)
+                    if (dx > halfDomW) { dx -= domW; } else if (dx < -halfDomW) { dx += domW; }
+                    if (dy > halfDomH) { dy -= domH; } else if (dy < -halfDomH) { dy += domH; }
+                }
             }
             // Use softening for self-cell (matches CPU: 1/sqrt(dx²+dy²+softeningSq))
             let rSq = dx * dx + dy * dy + uniforms.softeningSq;

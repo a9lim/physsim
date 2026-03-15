@@ -4,7 +4,7 @@
  * Each function creates a pipeline + bind group layout for one shader.
  * Shaders are loaded via fetch() and prepended with common.wgsl.
  *
- * Buffer packing: ParticleState (36B), ParticleAux (20B), RadiationState (32B),
+ * Buffer packing: ParticleState (36B), ParticleAux (20B), RadiationState (96B),
  * Photon (32B), Pion (48B) packed structs reduce storage buffer count per stage to ≤10.
  */
 
@@ -995,6 +995,42 @@ export async function createFieldForcesPipelines(device, wgslConstants = '') {
     });
 
     return { applyHiggsForces, applyAxionForces, bindGroupLayouts };
+}
+
+/**
+ * Create particle-field gravity pipeline (Phase 5).
+ * O(N × GRID²) gravitational force from field energy density onto particles.
+ * Dispatched once per active field (Higgs, Axion) when fieldGravEnabled.
+ */
+export async function createFieldParticleGravPipeline(device, wgslConstants = '') {
+    const code = wgslConstants + '\n' + await fetchShader('field-particle-grav.wgsl');
+    const module = device.createShaderModule({ label: 'fieldParticleGrav', code });
+
+    const group0Layout = device.createBindGroupLayout({
+        label: 'fieldParticleGrav_group0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },           // FGUniforms
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // particleState (rw)
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // allForces (rw)
+        ],
+    });
+
+    const group1Layout = device.createBindGroupLayout({
+        label: 'fieldParticleGrav_group1',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // energyDensity
+        ],
+    });
+
+    const bindGroupLayouts = [group0Layout, group1Layout];
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
+
+    const pipeline = device.createComputePipeline({
+        label: 'fieldParticleGrav', layout: pipelineLayout,
+        compute: { module, entryPoint: 'main' },
+    });
+
+    return { pipeline, bindGroupLayouts };
 }
 
 /**

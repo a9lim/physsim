@@ -46,7 +46,9 @@ struct AllForces_FF {
     _pad: vec2<f32>,
 };
 
-// Group 0: particleState (rw) + derived (rw) — particleAux removed (not used by this shader)
+// Group 0: particleState (rw) + derived (rw)
+// NOTE: particleAux.radius NOT updated here (would exceed 10 storage buffer limit).
+// cacheDerived at start of next substep recomputes radius from updated mass.
 @group(0) @binding(0) var<storage, read_write> particles: array<ParticleState_FF>;
 @group(0) @binding(1) var<storage, read_write> derived: array<ParticleDerived_FF>;
 

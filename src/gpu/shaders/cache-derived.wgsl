@@ -18,8 +18,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if ((flag & FLAG_ALIVE) == 0u) { return; }
 
     let m = particles[idx].mass;
-    let r = pow(m, 1.0 / 3.0);  // cbrt
-    let rSq = r * r;
+    let bodyR = pow(m, 1.0 / 3.0);  // cbrt(mass)
+    let bodyRSq = bodyR * bodyR;
     let invM = select(0.0, 1.0 / m, m > EPSILON);
 
     let wx = particles[idx].velWX;
@@ -35,17 +35,29 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Angular velocity from angular proper velocity
     let aw = particles[idx].angW;
-    let sr = aw * r;
+    let sr = aw * bodyR;
     let angVel = select(aw, aw / sqrt(1.0 + sr * sr), relOn);
 
-    // Dipole moments
+    // Dipole moments (always use body radius for I and mu)
     let q = particles[idx].charge;
-    let magMom = MAG_MOMENT_K * q * angVel * rSq;
-    let angMom = INERTIA_K * m * angVel * rSq;
+    let magMom = MAG_MOMENT_K * q * angVel * bodyRSq;
+    let angMom = INERTIA_K * m * angVel * bodyRSq;
+
+    // Compute effective radius: body radius normally, Kerr-Newman horizon in BH mode
+    let bhOn = hasToggle0(BLACK_HOLE_BIT);
+    var activeR = bodyR;
+    var activeRSq = bodyRSq;
+    if (bhOn) {
+        // kerrNewmanRadius: r+ = M + sqrt(M² - a² - Q²)
+        let a = INERTIA_K * bodyRSq * abs(angVel);
+        let disc = m * m - a * a - q * q;
+        activeR = select(m * BH_NAKED_FLOOR, m + sqrt(max(0.0, disc)), disc >= 0.0);
+        activeRSq = activeR * activeR;
+    }
 
     // Write radius to particleAux
     var aux = particleAux[idx];
-    aux.radius = r;
+    aux.radius = activeR;
     particleAux[idx] = aux;
 
     // Write packed derived struct
@@ -53,7 +65,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     d.magMoment = magMom;
     d.angMomentum = angMom;
     d.invMass = invM;
-    d.radiusSq = rSq;
+    d.radiusSq = activeRSq;
     d.velX = vx;
     d.velY = vy;
     d.angVel = angVel;

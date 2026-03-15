@@ -79,7 +79,7 @@ src/
       field-common.wgsl  111 lines  Shared field constants (GRID=64), FieldUniforms, nbIndex(), PQS weights
       --- Phase 2: Core physics (prepended with common.wgsl) ---
       reset-forces.wgsl        Zero AllForces accumulator
-      cache-derived.wgsl       Compute ParticleDerived (magMoment, angMomentum, vel, radius)
+      cache-derived.wgsl       Compute ParticleDerived (magMoment, angMomentum, vel, radius/BH horizon)
       pair-force.wgsl          O(N²) tiled pairwise force (gravity, Coulomb, dipoles, Yukawa, 1PN, jerk)
       external-fields.wgsl     Uniform background gravity/electric/magnetic
       save-f1pn.wgsl           Save 1PN forces to f1pnOld buffer before Boris (for velocity-Verlet)
@@ -110,6 +110,7 @@ src/
       field-forces.wgsl        Higgs mass modulation + axion axMod/yukMod + gradient forces
       field-selfgrav.wgsl      Coarse-grid self-gravity potential (8×8 → 64×64 upsample)
       field-excitation.wgsl    Gaussian wave packet deposition from merge events
+      field-particle-grav.wgsl O(N×GRID²) gravitational force from field energy density
       heatmap.wgsl             Potential field computation (gravity/electric/Yukawa)
       expansion.wgsl           Hubble flow + momentum drag
       disintegration.wgsl      Tidal + Roche breakup detection
@@ -469,6 +470,7 @@ Instanced rendering via vertex shaders. Reads directly from GPU compute buffers 
 2. Tree build (Barnes-Hut, if enabled)
 3. resetForces → cacheDerived → pairForce (or treeForce) → externalFields
 4. Scalar field forces (Higgs gradient + mass mod, Axion gradient + axMod/yukMod) — BEFORE Boris
+4b. Particle-field gravity (O(N×GRID²), if fieldGravEnabled) — uses energyDensity from prior self-grav
 5. saveF1pn (save 1PN forces for velocity-Verlet correction)
 6. Boris integrator: **fused** halfKick+rotate+halfKick (single dispatch) → spinOrbit → applyTorques
 7. Radiation reaction (Larmor, Hawking, pion emission)
@@ -491,7 +493,7 @@ WebGPU limits storage buffers to `maxStorageBuffersPerShaderStage` (typically 10
 | `ParticleAux` | 20B | radius, particleId, deathTime, deathMass, deathAngVel | 5 fields → 1 buffer |
 | `ParticleDerived` | 32B | magMoment, angMomentum, invMass, radiusSq, velX/Y, angVel | 7+pad fields → 1 buffer |
 | `AllForces` | 160B | 11 force vec2s, 3 torques, B-fields, B-gradients, totalForce | 10 vec4s → 1 buffer |
-| `RadiationState` | 64B | jerkX/Y, radAccum, hawkAccum, yukawaRadAccum, radDisplayX/Y, qRes history, quadAccum, emQuadAccum, d3I/QContrib scratch | 16 fields → 1 buffer |
+| `RadiationState` | 96B | jerkX/Y, radAccum, hawkAccum, yukawaRadAccum, radDisplayX/Y, qRes history, quadAccum, emQuadAccum, d3I/QContrib scratch, Larmor backward-diff history (otherFx0/Fy0/Fx1/Fy1/otherCount) | 24 fields → 1 buffer |
 | `Photon` | 32B | phPosX/Y, phVelX/Y, phEnergy, phEmitterId, phLifetime, phFlags | 8 fields → 1 buffer |
 | `Pion` | 48B | piPosX/Y, piWX/Y, piMass, piCharge, piEnergy, piEmitterId, piAge, piFlags | 10+2pad fields → 1 buffer |
 
@@ -512,7 +514,7 @@ Worst-case pipeline (radiation) uses 10 storage buffers (was 42 before packing).
 
 **Field shaders** (get `field-common.wgsl` prepended): `field-deposit.wgsl`, `field-evolve.wgsl`, `field-forces.wgsl`, `field-selfgrav.wgsl`, `field-excitation.wgsl`, `field-render.wgsl`, `heatmap-render.wgsl`.
 
-**Standalone shaders** (define own structs, NOT prepended): All Phase 3, Phase 4, `expansion.wgsl`, `heatmap.wgsl`, `disintegration.wgsl`, `pair-production.wgsl`, all render shaders. Must define `ParticleState`/`ParticleAux`/`Photon`/`Pion`/`SimUniforms` locally — keep in sync with `common.wgsl`.
+**Standalone shaders** (define own structs, NOT prepended): All Phase 3, Phase 4, `expansion.wgsl`, `heatmap.wgsl`, `disintegration.wgsl`, `pair-production.wgsl`, `field-particle-grav.wgsl`, all render shaders. Must define `ParticleState`/`ParticleAux`/`Photon`/`Pion`/`SimUniforms` locally — keep in sync with `common.wgsl`.
 
 **All shaders** receive the `buildWGSLConstants()` block (from `gpu-constants.js`) prepended at compile time — provides physics constants, toggle bit definitions, and palette colors without hardcoding.
 

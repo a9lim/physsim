@@ -37,7 +37,7 @@
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createPQSScratchBuffer, createPQSIndexBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, COARSE_RES, COARSE_SQ, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
-import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline } from './gpu-pipelines.js';
+import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline } from './gpu-pipelines.js';
 import { buildWGSLConstants } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, MAX_PHOTONS, MAX_PIONS,
@@ -70,6 +70,9 @@ const _heatmapUniformData = new ArrayBuffer(96);
 const _heatmapUniformF32 = new Float32Array(_heatmapUniformData);
 const _heatmapUniformU32 = new Uint32Array(_heatmapUniformData);
 const _colorUniformData = new Uint32Array(4);
+const _fgUniformData = new ArrayBuffer(32);  // FGUniforms: 8 × f32/u32
+const _fgUniformF32 = new Float32Array(_fgUniformData);
+const _fgUniformU32 = new Uint32Array(_fgUniformData);
 
 // Pre-allocated addParticle buffers (avoids per-call allocation)
 const _addParticleStateData = new ArrayBuffer(36);  // PARTICLE_STATE_SIZE
@@ -80,7 +83,7 @@ const _addParticleAuxF32 = new Float32Array(_addParticleAuxData);
 const _addParticleAuxU32 = new Uint32Array(_addParticleAuxData);
 const _addParticleColorData = new Uint32Array(1);
 const _addParticleModData = new Float32Array(2);
-const _addParticleRadData = new Float32Array(16);    // RADIATION_STATE_SIZE / 4
+const _addParticleRadData = new Float32Array(24);    // RADIATION_STATE_SIZE / 4 (was 16, now 24 with Larmor backward-diff fields)
 const _zeroU32 = new Uint32Array([0]);                // reusable zero for counter resets
 const _retiredFlagU32 = new Uint32Array([2]);         // FLAG_RETIRED for removeParticle
 
@@ -192,6 +195,7 @@ export default class GPUPhysics {
         this._fieldDeposit = null;
         this._fieldEvolve = null;
         this._fieldForces = null;
+        this._fieldParticleGrav = null;
         this._fieldSelfGrav = null;
         this._fieldExcitation = null;
         this._heatmapPipelines = null;
@@ -204,6 +208,8 @@ export default class GPUPhysics {
         this._fieldEvolveBGs = {};
         this._fieldGradBGs = {};
         this._fieldForcesBGs = null;
+        this._fieldParticleGravBGs = {};
+        this._fieldParticleGravUniform = null;
         this._fieldSelfGravBGs = {};
         this._fieldExcitationBGs = {};
         this._heatmapBGs = null;
@@ -1458,11 +1464,12 @@ export default class GPUPhysics {
         const wgslConstants = buildWGSLConstants();
 
         // Initialize all Phase 5 pipelines in parallel
-        const [deposit, evolve, forces, selfGrav, excitation, heatmap, expansion, disint, pairProd] =
+        const [deposit, evolve, forces, particleGrav, selfGrav, excitation, heatmap, expansion, disint, pairProd] =
             await Promise.all([
                 createFieldDepositPipelines(this.device, wgslConstants),
                 createFieldEvolvePipelines(this.device, wgslConstants),
                 createFieldForcesPipelines(this.device, wgslConstants),
+                createFieldParticleGravPipeline(this.device, wgslConstants),
                 createFieldSelfGravPipelines(this.device, wgslConstants),
                 createFieldExcitationPipeline(this.device, wgslConstants),
                 createHeatmapPipelines(this.device, wgslConstants),
@@ -1474,6 +1481,7 @@ export default class GPUPhysics {
         this._fieldDeposit = deposit;
         this._fieldEvolve = evolve;
         this._fieldForces = forces;
+        this._fieldParticleGrav = particleGrav;
         this._fieldSelfGrav = selfGrav;
         this._fieldExcitation = excitation;
         this._heatmapPipelines = heatmap;
@@ -1997,6 +2005,78 @@ export default class GPUPhysics {
             p.dispatchWorkgroups(workgroups);
             p.end();
         }
+    }
+
+    /**
+     * Dispatch particle-field gravity (O(N × GRID²)).
+     * Force from scalar field energy density onto particles.
+     * Dispatched once per active field when fieldGravEnabled.
+     */
+    _dispatchFieldParticleGrav(encoder) {
+        if (!this._fieldParticleGrav || !this._fieldGravEnabled || this.aliveCount === 0) return;
+        if (!this._higgsEnabled && !this._axionEnabled) return;
+
+        // Create uniform buffer once
+        if (!this._fieldParticleGravUniform) {
+            this._fieldParticleGravUniform = this.device.createBuffer({
+                label: 'fieldParticleGrav_uniform',
+                size: 32,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+        }
+
+        // Write uniforms (FGUniforms struct)
+        _fgUniformF32[0] = this.domainW;
+        _fgUniformF32[1] = this.domainH;
+        _fgUniformF32[2] = this._blackHoleEnabled ? 16 : 64; // softeningSq
+        _fgUniformU32[3] = this.aliveCount;
+        _fgUniformU32[4] = this.boundaryMode;
+        _fgUniformU32[5] = this.topologyMode;
+        _fgUniformU32[6] = 0;
+        _fgUniformU32[7] = 0;
+        this.device.queue.writeBuffer(this._fieldParticleGravUniform, 0, _fgUniformData);
+
+        const pg = this._fieldParticleGrav;
+        const workgroups = Math.ceil(this.aliveCount / 64);
+        const b = this.buffers;
+
+        const dispatchForField = (which) => {
+            const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
+            if (!fb) return;
+
+            const bgKey = which + '_pg';
+            if (!this._fieldParticleGravBGs[bgKey]) {
+                this._fieldParticleGravBGs[bgKey] = {
+                    g0: this.device.createBindGroup({
+                        label: `fieldParticleGrav_g0_${which}`,
+                        layout: pg.bindGroupLayouts[0],
+                        entries: [
+                            { binding: 0, resource: { buffer: this._fieldParticleGravUniform } },
+                            { binding: 1, resource: { buffer: b.particleState } },
+                            { binding: 2, resource: { buffer: b.allForces } },
+                        ],
+                    }),
+                    g1: this.device.createBindGroup({
+                        label: `fieldParticleGrav_g1_${which}`,
+                        layout: pg.bindGroupLayouts[1],
+                        entries: [
+                            { binding: 0, resource: { buffer: fb.energyDensity } },
+                        ],
+                    }),
+                };
+            }
+
+            const bgs = this._fieldParticleGravBGs[bgKey];
+            const p = encoder.beginComputePass({ label: `fieldParticleGrav_${which}` });
+            p.setPipeline(pg.pipeline);
+            p.setBindGroup(0, bgs.g0);
+            p.setBindGroup(1, bgs.g1);
+            p.dispatchWorkgroups(workgroups);
+            p.end();
+        };
+
+        if (this._higgsEnabled) dispatchForField('higgs');
+        if (this._axionEnabled) dispatchForField('axion');
     }
 
     /**
@@ -2654,6 +2734,10 @@ export default class GPUPhysics {
             this._writeFieldUniforms(dtSub);
         }
         this._dispatchFieldForces(encoder);
+
+        // Pass 5c2: particle-field gravity (O(N×GRID²), if fieldGravEnabled)
+        // Uses energyDensity computed by previous substep's field self-gravity pass.
+        this._dispatchFieldParticleGrav(encoder);
 
         // Pass 5d: save 1PN forces for velocity-Verlet correction (before Boris)
         if (this._onePNEnabled) {

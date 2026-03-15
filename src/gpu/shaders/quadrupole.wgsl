@@ -73,6 +73,14 @@ struct RadiationState {
     emQuadAccum: f32,
     d3IContrib: f32,
     d3QContrib: f32,
+    otherFx0: f32,
+    otherFy0: f32,
+    otherFx1: f32,
+    otherFy1: f32,
+    otherCount: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 struct Photon {

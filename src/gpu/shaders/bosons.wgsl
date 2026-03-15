@@ -473,8 +473,9 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
                     p.angW = 0.0;
                     p.baseMass = mE;
                     p.flags = FLAG_ALIVE; // alive
-                    // Set antimatter flag for pi+ decay
-                    if (piDecayCharge > 0) { p.flags |= FLAG_ANTIMATTER; }
+                    // Set antimatter flag for pi+ decay (BH mode forbids antimatter)
+                    let bhOn = (u.toggles0 & BLACK_HOLE_BIT) != 0u;
+                    if (piDecayCharge > 0 && !bhOn) { p.flags |= FLAG_ANTIMATTER; }
                     particles[pIdx] = p;
 
                     // Initialize particleAux: radius=cbrt(mE), deathTime=+Inf, deathMass=0, deathAngVel=0

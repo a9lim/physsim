@@ -77,6 +77,15 @@ struct RadiationState {
     emQuadAccum: f32,
     d3IContrib: f32,
     d3QContrib: f32,
+    // Larmor backward-difference residual jerk history
+    otherFx0: f32,
+    otherFy0: f32,
+    otherFx1: f32,
+    otherFy1: f32,
+    otherCount: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 struct Photon {
@@ -173,9 +182,35 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
     let mInv = derived[i].invMass;
     let tau = 2.0 / 3.0 * qSq * mInv;
 
-    // Term 1: analytical jerk (pre-accumulated in force pass)
-    let jerkXVal = radState[i].jerkX;
-    let jerkYVal = radState[i].jerkY;
+    // Term 1: jerk = analytical (grav+Coulomb+Yukawa from force pass) + backward-diff residual
+    var jerkXVal = radState[i].jerkX;
+    var jerkYVal = radState[i].jerkY;
+
+    // Backward-difference residual jerk for non-analytical forces (magnetic, GM, 1PN, field, etc.)
+    // CPU equivalent: integrator.js _otherFx0/1, _otherDt0/1
+    let af = allForces[i];
+    let otherFx = af.totalForce.x - af.f0.x - af.f0.z - af.f3.z; // total - grav - coulomb - yukawa
+    let otherFy = af.totalForce.y - af.f0.y - af.f0.w - af.f3.w;
+    var rs = radState[i];
+    let otherCnt = u32(rs.otherCount);
+    if (otherCnt >= 2u && u.dt > EPSILON) {
+        // O(dt²) 3-point backward derivative (variable-step with h1=otherDt0, h2=dt)
+        // Simplified: assume uniform dt (GPU substep dt is constant within a frame)
+        let invDt = 1.0 / u.dt;
+        let c0 = 0.5 * invDt;
+        let c1 = -2.0 * invDt;
+        let c2 = 1.5 * invDt;
+        jerkXVal += c0 * rs.otherFx0 + c1 * rs.otherFx1 + c2 * otherFx;
+        jerkYVal += c0 * rs.otherFy0 + c1 * rs.otherFy1 + c2 * otherFy;
+    } else if (otherCnt >= 1u && u.dt > EPSILON) {
+        // O(dt) 2-point backward fallback
+        jerkXVal += (otherFx - rs.otherFx1) / u.dt;
+        jerkYVal += (otherFy - rs.otherFy1) / u.dt;
+    }
+    // Shift history (CPU order: shift AFTER use)
+    rs.otherFx0 = rs.otherFx1; rs.otherFy0 = rs.otherFy1;
+    rs.otherFx1 = otherFx; rs.otherFy1 = otherFy;
+    if (rs.otherCount < 2.0) { rs.otherCount += 1.0; }
 
     var fRadX = tau * jerkXVal;
     var fRadY = tau * jerkYVal;
@@ -215,8 +250,7 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
     particles[i].velWX += fRadX * dt * mInv;
     particles[i].velWY += fRadY * dt * mInv;
 
-    // Store display force
-    var rs = radState[i];
+    // Store display force (reuse rs from backward-diff section, already loaded + modified)
     rs.radDisplayX = fRadX;
     rs.radDisplayY = fRadY;
 
