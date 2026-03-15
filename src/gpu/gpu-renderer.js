@@ -123,8 +123,9 @@ export default class GPURenderer {
         this._arrowUniformBuffer = null;
         this._arrowReady = false;
 
-        // Spin ring rendering
-        this._spinPipeline = null;
+        // Spin ring rendering (arc + arrowhead pipelines)
+        this._spinArcPipeline = null;
+        this._spinArrowPipeline = null;
         this._spinBindGroup = null;
         this._spinReady = false;
 
@@ -331,12 +332,13 @@ export default class GPURenderer {
         }
     }
 
-    /** Create spin ring render pipeline. */
+    /** Create spin ring render pipelines (arc line-strip + arrowhead triangles). */
     async _initSpinRendering() {
         try {
-            const { pipeline, bindGroupLayout } =
+            const { arcPipeline, arrowPipeline, bindGroupLayout } =
                 await createSpinRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
-            this._spinPipeline = pipeline;
+            this._spinArcPipeline = arcPipeline;
+            this._spinArrowPipeline = arrowPipeline;
 
             const b = this.buffers;
             this._spinBindGroup = this.device.createBindGroup({
@@ -389,6 +391,7 @@ export default class GPURenderer {
                     { binding: 5, resource: { buffer: trailBuffers.trailCount } },
                     { binding: 6, resource: { buffer: b.color } },
                     { binding: 7, resource: { buffer: b.particleState } },
+                    { binding: 8, resource: { buffer: b.particleAux } },
                 ],
             });
             this._trailReady = true;
@@ -470,7 +473,7 @@ export default class GPURenderer {
                 });
                 trailPass.setPipeline(this._trailPipeline);
                 trailPass.setBindGroup(0, this._trailBindGroup);
-                trailPass.draw(TRAIL_LEN, aliveCount);
+                trailPass.draw(TRAIL_LEN * 2, aliveCount);
                 trailPass.end();
                 this.device.queue.submit([trailEncoder.finish()]);
             } catch (e) {
@@ -570,7 +573,7 @@ export default class GPURenderer {
             }
         }
 
-        // Pass 3b: Spin ring rendering
+        // Pass 3b: Spin ring rendering (arcs + arrowheads)
         if (this._spinReady && aliveCount > 0) {
             try {
                 const spinEncoder = this.device.createCommandEncoder({ label: 'spin-render' });
@@ -582,10 +585,14 @@ export default class GPURenderer {
                         storeOp: 'store',
                     }],
                 });
-                spinPass.setPipeline(this._spinPipeline);
+                // Arc triangle-strip ribbon: 32 segments × 2 vertices = 64
+                spinPass.setPipeline(this._spinArcPipeline);
                 spinPass.setBindGroup(0, this._spinBindGroup);
-                // 32 vertices per arc (line-strip), aliveCount instances
-                spinPass.draw(32, aliveCount);
+                spinPass.draw(64, aliveCount);
+                // Arrowhead triangles: 3 vertices per instance
+                spinPass.setPipeline(this._spinArrowPipeline);
+                spinPass.setBindGroup(0, this._spinBindGroup);
+                spinPass.draw(3, aliveCount);
                 spinPass.end();
                 this.device.queue.submit([spinEncoder.finish()]);
             } catch (e) {
@@ -909,6 +916,7 @@ export default class GPURenderer {
                             { binding: 5, resource: { buffer: trailBuffers.trailCount } },
                             { binding: 6, resource: { buffer: b.color } },
                             { binding: 7, resource: { buffer: b.particleState } },
+                            { binding: 8, resource: { buffer: b.particleAux } },
                         ],
                     });
                 }
@@ -939,7 +947,7 @@ export default class GPURenderer {
 }
 
 async function fetchShader(filename, prepend = '') {
-    const resp = await fetch(`src/gpu/shaders/${filename}?v=12`);
+    const resp = await fetch(`src/gpu/shaders/${filename}?v=16`);
     if (!resp.ok) throw new Error(`Failed to load shader: ${filename}`);
     const source = await resp.text();
     return prepend ? prepend + '\n' + source : source;
