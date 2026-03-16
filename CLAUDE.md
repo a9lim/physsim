@@ -65,16 +65,16 @@ src/
     gpu-physics.js       3791 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
                                       all dispatch methods, bind group creation, adaptive substepping, readback,
                                       per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
-    gpu-pipelines.js     1883 lines  Pipeline + bind group layout creation for all compute/render shaders,
+    gpu-pipelines.js     1897 lines  Pipeline + bind group layout creation for all compute/render shaders,
                                       fetchShader() (single source of truth), getSharedPrefix() caching
     gpu-renderer.js      1215 lines  WebGPU instanced rendering: particles, bosons, field overlays, heatmap,
                                       trails, force arrows, spin rings, torque arcs, dashed rings
                                       (dual light/dark pipeline variants)
     gpu-buffers.js        564 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
                                       trail buffers, staging
-    gpu-constants.js      291 lines  buildWGSLConstants(): generates WGSL const block from config.js +
+    gpu-constants.js      298 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                       _PALETTE colors, single source of truth for JS/WGSL constants
-    shaders/               51 files  WGSL compute + render shaders (9183 lines total)
+    shaders/               51 files  WGSL compute + render shaders (9199 lines total)
 ```
 
 ## Key Imports
