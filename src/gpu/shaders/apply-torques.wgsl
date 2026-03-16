@@ -5,9 +5,7 @@
 // Torque = I * dw/dt => dw = torque * dt / I
 // I = INERTIA_K * m * r^2
 //
-// NOTE: angW lives in ParticleState which is read-only here.
-// The updated angW value is stored in derived._pad so that the
-// caller (gpu-physics.js) can copy it back to ParticleState.
+// NOTE: angW is written directly back to ParticleState.angW.
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
 @group(0) @binding(1) var<storage, read_write> particles: array<ParticleState>;
@@ -33,8 +31,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (torque == 0.0) { return; }
 
     let m = particles[idx].mass;
-    let r = pow(m, 1.0 / 3.0);  // cbrt
-    let I = INERTIA_K * m * r * r;
+    let bodyRSq = derived[idx].bodyRSq;  // pre-cached pow(mass, 2/3) from cache-derived
+    let I = INERTIA_K * m * bodyRSq;
     if (I < EPSILON) { return; }
 
     var aw = particles[idx].angW;
@@ -43,8 +41,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // NaN guard
     if (aw != aw) { aw = 0.0; }
 
-    let sr = aw * r;
-    let newAngVel = select(aw, aw / sqrt(1.0 + sr * sr), relOn);
+    let newAngVel = select(aw, aw / sqrt(1.0 + aw * aw * bodyRSq), relOn);
 
     // Write back angW to ParticleState
     particles[idx].angW = aw;

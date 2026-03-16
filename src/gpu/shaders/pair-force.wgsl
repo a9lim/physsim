@@ -27,7 +27,7 @@ struct TileParticle {
     angMomentum: f32,
     axMod: f32,
     yukMod: f32,
-    radiusSq: f32,  // body radius squared for tidal locking
+    bodyRadSq: f32,  // pow(mass, 2/3) — true body radius squared (not BH horizon)
     srcIdx: u32,     // global index for signal delay lookup
 };
 
@@ -436,14 +436,13 @@ fn main(
     let onePNOn = hasToggle0(ONE_PN_BIT);
     let relOn = hasToggle0(RELATIVITY_BIT);
     let yukawaOn = hasToggle0(YUKAWA_BIT);
-    let axionOn = hasToggle0(AXION_BIT);
     let radOn = hasToggle0(RADIATION_BIT);
     let isPeriodic = uniforms.boundaryMode == BOUND_LOOP;
 
     let softeningSq = uniforms.softeningSq;
 
     // Axion EM modulation flag
-    let needAxMod = (coulOn || magOn) && axionOn;
+    let needAxMod = (coulOn || magOn) && hasToggle0(AXION_BIT);
 
     // Yukawa cutoff: exp(-mu*r) < 0.002 when mu*r > 6
     let yukMu = uniforms.yukawaMu;
@@ -493,7 +492,7 @@ fn main(
             let saym = axYukMod[tileSrcIdx];
             tile[localIdx].axMod = saym.x;
             tile[localIdx].yukMod = saym.y;
-            tile[localIdx].radiusSq = sd.radiusSq;
+            tile[localIdx].bodyRadSq = pow(sp.mass, 2.0 / 3.0);
             tile[localIdx].srcIdx = tileSrcIdx;
         } else {
             // Mark as invalid (zero mass = no force contribution)
@@ -521,8 +520,7 @@ fn main(
                         uniforms.topologyMode, false
                     );
                     if (!delayed.valid) { continue; }
-                    let bodyRadSq = pow(s.mass, 2.0 / 3.0);
-                    src = makeDelayedSource(delayed, s.mass, s.charge, s.axMod, s.yukMod, bodyRadSq);
+                    src = makeDelayedSource(delayed, s.mass, s.charge, s.axMod, s.yukMod, s.bodyRadSq);
                 } else {
                     src.posX = s.posX;
                     src.posY = s.posY;

@@ -25,9 +25,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let wx = particles[idx].velWX;
     let wy = particles[idx].velWY;
     let wSq = wx * wx + wy * wy;
-    let g = sqrt(1.0 + wSq);
     let relOn = hasToggle0(RELATIVITY_BIT);
-    let invG = select(1.0, 1.0 / g, relOn);
+    var invG: f32 = 1.0;
+    if (relOn) { invG = 1.0 / sqrt(1.0 + wSq); }
 
     // Coordinate velocity
     let vx = wx * invG;
@@ -35,8 +35,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Angular velocity from angular proper velocity
     let aw = particles[idx].angW;
-    let sr = aw * bodyR;
-    let angVel = select(aw, aw / sqrt(1.0 + sr * sr), relOn);
+    var angVel = aw;
+    if (relOn) { let sr = aw * bodyR; angVel = aw / sqrt(1.0 + sr * sr); }
 
     // Dipole moments (always use body radius for I and mu)
     let q = particles[idx].charge;
@@ -69,7 +69,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     d.velX = vx;
     d.velY = vy;
     d.angVel = angVel;
-    d._pad = 0.0;
+    d.bodyRSq = bodyRSq;
     derived[idx] = d;
 
     // Reset axYukMod to default (1,1) — recomputed by applyAxionForces when axion enabled.

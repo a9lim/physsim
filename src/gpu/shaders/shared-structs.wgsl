@@ -31,7 +31,7 @@ struct ParticleDerived {
     velX: f32,
     velY: f32,
     angVel: f32,
-    _pad: f32,
+    bodyRSq: f32,   // pow(mass, 2/3) — true body radius² (differs from radiusSq in BH mode)
 };
 
 // All force/torque/bField accumulators in one struct (160 bytes per particle).

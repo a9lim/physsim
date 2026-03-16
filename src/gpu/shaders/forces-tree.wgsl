@@ -352,10 +352,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pMagMoment = pDerived.magMoment;
     let pAngMomentum = pDerived.angMomentum;
     let pAux = particleAux[pIdx];
-    let pRadius = pAux.radius;
-    let pBodyRadiusSq = pRadius * pRadius; // Approximation; BH mode uses different formula
+    let pBodyRadiusSq = pDerived.bodyRSq; // true body radius² from cache-derived
     // Pre-hoist ri5 = mass^(5/3) for tidal locking (avoids pow() per pair in accumulateForce)
-    let pRi5 = pBodyRadiusSq * pBodyRadiusSq * pRadius;
+    let pBodyRadius = sqrt(pBodyRadiusSq);
+    let pRi5 = pBodyRadiusSq * pBodyRadiusSq * pBodyRadius;
     let pAngW = ps.angW;
     let pAxMod = axYukMod_in[pIdx].x;
     let pYukMod = axYukMod_in[pIdx].y;
@@ -443,8 +443,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                     uniforms.topologyMode, false
                 );
                 if (!delayed.valid) { continue; }
-                // Recompute dipoles from retarded angw
-                let bodyRadSq = pow(sPs.mass, 2.0 / 3.0);
+                // Recompute dipoles from retarded angw (bodyRSq cached in derived)
+                let bodyRadSq = derived_in[sIdx].bodyRSq;
                 let retAngwSq = delayed.angw * delayed.angw;
                 let sAngVelRet = delayed.angw / sqrt(1.0 + retAngwSq * bodyRadSq);
                 let sMagMomRet = MAG_MOMENT_K * sPs.charge * sAngVelRet * bodyRadSq;
@@ -477,8 +477,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 // Retarded ghost position
                 let gsx = delayed.x + shiftX;
                 let gsy = delayed.y + shiftY;
-                // Recompute dipoles from retarded angw
-                let bodyRadSq = pow(sPs.mass, 2.0 / 3.0);
+                // Recompute dipoles from retarded angw (bodyRSq cached in derived)
+                let bodyRadSq = derived_in[sIdx].bodyRSq;
                 let retAngwSq = delayed.angw * delayed.angw;
                 let sAngVelRet = delayed.angw / sqrt(1.0 + retAngwSq * bodyRadSq);
                 let sMagMomRet = MAG_MOMENT_K * sPs.charge * sAngVelRet * bodyRadSq;
