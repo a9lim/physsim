@@ -746,10 +746,13 @@ class Simulation {
                     const hmBufs = gpuPh.getHeatmapBuffers();
                     if (hmBufs) {
                         renderOpts.heatmapBuffers = hmBufs;
-                        // Compute heatmap viewport info from camera
+                        // Compute heatmap viewport info from camera — use physical pixels
+                        // to match render shader (heatmap-render.wgsl reconstructs world
+                        // coords from canvasW which is physical pixel size)
                         const cam = this.camera;
-                        const viewW = this.width / cam.zoom;
-                        const viewH = this.height / cam.zoom;
+                        const dpr = devicePixelRatio || 1;
+                        const viewW = this.width * dpr / cam.zoom;
+                        const viewH = this.height * dpr / cam.zoom;
                         const viewLeft = cam.x - viewW / 2;
                         const viewTop = cam.y - viewH / 2;
                         renderOpts.heatmapOpts = {

@@ -2787,9 +2787,13 @@ export default class GPUPhysics {
             });
         }
 
-        // Compute viewport bounds from camera
-        const halfW = (camera?.canvasW || 800) / (2 * (camera?.zoom || 16));
-        const halfH = (camera?.canvasH || 600) / (2 * (camera?.zoom || 16));
+        // Compute viewport bounds from camera — use physical pixel size to match
+        // render shader (heatmap-render.wgsl divides canvasW by zoom for world extent)
+        const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
+        const canvasW = (camera?.viewportW || 800) * dpr;
+        const canvasH = (camera?.viewportH || 600) * dpr;
+        const halfW = canvasW / (2 * (camera?.zoom || 16));
+        const halfH = canvasH / (2 * (camera?.zoom || 16));
         const viewLeft = (camera?.x || 0) - halfW;
         const viewTop = (camera?.y || 0) - halfH;
         const cellW = (2 * halfW) / 64;
