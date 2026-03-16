@@ -511,6 +511,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let isPeriodic = uniforms.boundaryMode == BOUND_LOOP;
     let hasSignalDelay = (uniforms.toggles0 & RELATIVITY_BIT) != 0u;
 
+    // Pre-drift signal delay time: forces are computed at pre-drift positions,
+    // so use simTime BEFORE the dt increment to match the particle's actual
+    // spacetime location (CPU increments simTime after drift, before recompute).
+    let sdTime = uniforms.simTime - uniforms.dt;
+
     // Stack-based iterative tree walk
     var stack: array<u32, 48>;
     var stackTop: u32 = 0u;
@@ -562,7 +567,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (hasSignalDelay && !isGhost) {
                 // Non-ghost leaf: signal delay from own history
                 let delayed = getDelayedStateGPU(
-                    sIdx, px, py, uniforms.simTime,
+                    sIdx, px, py, sdTime,
                     isPeriodic, uniforms.domainW, uniforms.domainH,
                     uniforms.topologyMode, false
                 );
@@ -590,7 +595,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 // Ghost leaf: signal delay from original particle's history + periodic shift
                 let origPs = particleState[origIdx];
                 let delayed = getDelayedStateGPU(
-                    origIdx, px, py, uniforms.simTime,
+                    origIdx, px, py, sdTime,
                     isPeriodic, uniforms.domainW, uniforms.domainH,
                     uniforms.topologyMode, false
                 );
@@ -682,7 +687,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if ((rPs.flags & FLAG_ALIVE) != 0u) { continue; }
 
         let delayed = getDelayedStateGPU(
-            ri, px, py, uniforms.simTime,
+            ri, px, py, sdTime,
             isPeriodic, uniforms.domainW, uniforms.domainH,
             uniforms.topologyMode, true // isDead
         );
