@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, LL_FORCE_CLAMP, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, QUADRUPOLE_POWER_CLAMP, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, DEFAULT_HIGGS_MASS, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, DEFAULT_HIGGS_MASS, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2 } from './config.js';
 import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
@@ -696,17 +696,6 @@ export default class Physics {
                         fRadY += t23 * vy;
                     }
 
-                    // Clamp 1: LL validity — |F_rad| ≤ LL_FORCE_CLAMP · |F_ext|
-                    // The LL approximation requires radiation force << external force
-                    const fRadMag = Math.sqrt(fRadX * fRadX + fRadY * fRadY);
-                    const fExtMag = Math.sqrt(p.force.x * p.force.x + p.force.y * p.force.y);
-                    const maxFRad = LL_FORCE_CLAMP * fExtMag;
-                    if (fRadMag > maxFRad && fRadMag > EPSILON_SQ) {
-                        const scale = maxFRad / fRadMag;
-                        fRadX *= scale;
-                        fRadY *= scale;
-                    }
-
                     const wSqBefore = p.w.x * p.w.x + p.w.y * p.w.y;
                     const keBefore = wSqBefore / (gamma + 1) * p.mass;
 
@@ -833,13 +822,7 @@ export default class Physics {
                     // Scalar Larmor: P = g²m²a²/3 = g²F²/3
                     // 1/3 angular factor for spin-0 (cf. 2/3 for spin-1 EM Larmor)
                     // Scalar charge Q = g·m (Yukawa couples ∝ m), so Q²a² = g²m²(F/m)² = g²F²
-                    let dE = YUKAWA_COUPLING / 3 * fYukSq * dtSub;
-                    // LL clamp: radiated power ≤ LL_FORCE_CLAMP × work done by Yukawa force
-                    const fYukMag = Math.sqrt(fYukSq);
-                    const wSqCl = p.w.x * p.w.x + p.w.y * p.w.y;
-                    const vMag = Math.sqrt(wSqCl / (1 + wSqCl));
-                    const maxDE = LL_FORCE_CLAMP * fYukMag * vMag * dtSub;
-                    if (dE > maxDE) dE = maxDE;
+                    const dE = YUKAWA_COUPLING / 3 * fYukSq * dtSub;
                     p._yukawaRadAccum += dE;
                     const pionMass = this.yukawaMu;
                     if (p._yukawaRadAccum >= pionMass + MIN_MASS && pions.length < MAX_PIONS) {
@@ -1254,8 +1237,7 @@ export default class Physics {
                 const quadPower = gwPower + emPower;
 
                 if (quadPower > 0) {
-                    let dE = quadPower * dt;
-                    if (totalKE > EPSILON_SQ) dE = Math.min(dE, QUADRUPOLE_POWER_CLAMP * totalKE);
+                    const dE = quadPower * dt;
 
                     // Split dE proportionally between GW and EM channels
                     const gwFrac = gwPower / quadPower;

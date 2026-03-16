@@ -203,15 +203,17 @@ No toggle -- controlled by slider values (default 0). Gravity (`F = mg`), Electr
 
 ### Base Class (`ScalarField`)
 
-PQS (cubic B-spline, order 3) grid on 64×64. 4×4 stencil per particle. C² interpolation and C² gradients (PQS-interpolated central-difference grid gradients). Pre-allocated weight arrays for zero-alloc hot path.
+PQS (cubic B-spline, order 3) grid on 64×64 (CPU) or 256×256 (GPU). 4×4 stencil per particle. C² interpolation and C² gradients (PQS-interpolated central-difference grid gradients). Pre-allocated weight arrays for zero-alloc hot path.
 
-Key methods: `_nb()` (topology-aware neighbor, absolute coords), `_depositPQS()` (interior fast path + border fallback), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()`, `interpolate()`, `gradient()`, `interpolateWithGradient()` (fused, single stencil walk), `_fieldEnergy()`, `depositExcitation()`, `_computeEnergyDensity()`, `applyGravForces()`, `gravPE()`, `computeSelfGravity()`.
+Key methods: `_nb()` (topology-aware neighbor, absolute coords), `_depositPQS()` (interior fast path + border fallback), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()`, `_computeViscosity()`, `interpolate()`, `gradient()`, `interpolateWithGradient()` (fused, single stencil walk), `_fieldEnergy()`, `depositExcitation()`, `_computeEnergyDensity()`, `applyGravForces()`, `gravPE()`, `computeSelfGravity()`.
 
 **Particle-field gravity** (requires Gravity -> Field Gravity toggle): Field energy density gravitates particles via direct O(N×GRID²) summation. Each cell is a point mass `ρ·dA`. Subclasses override `_addPotentialEnergy()` for V(φ). Default off.
 
-**Field self-gravity** (requires Gravity -> Field Gravity toggle): Weak-field GR correction to Klein-Gordon. Φ from field energy density via coarse 8×8 grid, bilinear-upsampled to 64×64.
+**Field self-gravity** (requires Gravity -> Field Gravity toggle): Weak-field GR correction to Klein-Gordon. Φ from field energy density via coarse 8×8 grid (CPU) or 64×64 (GPU), bilinear-upsampled to full grid. Φ clamped to ±`SELFGRAV_PHI_MAX` (0.2) to prevent Laplacian sign-flip instability when `1+4Φ < 0`.
 
-Field arrays: `field`/`fieldDot` (not `phi`/`phiDot`). Field clamp: SCALAR_FIELD_MAX = 2.
+**Numerical viscosity**: `ν·∇²(ȧ)` in both KDK half-kicks, where `ν = 1/(2√(1/dx²+1/dy²))`. Gives Q=1 at Nyquist frequency, vanishes for physical (long-wavelength) modes. Prevents grid-scale noise from ringing indefinitely at high resolution.
+
+Field arrays: `field`/`fieldDot` (not `phi`/`phiDot`). Field clamp: SCALAR_FIELD_MAX = 2. Merge excitation amplitude capped at `EXCITATION_MAX_AMPLITUDE` (1.0).
 
 ### Higgs Field
 

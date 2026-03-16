@@ -193,17 +193,6 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
         fRadY += t23 * vy;
     }
 
-    // LL force clamp: |F_rad| <= 0.5 * |F_ext|
-    let fRadMag = sqrt(fRadX * fRadX + fRadY * fRadY);
-    let ftv2 = allForces[i].totalForce;
-    let fExtMag = sqrt(ftv2.x * ftv2.x + ftv2.y * ftv2.y);
-    let maxFRad = LL_FORCE_CLAMP * fExtMag;
-    if (fRadMag > maxFRad && fRadMag > EPSILON) {
-        let scale = maxFRad / fRadMag;
-        fRadX *= scale;
-        fRadY *= scale;
-    }
-
     // Apply radiation reaction to proper velocity
     let dt = u.dt;
     let keBefore = wMagSq / (gamma + 1.0) * particles[i].mass;
@@ -420,14 +409,6 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
     let coupling = u.yukawaCoupling;
     var dE = coupling / 3.0 * fYukSq * dt;
 
-    // LL clamp
-    let fYukMag = sqrt(fYukSq);
-    let wx = particles[i].velWX; let wy = particles[i].velWY;
-    let wSqCl = wx * wx + wy * wy;
-    let vMag = sqrt(wSqCl / (1.0 + wSqCl));
-    let maxDE = LL_FORCE_CLAMP * fYukMag * vMag * dt;
-    dE = min(dE, maxDE);
-
     var rs = radState[i];
     rs.yukawaRadAccum += dE;
     let pionMass = u.yukawaMu;
@@ -503,7 +484,8 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
                 pions[piIdx] = pi;
 
                 // Radiation reaction: rescale emitter w
-                let wSq = wx * wx + wy * wy;
+                let rrWx = particles[i].velWX; let rrWy = particles[i].velWY;
+                let wSq = rrWx * rrWx + rrWy * rrWy;
                 if (wSq > EPSILON * EPSILON) {
                     let gam = sqrt(1.0 + wSq);
                     let pKE = (gam - 1.0) * particles[i].mass;

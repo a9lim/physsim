@@ -18,7 +18,7 @@
 //    yukMod = 1 + g·a for matter, 1 - g·a for antimatter.
 //    At vacuum (a=0): yukMod = 1 for both → CP conserved (PQ solution).
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, EPSILON, BOUND_LOOP } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, SELFGRAV_PHI_MAX, EPSILON, BOUND_LOOP } from './config.js';
 import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -97,12 +97,14 @@ export default class AxionField extends ScalarField {
         const halfDt = dt * 0.5;
 
         // ── First half-kick ──
+        this._computeViscosity(invCellWSq, invCellHSq);
+        const visc = this._viscBuf;
         if (sgOn) {
             for (let i = 0; i < GRID_SQ; i++) {
                 const aVal = field[i];
                 const lapI = lap[i];
-                const Phi = sgFull[i];
-                const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea
+                const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
+                const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     + 4 * Phi * lapI
                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
                     - 2 * Phi * mASq * aVal;
@@ -110,7 +112,7 @@ export default class AxionField extends ScalarField {
             }
         } else {
             for (let i = 0; i < GRID_SQ; i++) {
-                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea;
+                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
                 fieldDot[i] += ddA * halfDt;
             }
         }
@@ -124,12 +126,13 @@ export default class AxionField extends ScalarField {
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 0);
 
         // ── Second half-kick (with updated field values) ──
+        this._computeViscosity(invCellWSq, invCellHSq);
         if (sgOn) {
             for (let i = 0; i < GRID_SQ; i++) {
                 const aVal = field[i];
                 const lapI = lap[i];
-                const Phi = sgFull[i];
-                const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea
+                const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
+                const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     + 4 * Phi * lapI
                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
                     - 2 * Phi * mASq * aVal;
@@ -138,7 +141,7 @@ export default class AxionField extends ScalarField {
             }
         } else {
             for (let i = 0; i < GRID_SQ; i++) {
-                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea;
+                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
                 fieldDot[i] += ddA * halfDt;
                 if (field[i] !== field[i]) { field[i] = 0; fieldDot[i] = 0; }
             }

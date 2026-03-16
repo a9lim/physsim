@@ -416,8 +416,7 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
 
     // Use PHYSICS_DT constant (matches CPU where quadrupole uses this._dt ≈ PHYSICS_DT)
     let dt = PHYSICS_DT;
-    var dE = quadPower * dt;
-    dE = min(dE, QUADRUPOLE_POWER_CLAMP * totalKE);
+    let dE = quadPower * dt;
 
     // Split proportionally between GW and EM channels
     let gwFrac = gwPower / quadPower;

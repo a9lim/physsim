@@ -4,7 +4,7 @@
 // m_H is the free parameter (slider 0.25-1, default 0.5)
 // Extends ScalarField for shared PQS infrastructure.
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, HIGGS_MASS_MAX_DELTA, EPSILON, BOUND_LOOP, kerrNewmanRadius } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, HIGGS_MASS_MAX_DELTA, SELFGRAV_PHI_MAX, EPSILON, BOUND_LOOP, kerrNewmanRadius } from './config.js';
 import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -90,14 +90,16 @@ export default class HiggsField extends ScalarField {
         const halfDt = dt * 0.5;
 
         // ── First half-kick ──
+        this._computeViscosity(invCellWSq, invCellHSq);
+        const visc = this._viscBuf;
         if (sgOn) {
             for (let i = 0; i < GRID_SQ; i++) {
                 const phiVal = field[i];
                 const muSqEff = muSq - thermal[i];
                 const lapI = lap[i];
-                const Phi = sgFull[i];
+                const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
                 const ddphi = lapI + muSqEff * phiVal - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea
+                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     + 4 * Phi * lapI
                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
                     + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal;
@@ -108,7 +110,7 @@ export default class HiggsField extends ScalarField {
                 const phiVal = field[i];
                 const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
                     - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea;
+                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
                 fieldDot[i] += ddphi * halfDt;
             }
         }
@@ -122,14 +124,15 @@ export default class HiggsField extends ScalarField {
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 1);
 
         // ── Second half-kick (with updated field values) ──
+        this._computeViscosity(invCellWSq, invCellHSq);
         if (sgOn) {
             for (let i = 0; i < GRID_SQ; i++) {
                 const phiVal = field[i];
                 const muSqEff = muSq - thermal[i];
                 const lapI = lap[i];
-                const Phi = sgFull[i];
+                const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
                 const ddphi = lapI + muSqEff * phiVal - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea
+                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     + 4 * Phi * lapI
                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
                     + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal;
@@ -141,7 +144,7 @@ export default class HiggsField extends ScalarField {
                 const phiVal = field[i];
                 const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
                     - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea;
+                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
                 fieldDot[i] += ddphi * halfDt;
                 if (phiVal !== phiVal) { field[i] = 1; fieldDot[i] = 0; }
             }

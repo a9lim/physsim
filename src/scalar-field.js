@@ -3,7 +3,7 @@
 // PQS (cubic B-spline, order 3) particle-grid coupling: 4×4 stencil,
 // C² interpolation, C² continuous gradients (PQS-interpolated grid gradients).
 
-import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE, BOUND_BOUNCE, BOUND_LOOP, TORUS, KLEIN, RP2, SELFGRAV_GRID } from './config.js';
+import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE, EXCITATION_MAX_AMPLITUDE, BOUND_BOUNCE, BOUND_LOOP, TORUS, KLEIN, RP2, SELFGRAV_GRID } from './config.js';
 import { minImage } from './topology.js';
 
 // Zero-alloc output for minImage()
@@ -61,6 +61,9 @@ export default class ScalarField {
         this._fineXcx1 = new Uint8Array(gridSize);
         this._fineXwx = new Float32Array(gridSize);
         this._upsampleXBuilt = false;
+        // Numerical viscosity buffer (ν·∇²(ȧ) per cell)
+        this._viscBuf = new Float64Array(gsq);
+
         // M10: Cached flag for applyGravForces early exit
         this._hasEnergy = false;
 
@@ -255,6 +258,40 @@ export default class ScalarField {
         for (let iy = 1; iy < last; iy++) { _gradBorder(0, iy); _gradBorder(last, iy); }
     }
 
+    /** Compute numerical viscosity: ν·∇²(ȧ) where ν = 1/(2√(1/dx²+1/dy²)).
+     *  Gives Q=1 at Nyquist frequency, vanishes for physical (long-wavelength) modes.
+     *  Clamp-to-edge at borders. Interior fast path + border path. */
+    _computeViscosity(invCellWSq, invCellHSq) {
+        const fd = this.fieldDot;
+        const out = this._viscBuf;
+        const GRID = this._grid;
+        const last = GRID - 1;
+        const visc = 0.5 / Math.sqrt(invCellWSq + invCellHSq);
+
+        for (let iy = 1; iy < last; iy++) {
+            const row = iy * GRID;
+            for (let ix = 1; ix < last; ix++) {
+                const i = row + ix;
+                const fdC = fd[i];
+                out[i] = visc * ((fd[i - 1] + fd[i + 1] - 2 * fdC) * invCellWSq
+                               + (fd[i - GRID] + fd[i + GRID] - 2 * fdC) * invCellHSq);
+            }
+        }
+
+        const _viscBorder = (ix, iy) => {
+            const i = iy * GRID + ix;
+            const fdC = fd[i];
+            const fdL = ix > 0 ? fd[i - 1] : fdC;
+            const fdR = ix < last ? fd[i + 1] : fdC;
+            const fdT = iy > 0 ? fd[i - GRID] : fdC;
+            const fdB = iy < last ? fd[i + GRID] : fdC;
+            out[i] = visc * ((fdL + fdR - 2 * fdC) * invCellWSq
+                           + (fdT + fdB - 2 * fdC) * invCellHSq);
+        };
+        for (let ix = 0; ix < GRID; ix++) { _viscBorder(ix, 0); _viscBorder(ix, last); }
+        for (let iy = 1; iy < last; iy++) { _viscBorder(0, iy); _viscBorder(last, iy); }
+    }
+
     /** PQS interpolation of field value at (x, y).
      *  Topology-aware via _nb() when bcMode/topoConst provided. */
     interpolate(x, y, invCellW, invCellH, bcMode, topoConst) {
@@ -402,7 +439,7 @@ export default class ScalarField {
         const gy = y / cellH;
         const sigma = FIELD_EXCITATION_SIGMA;
         const sigmaSq = sigma * sigma;
-        const amplitude = MERGE_EXCITATION_SCALE * Math.sqrt(energy);
+        const amplitude = Math.min(MERGE_EXCITATION_SCALE * Math.sqrt(energy), EXCITATION_MAX_AMPLITUDE);
         const range = Math.ceil(3 * sigma);
 
         const ixMin = Math.max(0, Math.floor(gx) - range);

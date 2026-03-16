@@ -80,13 +80,22 @@ fn higgsHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
     let lapI = laplacian[idx];
     let muSqEff = muSq - thermal[idx];  // Phase transition: KE reduces effective μ²
     let srcTerm = source[idx] * invCellArea;
+    let fdC = fieldDot[idx];
+
+    // Numerical viscosity: ν·∇²(ȧ) with ν = 1/(2√(1/dx²+1/dy²)) → Q=1 at Nyquist, vanishes for physical modes
+    let fdL = select(fdC, fieldDot[idx - 1u], ix > 0u);
+    let fdR = select(fdC, fieldDot[idx + 1u], ix < GRID_LAST);
+    let fdT = select(fdC, fieldDot[idx - GRID], iy > 0u);
+    let fdB = select(fdC, fieldDot[idx + GRID], iy < GRID_LAST);
+    let fdLap = (fdL + fdR - 2.0 * fdC) * invCWsq + (fdT + fdB - 2.0 * fdC) * invCHsq;
+    let viscosity = 0.5 * inverseSqrt(invCWsq + invCHsq) * fdLap;
 
     var ddphi = lapI + muSqEff * phi - muSq * phi * phi * phi
-              - damp * fieldDot[idx] + srcTerm;
+              - damp * fdC + srcTerm + viscosity;
 
-    // Self-gravity correction (weak-field GR)
+    // Self-gravity correction (weak-field GR, clamp Φ for stability)
     if (uniforms.gravityEnabled != 0u) {
-        let Phi = sgPhiFull[idx];
+        let Phi = clamp(sgPhiFull[idx], -SELFGRAV_PHI_MAX, SELFGRAV_PHI_MAX);
         ddphi += 4.0 * Phi * lapI
                + 2.0 * (sgGradX[idx] * fieldGradX[idx] * invCWsq
                        + sgGradY[idx] * fieldGradY[idx] * invCHsq)
@@ -121,11 +130,20 @@ fn axionHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
     let aVal = field[idx];
     let lapI = laplacian[idx];
     let srcTerm = source[idx] * invCellArea;
+    let fdC = fieldDot[idx];
 
-    var ddA = lapI - mASq * aVal - damp * fieldDot[idx] + srcTerm;
+    // Numerical viscosity: ν·∇²(ȧ) with ν = 1/(2√(1/dx²+1/dy²)) → Q=1 at Nyquist, vanishes for physical modes
+    let fdL = select(fdC, fieldDot[idx - 1u], ix > 0u);
+    let fdR = select(fdC, fieldDot[idx + 1u], ix < GRID_LAST);
+    let fdT = select(fdC, fieldDot[idx - GRID], iy > 0u);
+    let fdB = select(fdC, fieldDot[idx + GRID], iy < GRID_LAST);
+    let fdLap = (fdL + fdR - 2.0 * fdC) * invCWsq + (fdT + fdB - 2.0 * fdC) * invCHsq;
+    let viscosity = 0.5 * inverseSqrt(invCWsq + invCHsq) * fdLap;
+
+    var ddA = lapI - mASq * aVal - damp * fdC + srcTerm + viscosity;
 
     if (uniforms.gravityEnabled != 0u) {
-        let Phi = sgPhiFull[idx];
+        let Phi = clamp(sgPhiFull[idx], -SELFGRAV_PHI_MAX, SELFGRAV_PHI_MAX);
         ddA += 4.0 * Phi * lapI
              + 2.0 * (sgGradX[idx] * fieldGradX[idx] * invCWsq
                      + sgGradY[idx] * fieldGradY[idx] * invCHsq)

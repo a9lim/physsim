@@ -1,4 +1,4 @@
-import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, PI, TWO_PI, HALF_PI, VELOCITY_VECTOR_SCALE, FORCE_VECTOR_SCALE, FIELD_RENDER_INTERVAL } from './config.js';
+import { MAX_TRAIL_LENGTH, PHOTON_LIFETIME, INERTIA_K, PI, TWO_PI, HALF_PI, VELOCITY_VECTOR_SCALE, FORCE_VECTOR_SCALE, FIELD_THROTTLE_MASK } from './config.js';
 const _PAL = window._PALETTE;
 const _r = window._r;
 
@@ -123,9 +123,8 @@ export default class Renderer {
             this._vpBottom = this.domainH;
         }
 
-        // Field overlays: throttle render() to every FIELD_RENDER_INTERVAL frames
-        const fieldRender = (++this._fieldFrame >= FIELD_RENDER_INTERVAL);
-        if (fieldRender) this._fieldFrame = 0;
+        // Field overlays: throttle render() via bitmask (matching stats/sidebar pattern)
+        const fieldRender = (++this._fieldFrame & FIELD_THROTTLE_MASK) === 0;
 
         if (this.higgsField && window.sim && window.sim.physics.higgsEnabled) {
             if (fieldRender) this.higgsField.render(this.isLight);

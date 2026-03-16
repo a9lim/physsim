@@ -59,17 +59,15 @@ export const BH_THETA_SQ = BH_THETA * BH_THETA;
 export const QUADTREE_CAPACITY = 4;
 
 // ── Radiation & Bosons ──
-export const LL_FORCE_CLAMP = 0.5;           // max |F_rad| as fraction of |F_ext|
 export const PHOTON_LIFETIME = 256;
 export const MAX_PHOTONS = 1024;
 export const PION_HALF_LIFE = 32;                // pi0 half-life (fast EM decay)
-export const CHARGED_PION_HALF_LIFE = 128;        // pi+/- half-life (slower weak decay)
+export const CHARGED_PION_HALF_LIFE = 64;        // pi+/- half-life (slower weak decay)
 export const PION_DECAY_PROB = 1 - Math.exp(-Math.LN2 / PION_HALF_LIFE * PHYSICS_DT);
 export const CHARGED_PION_DECAY_PROB = 1 - Math.exp(-Math.LN2 / CHARGED_PION_HALF_LIFE * PHYSICS_DT);
 export const MAX_PIONS = 256;
 export const ELECTRON_MASS = 0.05;                // decay product mass for pi+/- -> e+/- + photon
 export const MAX_REJECTION_SAMPLES = 32;     // quadrupole rejection sampling cap
-export const QUADRUPOLE_POWER_CLAMP = 0.01;  // max quadrupole dE as fraction of system KE
 export const ABERRATION_THRESHOLD = 1.01;    // min gamma for relativistic aberration
 
 // ── Yukawa ──
@@ -78,6 +76,7 @@ export const DEFAULT_PION_MASS = 0.15;       // mediator mass (inverse range), ~
 
 // ── Scalar Fields (Higgs & Axion) ──
 export const SCALAR_GRID = 64;
+export const SELFGRAV_GRID = 8;               // CPU self-gravity coarse grid
 export const SCALAR_FIELD_MAX = 2;           // field value clamp
 export const FIELD_EXCITATION_SIGMA = 2;     // Gaussian width in grid cells (merge wave packets)
 export const MERGE_EXCITATION_SCALE = 0.5;   // amplitude = scale * sqrt(keLost)
@@ -86,6 +85,8 @@ export const DEFAULT_HIGGS_MASS = 0.50;      // m_H (oscillation frequency), ~m_
 export const HIGGS_COUPLING = 1;             // g (source = g·baseMass, force = g·baseMass·∇φ)
 export const HIGGS_MASS_FLOOR = 0.05;        // min |φ| for mass: m ≥ 0.05·baseMass (caps accel at 20×)
 export const HIGGS_MASS_MAX_DELTA = 4;       // max mass change per unit time (prevents resonant throb)
+export const SELFGRAV_PHI_MAX = 0.2;        // clamp |Φ| to keep weak-field approx valid (1+4Φ>0 requires Φ>-0.25)
+export const EXCITATION_MAX_AMPLITUDE = 1.0; // cap merge wave-packet amplitude (prevents field shatter)
 
 export const DEFAULT_AXION_MASS = 0.05;      // m_a (oscillation frequency)
 export const AXION_COUPLING = 0.05;          // g in L = -(1+g·a)F²/4
@@ -114,9 +115,8 @@ export const HISTORY_MASK = HISTORY_SIZE - 1; // bitmask for modulo (power-of-2)
 export const HISTORY_STRIDE = 64;            // ~120 snapshots/second
 
 // ── GPU-Specific ──
-export const SELFGRAV_GRID = 8;               // CPU self-gravity coarse grid
-export const GPU_SCALAR_GRID = 64;            // GPU scalar field grid resolution (tunable to 128+)
-export const GPU_SELFGRAV_GRID = 8;           // GPU self-gravity coarse grid (tunable to 16+)
+export const GPU_SCALAR_GRID = 256;            // GPU scalar field grid resolution (tunable to 128+)
+export const GPU_SELFGRAV_GRID = 64;           // GPU self-gravity coarse grid (tunable to 16+)
 export const GPU_NR_TOLERANCE = 1e-5;         // GPU Newton-Raphson tolerance (f32 precision limit)
 export const GPU_HEATMAP_GRID = 64;           // GPU heatmap overlay resolution (tunable to 128)
 export const GPU_MAX_PARTICLES = 4096;        // GPU buffer pre-allocation limit
@@ -141,8 +141,8 @@ export const SHOOT_VELOCITY_SCALE = 0.02;
 export const MAX_TRAIL_LENGTH = 256;
 export const DISPLAY_SCALE = 100;
 export const STATS_THROTTLE_MASK = 7;           // stats update every 8th frame
-export const FIELD_RENDER_INTERVAL = 2;          // field overlay render every 2nd frame
-export const SIDEBAR_THROTTLE_MASK = 1;           // phase/effpot/selected update every 2nd frame
+export const FIELD_THROTTLE_MASK = 1;            // field overlay render every 2nd frame
+export const SIDEBAR_THROTTLE_MASK = 3;           // phase/effpot/selected update every 4nd frame
 export const PHASE_BUFFER_LEN = 512;
 export const HEATMAP_GRID = 64;
 export const HEATMAP_INTERVAL = 4;           // heatmap update every Nth render frame

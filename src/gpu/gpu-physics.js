@@ -2100,7 +2100,7 @@ export default class GPUPhysics {
             const sgBG0 = this._fieldSelfGravBGs[which];
             const sgBG1 = this._fieldSelfGravBGs[which + '_g1'];
             const sg = this._fieldSelfGrav;
-            const coarseWG = 1; // 8x8 = one workgroup for 8x8 coarse grid
+            const coarseWG = Math.ceil(COARSE_RES / 8);
 
             // Energy density
             const edPipeline = which === 'higgs'
@@ -3522,7 +3522,7 @@ export default class GPUPhysics {
         f32[5] = this._yukawaMu;
         f32[6] = this._higgsMass;
         f32[7] = this._axionMass || 0.05;
-        u32[8] = 64; // fieldGridRes (GPU_SCALAR_GRID)
+        u32[8] = FIELD_GRID_RES; // fieldGridRes (GPU_SCALAR_GRID)
         u32[9] = 0;
         u32[10] = 0;
         u32[11] = 0;

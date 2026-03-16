@@ -41,7 +41,7 @@ fn depositExcitations(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let gxEvt = evt.x / cellW;
         let gyEvt = evt.y / cellH;
-        let amplitude = MERGE_EXCITATION_SCALE * sqrt(evt.energy);
+        let amplitude = min(MERGE_EXCITATION_SCALE * sqrt(evt.energy), EXCITATION_MAX_AMPLITUDE);
 
         let dx = f32(ix) - gxEvt;
         let dy = f32(iy) - gyEvt;
