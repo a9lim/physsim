@@ -74,7 +74,7 @@ src/
                                       trail buffers, staging
     gpu-constants.js      291 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                       _PALETTE colors, single source of truth for JS/WGSL constants
-    shaders/               49 files  WGSL compute + render shaders (9214 lines total)
+    shaders/               51 files  WGSL compute + render shaders (9183 lines total)
 ```
 
 ## Key Imports
@@ -358,7 +358,7 @@ Falls back to CPU on WebGPU unavailability or device loss. Force CPU via `?cpu=1
 |--------|------|--------|
 | `ParticleState` | 36B | posX/Y, velWX/Y, mass, charge, angW, baseMass, flags |
 | `ParticleAux` | 20B | radius, particleId, deathTime, deathMass, deathAngVel |
-| `ParticleDerived` | 32B | magMoment, angMomentum, invMass, radiusSq, velX/Y, angVel |
+| `ParticleDerived` | 32B | magMoment, angMomentum, invMass, radiusSq, velX/Y, angVel, bodyRSq |
 | `AllForces` | 160B | 11 force vec2s, 3 torques, B-fields, B-gradients, totalForce, jerk |
 | `RadiationState` | 48B | radAccum, hawkAccum, yukawaRadAccum, radDisplay, quadAccum, d3I/d3Q contrib |
 | `Photon` | 32B | pos, vel, energy, emitterId, lifetime, flags |
@@ -369,10 +369,15 @@ Falls back to CPU on WebGPU unavailability or device loss. Force CPU via `?cpu=1
 **Shared includes** (prepended to ALL shaders via `getSharedPrefix()`):
 - `shared-structs.wgsl`: All packed struct definitions (ParticleState, ParticleAux, ParticleDerived, AllForces, SimUniforms, RadiationState, Photon, Pion). Single source of truth — never redefine these in individual shaders.
 - `shared-topology.wgsl`: `fullMinImageP(ox, oy, sx, sy, domW, domH, topo)` parameterized topology-aware minimum image function.
+- `shared-rng.wgsl`: `pcgHash(seed)`/`pcgRand(seed)` PCG hash PRNG.
 
-**Prepend chains** (all start with `wgslConstants + shared-structs + shared-topology`):
+**Additional shared includes** (prepended selectively via `getTreePrefix()`):
+- `shared-tree-nodes.wgsl`: Read-only BH node accessors (`getMinX`, `getComX`, `getTotalMass`, etc.). Used by forces-tree and collision. tree-build.wgsl has its own atomic versions.
+
+**Prepend chains** (all start with `wgslConstants + shared-structs + shared-topology + shared-rng`):
 - Phase 2 shaders + `boundary.wgsl`: + `common.wgsl` (toggle helpers, `fullMinImage` wrapper). Force shaders also get `signal-delay-common.wgsl`.
 - Field shaders: + `field-common.wgsl` (FieldUniforms, PQS helpers).
+- Tree-walk shaders (forces-tree, collision): + `shared-tree-nodes.wgsl` (node accessors).
 - Signal delay shaders (forces-tree, onePN, heatmap): + `signal-delay-common.wgsl` (getDelayedStateGPU).
 - All other standalone shaders: shared prefix only.
 - `fetchShader()` exported from `gpu-pipelines.js` (single source of truth, imported by gpu-physics.js and gpu-renderer.js).
