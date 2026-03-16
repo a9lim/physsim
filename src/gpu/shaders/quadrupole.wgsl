@@ -418,7 +418,7 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
             let angle = quadSample(d3Ixx, d3Ixy, i, 0u);
             let cosA = cos(angle);
             let sinA = sin(angle);
-            let offset = max(particleAux[i].radius * 1.5, 1.0);
+            let offset = max(particleAux[i].radius * SPAWN_OFFSET_MUL, SPAWN_OFFSET_FLOOR);
             var ph: Photon;
             ph.posX = particles[i].posX + cosA * offset;
             ph.posY = particles[i].posY + sinA * offset;
@@ -442,7 +442,7 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
             let angle = quadSample(d3Qxx, d3Qxy, i, 1u);
             let cosA = cos(angle);
             let sinA = sin(angle);
-            let offset = max(particleAux[i].radius * 1.5, 1.0);
+            let offset = max(particleAux[i].radius * SPAWN_OFFSET_MUL, SPAWN_OFFSET_FLOOR);
             var ph: Photon;
             ph.posX = particles[i].posX + cosA * offset;
             ph.posY = particles[i].posY + sinA * offset;

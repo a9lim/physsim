@@ -186,7 +186,7 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
                 emitAngle = pcgRand((i * 2654435761u) ^ (u.frameCount * 1664525u)) * 6.2831853;
             }
             let cosA = cos(emitAngle); let sinA = sin(emitAngle);
-            let offset = max(particleAux[i].radius * 1.5, 1.0);
+            let offset = max(particleAux[i].radius * SPAWN_OFFSET_MUL, SPAWN_OFFSET_FLOOR);
             var ph: Photon;
             ph.posX = particles[i].posX + cosA * offset;
             ph.posY = particles[i].posY + sinA * offset;
@@ -257,8 +257,8 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
                 let angle = pcgRand((i * 12345u) ^ u.frameCount) * 6.2831853;
                 let cosA = cos(angle); let sinA = sin(angle);
                 var ph: Photon;
-                ph.posX = particles[i].posX + cosA;
-                ph.posY = particles[i].posY + sinA;
+                ph.posX = particles[i].posX + cosA * SPAWN_OFFSET_FLOOR;
+                ph.posY = particles[i].posY + sinA * SPAWN_OFFSET_FLOOR;
                 ph.velX = cosA; ph.velY = sinA;
                 ph.energy = finalEnergy;
                 ph.emitterId = particleAux[i].particleId;
@@ -395,7 +395,7 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
                     particles[i].charge -= f32(piChg);
                 }
 
-                let offset = max(particleAux[i].radius * 1.5, 1.0);
+                let offset = max(particleAux[i].radius * SPAWN_OFFSET_MUL, SPAWN_OFFSET_FLOOR);
                 var pi: Pion;
                 pi.posX = particles[i].posX + cos(angle) * offset;
                 pi.posY = particles[i].posY + sin(angle) * offset;
