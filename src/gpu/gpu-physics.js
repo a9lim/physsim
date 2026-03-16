@@ -41,7 +41,7 @@ import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines
 import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_GRAV_BIT, FIELD_GRAV_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, MAX_PHOTONS, MAX_PIONS,
-    GPU_MAX_PARTICLES, PHYSICS_DT,
+    GPU_MAX_PARTICLES, GPU_HEATMAP_GRID, PHYSICS_DT,
     COL_MERGE, COL_BOUNCE, BOUND_LOOP,
     COL_NAMES, BOUND_NAMES, TOPO_NAMES,
     SOFTENING_SQ, BH_SOFTENING_SQ,
@@ -200,6 +200,7 @@ export default class GPUPhysics {
         this._disintegrationEnabled = false;
         this._hubbleParam = 0.001;
         this._heatmapEnabled = false;
+        this._heatmapMode = 'all';
         this._heatmapFrame = 0;
 
         // Phase 5: Pipelines (lazy-initialized)
@@ -1643,6 +1644,7 @@ export default class GPUPhysics {
         this._disintegrationEnabled = physics.disintegrationEnabled;
         this._hubbleParam = physics.hubbleParam || 0.001;
         this._heatmapEnabled = physics.heatmapEnabled || false;
+        this._heatmapMode = physics.heatmapMode || 'all';
 
         // Lazily allocate scalar field buffers on first toggle-on (matching CPU pattern)
         if (physics.higgsEnabled && !this._higgsBuffers) {
@@ -2776,7 +2778,7 @@ export default class GPUPhysics {
         if (this.aliveCount === 0) return;
 
         if (!this._heatmapBuffers) {
-            this._heatmapBuffers = createHeatmapBuffers(this.device);
+            this._heatmapBuffers = createHeatmapBuffers(this.device, GPU_HEATMAP_GRID);
         }
 
         if (!this._heatmapUniformBuffer) {
@@ -2787,17 +2789,16 @@ export default class GPUPhysics {
             });
         }
 
-        // Compute viewport bounds from camera — use physical pixel size to match
-        // render shader (heatmap-render.wgsl divides canvasW by zoom for world extent)
-        const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-        const canvasW = (camera?.viewportW || 800) * dpr;
-        const canvasH = (camera?.viewportH || 600) * dpr;
+        // Compute viewport bounds from camera — use logical pixels to match
+        // render shader (canvasW/canvasH = canvas.width = window.innerWidth, no DPR)
+        const canvasW = camera?.viewportW || 800;
+        const canvasH = camera?.viewportH || 600;
         const halfW = canvasW / (2 * (camera?.zoom || 16));
         const halfH = canvasH / (2 * (camera?.zoom || 16));
         const viewLeft = (camera?.x || 0) - halfW;
         const viewTop = (camera?.y || 0) - halfH;
-        const cellW = (2 * halfW) / 64;
-        const cellH = (2 * halfH) / 64;
+        const cellW = (2 * halfW) / GPU_HEATMAP_GRID;
+        const cellH = (2 * halfH) / GPU_HEATMAP_GRID;
 
         // Write HeatmapUniforms
         // Write HeatmapUniforms (pre-allocated buffers, no per-frame GC)
@@ -2811,9 +2812,10 @@ export default class GPUPhysics {
         _heatmapUniformF32[7] = this.simTime;
         _heatmapUniformF32[8] = this.domainW;
         _heatmapUniformF32[9] = this.domainH;
-        _heatmapUniformU32[10] = this._gravityEnabled ? 1 : 0; // doGravity
-        _heatmapUniformU32[11] = this._coulombEnabled ? 1 : 0; // doCoulomb
-        _heatmapUniformU32[12] = this._yukawaEnabled ? 1 : 0; // doYukawa
+        const hm = this._heatmapMode;
+        _heatmapUniformU32[10] = (this._gravityEnabled && (hm === 'all' || hm === 'gravity')) ? 1 : 0;
+        _heatmapUniformU32[11] = (this._coulombEnabled && (hm === 'all' || hm === 'electric')) ? 1 : 0;
+        _heatmapUniformU32[12] = (this._yukawaEnabled && (hm === 'all' || hm === 'yukawa')) ? 1 : 0;
         _heatmapUniformU32[13] = (this._relativityEnabled && this.buffers.historyAllocated) ? 1 : 0; // useDelay
         _heatmapUniformU32[14] = this.boundaryMode === BOUND_LOOP ? 1 : 0;
         _heatmapUniformU32[15] = this.topologyMode;
@@ -2899,7 +2901,7 @@ export default class GPUPhysics {
             this._heatmapBGs._g2IsDummy = false;
         }
 
-        const gridWG = Math.ceil(64 / 8);
+        const gridWG = Math.ceil(GPU_HEATMAP_GRID / 8);
 
         // Compute heatmap
         {

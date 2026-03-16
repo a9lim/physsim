@@ -246,6 +246,7 @@ export function setupUI(sim) {
             // Extend physics with heatmap state (not a physics property, lives on sim.heatmap)
             const gpuToggles = Object.create(sim.physics);
             gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
+            gpuToggles.heatmapMode = sim.heatmap ? sim.heatmap.mode : 'all';
             sim._gpuPhysics.setToggles(gpuToggles);
             // Sync boundary/collision/topology (live on sim, not sim.physics)
             _syncModesToGPU();
@@ -257,6 +258,7 @@ export function setupUI(sim) {
         if (sim._gpuPhysics && sim._gpuPhysics.setToggles) {
             const gpuToggles = Object.create(sim.physics);
             gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
+            gpuToggles.heatmapMode = sim.heatmap ? sim.heatmap.mode : 'all';
             sim._gpuPhysics.setToggles(gpuToggles);
             _syncModesToGPU();
         }
@@ -324,6 +326,7 @@ export function setupUI(sim) {
             // Sync current state to GPU
             const gpuToggles = Object.create(sim.physics);
             gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
+            gpuToggles.heatmapMode = sim.heatmap ? sim.heatmap.mode : 'all';
             sim._gpuPhysics.setToggles(gpuToggles);
             _syncModesToGPU();
             // Re-sync all particles to GPU
@@ -409,6 +412,7 @@ export function setupUI(sim) {
         if (sim._gpuPhysics) {
             const gpuToggles = Object.create(sim.physics);
             gpuToggles.heatmapEnabled = e.target.checked;
+            gpuToggles.heatmapMode = sim.heatmap.mode;
             sim._gpuPhysics.setToggles(gpuToggles);
         }
         sim._dirty = true;
@@ -420,6 +424,10 @@ export function setupUI(sim) {
         potentialModeBar.querySelector('.active')?.classList.remove('active');
         btn.classList.add('active');
         sim.heatmap.mode = btn.dataset.potential;
+        // Sync heatmap mode to GPU
+        if (sim._gpuPhysics) {
+            sim._gpuPhysics._heatmapMode = btn.dataset.potential;
+        }
         sim._dirty = true;
         _haptics.trigger('light');
     });

@@ -74,9 +74,11 @@ fn fsHeatmapOverlay(in: VertexOutput) -> @location(0) vec4<f32> {
     let fx = gx - f32(ix0);
     let fy = gy - f32(iy0);
 
-    var r: f32 = 0.0;
-    var g: f32 = 0.0;
-    var b: f32 = 0.0;
+    // Per-channel intensity (matches CPU fastTanh(|v| * sensitivity) * maxAlpha)
+    var gI: f32 = 0.0;
+    var eI: f32 = 0.0;
+    var yI: f32 = 0.0;
+    var eSign: f32 = 0.0; // positive = red, negative = blue
 
     // Gravity channel (slate from palette)
     if (ru.doGravity != 0u) {
@@ -85,11 +87,7 @@ fn fsHeatmapOverlay(in: VertexOutput) -> @location(0) vec4<f32> {
         let g01 = gravPotential[iy1 * HGRID + ix0];
         let g11 = gravPotential[iy1 * HGRID + ix1];
         let gVal = mix(mix(g00, g10, fx), mix(g01, g11, fx), fy);
-        let mapped = fastTanh(gVal * ru.sensitivity);
-        let intensity = abs(mapped);
-        r += intensity * COLOR_SLATE.r;
-        g += intensity * COLOR_SLATE.g;
-        b += intensity * COLOR_SLATE.b;
+        gI = abs(fastTanh(gVal * ru.sensitivity));
     }
 
     // Electric channel (blue for negative, red for positive — from palette)
@@ -99,12 +97,8 @@ fn fsHeatmapOverlay(in: VertexOutput) -> @location(0) vec4<f32> {
         let e01 = elecPotential[iy1 * HGRID + ix0];
         let e11 = elecPotential[iy1 * HGRID + ix1];
         let eVal = mix(mix(e00, e10, fx), mix(e01, e11, fx), fy);
-        let mapped = fastTanh(eVal * ru.sensitivity);
-        if (mapped > 0.0) {
-            r += mapped * COLOR_RED.r;
-        } else {
-            b += abs(mapped) * COLOR_BLUE.b;
-        }
+        eSign = eVal;
+        eI = abs(fastTanh(eVal * ru.sensitivity));
     }
 
     // Yukawa channel (green from palette)
@@ -114,18 +108,18 @@ fn fsHeatmapOverlay(in: VertexOutput) -> @location(0) vec4<f32> {
         let y01 = yukawaPotential[iy1 * HGRID + ix0];
         let y11 = yukawaPotential[iy1 * HGRID + ix1];
         let yVal = mix(mix(y00, y10, fx), mix(y01, y11, fx), fy);
-        let mapped = fastTanh(yVal * ru.sensitivity);
-        let intensity = abs(mapped);
-        r += intensity * COLOR_GREEN.r;
-        g += intensity * COLOR_GREEN.g;
-        b += intensity * COLOR_GREEN.b;
+        yI = abs(fastTanh(yVal * ru.sensitivity));
     }
 
-    let maxC = max(r, max(g, b));
-    if (maxC < 0.001) {
+    // Weighted-average color blending (matches CPU: color = sum(color_i * weight_i) / totalWeight)
+    let totalI = gI + eI + yI;
+    if (totalI < 0.001) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
-
-    let alpha = min(maxC, ru.maxAlpha);
-    return vec4<f32>(r * alpha, g * alpha, b * alpha, alpha);  // premultiplied
+    let eColor = select(COLOR_BLUE, COLOR_RED, eSign >= 0.0);
+    let rgb = (COLOR_SLATE * gI + eColor * eI + COLOR_GREEN * yI) / totalI;
+    // CPU: alpha = min(totalA, 120) where totalA = sum of (fastTanh * 100) per channel
+    // GPU: totalI in [0,3], maxAlpha = 100/255, cap at 120/255
+    let alpha = min(totalI * ru.maxAlpha, 120.0 / 255.0);
+    return vec4<f32>(rgb * alpha, alpha);  // premultiplied
 }
