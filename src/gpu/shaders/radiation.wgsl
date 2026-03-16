@@ -158,7 +158,7 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
                 // Rejection-sample sin²θ: up to 8 tries, fallback to perpendicular
                 var accepted = false;
                 var seedBase = (i * 2654435761u) ^ (u.frameCount * 1664525u);
-                for (var t: u32 = 0u; t < 8u; t++) {
+                for (var t: u32 = 0u; t < MAX_REJECTION_SAMPLES; t++) {
                     let theta = pcgRand(seedBase ^ (t * 1234567u)) * 6.2831853;
                     let sinTh = sin(theta);
                     if (pcgRand(seedBase ^ (t * 7654321u + 1u)) <= sinTh * sinTh) {
@@ -349,7 +349,7 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
                 var angle: f32;
                 var seedBase = (i * 2246822519u) ^ (u.frameCount * 2654435769u);
                 var accepted = false;
-                for (var t: u32 = 0u; t < 8u; t++) {
+                for (var t: u32 = 0u; t < MAX_REJECTION_SAMPLES; t++) {
                     let phi = pcgRand(seedBase ^ (t * 1234567u)) * 6.2831853;
                     let cosTheta = cos(phi - accelAngle);
                     if (pcgRand(seedBase ^ (t * 9876543u + 1u)) <= cosTheta * cosTheta) {

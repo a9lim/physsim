@@ -476,7 +476,7 @@ fn quadSample(Axx: f32, Axy: f32, particleIdx: u32, channel: u32) -> f32 {
         return pcgRand((particleIdx * 2654435761u) ^ (u.frameCount * 1664525u) ^ (channel * 999u)) * TWO_PI;
     }
     var seedBase = (particleIdx * 2246822519u) ^ (u.frameCount * 2654435769u) ^ (channel * 12345u);
-    for (var t: u32 = 0u; t < 8u; t++) {
+    for (var t: u32 = 0u; t < MAX_REJECTION_SAMPLES; t++) {
         let phi = pcgRand(seedBase ^ (t * 1234567u)) * TWO_PI;
         let c2 = cos(2.0 * phi);
         let s2 = sin(2.0 * phi);
