@@ -152,9 +152,9 @@ export default class InputHandler {
 
     _deleteParticle(p) {
         this.sim.physics._retireParticle(p);
-        // GPU path: mark particle dead on GPU side
+        // GPU path: mark particle dead on GPU side with death metadata for signal delay
         if (this.sim._gpuReady && this.sim.backend === 'gpu' && p._gpuIdx != null) {
-            this.sim._gpuPhysics.removeParticle(p._gpuIdx);
+            this.sim._gpuPhysics.removeParticle(p._gpuIdx, p._deathMass || p.mass, p._deathAngVel || p.angVel);
         }
         // A9: swap-and-pop instead of filter (O(1) vs O(N), no allocation)
         const arr = this.sim.particles;
@@ -169,18 +169,22 @@ export default class InputHandler {
     }
 
     _deleteByGpuIdx(gpuIdx) {
-        this.sim._gpuPhysics.removeParticle(gpuIdx);
-        // Remove CPU counterpart if it exists
+        // Find CPU counterpart first to get death metadata
         const arr = this.sim.particles;
+        let deathMass = 0, deathAngVel = 0;
         for (let i = arr.length - 1; i >= 0; i--) {
             if (arr[i]._gpuIdx === gpuIdx) {
-                this.sim.physics._retireParticle(arr[i]);
-                if (this.sim.selectedParticle === arr[i]) this.sim.selectedParticle = null;
+                const p = arr[i];
+                this.sim.physics._retireParticle(p);
+                deathMass = p._deathMass || p.mass;
+                deathAngVel = p._deathAngVel || p.angVel;
+                if (this.sim.selectedParticle === p) this.sim.selectedParticle = null;
                 arr[i] = arr[arr.length - 1];
                 arr.pop();
                 break;
             }
         }
+        this.sim._gpuPhysics.removeParticle(gpuIdx, deathMass, deathAngVel);
         this.sim._dirty = true;
         _haptics.trigger('light');
     }

@@ -198,6 +198,7 @@ const FLAG_ANTIMATTER: u32 = 4u;
 const FLAG_BH: u32 = 8u;
 const FLAG_GHOST: u32 = 16u;
 const FLAG_REBORN: u32 = 32u;
+const FLAG_DEATH_HIST: u32 = 64u;
 
 // Toggle bit constants (toggles0)
 const GRAVITY_BIT: u32 = 1u;

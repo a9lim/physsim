@@ -44,7 +44,7 @@ struct HeatmapUniforms {
     periodic: u32,
     topologyMode: u32,
     particleCount: u32,
-    deadCount: u32,
+    _padDead: u32,
     _pad0: f32,
     _pad1: f32,
     _pad2: f32,
@@ -166,11 +166,9 @@ fn computeHeatmap(@builtin(global_invocation_id) gid: vec3<u32>) {
             let ret = getDelayedStateGPU(i, wx, wy, hu.simTime,
                 hu.periodic != 0u, hu.domainW, hu.domainH,
                 hu.topologyMode, false);
-            if (ret.valid) {
-                srcX = ret.x;
-                srcY = ret.y;
-            }
-            // If invalid (not enough history), fall back to current position
+            if (!ret.valid) { continue; } // outside past light cone — particle not yet visible
+            srcX = ret.x;
+            srcY = ret.y;
         }
 
         var dx: f32; var dy: f32;

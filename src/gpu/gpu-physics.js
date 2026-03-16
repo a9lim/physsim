@@ -91,6 +91,8 @@ const _addParticleMetaU32 = new Uint32Array(_addParticleMetaBuf);
 const _addParticleMetaF32 = new Float32Array(_addParticleMetaBuf);
 const _zeroU32 = new Uint32Array([0]);                // reusable zero for counter resets
 const _retiredFlagU32 = new Uint32Array([2]);         // FLAG_RETIRED for removeParticle
+const _deathMetaData = new ArrayBuffer(12);           // deathTime(f32), deathMass(f32), deathAngVel(f32)
+const _deathMetaF32 = new Float32Array(_deathMetaData);
 
 export default class GPUPhysics {
     /**
@@ -1556,14 +1558,22 @@ export default class GPUPhysics {
 
     /**
      * Remove a particle from the GPU by marking it dead (clearing ALIVE, setting RETIRED).
-     * The dead GC shader will reclaim the slot for reuse by addParticle().
+     * Writes death metadata for signal delay fade-out matching collision/boundary shaders.
+     * The dead GC shader will reclaim the slot after the signal delay expiry window.
      * @param {number} idx - GPU buffer index of the particle to remove
+     * @param {number} deathMass - particle mass at time of death
+     * @param {number} deathAngVel - particle angular velocity at time of death
      */
-    removeParticle(idx) {
+    removeParticle(idx, deathMass = 0, deathAngVel = 0) {
         if (idx < 0 || idx >= this.aliveCount) return;
         // Clear ALIVE bit, set RETIRED bit in flags (byte offset 8 in ParticleState = 32 bytes in)
         // ParticleState: posX(0), posY(4), velWX(8), velWY(12), mass(16), charge(20), angW(24), baseMass(28), flags(32)
         this.device.queue.writeBuffer(this.buffers.particleState, idx * PARTICLE_STATE_SIZE + 32, _retiredFlagU32);
+        // Write death metadata to ParticleAux: deathTime(offset 8), deathMass(12), deathAngVel(16)
+        _deathMetaF32[0] = this.simTime;
+        _deathMetaF32[1] = deathMass;
+        _deathMetaF32[2] = deathAngVel;
+        this.device.queue.writeBuffer(this.buffers.particleAux, idx * PARTICLE_AUX_SIZE + 8, _deathMetaData);
     }
 
     /**
@@ -2804,7 +2814,7 @@ export default class GPUPhysics {
         _heatmapUniformU32[14] = this.boundaryMode === BOUND_LOOP ? 1 : 0;
         _heatmapUniformU32[15] = this.topologyMode;
         _heatmapUniformU32[16] = this.aliveCount;
-        _heatmapUniformU32[17] = 0; // deadCount (not tracked on GPU yet)
+        _heatmapUniformU32[17] = 0; // _padDead (unused — dead particles found via FLAG_RETIRED scan)
         this.device.queue.writeBuffer(this._heatmapUniformBuffer, 0, _heatmapUniformData);
 
         if (!this._heatmapBGs) {

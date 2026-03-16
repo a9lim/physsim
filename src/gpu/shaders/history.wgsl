@@ -49,18 +49,50 @@ struct SimUniforms {
 fn recordHistory(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= arrayLength(&particles)) { return; }
-    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
+
+    let flags = particles[i].flags;
+
+    // Newly-retired particles: record one final history snapshot at death time,
+    // then set FLAG_DEATH_HIST to prevent re-recording on subsequent frames
+    if ((flags & FLAG_RETIRED) != 0u && (flags & FLAG_ALIVE) == 0u) {
+        if ((flags & FLAG_DEATH_HIST) != 0u) { return; }
+        particles[i].flags = flags | FLAG_DEATH_HIST;
+
+        let metaBase = i * HIST_META_STRIDE;
+        var writeIdx = histMeta[metaBase];
+        var count = histMeta[metaBase + 1u];
+
+        let sampleBase = i * HISTORY_LEN * HIST_STRIDE
+                       + (writeIdx & HISTORY_MASK) * HIST_STRIDE;
+
+        histData[sampleBase + 0u] = particles[i].posX;
+        histData[sampleBase + 1u] = particles[i].posY;
+        let wx = particles[i].velWX;
+        let wy = particles[i].velWY;
+        let gamma = sqrt(1.0 + wx * wx + wy * wy);
+        let invG = 1.0 / gamma;
+        histData[sampleBase + 2u] = wx * invG;
+        histData[sampleBase + 3u] = wy * invG;
+        histData[sampleBase + 4u] = particles[i].angW;
+        histData[sampleBase + 5u] = u.simTime;
+
+        histMeta[metaBase] = (writeIdx + 1u) & HISTORY_MASK;
+        histMeta[metaBase + 1u] = min(count + 1u, HISTORY_LEN);
+        return;
+    }
+
+    if ((flags & FLAG_ALIVE) == 0u) { return; }
 
     let metaBase = i * HIST_META_STRIDE;
 
     // Reborn particles (new particle in recycled slot after merge):
     // clear stale history from the old particle, set creationTime, and reset the flag
-    if ((particles[i].flags & FLAG_REBORN) != 0u) {
+    if ((flags & FLAG_REBORN) != 0u) {
         histMeta[metaBase] = 0u;              // writeIdx
         histMeta[metaBase + 1u] = 0u;         // count
         histMeta[metaBase + 2u] = bitcast<u32>(u.simTime); // creationTime
         histMeta[metaBase + 3u] = 0u;         // _pad
-        particles[i].flags &= ~FLAG_REBORN;
+        particles[i].flags = flags & ~FLAG_REBORN;
     }
 
     var writeIdx = histMeta[metaBase];
