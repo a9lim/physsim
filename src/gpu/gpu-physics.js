@@ -2104,9 +2104,154 @@ export default class GPUPhysics {
     }
 
     /**
+     * Dispatch self-gravity FFT convolution for one field.
+     * Sequence: energy density → FFT(ρ·dA) → multiply Ĝ → IFFT → SG gradients.
+     * Called twice per KDK cycle when field gravity is on: before 1st half-kick
+     * and after drift (refreshes Φ for O(dt²) accuracy on GR correction terms).
+     * @param {string} tag - label prefix ('pre' or 'mid') for debug labels
+     */
+    _dispatchSelfGravity(encoder, which, fb, gridWG, tag) {
+        this._ensureSelfGravBindGroups(which);
+        this._ensureFFTBindGroups(which);
+
+        const sgBG0 = this._fieldSelfGravBGs[which];
+        const sgBG1 = this._fieldSelfGravBGs[which + '_g1'];
+        const sg = this._fieldSelfGrav;
+        const fft = this._fftPipelines;
+        const fftBG = this._fftBGs[which];
+        const softeningSq = this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
+
+        // Upload Green's function if geometry changed
+        this._uploadGreenHat(which, this.domainW, this.domainH,
+            softeningSq, this.boundaryMode === BOUND_LOOP, this.topologyMode);
+
+        // Compute energy density
+        const edPipeline = which === 'higgs'
+            ? sg.computeEnergyDensityHiggs
+            : sg.computeEnergyDensityAxion;
+        {
+            const p = encoder.beginComputePass({ label: `energyDensity_${tag}_${which}` });
+            p.setPipeline(edPipeline);
+            p.setBindGroup(0, sgBG0);
+            p.setBindGroup(1, sgBG1);
+            p.dispatchWorkgroups(gridWG, gridWG);
+            p.end();
+        }
+
+        // Copy ρ·dA to fftB (temp real source for packRealToComplex)
+        const N = FIELD_GRID_RES;
+        const N2 = N * N;
+        const elemWG = Math.ceil(N2 / 256);
+        const logN = Math.log2(N);
+        encoder.copyBufferToBuffer(fb.energyDensity, 0, fb.fftB, 0, N2 * 4);
+
+        // Pack real → complex (reads fftB, writes fftA)
+        {
+            const params = new ArrayBuffer(32);
+            const u = new Uint32Array(params);
+            const f = new Float32Array(params);
+            u[0] = 1; f[1] = 0; u[2] = 0; u[3] = N; f[4] = 1/N; u[5] = 0; u[6] = 0; u[7] = 0;
+            this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
+        }
+        {
+            const p = encoder.beginComputePass({ label: `packReal_${tag}_${which}` });
+            p.setPipeline(fft.packRealToComplex);
+            p.setBindGroup(0, fftBG.g0_AB);
+            p.dispatchWorkgroups(elemWG);
+            p.end();
+        }
+
+        // Forward FFT rows then columns
+        let currentInA = true;
+        const dispatchButterfly = (stageLen, axis, isLast) => {
+            const params = new ArrayBuffer(32);
+            const u = new Uint32Array(params);
+            const f = new Float32Array(params);
+            u[0] = stageLen;
+            new Int32Array(params)[1] = -1; // forward
+            u[2] = axis;
+            u[3] = N;
+            f[4] = 1 / N;
+            u[5] = isLast ? 1 : 0;
+            this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
+
+            const bg = currentInA ? fftBG.g0_AB : fftBG.g0_BA;
+            const p = encoder.beginComputePass({ label: `fftFwd_${tag}_${axis}_${stageLen}_${which}` });
+            p.setPipeline(fft.fftButterfly);
+            p.setBindGroup(0, bg);
+            p.dispatchWorkgroups(elemWG);
+            p.end();
+            currentInA = !currentInA;
+        };
+        for (let s = 0; s < logN; s++) dispatchButterfly(1 << s, 0, false);
+        for (let s = 0; s < logN; s++) dispatchButterfly(1 << s, 1, false);
+
+        // Pointwise multiply by Ĝ (data must be in fftA)
+        if (!currentInA) {
+            encoder.copyBufferToBuffer(fb.fftB, 0, fb.fftA, 0, N2 * 2 * 4);
+            currentInA = true;
+        }
+        {
+            const p = encoder.beginComputePass({ label: `complexMul_${tag}_${which}` });
+            p.setPipeline(fft.complexMultiply);
+            p.setBindGroup(0, fftBG.g0_AB);
+            p.setBindGroup(1, fftBG.g1Green);
+            p.dispatchWorkgroups(elemWG);
+            p.end();
+        }
+
+        // Inverse FFT rows then columns
+        const dispatchButterflyInv = (stageLen, axis, isLast) => {
+            const params = new ArrayBuffer(32);
+            const u = new Uint32Array(params);
+            const f = new Float32Array(params);
+            u[0] = stageLen;
+            new Int32Array(params)[1] = 1; // inverse
+            u[2] = axis;
+            u[3] = N;
+            f[4] = 1 / N;
+            u[5] = isLast ? 1 : 0;
+            this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
+
+            const bg = currentInA ? fftBG.g0_AB : fftBG.g0_BA;
+            const p = encoder.beginComputePass({ label: `fftInv_${tag}_${axis}_${stageLen}_${which}` });
+            p.setPipeline(fft.fftButterfly);
+            p.setBindGroup(0, bg);
+            p.dispatchWorkgroups(elemWG);
+            p.end();
+            currentInA = !currentInA;
+        };
+        for (let s = 0; s < logN; s++) dispatchButterflyInv(1 << s, 0, s === logN - 1);
+        for (let s = 0; s < logN; s++) dispatchButterflyInv(1 << s, 1, s === logN - 1);
+
+        // Unpack complex → real (fftA → fftB → sgPhiFull)
+        if (!currentInA) {
+            encoder.copyBufferToBuffer(fb.fftB, 0, fb.fftA, 0, N2 * 2 * 4);
+        }
+        {
+            const p = encoder.beginComputePass({ label: `unpackReal_${tag}_${which}` });
+            p.setPipeline(fft.unpackComplexToReal);
+            p.setBindGroup(0, fftBG.g0_AB);
+            p.dispatchWorkgroups(elemWG);
+            p.end();
+        }
+        encoder.copyBufferToBuffer(fb.fftB, 0, fb.sgPhiFull, 0, N2 * 4);
+
+        // SG gradients
+        {
+            const p = encoder.beginComputePass({ label: `sgGradients_${tag}_${which}` });
+            p.setPipeline(sg.computeSelfGravGradients);
+            p.setBindGroup(0, sgBG0);
+            p.setBindGroup(1, sgBG1);
+            p.dispatchWorkgroups(gridWG, gridWG);
+            p.end();
+        }
+    }
+
+    /**
      * Dispatch scalar field evolution for one field (Higgs or Axion).
      * Full sequence: deposit → [self-gravity] → Laplacian → halfKick → drift →
-     * Laplacian → halfKick → NaN fixup → compute gradients
+     * [refresh self-gravity] → Laplacian → halfKick → NaN fixup → compute gradients
      */
     _dispatchFieldEvolve(encoder, which, dt) {
         const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
@@ -2169,171 +2314,7 @@ export default class GPUPhysics {
 
         // Step 4: Self-gravity via FFT convolution (if field gravity enabled)
         if (this._fieldGravEnabled) {
-            this._ensureSelfGravBindGroups(which);
-            this._ensureFFTBindGroups(which);
-
-            const sgBG0 = this._fieldSelfGravBGs[which];
-            const sgBG1 = this._fieldSelfGravBGs[which + '_g1'];
-            const sg = this._fieldSelfGrav;
-            const fft = this._fftPipelines;
-            const fftBG = this._fftBGs[which];
-            const softeningSq = this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
-
-            // Upload Green's function if geometry changed
-            this._uploadGreenHat(which, this.domainW, this.domainH,
-                softeningSq, this.boundaryMode === BOUND_LOOP, this.topologyMode);
-
-            // 4a. Compute energy density
-            const edPipeline = which === 'higgs'
-                ? sg.computeEnergyDensityHiggs
-                : sg.computeEnergyDensityAxion;
-            {
-                const p = encoder.beginComputePass({ label: `energyDensity_${which}` });
-                p.setPipeline(edPipeline);
-                p.setBindGroup(0, sgBG0);
-                p.setBindGroup(1, sgBG1);
-                p.dispatchWorkgroups(gridWG, gridWG);
-                p.end();
-            }
-
-            // 4b. Copy ρ·dA to fftB (used as temp real source for packRealToComplex)
-            // energyDensity → fftB (scale by cellArea during pack)
-            // For simplicity, copy energyDensity to fftB then pack to fftA
-            encoder.copyBufferToBuffer(fb.energyDensity, 0, fb.fftB, 0, FIELD_GRID_RES * FIELD_GRID_RES * 4);
-
-            // 4c. Pack real → complex (reads fftB real, writes fftA complex)
-            const N = FIELD_GRID_RES;
-            const N2 = N * N;
-            const elemWG = Math.ceil(N2 / 256);
-            const logN = Math.log2(N);
-
-            {
-                // Write FFT params for pack pass
-                const params = new ArrayBuffer(32);
-                const u = new Uint32Array(params);
-                const f = new Float32Array(params);
-                u[0] = 1; f[1] = 0; u[2] = 0; u[3] = N; f[4] = 1/N; u[5] = 0; u[6] = 0; u[7] = 0;
-                this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
-            }
-            {
-                const p = encoder.beginComputePass({ label: `packReal_${which}` });
-                p.setPipeline(fft.packRealToComplex);
-                p.setBindGroup(0, fftBG.g0_AB);
-                p.dispatchWorkgroups(elemWG);
-                p.end();
-            }
-
-            // 4d. Forward FFT rows then columns (log2(N) passes each)
-            // After pack: data in fftA. First butterfly reads A, writes B.
-            // Alternate: AB, BA, AB, BA... Final result location depends on pass count parity.
-            let currentInA = true; // data starts in A after pack
-
-            // Helper to write FFT params and dispatch one butterfly pass
-            const dispatchButterfly = (stageLen, axis, isLast) => {
-                const params = new ArrayBuffer(32);
-                const u = new Uint32Array(params);
-                const f = new Float32Array(params);
-                u[0] = stageLen;
-                new Int32Array(params)[1] = -1; // direction = forward
-                u[2] = axis;
-                u[3] = N;
-                f[4] = 1 / N;
-                u[5] = isLast ? 1 : 0;
-                this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
-
-                const bg = currentInA ? fftBG.g0_AB : fftBG.g0_BA;
-                const p = encoder.beginComputePass({ label: `fftFwd_${axis}_${stageLen}_${which}` });
-                p.setPipeline(fft.fftButterfly);
-                p.setBindGroup(0, bg);
-                p.dispatchWorkgroups(elemWG);
-                p.end();
-                currentInA = !currentInA;
-            };
-
-            // Forward FFT: rows
-            for (let s = 0; s < logN; s++) {
-                dispatchButterfly(1 << s, 0, false);
-            }
-            // Forward FFT: columns
-            for (let s = 0; s < logN; s++) {
-                dispatchButterfly(1 << s, 1, false);
-            }
-
-            // 4e. Pointwise multiply by Ĝ (data must be in fftA for complexMultiply)
-            // If data is in B, we need to swap
-            if (!currentInA) {
-                // Data is in B — copy B→A
-                encoder.copyBufferToBuffer(fb.fftB, 0, fb.fftA, 0, N2 * 2 * 4);
-                currentInA = true;
-            }
-            {
-                const p = encoder.beginComputePass({ label: `complexMul_${which}` });
-                p.setPipeline(fft.complexMultiply);
-                p.setBindGroup(0, fftBG.g0_AB);
-                p.setBindGroup(1, fftBG.g1Green);
-                p.dispatchWorkgroups(elemWG);
-                p.end();
-            }
-            // After multiply: result in fftA
-
-            // 4f. Inverse FFT rows then columns
-            const dispatchButterflyInv = (stageLen, axis, isLast) => {
-                const params = new ArrayBuffer(32);
-                const u = new Uint32Array(params);
-                const f = new Float32Array(params);
-                u[0] = stageLen;
-                new Int32Array(params)[1] = 1; // direction = inverse
-                u[2] = axis;
-                u[3] = N;
-                f[4] = 1 / N;
-                u[5] = isLast ? 1 : 0;
-                this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
-
-                const bg = currentInA ? fftBG.g0_AB : fftBG.g0_BA;
-                const p = encoder.beginComputePass({ label: `fftInv_${axis}_${stageLen}_${which}` });
-                p.setPipeline(fft.fftButterfly);
-                p.setBindGroup(0, bg);
-                p.dispatchWorkgroups(elemWG);
-                p.end();
-                currentInA = !currentInA;
-            };
-
-            // Inverse FFT: rows (last row pass normalizes by 1/N)
-            for (let s = 0; s < logN; s++) {
-                const isLast = (s === logN - 1);
-                dispatchButterflyInv(1 << s, 0, isLast);
-            }
-            // Inverse FFT: columns (last column pass normalizes by 1/N → total 1/N²)
-            for (let s = 0; s < logN; s++) {
-                const isLast = (s === logN - 1);
-                dispatchButterflyInv(1 << s, 1, isLast);
-            }
-
-            // 4g. Unpack complex → real (reads from current buffer, writes sgPhiFull via fftB temp)
-            // Ensure data is in fftA for unpackComplexToReal
-            if (!currentInA) {
-                encoder.copyBufferToBuffer(fb.fftB, 0, fb.fftA, 0, N2 * 2 * 4);
-                currentInA = true;
-            }
-            {
-                const p = encoder.beginComputePass({ label: `unpackReal_${which}` });
-                p.setPipeline(fft.unpackComplexToReal);
-                p.setBindGroup(0, fftBG.g0_AB);
-                p.dispatchWorkgroups(elemWG);
-                p.end();
-            }
-            // unpackComplexToReal writes real part to fftB — copy to sgPhiFull
-            encoder.copyBufferToBuffer(fb.fftB, 0, fb.sgPhiFull, 0, N2 * 4);
-
-            // 4h. SG gradients
-            {
-                const p = encoder.beginComputePass({ label: `sgGradients_${which}` });
-                p.setPipeline(sg.computeSelfGravGradients);
-                p.setBindGroup(0, sgBG0);
-                p.setBindGroup(1, sgBG1);
-                p.dispatchWorkgroups(gridWG, gridWG);
-                p.end();
-            }
+            this._dispatchSelfGravity(encoder, which, fb, gridWG, 'pre');
         }
 
         // Step 6: KDK Störmer-Verlet
@@ -2372,6 +2353,18 @@ export default class GPUPhysics {
             p.setBindGroup(0, evolveBG);
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
+        }
+        // Refresh self-gravity at drifted field (restores O(dt²) for GR correction)
+        if (this._fieldGravEnabled) {
+            // Recompute field gradients first (needed by energy density + cross-term)
+            {
+                const p = encoder.beginComputePass({ label: `gridGradientsMid_${which}` });
+                p.setPipeline(evo.computeGridGradients);
+                p.setBindGroup(0, gradBG);
+                p.dispatchWorkgroups(gridWG, gridWG);
+                p.end();
+            }
+            this._dispatchSelfGravity(encoder, which, fb, gridWG, 'mid');
         }
         // Half-kick (2nd)
         {

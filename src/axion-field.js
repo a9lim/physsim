@@ -125,6 +125,12 @@ export default class AxionField extends ScalarField {
         // ── Recompute Laplacian with updated field ──
         this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 0);
 
+        // ── Refresh self-gravity at drifted field (restores O(dt²) for GR correction) ──
+        if (sgOn) {
+            this._computeGridGradients(bcMode, topoConst, 0);
+            this.computeSelfGravity(domainW, domainH, softeningSq, bcMode === BOUND_LOOP, topoConst);
+        }
+
         // ── Second half-kick (with updated field values) ──
         this._computeViscosity(invCellWSq, invCellHSq);
         if (sgOn) {
