@@ -266,6 +266,15 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
             out.y += fy;
             p.force1PN.x += fx;
             p.force1PN.y += fy;
+            // Analytical jerk for position-only EIH term: F = m₂(5m₁+4m₂)·r/r⁴
+            // Velocity-dependent EIH terms (v², v·n) omitted — O(1/c⁵) contribution
+            if (toggles.radiationEnabled) {
+                const kEIH = sMass * (5 * p.mass + 4 * sMass);
+                const fDirEIH = kEIH * invRSq * invRSq;
+                const jRadialEIH = -4 * kEIH * rDotVr * invRSq * invRSq * invRSq;
+                p.jerk.x += vrx * fDirEIH + rx * jRadialEIH;
+                p.jerk.y += vry * fDirEIH + ry * jRadialEIH;
+            }
             // 1PN EIH PE: -m₁m₂/r · [1.5(v₁²+v₂²) - 3.5v₁·v₂ - 0.5(v₁·n̂)(v₂·n̂) + m₁/r + m₂/r]
             if (_accumulatePE) {
                 _peAccum -= p.mass * sMass * invR * (
@@ -300,6 +309,12 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         out.y += ry * fDir;
         p.force1PN.x += rx * fDir;
         p.force1PN.y += ry * fDir;
+        // Analytical jerk: F = crossCoeff·r/r⁴, d/dt(1/r⁴) = -4·rDotVr/r⁶
+        if (toggles.radiationEnabled) {
+            const jRadial = -4 * crossCoeff * rDotVr * invRSq * invRSq * invRSq;
+            p.jerk.x += vrx * fDir + rx * jRadial;
+            p.jerk.y += vry * fDir + ry * jRadial;
+        }
         // Bazanski PE: +0.5·crossCoeff/r²
         if (_accumulatePE) _peAccum += 0.5 * crossCoeff * invRSq;
     }
@@ -313,6 +328,13 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         out.y += ry * fDir;
         p.forceMagnetic.x += rx * fDir;
         p.forceMagnetic.y += ry * fDir;
+        // Analytical jerk: F = 3μ₁μ₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
+        if (toggles.radiationEnabled) {
+            const invR7a = invR5a * invRSq;
+            const jRadial = -5 * 3 * (pMagMoment * sMagMoment) * rDotVr * invR7a * axMod;
+            p.jerk.x += vrx * fDir + rx * jRadial;
+            p.jerk.y += vry * fDir + ry * jRadial;
+        }
         // PE: +μ₁μ₂/r³ * axMod
         if (_accumulatePE) _peAccum += (pMagMoment * sMagMoment) * invR3 * axMod;
 
@@ -337,6 +359,13 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         out.y += ry * fDir;
         p.forceGravitomag.x += rx * fDir;
         p.forceGravitomag.y += ry * fDir;
+        // Analytical jerk: F = 3L₁L₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
+        if (toggles.radiationEnabled) {
+            const invR7a = invR5a * invRSq;
+            const jRadial = -5 * 3 * (pAngMomentum * sAngMomentum) * rDotVr * invR7a;
+            p.jerk.x += vrx * fDir + rx * jRadial;
+            p.jerk.y += vry * fDir + ry * jRadial;
+        }
         // PE: -L₁L₂/r³
         if (_accumulatePE) _peAccum -= (pAngMomentum * sAngMomentum) * invR3;
 
