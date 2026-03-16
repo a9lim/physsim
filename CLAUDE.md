@@ -404,7 +404,8 @@ Falls back to CPU on WebGPU unavailability or device loss. Force CPU via `?cpu=1
 - **Particles**: r = ∛(mass) (BH: r₊), no glow. Neutral=slate (BH light: text color). Charged: RGB lerp base→red(+)/blue(-).
 - **Trails**: circular Float32Array[256], wrap-detection for periodic boundaries
 - **Force vectors**: gravity=red, coulomb=blue, magnetic=cyan, GM=rose, 1PN=orange, spin-curv=purple, radiation=yellow, yukawa=green, external=brown, higgs=lime, axion=indigo
-- **Field overlays**: 64×64, bilinear-upscaled. Higgs: purple/lime. Axion: indigo/yellow.
+- **Field overlays**: 64×64 (CPU) / 128×128 (GPU), bilinear-upscaled. Higgs: purple/lime. Axion: indigo/yellow.
+- **Heatmap**: 64×64 (CPU) / 128×128 (GPU), 3-channel (gravity/slate, electric/blue-red, Yukawa/green), mode selector (All/Grav/Elec/Yukawa)
 - **Photons**: yellow (EM) / red (grav), alpha fades over PHOTON_LIFETIME=256
 - **Pions**: green, constant alpha
 - **V_eff plot**: 200-sample sidebar canvas
