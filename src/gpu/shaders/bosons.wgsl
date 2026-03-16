@@ -247,7 +247,7 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
 
     if (isNeutral) {
         // pi0 -> 2 photons: back-to-back in rest frame, Lorentz-boosted
-        let restAngle = rng * 6.2831853; // 2*PI
+        let restAngle = rng * TWO_PI; // 2*PI
         let cosR = cos(restAngle); let sinR = sin(restAngle);
         let eRest = mPi * 0.5;
         let piDecayPosX = piState.posX;
@@ -325,7 +325,7 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
             let eElRest = mPi - ePhRest;
             let pRest = ePhRest;
 
-            let restAngle2 = fract(rng * 7.3) * 6.2831853;
+            let restAngle2 = fract(rng * 7.3) * TWO_PI;
             let cosR = cos(restAngle2); let sinR = sin(restAngle2);
 
             // Photon momentum in rest frame

@@ -51,9 +51,7 @@ var<workgroup> tile: array<TileParticle, TILE_SIZE>;
 @group(3) @binding(0) var<storage, read_write> histData: array<f32>;
 @group(3) @binding(1) var<storage, read_write> histMeta: array<u32>;
 
-// Aberration constants
-const ABERRATION_CLAMP_MIN: f32 = 0.01;
-const ABERRATION_CLAMP_MAX: f32 = 100.0;
+// Aberration constants (ABERRATION_CLAMP_MIN/MAX, ABERRATION_THRESHOLD) from wgslConstants
 
 // ── Source data struct for force computation (used by both tile loop and dead loop) ──
 struct SourceData {
