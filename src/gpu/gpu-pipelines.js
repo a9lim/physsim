@@ -863,11 +863,10 @@ export async function createGhostGenPipeline(device, wgslConstants = '') {
 }
 
 /**
- * Create field deposition pipelines (Phase 5: scalar field two-pass PQS).
+ * Create field deposition pipelines (Phase 5: single-pass atomic PQS).
  * Bind groups:
- *   Group 0: particleState (ro) = 1 (was 8 separate SoA buffers)
- *   Group 1: scratch + scratchIndices + targetGrid + fieldUniforms = 4
- *   Total: 4 storage buffers per stage
+ *   Group 0: particleState (rw) = 1
+ *   Group 1: atomicGrid (rw) + targetGrid (rw) + fieldUniforms = 3
  */
 export async function createFieldDepositPipelines(device, wgslConstants = '') {
     const fieldCommonWGSL = wgslConstants + '\n' + await fetchShader('field-common.wgsl');
@@ -885,17 +884,16 @@ export async function createFieldDepositPipelines(device, wgslConstants = '') {
     const group1Layout = device.createBindGroupLayout({
         label: 'fieldDeposit_group1',
         entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // atomicGrid
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // targetGrid (f32 output)
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, // FieldUniforms
         ],
     });
 
     const bindGroupLayouts = [group0Layout, group1Layout];
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 
-    const entryPoints = ['scatterDeposit', 'scatterDepositAxion', 'scatterDepositThermal', 'gatherDeposit', 'clearGrid'];
+    const entryPoints = ['depositHiggsSource', 'depositAxionSource', 'depositThermal', 'finalizeDeposit'];
     const pipelines = {};
     for (const entry of entryPoints) {
         pipelines[entry] = device.createComputePipeline({
@@ -1039,7 +1037,7 @@ export async function createFieldForcesPipelines(device, wgslConstants = '') {
 
 /**
  * Create particle-field gravity pipeline (Phase 5).
- * O(N × GRID²) gravitational force from field energy density onto particles.
+ * F = -m·∇Φ via PQS interpolation of pre-computed potential gradients: O(N × 16).
  * Dispatched once per active field (Higgs, Axion) when fieldGravEnabled.
  */
 export async function createFieldParticleGravPipeline(device, wgslConstants = '') {
@@ -1058,7 +1056,8 @@ export async function createFieldParticleGravPipeline(device, wgslConstants = ''
     const group1Layout = device.createBindGroupLayout({
         label: 'fieldParticleGrav_group1',
         entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // energyDensity
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // sgGradX
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // sgGradY
         ],
     });
 
@@ -1075,7 +1074,7 @@ export async function createFieldParticleGravPipeline(device, wgslConstants = ''
 
 /**
  * Create field self-gravity pipelines (Phase 5).
- * No particle buffers — just field grids. Unchanged.
+ * Energy density + SG gradients only — FFT convolution replaces coarse-grid O(SG⁴).
  */
 export async function createFieldSelfGravPipelines(device, wgslConstants = '') {
     const fieldCommonWGSL = wgslConstants + '\n' + await fetchShader('field-common.wgsl');
@@ -1083,7 +1082,7 @@ export async function createFieldSelfGravPipelines(device, wgslConstants = '') {
     const code = fieldCommonWGSL + '\n' + sgWGSL;
     const module = device.createShaderModule({ label: 'fieldSelfGrav', code });
 
-    // Group 0: core field arrays + uniform (6 storage + 1 uniform)
+    // Group 0: field arrays + uniform
     const group0Layout = device.createBindGroupLayout({
         label: 'fieldSelfGrav_group0',
         entries: [
@@ -1092,18 +1091,16 @@ export async function createFieldSelfGravPipelines(device, wgslConstants = '') {
             { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // gradX
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // gradY
             { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // energyDensity
-            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // coarseRho
-            { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },   // FieldUniforms
+            { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },   // FieldUniforms
         ],
     });
-    // Group 1: self-gravity arrays (4 storage — sgInvR removed, computed inline)
+    // Group 1: SG output arrays
     const group1Layout = device.createBindGroupLayout({
         label: 'fieldSelfGrav_group1',
         entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // coarsePhi
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgPhiFull
-            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgGradX
-            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgGradY
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgPhiFull
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgGradX
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgGradY
         ],
     });
 
@@ -1111,8 +1108,7 @@ export async function createFieldSelfGravPipelines(device, wgslConstants = '') {
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 
     const entryPoints = [
-        'computeEnergyDensityHiggs', 'computeEnergyDensityAxion',
-        'downsampleRho', 'computeCoarsePotential', 'upsamplePhi', 'computeSelfGravGradients',
+        'computeEnergyDensityHiggs', 'computeEnergyDensityAxion', 'computeSelfGravGradients',
     ];
     const pipelines = {};
     for (const entry of entryPoints) {
@@ -1123,6 +1119,58 @@ export async function createFieldSelfGravPipelines(device, wgslConstants = '') {
     }
 
     return { ...pipelines, bindGroupLayouts };
+}
+
+/**
+ * Create FFT convolution pipelines for self-gravity Poisson solve.
+ * Stockham auto-sort butterfly passes + complex multiply + pack/unpack.
+ */
+export async function createFFTPipelines(device, wgslConstants = '') {
+    const fftWGSL = wgslConstants + '\n' + await fetchShader('field-fft.wgsl');
+    const module = device.createShaderModule({ label: 'fieldFFT', code: fftWGSL });
+
+    // Group 0: ping-pong complex buffers + FFT params
+    const group0Layout = device.createBindGroupLayout({
+        label: 'fft_group0',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // bufA
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // bufB
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },   // FFTParams
+        ],
+    });
+
+    // Group 1: Green's function (for complexMultiply only)
+    const group1Layout = device.createBindGroupLayout({
+        label: 'fft_group1',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },  // greenHat
+        ],
+    });
+
+    // Butterfly + pack/unpack use group0 only
+    const butterflyLayout = device.createPipelineLayout({ bindGroupLayouts: [group0Layout] });
+    // complexMultiply uses both groups
+    const multiplyLayout = device.createPipelineLayout({ bindGroupLayouts: [group0Layout, group1Layout] });
+
+    return {
+        fftButterfly: device.createComputePipeline({
+            label: 'fftButterfly', layout: butterflyLayout,
+            compute: { module, entryPoint: 'fftButterfly' },
+        }),
+        packRealToComplex: device.createComputePipeline({
+            label: 'packRealToComplex', layout: butterflyLayout,
+            compute: { module, entryPoint: 'packRealToComplex' },
+        }),
+        unpackComplexToReal: device.createComputePipeline({
+            label: 'unpackComplexToReal', layout: butterflyLayout,
+            compute: { module, entryPoint: 'unpackComplexToReal' },
+        }),
+        complexMultiply: device.createComputePipeline({
+            label: 'complexMultiply', layout: multiplyLayout,
+            compute: { module, entryPoint: 'complexMultiply' },
+        }),
+        bindGroupLayouts: [group0Layout, group1Layout],
+    };
 }
 
 /**

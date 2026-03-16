@@ -3,8 +3,9 @@
 // PQS (cubic B-spline, order 3) particle-grid coupling: 4×4 stencil,
 // C² interpolation, C² continuous gradients (PQS-interpolated grid gradients).
 
-import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE, EXCITATION_MAX_AMPLITUDE, BOUND_BOUNCE, BOUND_LOOP, TORUS, KLEIN, RP2, SELFGRAV_GRID } from './config.js';
+import { EPSILON, FIELD_EXCITATION_SIGMA, MERGE_EXCITATION_SCALE, EXCITATION_MAX_AMPLITUDE, BOUND_BOUNCE, BOUND_LOOP, TORUS, KLEIN, RP2 } from './config.js';
 import { minImage } from './topology.js';
+import { fft2d } from './fft.js';
 
 // Zero-alloc output for minImage()
 const _miOut = { x: 0, y: 0 };
@@ -27,13 +28,7 @@ export default class ScalarField {
         this._gradX = new Float64Array(gsq);
         this._gradY = new Float64Array(gsq);
 
-        // Self-gravity: coarse grid (SG×SG) for O(SG⁴) potential, upsampled to full grid
-        const sgGrid = SELFGRAV_GRID;
-        this._sgGrid = sgGrid;
-        this._sgGridSq = sgGrid * sgGrid;
-        this._sgRatio = gridSize / sgGrid;
-        this._sgRho = new Float64Array(sgGrid * sgGrid);
-        this._sgPhi = new Float64Array(sgGrid * sgGrid);
+        // Self-gravity: FFT convolution on full grid, O(N² log N)
         this._sgPhiFull = new Float64Array(gsq);
         this._sgGradX = new Float64Array(gsq);
         this._sgGradY = new Float64Array(gsq);
@@ -48,19 +43,13 @@ export default class ScalarField {
         this._momOut = { x: 0, y: 0 };
         this._iwgResult = { value: 0, grad: null };
 
-        // Cached 1/sqrt(r²+ε) table for coarse self-gravity potential (SG⁴ entries)
-        this._sgInvR = new Float32Array(sgGrid * sgGrid * sgGrid * sgGrid);
-        this._sgLastCellW = 0;
-        this._sgLastCellH = 0;
-        this._sgLastSoftSq = 0;
-        this._sgLastPeriodic = false;
-        this._sgLastTopology = 0;
-
-        // Pre-computed upsample x-mapping tables (GRID entries)
-        this._fineXcx0 = new Uint8Array(gridSize);
-        this._fineXcx1 = new Uint8Array(gridSize);
-        this._fineXwx = new Float32Array(gridSize);
-        this._upsampleXBuilt = false;
+        // FFT workspace: complex arrays for 2D convolution
+        this._fftRe = new Float64Array(gsq);
+        this._fftIm = new Float64Array(gsq);
+        // Cached Green's function in Fourier space (Ĝ is real for symmetric kernel)
+        this._greenHatRe = new Float64Array(gsq);
+        this._greenHatIm = new Float64Array(gsq);
+        this._greenCacheKey = '';
         // Numerical viscosity buffer (ν·∇²(ȧ) per cell)
         this._viscBuf = new Float64Array(gsq);
 
@@ -517,157 +506,51 @@ export default class ScalarField {
         this._addPotentialEnergy();
     }
 
-    /** Downsample energy density from full grid to coarse self-gravity grid. */
-    _downsampleRho() {
+    /** Build Green's function G(r) = -1/√(r²+ε²) in Fourier space.
+     *  Cached — only rebuilt when domain/softening/topology changes.
+     *  For periodic: uses minimum-image distances (circular convolution is correct).
+     *  For non-periodic: distances from cell (0,0), no wrapping needed since
+     *  FFT circular convolution with the periodic Green's function naturally
+     *  matches the isolated kernel at the softened scale. */
+    _buildGreenHat(domainW, domainH, softeningSq, periodic, topology) {
+        const key = `${domainW},${domainH},${softeningSq},${periodic},${topology}`;
+        if (key === this._greenCacheKey) return;
+        this._greenCacheKey = key;
+
         const GRID = this._grid;
-        const SG = this._sgGrid;
-        const ratio = this._sgRatio;
-        const invBlock = 1 / (ratio * ratio);
-        const rho = this._energyDensity;
-        const coarse = this._sgRho;
-
-        for (let cy = 0; cy < SG; cy++) {
-            const baseY = cy * ratio;
-            for (let cx = 0; cx < SG; cx++) {
-                const baseX = cx * ratio;
-                let sum = 0;
-                for (let dy = 0; dy < ratio; dy++) {
-                    const row = (baseY + dy) * GRID + baseX;
-                    for (let dx = 0; dx < ratio; dx++) {
-                        sum += rho[row + dx];
-                    }
-                }
-                coarse[cy * SG + cx] = sum * invBlock;
-            }
-        }
-    }
-
-    /** Rebuild the SG⁴ 1/sqrt table when geometry changes. */
-    _buildSGInvRTable(domainW, domainH, softeningSq, periodic, topology) {
-        const SG = this._sgGrid;
-        const cellW = domainW / SG;
-        const cellH = domainH / SG;
-        if (cellW === this._sgLastCellW && cellH === this._sgLastCellH &&
-            softeningSq === this._sgLastSoftSq && periodic === this._sgLastPeriodic &&
-            topology === this._sgLastTopology) return;
-        this._sgLastCellW = cellW;
-        this._sgLastCellH = cellH;
-        this._sgLastSoftSq = softeningSq;
-        this._sgLastPeriodic = periodic;
-        this._sgLastTopology = topology;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
         const halfDomW = domainW * 0.5;
         const halfDomH = domainH * 0.5;
-        const table = this._sgInvR;
-        const SG2 = SG * SG;
-        for (let iy = 0; iy < SG; iy++) {
-            const cy = (iy + 0.5) * cellH;
-            for (let ix = 0; ix < SG; ix++) {
-                const cx = (ix + 0.5) * cellW;
-                const rowBase = (iy * SG + ix) * SG2;
-                for (let jy = 0; jy < SG; jy++) {
-                    const sy = (jy + 0.5) * cellH;
-                    for (let jx = 0; jx < SG; jx++) {
-                        let dx, dy;
-                        if (periodic) {
-                            minImage(cx, cy, (jx + 0.5) * cellW, sy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);
-                            dx = _miOut.x; dy = _miOut.y;
-                        } else {
-                            dx = (jx + 0.5) * cellW - cx;
-                            dy = sy - cy;
-                        }
-                        table[rowBase + jy * SG + jx] = 1 / Math.sqrt(dx * dx + dy * dy + softeningSq);
-                    }
-                }
-            }
-        }
-    }
+        const re = this._greenHatRe;
+        const im = this._greenHatIm;
 
-    /** Direct O(SG⁴) gravitational potential on coarse grid: Φ = -Σ ρ·dA/r.
-     *  Uses cached 1/sqrt table — sqrt-free inner loop during normal play.
-     *  M8: Pre-builds sparse source list to skip empty cells in inner loop. */
-    _computeCoarsePotential(domainW, domainH, softeningSq, periodic, topology) {
-        this._buildSGInvRTable(domainW, domainH, softeningSq, periodic, topology);
-        const SG = this._sgGrid;
-        const SG2 = SG * SG;
-        const cellArea = (domainW / SG) * (domainH / SG);
-        const rho = this._sgRho;
-        const phi = this._sgPhi;
-        const table = this._sgInvR;
-
-        // M8: Build sparse source list (indices with nonzero rho)
-        if (!this._sgSparseIdx) this._sgSparseIdx = new Int32Array(SG2);
-        if (!this._sgSparseRho) this._sgSparseRho = new Float64Array(SG2);
-        let nSources = 0;
-        for (let j = 0; j < SG2; j++) {
-            if (rho[j] >= EPSILON) {
-                this._sgSparseIdx[nSources] = j;
-                this._sgSparseRho[nSources] = rho[j] * cellArea;
-                nSources++;
-            }
-        }
-        const sparseIdx = this._sgSparseIdx;
-        const sparseRho = this._sgSparseRho;
-
-        for (let i = 0; i < SG2; i++) {
-            let pot = 0;
-            const rowBase = i * SG2;
-            for (let s = 0; s < nSources; s++) {
-                pot -= sparseRho[s] * table[rowBase + sparseIdx[s]];
-            }
-            phi[i] = pot;
-        }
-    }
-
-    /** Build pre-computed x-axis upsample mapping (only when ratio changes). */
-    _buildUpsampleXTable() {
-        const SG = this._sgGrid;
-        const GRID = this._grid;
-        const invRatio = 1 / this._sgRatio;
-        const sgLast = SG - 1;
-        for (let ix = 0; ix < GRID; ix++) {
-            const fx = (ix + 0.5) * invRatio - 0.5;
-            const cx0 = Math.max(0, Math.min(sgLast - 1, Math.floor(fx)));
-            this._fineXcx0[ix] = cx0;
-            this._fineXcx1[ix] = Math.min(sgLast, cx0 + 1);
-            this._fineXwx[ix] = Math.max(0, fx - cx0);
-        }
-        this._upsampleXBuilt = true;
-    }
-
-    /** Bilinear upsample gravitational potential from coarse to full grid. */
-    _upsamplePhi() {
-        if (!this._upsampleXBuilt) this._buildUpsampleXTable();
-        const SG = this._sgGrid;
-        const GRID = this._grid;
-        const invRatio = 1 / this._sgRatio;
-        const coarse = this._sgPhi;
-        const full = this._sgPhiFull;
-        const sgLast = SG - 1;
-        const cx0arr = this._fineXcx0;
-        const cx1arr = this._fineXcx1;
-        const wxArr = this._fineXwx;
-
+        // Build real-space Green's function: G(r) = -1/√(r²+ε²)
+        // Origin at cell (0,0), wrapping for periodic via index arithmetic
         for (let iy = 0; iy < GRID; iy++) {
-            const fy = (iy + 0.5) * invRatio - 0.5;
-            const cy0 = Math.max(0, Math.min(sgLast - 1, Math.floor(fy)));
-            const cy1 = Math.min(sgLast, cy0 + 1);
-            const wy = Math.max(0, fy - cy0);
-            const wy0 = 1 - wy;
-            const rowBase = iy * GRID;
-            const row0 = cy0 * SG;
-            const row1 = cy1 * SG;
-
             for (let ix = 0; ix < GRID; ix++) {
-                const cx0 = cx0arr[ix];
-                const cx1 = cx1arr[ix];
-                const wx = wxArr[ix];
-                full[rowBase + ix] = wy0 * ((1 - wx) * coarse[row0 + cx0] + wx * coarse[row0 + cx1])
-                                   + wy  * ((1 - wx) * coarse[row1 + cx0] + wx * coarse[row1 + cx1]);
+                let dx, dy;
+                if (periodic) {
+                    // Minimum-image displacement from origin
+                    const sx = ix * cellW;
+                    const sy = iy * cellH;
+                    minImage(0, 0, sx, sy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);
+                    dx = _miOut.x; dy = _miOut.y;
+                } else {
+                    // Wrapped index: for FFT convolution, negative offsets wrap around
+                    dx = (ix <= GRID / 2 ? ix : ix - GRID) * cellW;
+                    dy = (iy <= GRID / 2 ? iy : iy - GRID) * cellH;
+                }
+                re[iy * GRID + ix] = -1 / Math.sqrt(dx * dx + dy * dy + softeningSq);
+                im[iy * GRID + ix] = 0;
             }
         }
+
+        // Forward FFT to get Ĝ
+        fft2d(re, im, GRID, false);
     }
 
-    /** Central-difference gradient of upsampled gravitational potential (clamp-to-edge). */
+    /** Central-difference gradient of gravitational potential (clamp-to-edge). */
     _computeSelfGravGradients() {
         const GRID = this._grid;
         const phi = this._sgPhiFull;
@@ -684,7 +567,7 @@ export default class ScalarField {
             }
         }
 
-        // Border cells only (explicit edge traversal, ~248 cells vs 4096)
+        // Border cells (explicit edge traversal, ~248 cells vs 4096)
         const _sgBorderCell = (ix, iy) => {
             const idx = iy * GRID + ix;
             gx[idx] = ((ix < last ? phi[idx + 1] : phi[idx]) - (ix > 0 ? phi[idx - 1] : phi[idx])) * 0.5;
@@ -695,103 +578,121 @@ export default class ScalarField {
     }
 
     /** Compute self-gravity potential and gradient from field energy density.
-     *  Coarse grid O(SG⁴) direct summation, bilinear upsampled to full grid. */
+     *  FFT convolution O(N² log N) on full grid: Φ = G * ρ · dA. */
     computeSelfGravity(domainW, domainH, softeningSq, periodic, topology) {
         this._computeEnergyDensity(domainW, domainH);
 
-        // M10: Scan full grid for nonzero energy density — used by applyGravForces() to skip O(N×GRID²)
+        const GRID = this._grid;
+        const GSQ = this._gridSq;
+
+        // M10: Scan full grid for nonzero energy density
         this._hasEnergy = false;
-        for (let i = 0, len = this._gridSq; i < len; i++) {
+        for (let i = 0; i < GSQ; i++) {
             if (this._energyDensity[i] >= EPSILON) { this._hasEnergy = true; break; }
         }
-
-        this._downsampleRho();
-        // Early exit: if coarse energy density is negligible, skip O(SG⁴) potential
-        const rho = this._sgRho;
-        const SG2 = this._sgGridSq;
-        let maxRho = 0;
-        for (let i = 0; i < SG2; i++) {
-            const v = rho[i];
-            if (v > maxRho) maxRho = v;
-        }
-        if (maxRho < EPSILON) {
+        if (!this._hasEnergy) {
             this._sgPhiFull.fill(0);
             this._sgGradX.fill(0);
             this._sgGradY.fill(0);
             return;
         }
-        this._computeCoarsePotential(domainW, domainH, softeningSq, periodic, topology);
-        this._upsamplePhi();
+
+        // Ensure Green's function FFT is cached
+        this._buildGreenHat(domainW, domainH, softeningSq, periodic, topology);
+
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        const cellArea = cellW * cellH;
+
+        // Copy ρ into FFT workspace
+        const re = this._fftRe;
+        const im = this._fftIm;
+        const rho = this._energyDensity;
+        for (let i = 0; i < GSQ; i++) {
+            re[i] = rho[i] * cellArea;
+            im[i] = 0;
+        }
+
+        // Forward FFT of ρ·dA
+        fft2d(re, im, GRID, false);
+
+        // Pointwise multiply: Φ̂ = ρ̂ · Ĝ
+        const gRe = this._greenHatRe;
+        const gIm = this._greenHatIm;
+        for (let i = 0; i < GSQ; i++) {
+            const aRe = re[i], aIm = im[i];
+            re[i] = aRe * gRe[i] - aIm * gIm[i];
+            im[i] = aRe * gIm[i] + aIm * gRe[i];
+        }
+
+        // Inverse FFT → Φ(x)
+        fft2d(re, im, GRID, true);
+
+        // Copy real part to potential (should be purely real, discard tiny imaginary residual)
+        const phi = this._sgPhiFull;
+        for (let i = 0; i < GSQ; i++) {
+            phi[i] = re[i];
+        }
+
         this._computeSelfGravGradients();
     }
 
-    /** Apply gravitational force from field energy density onto particles.
-     *  Direct summation: F = m · Σ ρ(x_j) · dA · (x_j - x_i) / |x_j - x_i|³.
-     *  Uses cached _energyDensity from prior computeSelfGravity() or update() call. */
-    applyGravForces(particles, domainW, domainH, softeningSq, periodic, topology) {
+    /** Apply gravitational force from field potential onto particles.
+     *  F = -m · ∇Φ(x), where Φ and ∇Φ are computed by computeSelfGravity().
+     *  PQS interpolation of pre-computed grid gradients: O(N × 16). */
+    applyGravForces(particles, domainW, domainH) {
+        if (!this._hasEnergy) return;
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) return;
-        const cellArea = cellW * cellH;
-        const halfDomW = domainW * 0.5;
-        const halfDomH = domainH * 0.5;
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
 
-        // Use cached energy density — already computed in update() → computeSelfGravity()
-        // or bootstrap. Avoids redundant O(GRID²) recomputation per substep.
-        const rho = this._energyDensity;
-
-        // M10: Use cached _hasEnergy flag (set by computeSelfGravity/bootstrap) to
-        // skip O(N×GRID²) without an O(GRID²) scan per substep
-        if (!this._hasEnergy) return;
-
-        // Pre-compute cell centers (avoids (ix+0.5)*cellW per particle in inner loop)
-        const ccx = this._cellCX;
-        const ccy = this._cellCY;
-        if (!ccx || ccx.length !== GRID) {
-            this._cellCX = new Float64Array(GRID);
-            this._cellCY = new Float64Array(GRID);
-            for (let i = 0; i < GRID; i++) {
-                this._cellCX[i] = (i + 0.5) * cellW;
-                this._cellCY[i] = (i + 0.5) * cellH;
-            }
-        } else if (Math.abs(ccx[0] - 0.5 * cellW) > EPSILON) {
-            // Recompute if domain changed
-            for (let i = 0; i < GRID; i++) {
-                this._cellCX[i] = (i + 0.5) * cellW;
-                this._cellCY[i] = (i + 0.5) * cellH;
-            }
-        }
-        const cx_arr = this._cellCX;
-        const cy_arr = this._cellCY;
+        // PQS-interpolate ∇Φ at each particle position
+        // Reuse PQS machinery from gradient() but on _sgGradX/_sgGradY
+        const gxArr = this._sgGradX;
+        const gyArr = this._sgGradY;
 
         for (let pi = 0; pi < particles.length; pi++) {
             const p = particles[pi];
             if (p.mass < EPSILON) continue;
-            let fx = 0, fy = 0;
-            for (let iy = 0; iy < GRID; iy++) {
-                const cy = cy_arr[iy];
-                for (let ix = 0; ix < GRID; ix++) {
-                    const rhoVal = rho[iy * GRID + ix];
-                    if (rhoVal < EPSILON) continue;
-                    const cx = cx_arr[ix];
-                    let dx, dy;
-                    if (periodic) {
-                        minImage(p.pos.x, p.pos.y, cx, cy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);
-                        dx = _miOut.x; dy = _miOut.y;
-                    } else {
-                        dx = cx - p.pos.x;
-                        dy = cy - p.pos.y;
+
+            // PQS weights at particle position
+            this._pqsCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+            const { ix, iy } = this._pqs;
+            const wx = this._wx;
+            const wy = this._wy;
+
+            let gx = 0, gy = 0;
+            if (ix >= 1 && ix <= GRID - 3 && iy >= 1 && iy <= GRID - 3) {
+                for (let jy = 0; jy < 4; jy++) {
+                    const wyj = wy[jy];
+                    const row = (iy + jy - 1) * GRID + ix - 1;
+                    for (let jx = 0; jx < 4; jx++) {
+                        const w = wx[jx] * wyj;
+                        gx += gxArr[row + jx] * w;
+                        gy += gyArr[row + jx] * w;
                     }
-                    const rSq = dx * dx + dy * dy + softeningSq;
-                    const invR = 1 / Math.sqrt(rSq);
-                    const fMag = rhoVal * cellArea * invR * invR * invR;
-                    fx += dx * fMag;
-                    fy += dy * fMag;
+                }
+            } else {
+                for (let jy = 0; jy < 4; jy++) {
+                    const wyj = wy[jy];
+                    for (let jx = 0; jx < 4; jx++) {
+                        const idx = iy + jy - 1 < 0 || iy + jy - 1 >= GRID || ix + jx - 1 < 0 || ix + jx - 1 >= GRID
+                            ? -1 : (iy + jy - 1) * GRID + (ix + jx - 1);
+                        if (idx >= 0) {
+                            const w = wx[jx] * wyj;
+                            gx += gxArr[idx] * w;
+                            gy += gyArr[idx] * w;
+                        }
+                    }
                 }
             }
-            const gfx = p.mass * fx;
-            const gfy = p.mass * fy;
+
+            // F = -m · ∇Φ (∇Φ stored in grid units, convert to world units)
+            const gfx = -p.mass * gx * invCellW;
+            const gfy = -p.mass * gy * invCellH;
             p.forceGravity.x += gfx;
             p.forceGravity.y += gfy;
             p.force.x += gfx;
@@ -799,40 +700,51 @@ export default class ScalarField {
         }
     }
 
-    /** Gravitational PE between particles and field energy density.
-     *  PE = Σ_particles Σ_cells -m · ρ · dA / r. */
-    gravPE(particles, domainW, domainH, softeningSq, periodic, topology) {
+    /** Gravitational PE between particles and field potential.
+     *  PE = Σ m · Φ(x), where Φ is computed by computeSelfGravity().
+     *  PQS interpolation: O(N × 16). */
+    gravPE(particles, domainW, domainH) {
+        if (!this._hasEnergy) return 0;
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
         if (cellW < EPSILON || cellH < EPSILON) return 0;
-        const cellArea = cellW * cellH;
-        const halfDomW = domainW * 0.5;
-        const halfDomH = domainH * 0.5;
-        const rho = this._energyDensity; // uses cached from last applyGravForces()
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
+        const phi = this._sgPhiFull;
         let pe = 0;
 
         for (let pi = 0; pi < particles.length; pi++) {
             const p = particles[pi];
             if (p.mass < EPSILON) continue;
-            for (let iy = 0; iy < GRID; iy++) {
-                const cy = (iy + 0.5) * cellH;
-                for (let ix = 0; ix < GRID; ix++) {
-                    const rhoVal = rho[iy * GRID + ix];
-                    if (rhoVal < EPSILON) continue;
-                    const cx = (ix + 0.5) * cellW;
-                    let dx, dy;
-                    if (periodic) {
-                        minImage(p.pos.x, p.pos.y, cx, cy, topology, domainW, domainH, halfDomW, halfDomH, _miOut);
-                        dx = _miOut.x; dy = _miOut.y;
-                    } else {
-                        dx = cx - p.pos.x;
-                        dy = cy - p.pos.y;
+
+            // PQS interpolate Φ at particle position
+            this._pqsCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+            const { ix, iy } = this._pqs;
+            const wx = this._wx;
+            const wy = this._wy;
+
+            let val = 0;
+            if (ix >= 1 && ix <= GRID - 3 && iy >= 1 && iy <= GRID - 3) {
+                for (let jy = 0; jy < 4; jy++) {
+                    const wyj = wy[jy];
+                    const row = (iy + jy - 1) * GRID + ix - 1;
+                    for (let jx = 0; jx < 4; jx++) {
+                        val += phi[row + jx] * wx[jx] * wyj;
                     }
-                    const rSq = dx * dx + dy * dy + softeningSq;
-                    pe -= p.mass * rhoVal * cellArea / Math.sqrt(rSq);
+                }
+            } else {
+                for (let jy = 0; jy < 4; jy++) {
+                    const wyj = wy[jy];
+                    for (let jx = 0; jx < 4; jx++) {
+                        const idx = iy + jy - 1 < 0 || iy + jy - 1 >= GRID || ix + jx - 1 < 0 || ix + jx - 1 >= GRID
+                            ? -1 : (iy + jy - 1) * GRID + (ix + jx - 1);
+                        if (idx >= 0) val += phi[idx] * wx[jx] * wyj;
+                    }
                 }
             }
+
+            pe += p.mass * val;
         }
         return pe;
     }

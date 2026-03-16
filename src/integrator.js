@@ -482,10 +482,10 @@ export default class Physics {
             }
             if (this.fieldGravEnabled && this.sim) {
                 if (this.higgsEnabled && this.sim.higgsField) {
-                    this.sim.higgsField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
+                    this.sim.higgsField.applyGravForces(particles, width, height);
                 }
                 if (this.axionEnabled && this.sim.axionField) {
-                    this.sim.axionField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
+                    this.sim.axionField.applyGravForces(particles, width, height);
                 }
             }
             if (this.bosonGravEnabled && this.sim) {
@@ -1114,10 +1114,10 @@ export default class Physics {
             }
             if (this.fieldGravEnabled && this.sim) {
                 if (this.higgsEnabled && this.sim.higgsField) {
-                    this.sim.higgsField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
+                    this.sim.higgsField.applyGravForces(particles, width, height);
                 }
                 if (this.axionEnabled && this.sim.axionField) {
-                    this.sim.axionField.applyGravForces(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
+                    this.sim.axionField.applyGravForces(particles, width, height);
                 }
             }
             if (this.bosonGravEnabled && this.sim) {
@@ -1312,9 +1312,9 @@ export default class Physics {
         this.potentialEnergy = getPEAccum();
         if (this.fieldGravEnabled && this.sim) {
             if (this.higgsEnabled && this.sim.higgsField)
-                this.potentialEnergy += this.sim.higgsField.gravPE(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
+                this.potentialEnergy += this.sim.higgsField.gravPE(particles, width, height);
             if (this.axionEnabled && this.sim.axionField)
-                this.potentialEnergy += this.sim.axionField.gravPE(particles, width, height, toggles.softeningSq, this.periodic, this._topologyConst);
+                this.potentialEnergy += this.sim.axionField.gravPE(particles, width, height);
         }
 
         // Reconstruct all display forces in a single fused loop
@@ -1401,9 +1401,9 @@ export default class Physics {
         if (this.fieldGravEnabled && this.sim) {
             const dw = this.domainW, dh = this.domainH;
             if (this.higgsEnabled && this.sim.higgsField)
-                this.potentialEnergy += this.sim.higgsField.gravPE(particles, dw, dh, toggles.softeningSq, this.periodic, this._topologyConst);
+                this.potentialEnergy += this.sim.higgsField.gravPE(particles, dw, dh);
             if (this.axionEnabled && this.sim.axionField)
-                this.potentialEnergy += this.sim.axionField.gravPE(particles, dw, dh, toggles.softeningSq, this.periodic, this._topologyConst);
+                this.potentialEnergy += this.sim.axionField.gravPE(particles, dw, dh);
         }
     }
 

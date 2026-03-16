@@ -692,7 +692,7 @@ export const REFERENCE = {
 <li>$2\\,\\nabla\\Phi \\cdot \\nabla\\phi$ — gravitational lensing of the field gradient</li>
 <li>$2\\Phi\\,V'(\\phi)$ — redshift of the potential's restoring force</li>
 </ul>
-<p>The potential $\\Phi$ is computed on a coarse $16 \\times 16$ grid via $O(16^4)$ direct summation, then bilinearly upsampled to the full $64 \\times 64$ field grid — exploiting the smoothness of the gravitational potential to keep the cost low.</p>
+<p>The potential $\\Phi$ is computed via FFT convolution with the Green's function $G(r) = -1/\\sqrt{r^2 + \\varepsilon^2}$ on the full field grid — $O(N^2 \\log N)$ via forward FFT, pointwise multiply in Fourier space, inverse FFT.</p>
 `,
     },
 

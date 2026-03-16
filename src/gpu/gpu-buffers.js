@@ -14,7 +14,7 @@
 
 import {
     HISTORY_SIZE, MAX_PHOTONS, MAX_PIONS, MAX_TRAIL_LENGTH,
-    GPU_SCALAR_GRID, GPU_SELFGRAV_GRID,
+    GPU_SCALAR_GRID,
 } from '../config.js';
 
 // Signal delay history constants
@@ -356,9 +356,7 @@ export function createParticleBuffers(device, maxParticles) {
 // Default GRID_RES = 64 (matches CPU SCALAR_GRID), configurable as power-of-2
 const FIELD_GRID_RES = GPU_SCALAR_GRID;
 const FIELD_GRID_SQ = FIELD_GRID_RES * FIELD_GRID_RES;
-const COARSE_RES = GPU_SELFGRAV_GRID;
-const COARSE_SQ = COARSE_RES * COARSE_RES;
-const PQS_STENCIL_SIZE = 16; // 4x4 stencil per particle
+const PQS_STENCIL_SIZE = 16; // 4x4 stencil per particle (legacy, unused)
 
 /**
  * Allocate GPU buffers for one scalar field instance.
@@ -369,8 +367,9 @@ const PQS_STENCIL_SIZE = 16; // 4x4 stencil per particle
  */
 export function createFieldBuffers(device, label, maxParticles) {
     const gridBytes = FIELD_GRID_SQ * 4; // f32
-    const coarseBytes = COARSE_SQ * 4;
     const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+
+    const complexBytes = FIELD_GRID_SQ * 2 * 4; // interleaved complex f32 (re,im pairs)
 
     return {
         field:         device.createBuffer({ label: `${label}-field`,         size: gridBytes, usage }),
@@ -382,38 +381,27 @@ export function createFieldBuffers(device, label, maxParticles) {
         energyDensity: device.createBuffer({ label: `${label}-energyDensity`, size: gridBytes, usage }),
         // Thermal grid (Higgs only, but allocated for both to keep layout uniform)
         thermal:       device.createBuffer({ label: `${label}-thermal`,       size: gridBytes, usage }),
-        // Self-gravity coarse grid
-        coarseRho:     device.createBuffer({ label: `${label}-sgRho`,         size: coarseBytes, usage }),
-        coarsePhi:     device.createBuffer({ label: `${label}-sgPhi`,         size: coarseBytes, usage }),
+        // Self-gravity: FFT convolution on full grid
         sgPhiFull:     device.createBuffer({ label: `${label}-sgPhiFull`,     size: gridBytes, usage }),
         sgGradX:       device.createBuffer({ label: `${label}-sgGradX`,       size: gridBytes, usage }),
         sgGradY:       device.createBuffer({ label: `${label}-sgGradY`,       size: gridBytes, usage }),
-        // sgInvR removed — computed inline in field-selfgrav.wgsl
+        // FFT ping-pong buffers (interleaved complex: GRID*GRID*2 f32)
+        fftA:          device.createBuffer({ label: `${label}-fftA`,          size: complexBytes, usage }),
+        fftB:          device.createBuffer({ label: `${label}-fftB`,          size: complexBytes, usage }),
+        // Precomputed Green's function in Fourier space (uploaded from CPU)
+        greenHat:      device.createBuffer({ label: `${label}-greenHat`,      size: complexBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }),
     };
 }
 
 /**
- * Allocate shared PQS scratch buffer for two-pass scatter/gather deposition.
- * Layout: f32[maxParticles * PQS_STENCIL_SIZE] — each particle writes 16 weights.
+ * Allocate atomic grid buffer for single-pass PQS deposition.
+ * Layout: atomic<i32>[FIELD_GRID_SQ] — fixed-point accumulator, cleared by finalizeDeposit.
  * @param {GPUDevice} device
- * @param {number} maxParticles
  */
-export function createPQSScratchBuffer(device, maxParticles) {
+export function createAtomicGridBuffer(device) {
     return device.createBuffer({
-        label: 'pqs-scratch',
-        size: maxParticles * PQS_STENCIL_SIZE * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-}
-
-/**
- * Allocate shared PQS index buffer: stores (baseIx, baseIy) per particle for gather pass.
- * Layout: u32[maxParticles * 2]
- */
-export function createPQSIndexBuffer(device, maxParticles) {
-    return device.createBuffer({
-        label: 'pqs-indices',
-        size: maxParticles * 2 * 4,
+        label: 'atomic-deposit-grid',
+        size: FIELD_GRID_SQ * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 }
@@ -503,7 +491,7 @@ export function createTrailBuffers(device, maxParticles) {
 }
 
 export {
-    FIELD_GRID_RES, FIELD_GRID_SQ, COARSE_RES, COARSE_SQ, PQS_STENCIL_SIZE,
+    FIELD_GRID_RES, FIELD_GRID_SQ, PQS_STENCIL_SIZE,
     PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE,
     PHOTON_SIZE, PION_SIZE, DERIVED_SIZE, VEC2_SIZE, ALLFORCES_SIZE, TRAIL_LEN,
 };

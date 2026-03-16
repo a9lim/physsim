@@ -1,8 +1,8 @@
-// ─── PQS Two-Pass Scatter/Gather Deposition ───
-// Pass 1 (scatter): One thread per particle. Computes PQS weights, writes
-//   16 weighted values + base grid index to scratch buffer.
-// Pass 2 (gather): One thread per grid cell. Scans all particles, checks
-//   if stencil overlaps this cell, accumulates contributions.
+// ─── PQS Single-Pass Atomic Deposition ───
+// One thread per particle. Computes PQS weights and atomically deposits
+// into the target grid using fixed-point i32 encoding (FP_SCALE = 2^20).
+// Axion sources can be negative (PQ coupling), so we use atomic<i32>.
+// A separate finalize pass converts atomic i32 → f32.
 
 // Packed particle state struct (matches common.wgsl ParticleState)
 struct ParticleState {
@@ -13,270 +13,145 @@ struct ParticleState {
     flags: u32,
 };
 
-// Bindings: 1 packed buffer replaces 8 individual SoA arrays
 @group(0) @binding(0) var<storage, read_write> particles: array<ParticleState>;
 
-@group(1) @binding(0) var<storage, read_write> scratchWeights: array<f32>;  // maxParticles * 16
-@group(1) @binding(1) var<storage, read_write> scratchIndices: array<i32>;  // maxParticles * 2 (ix, iy)
-@group(1) @binding(2) var<storage, read_write> targetGrid: array<f32>;      // GRID_SQ
-@group(1) @binding(3) var<uniform> uniforms: FieldUniforms;
+@group(1) @binding(0) var<storage, read_write> atomicGrid: array<atomic<i32>>;  // GRID_SQ
+@group(1) @binding(1) var<storage, read_write> targetGrid: array<f32>;          // GRID_SQ (f32 output)
+@group(1) @binding(2) var<uniform> uniforms: FieldUniforms;
 
-// ─── Deposit Mode Constants ───
-// Set via push constant or uniform to select what to deposit:
-// 0 = Higgs source (g * baseMass)
-// 1 = Axion source (g * q^2 for EM + g * m * sign for PQ)
-// 2 = Higgs thermal (particle KE)
-const DEPOSIT_HIGGS_SOURCE: u32 = 0u;
-const DEPOSIT_AXION_SOURCE: u32 = 1u;
-const DEPOSIT_HIGGS_THERMAL: u32 = 2u;
+// Fixed-point scale: 2^20 ≈ 1M. Gives ~6 decimal digits of precision.
+// Max representable value: 2^31 / 2^20 ≈ 2048 — well above any deposit sum.
+const FP_SCALE: f32 = 1048576.0;  // 2^20
+const INV_FP_SCALE: f32 = 1.0 / 1048576.0;
 
 // Include field-common.wgsl utilities inline (WGSL has no #include; JS concatenates)
 // PQS weights function, nbIndex, constants — assumed prepended by JS
 
-// ─── Pass 1: Scatter ───
-// One thread per particle. Writes 16 weighted values to scratch.
-@compute @workgroup_size(256)
-fn scatterDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let pid = gid.x;
-    if (pid >= uniforms.particleCount) {
-        // Out-of-range: write sentinel so gather pass skips without reading particle buffer
-        if (pid < arrayLength(&scratchIndices) / 2u) {
-            scratchIndices[pid * 2u] = -9999;
+// ─── Atomic PQS deposit helper ───
+fn atomicDeposit(pqs: PQSResult, value: f32, bcMode: u32, topoMode: u32) {
+    let ix = pqs.ix;
+    let iy = pqs.iy;
+
+    // Interior fast path: stencil [ix-1..ix+2]×[iy-1..iy+2] fully inside grid
+    if (isInterior(ix, iy)) {
+        for (var jy = 0u; jy < 4u; jy++) {
+            let vwy = value * pqs.wy[jy];
+            let row = u32(iy + i32(jy) - 1) * GRID + u32(ix - 1);
+            for (var jx = 0u; jx < 4u; jx++) {
+                let w = vwy * pqs.wx[jx];
+                let fixed = i32(w * FP_SCALE);
+                if (fixed != 0) {
+                    atomicAdd(&atomicGrid[row + jx], fixed);
+                }
+            }
         }
         return;
     }
 
-    // Check alive flag
-    let p = particles[pid];
-    let flag = p.flags;
-    if ((flag & 1u) == 0u) {
-        // Dead particle: write sentinel to avoid gather reading particle buffer
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
-
-    let px = p.posX;
-    let py = p.posY;
-
-    let cellW = uniforms.domainW / f32(GRID);
-    let cellH = uniforms.domainH / f32(GRID);
-    if (cellW < EPSILON || cellH < EPSILON) {
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
-    let invCellW = 1.0 / cellW;
-    let invCellH = 1.0 / cellH;
-
-    // Compute PQS weights
-    let pqs = pqsWeights(px, py, invCellW, invCellH);
-
-    // Compute deposit value based on mode
-    var value: f32 = 0.0;
-
-    // Higgs source: g * baseMass
-    let bm = p.baseMass;
-    if (bm < EPSILON) {
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
-
-    // For Higgs source mode (default path — JS selects target grid)
-    value = uniforms.higgsCoupling * bm;
-
-    // Write base indices
-    let base = pid * 2u;
-    scratchIndices[base] = pqs.ix;
-    scratchIndices[base + 1u] = pqs.iy;
-
-    // Write 16 stencil weights (4x4, row-major)
-    let wBase = pid * 16u;
+    // Border path: use nbIndex for boundary-aware wrapping
     for (var jy = 0u; jy < 4u; jy++) {
         let vwy = value * pqs.wy[jy];
         for (var jx = 0u; jx < 4u; jx++) {
-            scratchWeights[wBase + jy * 4u + jx] = vwy * pqs.wx[jx];
+            let idx = nbIndex(ix + i32(jx) - 1, iy + i32(jy) - 1, bcMode, topoMode);
+            if (idx >= 0) {
+                let w = vwy * pqs.wx[jx];
+                let fixed = i32(w * FP_SCALE);
+                if (fixed != 0) {
+                    atomicAdd(&atomicGrid[idx], fixed);
+                }
+            }
         }
     }
 }
 
-// Axion source scatter variant
+// ─── Higgs Source Deposit ───
+// Deposits g * baseMass per particle.
 @compute @workgroup_size(256)
-fn scatterDepositAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn depositHiggsSource(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
-    if (pid >= uniforms.particleCount) {
-        if (pid < arrayLength(&scratchIndices) / 2u) {
-            scratchIndices[pid * 2u] = -9999;
-        }
-        return;
-    }
+    if (pid >= uniforms.particleCount) { return; }
 
     let p = particles[pid];
-    let flag = p.flags;
-    if ((flag & 1u) == 0u) {
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
+    if ((p.flags & 1u) == 0u) { return; }
 
-    let px = p.posX;
-    let py = p.posY;
+    let bm = p.baseMass;
+    if (bm < EPSILON) { return; }
 
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
-    if (cellW < EPSILON || cellH < EPSILON) {
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
-    let invCellW = 1.0 / cellW;
-    let invCellH = 1.0 / cellH;
+    if (cellW < EPSILON || cellH < EPSILON) { return; }
 
-    let pqs = pqsWeights(px, py, invCellW, invCellH);
+    let pqs = pqsWeights(p.posX, p.posY, 1.0 / cellW, 1.0 / cellH);
+    let value = uniforms.higgsCoupling * bm;
+    atomicDeposit(pqs, value, uniforms.boundaryMode, uniforms.topologyMode);
+}
 
-    // Axion source: g*q^2 (EM, when Coulomb on) + g*m*sign (PQ, when Yukawa on)
-    var value: f32 = 0.0;
+// ─── Axion Source Deposit ───
+// Deposits g*q² (EM, when Coulomb on) + g*m*sign (PQ, when Yukawa on).
+// Can be negative (PQ coupling flips for antimatter).
+@compute @workgroup_size(256)
+fn depositAxionSource(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let pid = gid.x;
+    if (pid >= uniforms.particleCount) { return; }
+
+    let p = particles[pid];
+    let flag = p.flags;
+    if ((flag & 1u) == 0u) { return; }
+
+    let cellW = uniforms.domainW / f32(GRID);
+    let cellH = uniforms.domainH / f32(GRID);
+    if (cellW < EPSILON || cellH < EPSILON) { return; }
+
     let g = uniforms.axionCoupling;
+    var value: f32 = 0.0;
     if (uniforms.coulombEnabled != 0u) {
-        let q = p.charge;
-        let qSq = q * q;
+        let qSq = p.charge * p.charge;
         if (qSq > EPSILON) { value += g * qSq; }
     }
     if (uniforms.yukawaEnabled != 0u) {
         let m = p.mass;
         if (m > EPSILON) {
-            let isAntimatter = (flag & 4u) != 0u;  // antimatter bit
+            let isAntimatter = (flag & 4u) != 0u;
             let sign = select(1.0, -1.0, isAntimatter);
             value += g * m * sign;
         }
     }
-    if (abs(value) < EPSILON) {
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
+    if (abs(value) < EPSILON) { return; }
 
-    let base = pid * 2u;
-    scratchIndices[base] = pqs.ix;
-    scratchIndices[base + 1u] = pqs.iy;
-
-    let wBase = pid * 16u;
-    for (var jy = 0u; jy < 4u; jy++) {
-        let vwy = value * pqs.wy[jy];
-        for (var jx = 0u; jx < 4u; jx++) {
-            scratchWeights[wBase + jy * 4u + jx] = vwy * pqs.wx[jx];
-        }
-    }
+    let pqs = pqsWeights(p.posX, p.posY, 1.0 / cellW, 1.0 / cellH);
+    atomicDeposit(pqs, value, uniforms.boundaryMode, uniforms.topologyMode);
 }
 
-// Thermal KE scatter (Higgs phase transitions)
+// ─── Thermal KE Deposit (Higgs phase transitions) ───
 @compute @workgroup_size(256)
-fn scatterDepositThermal(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn depositThermal(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
-    if (pid >= uniforms.particleCount) {
-        if (pid < arrayLength(&scratchIndices) / 2u) {
-            scratchIndices[pid * 2u] = -9999;
-        }
-        return;
-    }
+    if (pid >= uniforms.particleCount) { return; }
 
     let p = particles[pid];
-    let flag = p.flags;
-    if ((flag & 1u) == 0u) {
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
-
-    let px = p.posX;
-    let py = p.posY;
+    if ((p.flags & 1u) == 0u) { return; }
 
     let cellW = uniforms.domainW / f32(GRID);
     let cellH = uniforms.domainH / f32(GRID);
-    if (cellW < EPSILON || cellH < EPSILON) {
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
-    let invCellW = 1.0 / cellW;
-    let invCellH = 1.0 / cellH;
+    if (cellW < EPSILON || cellH < EPSILON) { return; }
 
-    let pqs = pqsWeights(px, py, invCellW, invCellH);
-
-    // Compute KE
-    let wx = p.velWX;
-    let wy = p.velWY;
-    let wSq = wx * wx + wy * wy;
+    let wSq = p.velWX * p.velWX + p.velWY * p.velWY;
     var ke: f32;
     if (uniforms.relativityEnabled != 0u) {
         ke = wSq / (sqrt(1.0 + wSq) + 1.0) * p.mass;
     } else {
         ke = 0.5 * p.mass * wSq;
     }
-    if (ke < EPSILON) {
-        scratchIndices[pid * 2u] = -9999;
-        return;
-    }
+    if (ke < EPSILON) { return; }
 
-    let base = pid * 2u;
-    scratchIndices[base] = pqs.ix;
-    scratchIndices[base + 1u] = pqs.iy;
-
-    let wBase = pid * 16u;
-    for (var jy = 0u; jy < 4u; jy++) {
-        let vwy = ke * pqs.wy[jy];
-        for (var jx = 0u; jx < 4u; jx++) {
-            scratchWeights[wBase + jy * 4u + jx] = vwy * pqs.wx[jx];
-        }
-    }
+    let pqs = pqsWeights(p.posX, p.posY, 1.0 / cellW, 1.0 / cellH);
+    atomicDeposit(pqs, ke, uniforms.boundaryMode, uniforms.topologyMode);
 }
 
-// ─── Pass 2: Gather ───
-// One thread per grid cell. Sums contributions from all particles whose
-// 4x4 stencil overlaps this cell.
+// ─── Finalize: atomic i32 → f32, then clear atomic grid ───
 @compute @workgroup_size(8, 8)
-fn gatherDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let gx = gid.x;
-    let gy = gid.y;
-    if (gx >= GRID || gy >= GRID) { return; }
-
-    let cellIdx = gy * GRID + gx;
-    var total: f32 = 0.0;
-
-    let bcMode = uniforms.boundaryMode;
-    let topoMode = uniforms.topologyMode;
-
-    // For each particle, check if this cell falls within its 4x4 stencil.
-    // Read sentinel from scratchIndices instead of loading full 36-byte ParticleState struct.
-    // Sentinel -9999 written by scatter pass for dead/skipped particles.
-    for (var pid = 0u; pid < uniforms.particleCount; pid++) {
-        let base = pid * 2u;
-        let ix = scratchIndices[base];
-        if (ix <= -9999) { continue; }  // sentinel: dead or skipped particle
-        let iy = scratchIndices[base + 1u];
-
-        // Stencil covers [ix-1..ix+2] x [iy-1..iy+2]
-        // For interior: direct check
-        if (isInterior(ix, iy)) {
-            let sx = i32(gx) - (ix - 1);
-            let sy = i32(gy) - (iy - 1);
-            if (sx >= 0 && sx < 4 && sy >= 0 && sy < 4) {
-                total += scratchWeights[pid * 16u + u32(sy) * 4u + u32(sx)];
-            }
-        } else {
-            // Border path: check each stencil node against this cell via nbIndex
-            let wBase = pid * 16u;
-            for (var jy = 0u; jy < 4u; jy++) {
-                for (var jx = 0u; jx < 4u; jx++) {
-                    let nIdx = nbIndex(ix + i32(jx) - 1, iy + i32(jy) - 1, bcMode, topoMode);
-                    if (nIdx == i32(cellIdx)) {
-                        total += scratchWeights[wBase + jy * 4u + jx];
-                    }
-                }
-            }
-        }
-    }
-
-    targetGrid[cellIdx] = total;
-}
-
-// ─── Clear Grid ───
-@compute @workgroup_size(8, 8)
-fn clearGrid(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn finalizeDeposit(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.y * GRID + gid.x;
     if (gid.x >= GRID || gid.y >= GRID) { return; }
-    targetGrid[idx] = 0.0;
+    targetGrid[idx] = f32(atomicExchange(&atomicGrid[idx], 0)) * INV_FP_SCALE;
 }

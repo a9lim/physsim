@@ -36,15 +36,17 @@
  *  - deadParticleGC           (Phase 3)
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
-import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createPQSScratchBuffer, createPQSIndexBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, COARSE_RES, COARSE_SQ, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
-import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
+import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
+import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFFTPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
 import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_GRAV_BIT, FIELD_GRAV_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, MAX_PHOTONS, MAX_PIONS,
     GPU_MAX_PARTICLES, PHYSICS_DT,
     COL_MERGE, COL_BOUNCE, BOUND_LOOP,
     COL_NAMES, BOUND_NAMES, TOPO_NAMES,
+    SOFTENING_SQ, BH_SOFTENING_SQ,
 } from '../config.js';
+import { fft2d } from '../fft.js';
 
 const MAX_PARTICLES = GPU_MAX_PARTICLES;
 
@@ -70,7 +72,7 @@ const _heatmapUniformData = new ArrayBuffer(96);
 const _heatmapUniformF32 = new Float32Array(_heatmapUniformData);
 const _heatmapUniformU32 = new Uint32Array(_heatmapUniformData);
 const _colorUniformData = new Uint32Array(4);
-const _fgUniformData = new ArrayBuffer(32);  // FGUniforms: 8 × f32/u32
+const _fgUniformData = new ArrayBuffer(16);  // FGUniforms: domainW, domainH, aliveCount, _pad
 const _fgUniformF32 = new Float32Array(_fgUniformData);
 const _fgUniformU32 = new Uint32Array(_fgUniformData);
 
@@ -183,8 +185,7 @@ export default class GPUPhysics {
         // Phase 5: Scalar field buffers (lazy-allocated on first toggle-on)
         this._higgsBuffers = null;
         this._axionBuffers = null;
-        this._pqsScratch = null;
-        this._pqsIndices = null;
+        this._atomicGrid = null;
         this._heatmapBuffers = null;
         this._excitationBuffers = null;
         this._disintBuffers = null;
@@ -205,6 +206,10 @@ export default class GPUPhysics {
         this._fieldForces = null;
         this._fieldParticleGrav = null;
         this._fieldSelfGrav = null;
+        this._fftPipelines = null;
+        this._fftParamsBuffer = null;
+        this._fftBGs = {};
+        this._greenHatUploaded = {};
         this._fieldExcitation = null;
         this._heatmapPipelines = null;
         this._expansionPipeline = null;
@@ -1647,14 +1652,13 @@ export default class GPUPhysics {
 
     /**
      * Lazily allocate GPU buffers for a scalar field.
-     * Also ensures shared PQS scratch/index buffers are allocated.
+     * Also ensures shared atomic deposit grid buffer is allocated.
      * Initializes field values: Higgs=1.0 (VEV), Axion=0.0.
      * @param {'higgs'|'axion'} which
      */
     _ensureFieldBuffers(which) {
-        if (!this._pqsScratch) {
-            this._pqsScratch = createPQSScratchBuffer(this.device, MAX_PARTICLES);
-            this._pqsIndices = createPQSIndexBuffer(this.device, MAX_PARTICLES);
+        if (!this._atomicGrid) {
+            this._atomicGrid = createAtomicGridBuffer(this.device);
         }
         if (!this._fieldUniformBuffer) {
             this._fieldUniformBuffer = this.device.createBuffer({
@@ -1721,13 +1725,14 @@ export default class GPUPhysics {
         const wgslConstants = buildWGSLConstants();
 
         // Initialize all Phase 5 pipelines in parallel
-        const [deposit, evolve, forces, particleGrav, selfGrav, excitation, heatmap, expansion, disint, pairProd] =
+        const [deposit, evolve, forces, particleGrav, selfGrav, fft, excitation, heatmap, expansion, disint, pairProd] =
             await Promise.all([
                 createFieldDepositPipelines(this.device, wgslConstants),
                 createFieldEvolvePipelines(this.device, wgslConstants),
                 createFieldForcesPipelines(this.device, wgslConstants),
                 createFieldParticleGravPipeline(this.device, wgslConstants),
                 createFieldSelfGravPipelines(this.device, wgslConstants),
+                createFFTPipelines(this.device, wgslConstants),
                 createFieldExcitationPipeline(this.device, wgslConstants),
                 createHeatmapPipelines(this.device, wgslConstants),
                 createExpansionPipeline(this.device, wgslConstants),
@@ -1740,6 +1745,7 @@ export default class GPUPhysics {
         this._fieldForces = forces;
         this._fieldParticleGrav = particleGrav;
         this._fieldSelfGrav = selfGrav;
+        this._fftPipelines = fft;
         this._fieldExcitation = excitation;
         this._heatmapPipelines = heatmap;
         this._expansionPipeline = expansion;
@@ -1839,15 +1845,14 @@ export default class GPUPhysics {
         // Use per-field uniform buffer
         const uBuf = which === 'higgs' ? this._higgsUniformBuffer : this._axionUniformBuffer;
 
-        // Group 1: scratch + target grid + uniforms (for source deposition)
+        // Group 1: atomicGrid + target grid + uniforms (for source deposition)
         const g1Source = this.device.createBindGroup({
             label: `fieldDeposit_g1_source_${which}`,
             layout: dep.bindGroupLayouts[1],
             entries: [
-                { binding: 0, resource: { buffer: this._pqsScratch } },
-                { binding: 1, resource: { buffer: this._pqsIndices } },
-                { binding: 2, resource: { buffer: fb.source } },
-                { binding: 3, resource: { buffer: uBuf } },
+                { binding: 0, resource: { buffer: this._atomicGrid } },
+                { binding: 1, resource: { buffer: fb.source } },
+                { binding: 2, resource: { buffer: uBuf } },
             ],
         });
 
@@ -1856,10 +1861,9 @@ export default class GPUPhysics {
             label: `fieldDeposit_g1_thermal_${which}`,
             layout: dep.bindGroupLayouts[1],
             entries: [
-                { binding: 0, resource: { buffer: this._pqsScratch } },
-                { binding: 1, resource: { buffer: this._pqsIndices } },
-                { binding: 2, resource: { buffer: fb.thermal } },
-                { binding: 3, resource: { buffer: uBuf } },
+                { binding: 0, resource: { buffer: this._atomicGrid } },
+                { binding: 1, resource: { buffer: fb.thermal } },
+                { binding: 2, resource: { buffer: uBuf } },
             ],
         });
 
@@ -1927,7 +1931,7 @@ export default class GPUPhysics {
         // Use per-field uniform buffer
         const uBuf = which === 'higgs' ? this._higgsUniformBuffer : this._axionUniformBuffer;
 
-        // Group 0: core field arrays + uniform (6 storage + 1 uniform)
+        // Group 0: field arrays + uniform
         this._fieldSelfGravBGs[which] = this.device.createBindGroup({
             label: `fieldSelfGrav_${which}_g0`,
             layout: this._fieldSelfGrav.bindGroupLayouts[0],
@@ -1937,21 +1941,109 @@ export default class GPUPhysics {
                 { binding: 2, resource: { buffer: fb.gradX } },
                 { binding: 3, resource: { buffer: fb.gradY } },
                 { binding: 4, resource: { buffer: fb.energyDensity } },
-                { binding: 5, resource: { buffer: fb.coarseRho } },
-                { binding: 6, resource: { buffer: uBuf } },
+                { binding: 5, resource: { buffer: uBuf } },
             ],
         });
-        // Group 1: self-gravity arrays (4 storage — sgInvR computed inline)
+        // Group 1: SG output arrays
         this._fieldSelfGravBGs[which + '_g1'] = this.device.createBindGroup({
             label: `fieldSelfGrav_${which}_g1`,
             layout: this._fieldSelfGrav.bindGroupLayouts[1],
             entries: [
-                { binding: 0, resource: { buffer: fb.coarsePhi } },
-                { binding: 1, resource: { buffer: fb.sgPhiFull } },
-                { binding: 2, resource: { buffer: fb.sgGradX } },
-                { binding: 3, resource: { buffer: fb.sgGradY } },
+                { binding: 0, resource: { buffer: fb.sgPhiFull } },
+                { binding: 1, resource: { buffer: fb.sgGradX } },
+                { binding: 2, resource: { buffer: fb.sgGradY } },
             ],
         });
+    }
+
+    /** Ensure FFT bind groups exist for a given field. Also uploads Green's function Ĝ. */
+    _ensureFFTBindGroups(which) {
+        if (this._fftBGs[which]) return;
+        const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
+        if (!fb || !this._fftPipelines) return;
+
+        // Create FFT params uniform buffer (shared, created once)
+        if (!this._fftParamsBuffer) {
+            this._fftParamsBuffer = this.device.createBuffer({
+                label: 'fftParams',
+                size: 32, // 8 × u32/f32
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+        }
+
+        const fft = this._fftPipelines;
+
+        // Group 0 forward (A→B): read A, write B
+        const g0_AB = this.device.createBindGroup({
+            label: `fft_g0_AB_${which}`,
+            layout: fft.bindGroupLayouts[0],
+            entries: [
+                { binding: 0, resource: { buffer: fb.fftA } },
+                { binding: 1, resource: { buffer: fb.fftB } },
+                { binding: 2, resource: { buffer: this._fftParamsBuffer } },
+            ],
+        });
+
+        // Group 0 reverse (B→A): read B, write A
+        const g0_BA = this.device.createBindGroup({
+            label: `fft_g0_BA_${which}`,
+            layout: fft.bindGroupLayouts[0],
+            entries: [
+                { binding: 0, resource: { buffer: fb.fftB } },
+                { binding: 1, resource: { buffer: fb.fftA } },
+                { binding: 2, resource: { buffer: this._fftParamsBuffer } },
+            ],
+        });
+
+        // Group 1: Green's function
+        const g1Green = this.device.createBindGroup({
+            label: `fft_g1_green_${which}`,
+            layout: fft.bindGroupLayouts[1],
+            entries: [
+                { binding: 0, resource: { buffer: fb.greenHat } },
+            ],
+        });
+
+        this._fftBGs[which] = { g0_AB, g0_BA, g1Green };
+    }
+
+    /** Upload precomputed Green's function Ĝ to GPU.
+     *  Computes on CPU (same as scalar-field.js), FFTs, uploads once per geometry change. */
+    _uploadGreenHat(which, domainW, domainH, softeningSq, periodic, topology) {
+        const key = `${domainW},${domainH},${softeningSq},${periodic},${topology}`;
+        if (this._greenHatUploaded[which] === key) return;
+        this._greenHatUploaded[which] = key;
+
+        const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
+        if (!fb) return;
+
+        const N = FIELD_GRID_RES;
+        const N2 = N * N;
+        const re = new Float64Array(N2);
+        const im = new Float64Array(N2);
+        const cellW = domainW / N;
+        const cellH = domainH / N;
+
+        // Build real-space Green's function G(r) = -1/√(r²+ε²)
+        // Wrapped indices: FFT circular convolution naturally handles periodic boundaries
+        for (let iy = 0; iy < N; iy++) {
+            for (let ix = 0; ix < N; ix++) {
+                const dx = (ix <= N / 2 ? ix : ix - N) * cellW;
+                const dy = (iy <= N / 2 ? iy : iy - N) * cellH;
+                re[iy * N + ix] = -1 / Math.sqrt(dx * dx + dy * dy + softeningSq);
+            }
+        }
+
+        // Forward FFT to get Ĝ
+        fft2d(re, im, N, false);
+
+        // Convert Float64 → Float32 interleaved and upload
+        const data = new Float32Array(N2 * 2);
+        for (let i = 0; i < N2; i++) {
+            data[i * 2] = re[i];
+            data[i * 2 + 1] = im[i];
+        }
+        this.device.queue.writeBuffer(fb.greenHat, 0, data);
     }
 
     /**
@@ -2030,63 +2122,44 @@ export default class GPUPhysics {
         const gridWG = Math.ceil(FIELD_GRID_RES / 8); // 8x8 workgroup
         const particleWG = Math.ceil(this.aliveCount / 256);
 
-        // Step 1: Clear source grid
-        {
-            const p = encoder.beginComputePass({ label: `clearSource_${which}` });
-            p.setPipeline(dep.clearGrid);
-            p.setBindGroup(0, depBGs.g0);
-            p.setBindGroup(1, depBGs.g1Source);
-            p.dispatchWorkgroups(gridWG, gridWG);
-            p.end();
-        }
-
-        // Step 2: Scatter deposit (source)
+        // Step 1: Atomic deposit (source) — single pass, O(N × 16)
         if (this.aliveCount > 0) {
-            const scatterPipeline = which === 'axion'
-                ? dep.scatterDepositAxion
-                : dep.scatterDeposit;
-            const p = encoder.beginComputePass({ label: `scatterDeposit_${which}` });
-            p.setPipeline(scatterPipeline);
+            const depositPipeline = which === 'axion'
+                ? dep.depositAxionSource
+                : dep.depositHiggsSource;
+            const p = encoder.beginComputePass({ label: `deposit_${which}` });
+            p.setPipeline(depositPipeline);
             p.setBindGroup(0, depBGs.g0);
             p.setBindGroup(1, depBGs.g1Source);
             p.dispatchWorkgroups(particleWG);
             p.end();
         }
 
-        // Step 3: Gather deposit (source)
+        // Step 2: Finalize source (atomic i32 → f32, clears atomic grid)
         {
-            const p = encoder.beginComputePass({ label: `gatherDeposit_${which}` });
-            p.setPipeline(dep.gatherDeposit);
+            const p = encoder.beginComputePass({ label: `finalizeSource_${which}` });
+            p.setPipeline(dep.finalizeDeposit);
             p.setBindGroup(0, depBGs.g0);
             p.setBindGroup(1, depBGs.g1Source);
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }
 
-        // Step 4: Higgs thermal deposition (Higgs only)
+        // Step 3: Higgs thermal deposition (Higgs only)
         if (which === 'higgs') {
-            // Clear thermal
-            {
-                const p = encoder.beginComputePass({ label: 'clearThermal' });
-                p.setPipeline(dep.clearGrid);
-                p.setBindGroup(0, depBGs.g0);
-                p.setBindGroup(1, depBGs.g1Thermal);
-                p.dispatchWorkgroups(gridWG, gridWG);
-                p.end();
-            }
-            // Scatter thermal
+            // Atomic deposit thermal
             if (this.aliveCount > 0) {
-                const p = encoder.beginComputePass({ label: 'scatterThermal' });
-                p.setPipeline(dep.scatterDepositThermal);
+                const p = encoder.beginComputePass({ label: 'depositThermal' });
+                p.setPipeline(dep.depositThermal);
                 p.setBindGroup(0, depBGs.g0);
                 p.setBindGroup(1, depBGs.g1Thermal);
                 p.dispatchWorkgroups(particleWG);
                 p.end();
             }
-            // Gather thermal
+            // Finalize thermal
             {
-                const p = encoder.beginComputePass({ label: 'gatherThermal' });
-                p.setPipeline(dep.gatherDeposit);
+                const p = encoder.beginComputePass({ label: 'finalizeThermal' });
+                p.setPipeline(dep.finalizeDeposit);
                 p.setBindGroup(0, depBGs.g0);
                 p.setBindGroup(1, depBGs.g1Thermal);
                 p.dispatchWorkgroups(gridWG, gridWG);
@@ -2094,15 +2167,23 @@ export default class GPUPhysics {
             }
         }
 
-        // Step 5: Self-gravity (if field gravity enabled)
+        // Step 4: Self-gravity via FFT convolution (if field gravity enabled)
         if (this._fieldGravEnabled) {
             this._ensureSelfGravBindGroups(which);
+            this._ensureFFTBindGroups(which);
+
             const sgBG0 = this._fieldSelfGravBGs[which];
             const sgBG1 = this._fieldSelfGravBGs[which + '_g1'];
             const sg = this._fieldSelfGrav;
-            const coarseWG = Math.ceil(COARSE_RES / 8);
+            const fft = this._fftPipelines;
+            const fftBG = this._fftBGs[which];
+            const softeningSq = this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
 
-            // Energy density
+            // Upload Green's function if geometry changed
+            this._uploadGreenHat(which, this.domainW, this.domainH,
+                softeningSq, this.boundaryMode === BOUND_LOOP, this.topologyMode);
+
+            // 4a. Compute energy density
             const edPipeline = which === 'higgs'
                 ? sg.computeEnergyDensityHiggs
                 : sg.computeEnergyDensityAxion;
@@ -2114,34 +2195,137 @@ export default class GPUPhysics {
                 p.dispatchWorkgroups(gridWG, gridWG);
                 p.end();
             }
-            // Downsample
+
+            // 4b. Copy ρ·dA to fftB (used as temp real source for packRealToComplex)
+            // energyDensity → fftB (scale by cellArea during pack)
+            // For simplicity, copy energyDensity to fftB then pack to fftA
+            encoder.copyBufferToBuffer(fb.energyDensity, 0, fb.fftB, 0, FIELD_GRID_RES * FIELD_GRID_RES * 4);
+
+            // 4c. Pack real → complex (reads fftB real, writes fftA complex)
+            const N = FIELD_GRID_RES;
+            const N2 = N * N;
+            const elemWG = Math.ceil(N2 / 256);
+            const logN = Math.log2(N);
+
             {
-                const p = encoder.beginComputePass({ label: `downsampleRho_${which}` });
-                p.setPipeline(sg.downsampleRho);
-                p.setBindGroup(0, sgBG0);
-                p.setBindGroup(1, sgBG1);
-                p.dispatchWorkgroups(coarseWG, coarseWG);
+                // Write FFT params for pack pass
+                const params = new ArrayBuffer(32);
+                const u = new Uint32Array(params);
+                const f = new Float32Array(params);
+                u[0] = 1; f[1] = 0; u[2] = 0; u[3] = N; f[4] = 1/N; u[5] = 0; u[6] = 0; u[7] = 0;
+                this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
+            }
+            {
+                const p = encoder.beginComputePass({ label: `packReal_${which}` });
+                p.setPipeline(fft.packRealToComplex);
+                p.setBindGroup(0, fftBG.g0_AB);
+                p.dispatchWorkgroups(elemWG);
                 p.end();
             }
-            // Coarse potential
+
+            // 4d. Forward FFT rows then columns (log2(N) passes each)
+            // After pack: data in fftA. First butterfly reads A, writes B.
+            // Alternate: AB, BA, AB, BA... Final result location depends on pass count parity.
+            let currentInA = true; // data starts in A after pack
+
+            // Helper to write FFT params and dispatch one butterfly pass
+            const dispatchButterfly = (stageLen, axis, isLast) => {
+                const params = new ArrayBuffer(32);
+                const u = new Uint32Array(params);
+                const f = new Float32Array(params);
+                u[0] = stageLen;
+                new Int32Array(params)[1] = -1; // direction = forward
+                u[2] = axis;
+                u[3] = N;
+                f[4] = 1 / N;
+                u[5] = isLast ? 1 : 0;
+                this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
+
+                const bg = currentInA ? fftBG.g0_AB : fftBG.g0_BA;
+                const p = encoder.beginComputePass({ label: `fftFwd_${axis}_${stageLen}_${which}` });
+                p.setPipeline(fft.fftButterfly);
+                p.setBindGroup(0, bg);
+                p.dispatchWorkgroups(elemWG);
+                p.end();
+                currentInA = !currentInA;
+            };
+
+            // Forward FFT: rows
+            for (let s = 0; s < logN; s++) {
+                dispatchButterfly(1 << s, 0, false);
+            }
+            // Forward FFT: columns
+            for (let s = 0; s < logN; s++) {
+                dispatchButterfly(1 << s, 1, false);
+            }
+
+            // 4e. Pointwise multiply by Ĝ (data must be in fftA for complexMultiply)
+            // If data is in B, we need to swap
+            if (!currentInA) {
+                // Data is in B — copy B→A
+                encoder.copyBufferToBuffer(fb.fftB, 0, fb.fftA, 0, N2 * 2 * 4);
+                currentInA = true;
+            }
             {
-                const p = encoder.beginComputePass({ label: `coarsePotential_${which}` });
-                p.setPipeline(sg.computeCoarsePotential);
-                p.setBindGroup(0, sgBG0);
-                p.setBindGroup(1, sgBG1);
-                p.dispatchWorkgroups(coarseWG, coarseWG);
+                const p = encoder.beginComputePass({ label: `complexMul_${which}` });
+                p.setPipeline(fft.complexMultiply);
+                p.setBindGroup(0, fftBG.g0_AB);
+                p.setBindGroup(1, fftBG.g1Green);
+                p.dispatchWorkgroups(elemWG);
                 p.end();
             }
-            // Upsample
+            // After multiply: result in fftA
+
+            // 4f. Inverse FFT rows then columns
+            const dispatchButterflyInv = (stageLen, axis, isLast) => {
+                const params = new ArrayBuffer(32);
+                const u = new Uint32Array(params);
+                const f = new Float32Array(params);
+                u[0] = stageLen;
+                new Int32Array(params)[1] = 1; // direction = inverse
+                u[2] = axis;
+                u[3] = N;
+                f[4] = 1 / N;
+                u[5] = isLast ? 1 : 0;
+                this.device.queue.writeBuffer(this._fftParamsBuffer, 0, params);
+
+                const bg = currentInA ? fftBG.g0_AB : fftBG.g0_BA;
+                const p = encoder.beginComputePass({ label: `fftInv_${axis}_${stageLen}_${which}` });
+                p.setPipeline(fft.fftButterfly);
+                p.setBindGroup(0, bg);
+                p.dispatchWorkgroups(elemWG);
+                p.end();
+                currentInA = !currentInA;
+            };
+
+            // Inverse FFT: rows (last row pass normalizes by 1/N)
+            for (let s = 0; s < logN; s++) {
+                const isLast = (s === logN - 1);
+                dispatchButterflyInv(1 << s, 0, isLast);
+            }
+            // Inverse FFT: columns (last column pass normalizes by 1/N → total 1/N²)
+            for (let s = 0; s < logN; s++) {
+                const isLast = (s === logN - 1);
+                dispatchButterflyInv(1 << s, 1, isLast);
+            }
+
+            // 4g. Unpack complex → real (reads from current buffer, writes sgPhiFull via fftB temp)
+            // Ensure data is in fftA for unpackComplexToReal
+            if (!currentInA) {
+                encoder.copyBufferToBuffer(fb.fftB, 0, fb.fftA, 0, N2 * 2 * 4);
+                currentInA = true;
+            }
             {
-                const p = encoder.beginComputePass({ label: `upsamplePhi_${which}` });
-                p.setPipeline(sg.upsamplePhi);
-                p.setBindGroup(0, sgBG0);
-                p.setBindGroup(1, sgBG1);
-                p.dispatchWorkgroups(gridWG, gridWG);
+                const p = encoder.beginComputePass({ label: `unpackReal_${which}` });
+                p.setPipeline(fft.unpackComplexToReal);
+                p.setBindGroup(0, fftBG.g0_AB);
+                p.dispatchWorkgroups(elemWG);
                 p.end();
             }
-            // SG gradients
+            // unpackComplexToReal writes real part to fftB — copy to sgPhiFull
+            encoder.copyBufferToBuffer(fb.fftB, 0, fb.sgPhiFull, 0, N2 * 4);
+
+            // 4h. SG gradients
             {
                 const p = encoder.beginComputePass({ label: `sgGradients_${which}` });
                 p.setPipeline(sg.computeSelfGravGradients);
@@ -2277,7 +2461,7 @@ export default class GPUPhysics {
         if (!this._fieldParticleGravUniform) {
             this._fieldParticleGravUniform = this.device.createBuffer({
                 label: 'fieldParticleGrav_uniform',
-                size: 32,
+                size: 16, // FGUniforms: domainW, domainH, aliveCount, _pad
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
         }
@@ -2285,16 +2469,12 @@ export default class GPUPhysics {
         // Write uniforms (FGUniforms struct)
         _fgUniformF32[0] = this.domainW;
         _fgUniformF32[1] = this.domainH;
-        _fgUniformF32[2] = this._blackHoleEnabled ? 16 : 64; // softeningSq
-        _fgUniformU32[3] = this.aliveCount;
-        _fgUniformU32[4] = this.boundaryMode;
-        _fgUniformU32[5] = this.topologyMode;
-        _fgUniformU32[6] = 0;
-        _fgUniformU32[7] = 0;
-        this.device.queue.writeBuffer(this._fieldParticleGravUniform, 0, _fgUniformData);
+        _fgUniformU32[2] = this.aliveCount;
+        _fgUniformU32[3] = 0;
+        this.device.queue.writeBuffer(this._fieldParticleGravUniform, 0, _fgUniformData, 0, 16);
 
         const pg = this._fieldParticleGrav;
-        const workgroups = Math.ceil(this.aliveCount / 64);
+        const workgroups = Math.ceil(this.aliveCount / 256);
         const b = this.buffers;
 
         const dispatchForField = (which) => {
@@ -2317,7 +2497,8 @@ export default class GPUPhysics {
                         label: `fieldParticleGrav_g1_${which}`,
                         layout: pg.bindGroupLayouts[1],
                         entries: [
-                            { binding: 0, resource: { buffer: fb.energyDensity } },
+                            { binding: 0, resource: { buffer: fb.sgGradX } },
+                            { binding: 1, resource: { buffer: fb.sgGradY } },
                         ],
                     }),
                 };

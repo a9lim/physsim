@@ -76,7 +76,6 @@ export const DEFAULT_PION_MASS = 0.15;       // mediator mass (inverse range), ~
 
 // ── Scalar Fields (Higgs & Axion) ──
 export const SCALAR_GRID = 64;
-export const SELFGRAV_GRID = 8;               // CPU self-gravity coarse grid
 export const SCALAR_FIELD_MAX = 2;           // field value clamp
 export const FIELD_EXCITATION_SIGMA = 2;     // Gaussian width in grid cells (merge wave packets)
 export const MERGE_EXCITATION_SCALE = 0.5;   // amplitude = scale * sqrt(keLost)
@@ -116,7 +115,6 @@ export const HISTORY_STRIDE = 64;            // ~120 snapshots/second
 
 // ── GPU-Specific ──
 export const GPU_SCALAR_GRID = 256;            // GPU scalar field grid resolution (tunable to 128+)
-export const GPU_SELFGRAV_GRID = 64;           // GPU self-gravity coarse grid (tunable to 16+)
 export const GPU_NR_TOLERANCE = 1e-5;         // GPU Newton-Raphson tolerance (f32 precision limit)
 export const GPU_HEATMAP_GRID = 64;           // GPU heatmap overlay resolution (tunable to 128)
 export const GPU_MAX_PARTICLES = 4096;        // GPU buffer pre-allocation limit
