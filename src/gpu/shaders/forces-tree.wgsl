@@ -35,9 +35,7 @@ const MAX_STACK: u32 = 48u;
 // For the tree walk, sources are either individual leaf particles
 // or aggregate node data (mass, charge, CoM, etc.).
 
-// Aberration constants
-const ABERRATION_CLAMP_MIN: f32 = 0.01;
-const ABERRATION_CLAMP_MAX: f32 = 100.0;
+// Aberration constants (ABERRATION_CLAMP_MIN/MAX) from wgslConstants
 
 // Inline the core force accumulation (matches pairForce in forces.js):
 // jerkOut: function-scope pointer for accumulating analytical jerk (radiation)

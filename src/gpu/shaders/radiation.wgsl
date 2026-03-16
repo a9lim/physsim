@@ -159,7 +159,7 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
                 var accepted = false;
                 var seedBase = (i * 2654435761u) ^ (u.frameCount * 1664525u);
                 for (var t: u32 = 0u; t < MAX_REJECTION_SAMPLES; t++) {
-                    let theta = pcgRand(seedBase ^ (t * 1234567u)) * 6.2831853;
+                    let theta = pcgRand(seedBase ^ (t * 1234567u)) * TWO_PI;
                     let sinTh = sin(theta);
                     if (pcgRand(seedBase ^ (t * 7654321u + 1u)) <= sinTh * sinTh) {
                         emitAngle = accelAngle + theta;
@@ -169,10 +169,10 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
                 }
                 if (!accepted) {
                     // Fallback: perpendicular to acceleration (θ = π/2)
-                    emitAngle = accelAngle + 1.5707963;
+                    emitAngle = accelAngle + HALF_PI;
                 }
                 // Relativistic aberration: beam forward at high γ
-                if (gamma > 1.01) {
+                if (gamma > ABERRATION_THRESHOLD) {
                     let beta = sqrt(max(1.0 - 1.0 / (gamma * gamma), 0.0));
                     let vx2 = wx * (1.0 / gamma); let vy2 = wy * (1.0 / gamma);
                     let velAngle = atan2(vy2, vx2);
@@ -183,7 +183,7 @@ fn larmorRadiation(@builtin(global_invocation_id) gid: vec3u) {
                 }
             } else {
                 // No net acceleration: isotropic emission
-                emitAngle = pcgRand((i * 2654435761u) ^ (u.frameCount * 1664525u)) * 6.2831853;
+                emitAngle = pcgRand((i * 2654435761u) ^ (u.frameCount * 1664525u)) * TWO_PI;
             }
             let cosA = cos(emitAngle); let sinA = sin(emitAngle);
             let offset = max(particleAux[i].radius * SPAWN_OFFSET_MUL, SPAWN_OFFSET_FLOOR);
@@ -229,9 +229,9 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
         let rPlus = M + sqrt(disc);
         let denom = max(2.0 * M * rPlus, EPSILON);
         let kappa = sqrt(disc) / denom;
-        let T = kappa / 6.2831853; // 2*PI
-        let A = 4.0 * 3.14159265 * (rPlus * rPlus + a * a);
-        let sigma = 3.14159265 * 3.14159265 / 60.0;
+        let T = kappa / TWO_PI;
+        let A = 4.0 * PI * (rPlus * rPlus + a * a);
+        let sigma = PI * PI / 60.0;
         power = sigma * T * T * T * T * A;
     }
     // else extremal: no radiation
@@ -254,7 +254,7 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
         if (finalEnergy > 0.0) {
             let phIdx = atomicAdd(&phCount, 1u);
             if (phIdx < MAX_PHOTONS) {
-                let angle = pcgRand((i * 12345u) ^ u.frameCount) * 6.2831853;
+                let angle = pcgRand((i * 12345u) ^ u.frameCount) * TWO_PI;
                 let cosA = cos(angle); let sinA = sin(angle);
                 var ph: Photon;
                 ph.posX = particles[i].posX + cosA * SPAWN_OFFSET_FLOOR;
@@ -296,7 +296,7 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
     if (rs.hawkAccum >= MIN_MASS) {
         let phIdx = atomicAdd(&phCount, 1u);
         if (phIdx < MAX_PHOTONS) {
-            let angle = pcgRand((i * 12345u) ^ u.frameCount) * 6.2831853;
+            let angle = pcgRand((i * 12345u) ^ u.frameCount) * TWO_PI;
             let cosA = cos(angle); let sinA = sin(angle);
             let offset = max(newRadius * 1.5, 1.0);
             var ph: Photon;
@@ -350,7 +350,7 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
                 var seedBase = (i * 2246822519u) ^ (u.frameCount * 2654435769u);
                 var accepted = false;
                 for (var t: u32 = 0u; t < MAX_REJECTION_SAMPLES; t++) {
-                    let phi = pcgRand(seedBase ^ (t * 1234567u)) * 6.2831853;
+                    let phi = pcgRand(seedBase ^ (t * 1234567u)) * TWO_PI;
                     let cosTheta = cos(phi - accelAngle);
                     if (pcgRand(seedBase ^ (t * 9876543u + 1u)) <= cosTheta * cosTheta) {
                         angle = phi;
@@ -360,7 +360,7 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
                 }
                 if (!accepted) {
                     // Fallback: along ±acceleration axis
-                    angle = accelAngle + select(0.0, 3.1415927, pcgRand(seedBase ^ 999u) < 0.5);
+                    angle = accelAngle + select(0.0, PI, pcgRand(seedBase ^ 999u) < 0.5);
                 }
 
                 // Relativistic aberration: Lorentz boost from particle rest frame to lab frame

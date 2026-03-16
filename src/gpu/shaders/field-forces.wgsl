@@ -157,8 +157,8 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // Recompute cached dipole moments
-    d.magMoment = 0.2 * p.charge * d.angVel * bodyRSq;
-    d.angMomentum = 0.4 * newMass * bodyRSq * d.angVel;
+    d.magMoment = MAG_MOMENT_K * p.charge * d.angVel * bodyRSq;
+    d.angMomentum = INERTIA_K * newMass * bodyRSq * d.angVel;
     derived[pid] = d;
 
     // ── Gradient force: F = +g * baseMass * sign(phi) * grad(phi) ──

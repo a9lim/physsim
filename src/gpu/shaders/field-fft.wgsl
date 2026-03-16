@@ -82,7 +82,7 @@ fn fftButterfly(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Twiddle factor: W = exp(direction * 2πi * k / fullLen)
     let k = posInGroup % halfLen;
-    let angle = f32(fftParams.direction) * 2.0 * 3.14159265358979323846 * f32(k) / f32(fullLen);
+    let angle = f32(fftParams.direction) * TWO_PI * f32(k) / f32(fullLen);
     let wRe = cos(angle);
     let wIm = sin(angle);
 
