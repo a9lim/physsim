@@ -424,6 +424,11 @@ fn main(
     // Signal delay is active when relativity is on
     let signalDelayed = relOn;
 
+    // Pre-drift signal delay time: forces are computed at pre-drift positions,
+    // so use simTime BEFORE the dt increment to match the particle's actual
+    // spacetime location (CPU increments simTime after drift, before recompute).
+    let sdTime = uniforms.simTime - uniforms.dt;
+
     // Per-thread force accumulator
     var accum: ForceAccum;
     accum.gravX = 0.0; accum.gravY = 0.0;
@@ -483,7 +488,7 @@ fn main(
                 if (signalDelayed) {
                     // Look up signal-delayed state for this source
                     let delayed = getDelayedStateGPU(
-                        s.srcIdx, pPosX, pPosY, uniforms.simTime,
+                        s.srcIdx, pPosX, pPosY, sdTime,
                         isPeriodic, uniforms.domainW, uniforms.domainH,
                         uniforms.topologyMode, false
                     );
@@ -533,7 +538,7 @@ fn main(
             if ((flags & FLAG_RETIRED) == 0u || (flags & FLAG_ALIVE) != 0u) { continue; }
 
             let delayed = getDelayedStateGPU(
-                ri, pPosX, pPosY, uniforms.simTime,
+                ri, pPosX, pPosY, sdTime,
                 isPeriodic, uniforms.domainW, uniforms.domainH,
                 uniforms.topologyMode, true
             );

@@ -41,7 +41,7 @@ import { createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines
 import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_GRAV_BIT, FIELD_GRAV_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, MAX_PHOTONS, MAX_PIONS,
-    GPU_MAX_PARTICLES,
+    GPU_MAX_PARTICLES, PHYSICS_DT,
     COL_MERGE, COL_BOUNCE, BOUND_LOOP,
     COL_NAMES, BOUND_NAMES, TOPO_NAMES,
 } from '../config.js';
@@ -2837,11 +2837,17 @@ export default class GPUPhysics {
             // Dead particle garbage collection
             this._dispatchDeadGC(encoder);
 
-            // Record signal delay history (once every HISTORY_STRIDE frames)
+            // Record signal delay history (every HISTORY_STRIDE physics steps)
+            // CPU increments _histStride once per Physics.update() call (= one PHYSICS_DT).
+            // GPU update() processes multiple PHYSICS_DT steps per frame, so increment
+            // by the number of physics steps to match CPU recording frequency.
             // Clears FLAG_REBORN after resetting stale history for recycled slots
-            this._histStride++;
+            {
+                const physicsSteps = Math.round(dt / PHYSICS_DT);
+                this._histStride += physicsSteps;
+            }
             if (this._relativityEnabled && this._histStride >= HISTORY_STRIDE) {
-                this._histStride = 0;
+                this._histStride -= HISTORY_STRIDE;
                 this._dispatchRecordHistory(encoder);
             }
 
