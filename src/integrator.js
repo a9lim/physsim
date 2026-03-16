@@ -1246,12 +1246,10 @@ export default class Physics {
 
                     this.sim.totalRadiated += dE;
 
-                    // Tangential drag (∝ KE) + per-particle accumulation (∝ contribution, A7)
+                    // Per-particle weighted drag + accumulation (∝ contribution, A7)
+                    // Exact relativistic rescaling: dKE_i removes the correct energy
+                    // fraction from each particle proportional to its quadrupole contribution.
                     if (dE > EPSILON && totalKE > EPSILON_SQ) {
-                        const f = Math.min(0.5 * dE / totalKE, 1);
-                        const scale = 1 - f;
-                        const fOverDt = f / dt;
-
                         // Sum per-particle contributions for weighting (A7)
                         let totalD3I = 0, totalD3Q = 0;
                         for (let i = 0; i < n; i++) { totalD3I += _d3IContrib[i]; totalD3Q += _d3QContrib[i]; }
@@ -1260,13 +1258,31 @@ export default class Physics {
 
                         for (let i = 0; i < n; i++) {
                             const p = particles[i];
-                            p._radDisplayX -= p.mass * p.w.x * fOverDt;
-                            p._radDisplayY -= p.mass * p.w.y * fOverDt;
-                            p.w.x *= scale;
-                            p.w.y *= scale;
-                            // Distribute energy proportional to per-particle contribution (A7)
+                            // Per-particle energy to remove (weighted by contribution)
+                            const dKE_i = (invD3I > 0 ? gwDE * _d3IContrib[i] * invD3I : 0)
+                                        + (invD3Q > 0 ? emDE * _d3QContrib[i] * invD3Q : 0);
+                            // Distribute energy to accumulators for photon emission
                             if (invD3I > 0) p._quadAccum += gwDE * _d3IContrib[i] * invD3I;
                             if (invD3Q > 0) p._emQuadAccum += emDE * _d3QContrib[i] * invD3Q;
+
+                            if (dKE_i <= 0) continue;
+                            const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
+                            if (wSq < EPSILON_SQ) continue;
+                            const gamma = Math.sqrt(1 + wSq);
+                            const KE_i = wSq / (gamma + 1) * p.mass;
+                            if (dKE_i >= KE_i) {
+                                p._radDisplayX -= p.mass * p.w.x / dt;
+                                p._radDisplayY -= p.mass * p.w.y / dt;
+                                p.w.x = 0; p.w.y = 0;
+                            } else {
+                                const gammaNew = 1 + (KE_i - dKE_i) / p.mass;
+                                const wSqNew = gammaNew * gammaNew - 1;
+                                const sc = Math.sqrt(wSqNew / wSq);
+                                p._radDisplayX -= p.mass * p.w.x * (1 - sc) / dt;
+                                p._radDisplayY -= p.mass * p.w.y * (1 - sc) / dt;
+                                p.w.x *= sc;
+                                p.w.y *= sc;
+                            }
                         }
                     }
 

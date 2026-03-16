@@ -358,37 +358,57 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
     let gwDE = dE * gwFrac;
     let emDE = dE - gwDE;
 
-    // Tangential drag: scale all proper velocities by (1 - f)
-    let f = min(0.5 * dE / totalKE, 1.0);
-    let scale = 1.0 - f;
-    let fOverDt = f / dt;
-
-    let wx = particles[i].velWX;
-    let wy = particles[i].velWY;
-
-    // Update display force (drag direction).
-    // Start from allForces.f3.xy (Larmor value, or 0 for uncharged) — NOT radState.radDisplayX
-    // which would accumulate frame-over-frame for uncharged particles (never reset by Larmor).
-    // Matches CPU: forceRadiation zeroed at start of update(), Larmor sets it, quadrupole subtracts.
-    var rs = radState[i];
-    let afBase = allForces[i];
-    rs.radDisplayX = afBase.f3.x - particles[i].mass * wx * fOverDt;
-    rs.radDisplayY = afBase.f3.y - particles[i].mass * wy * fOverDt;
-
-    // Apply drag (NaN guard per project conventions)
-    let newWx = wx * scale;
-    let newWy = wy * scale;
-    if (newWx == newWx && newWy == newWy) {
-        particles[i].velWX = newWx;
-        particles[i].velWY = newWy;
-    }
-
-    // Distribute energy proportional to per-particle contribution
+    // Per-particle weighted drag: exact relativistic rescaling.
+    // Each particle loses energy proportional to its quadrupole contribution.
     let invD3I = select(0.0, 1.0 / totalD3I, totalD3I > EPSILON_SQ);
     let invD3Q = select(0.0, 1.0 / totalD3Q, totalD3Q > EPSILON_SQ);
 
-    if (invD3I > 0.0) { rs.quadAccum += gwDE * rs.d3IContrib * invD3I; }
-    if (invD3Q > 0.0) { rs.emQuadAccum += emDE * rs.d3QContrib * invD3Q; }
+    var rs = radState[i];
+
+    // Per-particle energy to remove (weighted by contribution)
+    let dKE_gw = select(0.0, gwDE * rs.d3IContrib * invD3I, invD3I > 0.0);
+    let dKE_em = select(0.0, emDE * rs.d3QContrib * invD3Q, invD3Q > 0.0);
+    let dKE_i = dKE_gw + dKE_em;
+
+    // Distribute to photon emission accumulators
+    rs.quadAccum += dKE_gw;
+    rs.emQuadAccum += dKE_em;
+
+    let wx = particles[i].velWX;
+    let wy = particles[i].velWY;
+    let wSq = wx * wx + wy * wy;
+    let afBase = allForces[i];
+
+    // Exact relativistic velocity rescaling
+    if (dKE_i > 0.0 && wSq > EPSILON_SQ) {
+        let gamma = sqrt(1.0 + wSq);
+        let KE_i = wSq / (gamma + 1.0) * particles[i].mass;
+        if (dKE_i >= KE_i) {
+            // Remove all KE
+            rs.radDisplayX = afBase.f3.x - particles[i].mass * wx / dt;
+            rs.radDisplayY = afBase.f3.y - particles[i].mass * wy / dt;
+            particles[i].velWX = 0.0;
+            particles[i].velWY = 0.0;
+        } else {
+            let gammaNew = 1.0 + (KE_i - dKE_i) / particles[i].mass;
+            let wSqNew = gammaNew * gammaNew - 1.0;
+            let sc = sqrt(wSqNew / wSq);
+            let dragFactor = (1.0 - sc) / dt;
+            rs.radDisplayX = afBase.f3.x - particles[i].mass * wx * dragFactor;
+            rs.radDisplayY = afBase.f3.y - particles[i].mass * wy * dragFactor;
+            let newWx = wx * sc;
+            let newWy = wy * sc;
+            // NaN guard
+            if (newWx == newWx && newWy == newWy) {
+                particles[i].velWX = newWx;
+                particles[i].velWY = newWy;
+            }
+        }
+    } else {
+        // No drag — display force is just Larmor base
+        rs.radDisplayX = afBase.f3.x;
+        rs.radDisplayY = afBase.f3.y;
+    }
 
     // ── Emit GW graviton ──
     if (rs.quadAccum >= MIN_MASS) {
