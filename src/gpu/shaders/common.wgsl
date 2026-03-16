@@ -163,11 +163,14 @@ fn fullMinImage(ox: f32, oy: f32, sx: f32, sy: f32) -> vec2<f32> {
         return torusMinImage(ox, oy, sx, sy);
     }
 
-    // Candidate 0: direct displacement (with torus wrap)
+    // Candidate 0: only torus-wrap axes with translational (not glide) periodicity.
+    // Klein: x periodic (period W), y glide (period 2H) — only wrap x.
+    // RP²: both glide — no wrapping.
     var dx0 = sx - ox;
-    if (dx0 > halfW) { dx0 -= w; } else if (dx0 < -halfW) { dx0 += w; }
     var dy0 = sy - oy;
-    if (dy0 > halfH) { dy0 -= h; } else if (dy0 < -halfH) { dy0 += h; }
+    if (topo == TOPO_KLEIN) {
+        if (dx0 > halfW) { dx0 -= w; } else if (dx0 < -halfW) { dx0 += w; }
+    }
     var bestSq = dx0 * dx0 + dy0 * dy0;
     var bestDx = dx0;
     var bestDy = dy0;
@@ -187,26 +190,28 @@ fn fullMinImage(ox: f32, oy: f32, sx: f32, sy: f32) -> vec2<f32> {
         let dSq1b = dx1 * dx1 + dy1b * dy1b;
         if (dSq1b < bestSq) { bestDx = dx1; bestDy = dy1b; }
     } else {
-        // RP²: both axes carry glide reflections
+        // RP²: both axes carry glide reflections (translational periods 2W, 2H)
+
+        // Candidate 1: y-glide  (x,y) ~ (W-x, y+H) — x not wrapped
         let gx = w - sx;
-        var dxG = gx - ox;
-        if (dxG > halfW) { dxG -= w; } else if (dxG < -halfW) { dxG += w; }
+        let dxG = gx - ox;
         var dyG = (sy + h) - oy;
         if (dyG > h) { dyG -= 2.0 * h; } else if (dyG < -h) { dyG += 2.0 * h; }
         let dSqG = dxG * dxG + dyG * dyG;
         if (dSqG < bestSq) { bestDx = dxG; bestDy = dyG; bestSq = dSqG; }
 
+        // Candidate 2: x-glide  (x,y) ~ (x+W, H-y) — y not wrapped
         let gy = h - sy;
         var dxH = (sx + w) - ox;
         if (dxH > w) { dxH -= 2.0 * w; } else if (dxH < -w) { dxH += 2.0 * w; }
-        var dyH = gy - oy;
-        if (dyH > halfH) { dyH -= h; } else if (dyH < -halfH) { dyH += h; }
+        let dyH = gy - oy;
         let dSqH = dxH * dxH + dyH * dyH;
         if (dSqH < bestSq) { bestDx = dxH; bestDy = dyH; bestSq = dSqH; }
 
-        var dxC = (w - sx + w) - ox;
+        // Candidate 3: both glides  (x,y) ~ (2W-x, 2H-y)
+        var dxC = (2.0 * w - sx) - ox;
         if (dxC > w) { dxC -= 2.0 * w; } else if (dxC < -w) { dxC += 2.0 * w; }
-        var dyC = (h - sy + h) - oy;
+        var dyC = (2.0 * h - sy) - oy;
         if (dyC > h) { dyC -= 2.0 * h; } else if (dyC < -h) { dyC += 2.0 * h; }
         let dSqC = dxC * dxC + dyC * dyC;
         if (dSqC < bestSq) { bestDx = dxC; bestDy = dyC; }
