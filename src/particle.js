@@ -69,17 +69,7 @@ export default class Particle {
         this._emQuadAccum = 0;  // EM quadrupole
         this._radDisplayX = 0;
         this._radDisplayY = 0;
-        // 3-point backward difference history for non-1/r² force jerk
-        this._otherFx0 = 0; this._otherFy0 = 0; // two substeps ago
-        this._otherFx1 = 0; this._otherFy1 = 0; // previous substep
-        this._otherDt0 = 0; // dt between sample 0 and 1
-        this._otherDt1 = 0; // dt between sample 1 and current
-        this._otherCount = 0;
         this._yukawaRadAccum = 0; // Yukawa meson radiation accumulator
-        // Per-frame residual force history for quadrupole jerk (backward diff)
-        this._qResFx0 = 0; this._qResFy0 = 0;
-        this._qResFx1 = 0; this._qResFy1 = 0;
-        this._qResCount = 0;
 
         // Signal delay history (lazy-allocated)
         this.histX = null;

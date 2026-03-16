@@ -324,6 +324,14 @@ fn accumulateForce(
         (*af).totalForce.x += fx;
         (*af).totalForce.y += fy;
 
+        // Analytical jerk: F = 3μ₁μ₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
+        if (radOn) {
+            let invR7a = invR5a * invRSq;
+            let jRadial = -15.0 * (pMagMoment * sMagMoment) * rDotVr * invR7a * axMod;
+            (*jerkOut).x += vrx * fDir + rx * jRadial;
+            (*jerkOut).y += vry * fDir + ry * jRadial;
+        }
+
         // Bz from moving charge
         let BzMoving = sCharge * crossSV * invR3 * axMod;
         (*af).bFields.x += BzMoving;
@@ -347,6 +355,14 @@ fn accumulateForce(
         (*af).f1.w += fy;
         (*af).totalForce.x += fx;
         (*af).totalForce.y += fy;
+
+        // Analytical jerk: F = 3L₁L₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
+        if (radOn) {
+            let invR7a = invR5a * invRSq;
+            let jRadial = -15.0 * (pAngMomentum * sAngMomentum) * rDotVr * invR7a;
+            (*jerkOut).x += vrx * fDir + rx * jRadial;
+            (*jerkOut).y += vry * fDir + ry * jRadial;
+        }
 
         // Bgz from moving mass
         let BgzMoving = -sMass * crossSV * invR3;
@@ -434,6 +450,15 @@ fn accumulateForce(
         (*af).f2.y += eihY;
         (*af).totalForce.x += eihX;
         (*af).totalForce.y += eihY;
+
+        // Analytical jerk for position-only EIH term: F = m₂(5m₁+4m₂)·r/r⁴
+        if (radOn) {
+            let kEIH = sMass * (5.0 * pMass + 4.0 * sMass);
+            let fDirEIH = kEIH * invRSq * invRSq;
+            let jRadialEIH = -4.0 * kEIH * rDotVr * invRSq * invRSq * invRSq;
+            (*jerkOut).x += vrx * fDirEIH + rx * jRadialEIH;
+            (*jerkOut).y += vry * fDirEIH + ry * jRadialEIH;
+        }
     }
 
     // 1PN Darwin EM (magnetic + 1PN)
@@ -462,6 +487,13 @@ fn accumulateForce(
         (*af).f2.y += bazY;
         (*af).totalForce.x += bazX;
         (*af).totalForce.y += bazY;
+
+        // Analytical jerk: F = crossCoeff·r/r⁴, d/dt(1/r⁴) = -4·rDotVr/r⁶
+        if (radOn) {
+            let jRadial = -4.0 * crossCoeff * rDotVr * invRSq * invRSq * invRSq;
+            (*jerkOut).x += vrx * fDir + rx * jRadial;
+            (*jerkOut).y += vry * fDir + ry * jRadial;
+        }
     }
 
 }

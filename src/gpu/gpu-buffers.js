@@ -26,7 +26,7 @@ const QTNODE_SIZE_BYTES = 80;
 // Packed struct sizes (must match common.wgsl struct definitions)
 const PARTICLE_STATE_SIZE = 36;  // 9 × 4 bytes
 const PARTICLE_AUX_SIZE = 20;   // 5 × 4 bytes
-const RADIATION_STATE_SIZE = 96; // 24 × 4 bytes (was 64 = 16 fields; added 5 Larmor backward-diff history + 3 pad)
+const RADIATION_STATE_SIZE = 48; // 12 × 4 bytes (accumulators + display + quadrupole scratch)
 const PHOTON_SIZE = 32;          // 8 × 4 bytes
 const PION_SIZE = 48;            // 12 × 4 bytes
 const DERIVED_SIZE = 32;         // 8 × f32 (ParticleDerived)

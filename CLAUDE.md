@@ -252,7 +252,7 @@ NOT Newton's 3rd law. Velocity-Verlet corrected. `compute1PN()` zeroes `force1PN
 ### Radiation
 
 Requires Gravity, Coulomb, or Yukawa. Single toggle, four mechanisms:
-- **Larmor dipole** (Coulomb): Landau-Lifshitz. Analytical jerk + numerical backward difference.
+- **Larmor dipole** (Coulomb): Landau-Lifshitz. Analytical jerk (gravity, Coulomb, Yukawa, dipoles, Bazanski, EIH position-only).
 - **EM quadrupole** (Coulomb): `P = (1/180)|d³Q_ij/dt³|²`. Emits photons.
 - **GW quadrupole** (Gravity): `P = (1/5)|d³I^TF_ij/dt³|²`. Emits gravitons (red).
 - **Pion emission** (Yukawa): `P = g²F_yuk²/3`. Emits pions.
@@ -357,7 +357,7 @@ Falls back to CPU on WebGPU unavailability or device loss. Force CPU via `?cpu=1
 | `ParticleAux` | 20B | radius, particleId, deathTime, deathMass, deathAngVel |
 | `ParticleDerived` | 32B | magMoment, angMomentum, invMass, radiusSq, velX/Y, angVel |
 | `AllForces` | 160B | 11 force vec2s, 3 torques, B-fields, B-gradients, totalForce, jerk |
-| `RadiationState` | 96B | jerk, radAccum, hawkAccum, yukawaRadAccum, quadrupole, Larmor history |
+| `RadiationState` | 48B | radAccum, hawkAccum, yukawaRadAccum, radDisplay, quadAccum, d3I/d3Q contrib |
 | `Photon` | 32B | pos, vel, energy, emitterId, lifetime, flags |
 | `Pion` | 48B | pos, w, mass, charge, energy, emitterId, age, flags |
 

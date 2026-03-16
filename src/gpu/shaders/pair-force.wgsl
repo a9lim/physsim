@@ -201,6 +201,15 @@ fn accumulatePairForce(
         (*accum).pnY += fy;
         (*accum).totalX += fx;
         (*accum).totalY += fy;
+
+        // Analytical jerk for position-only EIH term: F = m₂(5m₁+4m₂)·r/r⁴
+        if (radOn) {
+            let kEIH = src.mass * (5.0 * pMass + 4.0 * src.mass);
+            let fDirEIH = kEIH * invRSq * invRSq;
+            let jRadialEIH = -4.0 * kEIH * rDotVr * invRSq * invRSq * invRSq;
+            (*accum).jerkX += vrx * fDirEIH + rx * jRadialEIH;
+            (*accum).jerkY += vry * fDirEIH + ry * jRadialEIH;
+        }
     }
 
     // -- 1PN Darwin EM --
@@ -227,6 +236,13 @@ fn accumulatePairForce(
         (*accum).pnY += ry * fDir;
         (*accum).totalX += rx * fDir;
         (*accum).totalY += ry * fDir;
+
+        // Analytical jerk: F = crossCoeff·r/r⁴, d/dt(1/r⁴) = -4·rDotVr/r⁶
+        if (radOn) {
+            let jRadial = -4.0 * crossCoeff * rDotVr * invRSq * invRSq * invRSq;
+            (*accum).jerkX += vrx * fDir + rx * jRadial;
+            (*accum).jerkY += vry * fDir + ry * jRadial;
+        }
     }
 
     // -- Magnetic dipole-dipole --
@@ -236,6 +252,14 @@ fn accumulatePairForce(
         (*accum).magY += ry * fDir;
         (*accum).totalX += rx * fDir;
         (*accum).totalY += ry * fDir;
+
+        // Analytical jerk: F = 3μ₁μ₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
+        if (radOn) {
+            let invR7a = invR5a * invRSq;
+            let jRadial = -15.0 * (pMagMom * src.magMoment) * rDotVr * invR7a * axModPair;
+            (*accum).jerkX += vrx * fDir + rx * jRadial;
+            (*accum).jerkY += vry * fDir + ry * jRadial;
+        }
 
         // Bz from moving charge (Biot-Savart)
         let BzMoving = src.charge * crossSV * invR3 * axModPair;
@@ -258,6 +282,14 @@ fn accumulatePairForce(
         (*accum).gmY += ry * fDir;
         (*accum).totalX += rx * fDir;
         (*accum).totalY += ry * fDir;
+
+        // Analytical jerk: F = 3L₁L₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
+        if (radOn) {
+            let invR7a = invR5a * invRSq;
+            let jRadial = -15.0 * (pAngMom * src.angMomentum) * rDotVr * invR7a;
+            (*accum).jerkX += vrx * fDir + rx * jRadial;
+            (*accum).jerkY += vry * fDir + ry * jRadial;
+        }
 
         // Bgz from moving mass: -m_s(v_s x r_hat)_z / r^2
         let BgzMoving = -src.mass * crossSV * invR3;

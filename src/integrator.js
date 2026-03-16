@@ -668,33 +668,9 @@ export default class Physics {
                     const tau = 2 / 3 * qSq * p.invMass;
 
                     // Term 1: jerk — τ·dF/dt / γ³
-                    // Analytical jerk for gravity + Coulomb (from pairForce)
+                    // Analytical jerk from pairForce: gravity, Coulomb, Yukawa,
+                    // magnetic dipole, GM dipole, Bazanski, EIH position-only
                     let jerkX = p.jerk.x, jerkY = p.jerk.y;
-
-                    // 3-point backward difference for residual (non-1/r²) forces
-                    const otherFx = p.force.x - p.forceGravity.x - p.forceCoulomb.x;
-                    const otherFy = p.force.y - p.forceGravity.y - p.forceCoulomb.y;
-                    if (p._otherCount >= 2) {
-                        // O(dt²) 3-point backward: variable-step Lagrange derivative at t₂
-                        const h1 = p._otherDt0, h2 = p._otherDt1;
-                        const h1h2 = h1 * h2, hSum = h1 + h2;
-                        const c0 = h2 / (h1 * hSum);
-                        const c1 = -hSum / h1h2;
-                        const c2 = (h1 + 2 * h2) / (h2 * hSum);
-                        jerkX += c0 * p._otherFx0 + c1 * p._otherFx1 + c2 * otherFx;
-                        jerkY += c0 * p._otherFy0 + c1 * p._otherFy1 + c2 * otherFy;
-                    } else if (p._otherCount >= 1 && p._otherDt1 > EPSILON_SQ) {
-                        // O(dt) 2-point backward fallback
-                        const invDt = 1 / p._otherDt1;
-                        jerkX += (otherFx - p._otherFx1) * invDt;
-                        jerkY += (otherFy - p._otherFy1) * invDt;
-                    }
-                    // Shift history
-                    p._otherFx0 = p._otherFx1; p._otherFy0 = p._otherFy1;
-                    p._otherDt0 = p._otherDt1;
-                    p._otherFx1 = otherFx; p._otherFy1 = otherFy;
-                    p._otherDt1 = dtSub;
-                    if (p._otherCount < 2) p._otherCount++;
 
                     let fRadX = tau * jerkX;
                     let fRadY = tau * jerkY;
@@ -1201,8 +1177,6 @@ export default class Physics {
             const emQuad = this.coulombEnabled;
             let d3Ixx = 0, d3Ixy = 0, d3Iyy = 0;
             let d3Qxx = 0, d3Qxy = 0, d3Qyy = 0;
-            let jerkReady = true;
-
             // Grow per-particle contribution arrays if needed (A7)
             if (n > _d3IContrib.length) {
                 _d3IContrib = new Float64Array(n);
@@ -1234,31 +1208,9 @@ export default class Physics {
                 const _wSq = p.w.x * p.w.x + p.w.y * p.w.y;
                 if (_wSq > EPSILON_SQ) totalKE += p.mass * _wSq / (Math.sqrt(1 + _wSq) + 1);
 
-                // Analytical jerk for grav + Coulomb + Yukawa (from pairForce)
+                // Analytical jerk from pairForce: gravity, Coulomb, Yukawa,
+                // magnetic dipole, GM dipole, Bazanski, EIH position-only
                 let Jx = p.jerk.x, Jy = p.jerk.y;
-
-                // Backward difference for residual forces (magnetic, GM, 1PN, spin-curv)
-                const resFx = Fx - p.forceGravity.x - p.forceCoulomb.x - p.forceYukawa.x;
-                const resFy = Fy - p.forceGravity.y - p.forceCoulomb.y - p.forceYukawa.y;
-                if (p._qResCount >= 2 && dt > EPSILON) {
-                    // O(dt²) 3-point backward derivative (uniform dt = PHYSICS_DT)
-                    const invDt = 1 / dt;
-                    const c0 = 0.5 * invDt;
-                    const c1 = -2 * invDt;
-                    const c2 = 1.5 * invDt;
-                    Jx += c0 * p._qResFx0 + c1 * p._qResFx1 + c2 * resFx;
-                    Jy += c0 * p._qResFy0 + c1 * p._qResFy1 + c2 * resFy;
-                } else if (p._qResCount >= 1 && dt > EPSILON) {
-                    // O(dt) 2-point backward fallback
-                    Jx += (resFx - p._qResFx1) / dt;
-                    Jy += (resFy - p._qResFy1) / dt;
-                } else {
-                    jerkReady = false;
-                }
-                // Shift history
-                p._qResFx0 = p._qResFx1; p._qResFy0 = p._qResFy1;
-                p._qResFx1 = resFx; p._qResFy1 = resFy;
-                if (p._qResCount < 2) p._qResCount++;
 
                 // Per-particle mass quadrupole contribution d³I_ij/dt³ (A7)
                 let d3I_xx_i = 0, d3I_xy_i = 0, d3I_yy_i = 0;
@@ -1289,7 +1241,7 @@ export default class Physics {
                 }
             }
 
-            if (jerkReady) {
+            {
                 // P_GW = (1/5)|d³I^TF_ij/dt³|² using trace-free reduced quadrupole (U1)
                 // I^TF_ij = I_ij - (1/3)δ_ij·I_kk; for 2D motion in 3D (I_zz=0): trace = I_xx+I_yy
                 const trI = d3Ixx + d3Iyy;

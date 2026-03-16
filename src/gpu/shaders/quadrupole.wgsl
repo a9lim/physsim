@@ -61,26 +61,11 @@ struct AllForces {
 };
 
 struct RadiationState {
-    jerkX: f32, jerkY: f32,
     radAccum: f32, hawkAccum: f32, yukawaRadAccum: f32,
     radDisplayX: f32, radDisplayY: f32,
-    qResFx0: f32,
-    qResFy0: f32,
-    qResFx1: f32,
-    qResFy1: f32,
-    qResCount: f32,
-    quadAccum: f32,
-    emQuadAccum: f32,
-    d3IContrib: f32,
-    d3QContrib: f32,
-    otherFx0: f32,
-    otherFy0: f32,
-    otherFx1: f32,
-    otherFy1: f32,
-    otherCount: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    quadAccum: f32, emQuadAccum: f32,
+    d3IContrib: f32, d3QContrib: f32,
+    _pad0: f32, _pad1: f32, _pad2: f32,
 };
 
 struct Photon {
@@ -314,37 +299,10 @@ fn quadrupoleContrib(
         let Fx = allForces[i].totalForce.x;
         let Fy = allForces[i].totalForce.y;
 
-        // Total jerk = analytical (from force pass) + backward-difference residual
-        var Jx = radState[i].jerkX;
-        var Jy = radState[i].jerkY;
-
-        let rs = radState[i];
-        let count = u32(rs.qResCount);
-        // Use PHYSICS_DT (fixed timestep constant) for backward-difference spacing,
-        // matching CPU where quadrupole runs once per update() with dt ≈ PHYSICS_DT.
-        let dt = PHYSICS_DT;
-
-        if (count >= 2u && dt > EPSILON) {
-            // O(dt²) 3-point backward derivative
-            let invDt = 1.0 / dt;
-            let c0 = 0.5 * invDt;
-            let c1 = -2.0 * invDt;
-            let c2 = 1.5 * invDt;
-            // Current residual = totalForce - grav - coulomb - yukawa
-            let af = allForces[i];
-            let resFx = af.totalForce.x - af.f0.x - af.f0.z - af.f3.z;
-            let resFy = af.totalForce.y - af.f0.y - af.f0.w - af.f3.w;
-            Jx += c0 * rs.qResFx0 + c1 * rs.qResFx1 + c2 * resFx;
-            Jy += c0 * rs.qResFy0 + c1 * rs.qResFy1 + c2 * resFy;
-        } else if (count >= 1u && dt > EPSILON) {
-            // O(dt) 2-point backward fallback
-            let af = allForces[i];
-            let resFx = af.totalForce.x - af.f0.x - af.f0.z - af.f3.z;
-            let resFy = af.totalForce.y - af.f0.y - af.f0.w - af.f3.w;
-            Jx += (resFx - rs.qResFx1) / dt;
-            Jy += (resFy - rs.qResFy1) / dt;
-        }
-        // else: jerk not ready for this particle, use analytical only
+        // Analytical jerk from force pass: gravity, Coulomb, Yukawa,
+        // magnetic dipole, GM dipole, Bazanski, EIH position-only
+        let Jx = allForces[i].jerk.x;
+        let Jy = allForces[i].jerk.y;
 
         // Mass quadrupole d³I_ij/dt³
         if (gwQuad) {
@@ -370,21 +328,9 @@ fn quadrupoleContrib(
         }
 
         // Store per-particle contribution norms in scratch fields
-        // AND shift residual force history (AFTER jerk computation used old values)
         var rsW = radState[i];
         rsW.d3IContrib = contribI;
         rsW.d3QContrib = contribQ;
-        // Shift history: t-1 → t-2, current → t-1 (matches CPU order in integrator.js:1241-1243)
-        let af2 = allForces[i];
-        let curResFx = af2.totalForce.x - af2.f0.x - af2.f0.z - af2.f3.z;
-        let curResFy = af2.totalForce.y - af2.f0.y - af2.f0.w - af2.f3.w;
-        rsW.qResFx0 = rsW.qResFx1;
-        rsW.qResFy0 = rsW.qResFy1;
-        rsW.qResFx1 = curResFx;
-        rsW.qResFy1 = curResFy;
-        if (rsW.qResCount < 2.0) {
-            rsW.qResCount += 1.0;
-        }
         radState[i] = rsW;
     }
 
