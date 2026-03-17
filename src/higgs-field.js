@@ -231,6 +231,7 @@ export default class HiggsField extends ScalarField {
             if (p.baseMass < EPSILON) continue;
 
             const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
+            p.higgsMod = Math.max(Math.abs(phiLocal), HIGGS_MASS_FLOOR);
             const targetMass = Math.max(p.baseMass * Math.abs(phiLocal), HIGGS_MASS_FLOOR * p.baseMass);
             if (targetMass !== targetMass) continue; // NaN guard
             const diff = targetMass - p.mass;
@@ -259,6 +260,31 @@ export default class HiggsField extends ScalarField {
             const gamma = Math.sqrt(1 + wSq);
             p.vel.x = p.w.x / gamma;
             p.vel.y = p.w.y / gamma;
+        }
+    }
+
+    /** Modulate pion masses by local Higgs field value: m_pion = baseMass * |φ(x)|.
+     *  Conserves momentum by scaling proper velocity w.
+     */
+    modulatePionMasses(pions, domainW, domainH, boundaryMode, topoConst) {
+        const GRID = this._grid;
+        const cellW = domainW / GRID;
+        const cellH = domainH / GRID;
+        if (cellW < EPSILON || cellH < EPSILON) return;
+        const invCellW = 1 / cellW;
+        const invCellH = 1 / cellH;
+        for (let i = 0; i < pions.length; i++) {
+            const pi = pions[i];
+            if (!pi.alive) continue;
+            const phiLocal = this.interpolate(pi.pos.x, pi.pos.y, invCellW, invCellH, boundaryMode, topoConst);
+            const newMass = Math.max(pi.baseMass * Math.abs(phiLocal), HIGGS_MASS_FLOOR * pi.baseMass);
+            if (newMass !== newMass) continue; // NaN guard
+            if (Math.abs(newMass - pi.mass) < EPSILON) continue;
+            const ratio = pi.mass / newMass;
+            pi.w.x *= ratio;
+            pi.w.y *= ratio;
+            pi.mass = newMass;
+            pi._syncVel();
         }
     }
 

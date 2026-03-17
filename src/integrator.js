@@ -895,7 +895,7 @@ export default class Physics {
                     // Scalar charge Q = g·m (Yukawa couples ∝ m), so Q²a² = g²m²(F/m)² = g²F²
                     const dE = YUKAWA_COUPLING / 3 * fYukSq * dtSub;
                     p._yukawaRadAccum += dE;
-                    const pionMass = this.yukawaMu;
+                    const pionMass = this.higgsEnabled ? this.yukawaMu * p.higgsMod : this.yukawaMu;
                     if (p._yukawaRadAccum >= pionMass + MIN_MASS && pions.length < MAX_PIONS) {
                         const ke = p._yukawaRadAccum - pionMass;
                         if (ke > 0) {
@@ -997,7 +997,7 @@ export default class Physics {
                 }
                 const bhOn = this.barnesHutEnabled;
                 vvRoot = bhOn ? this._buildTree(particles) : -1;
-                compute1PN(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled, this.yukawaEnabled, this.yukawaMu, this.simTime, bhOn ? this.pool : null, vvRoot, bhOn);
+                compute1PN(particles, toggles.softeningSq, this.periodic, this.domainW, this.domainH, this.domainW * 0.5, this.domainH * 0.5, this._topologyConst, this.gravitomagEnabled, this.magneticEnabled, this.yukawaEnabled, this.yukawaMu, this.simTime, bhOn ? this.pool : null, vvRoot, bhOn, this.higgsEnabled);
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const halfDtOverM = halfDt * p.invMass;
@@ -1012,6 +1012,9 @@ export default class Physics {
                 const axionRef = (this.axionEnabled && this.sim.axionField) ? this.sim.axionField : null;
                 this.sim.higgsField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.relativityEnabled, this.gravityEnabled, toggles.softeningSq, axionRef);
                 this.sim.higgsField.modulateMasses(particles, dtSub, width, height, this.blackHoleEnabled, boundaryMode, this._topologyConst);
+                if (this.yukawaEnabled && pions.length > 0) {
+                    this.sim.higgsField.modulatePionMasses(pions, width, height, boundaryMode, this._topologyConst);
+                }
             }
 
             // Axion field evolution (axMod/yukMod interpolation deferred to step 7)

@@ -48,7 +48,7 @@ export function computePE(particles, toggles, pool, root, barnesHutEnabled, bhTh
                     o.mass, o.charge, sAngVel,
                     sMagMoment, sAngMomentum, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology,
-                    o.axMod, o.yukMod);
+                    o.axMod, o.yukMod, o.higgsMod);
             }
         }
     }
@@ -115,7 +115,7 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
                     other.mass, other.charge, sAngVel,
                     sMagMom, sAngMom, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology,
-                    real.axMod, real.yukMod);
+                    real.axMod, real.yukMod, real.higgsMod);
             }
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             // Distant node: use current-time aggregate
@@ -126,7 +126,7 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
                 nodeMass, pool.totalCharge[nodeIdx], 0,
                 pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], toggles,
                 periodic, domW, domH, halfDomW, halfDomH, topology,
-                1, 1);
+                1, 1, 1);
         } else if (pool.divided[nodeIdx]) {
             _peStack[stackTop++] = pool.nw[nodeIdx];
             _peStack[stackTop++] = pool.ne[nodeIdx];
@@ -139,7 +139,7 @@ export function treePE(particle, pool, rootIdx, theta, toggles, periodic, domW, 
 }
 
 /** Pairwise PE: gravity + Coulomb + magnetic dipole + GM dipole + 1PN correction. */
-export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, sAxMod = 1, sYukMod = 1) {
+export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, sAxMod = 1, sYukMod = 1, sHiggsMod = 1) {
     let rx, ry;
     if (periodic) {
         minImage(p.pos.x, p.pos.y, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
@@ -193,7 +193,7 @@ export function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment,
     }
     if (toggles.yukawaEnabled) {
         const r = 1 / invR;
-        const mu = toggles.yukawaMu;
+        const mu = toggles.higgsEnabled ? toggles.yukawaMu * Math.sqrt(p.higgsMod * sHiggsMod) : toggles.yukawaMu;
         const expMuR = Math.exp(-mu * r);
         const ym = yukModPair; // PQ modulation (geometric mean of observer and source)
         pe -= YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * invR;

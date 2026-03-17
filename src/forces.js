@@ -2,7 +2,7 @@
 // Pairwise and Barnes-Hut force accumulation. Separates E-like (position-dependent)
 // from B-like (velocity-dependent) forces for the Boris integrator.
 
-import { BH_THETA, BH_THETA_SQ, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_COUPLING, EPSILON, TORUS, BOSON_SOFTENING_SQ, BOSON_MIN_AGE } from './config.js';
+import { BH_THETA, BH_THETA_SQ, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_COUPLING, HIGGS_MASS_FLOOR, EPSILON, TORUS, BOSON_SOFTENING_SQ, BOSON_MIN_AGE } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { minImage } from './topology.js';
 
@@ -78,7 +78,9 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
     // P10: Precompute axion modulation flag (constant per frame)
     _needAxMod = (toggles.coulombEnabled || toggles.magneticEnabled) && toggles.axionEnabled;
     // P2: Yukawa cutoff distance: exp(-mu*r) < 0.002 when mu*r > 6
-    _yukawaCutoffSq = toggles.yukawaEnabled ? (6 / toggles.yukawaMu) ** 2 : Infinity;
+    // When Higgs enabled, muEff can be as small as yukawaMu * HIGGS_MASS_FLOOR — widen cutoff
+    const muMin = toggles.higgsEnabled ? toggles.yukawaMu * HIGGS_MASS_FLOOR : toggles.yukawaMu;
+    _yukawaCutoffSq = toggles.yukawaEnabled ? (6 / muMin) ** 2 : Infinity;
 
     const useSignalDelay = relativityEnabled;
 
@@ -118,7 +120,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
                     o.mass, o.charge, sAngVel,
                     sMagMoment, sAngMomentum, p.force, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology,
-                    o.axMod, o.yukMod, useSignalDelay);
+                    o.axMod, o.yukMod, useSignalDelay, o.higgsMod);
             }
         }
     }
@@ -145,7 +147,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
                     o._deathMass, o.charge, retAngVel,
                     retMagMoment, retAngMomentum, p.force, toggles,
                     periodic, domW, domH, halfDomW, halfDomH, topology,
-                    o.axMod || 1, o.yukMod || 1, true);
+                    o.axMod || 1, o.yukMod || 1, true, o.higgsMod || 1);
             }
         }
     }
@@ -158,7 +160,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
  * B-like (velocity-dependent) forces are NOT applied here; instead Bz/Bgz
  * and their gradients are accumulated for the Boris rotation step.
  */
-export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, sAxMod = 1, sYukMod = 1, signalDelayed = false) {
+export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, sAxMod = 1, sYukMod = 1, signalDelayed = false, sHiggsMod = 1) {
     let rx, ry;
     if (periodic) {
         minImage(p.pos.x, p.pos.y, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
@@ -383,7 +385,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 
     // P2: Yukawa cutoff — skip Math.exp for distant pairs where force is negligible
     if (toggles.yukawaEnabled && rawRSq < _yukawaCutoffSq) {
-        const mu = toggles.yukawaMu;
+        const mu = toggles.higgsEnabled ? toggles.yukawaMu * Math.sqrt(p.higgsMod * sHiggsMod) : toggles.yukawaMu;
         const r = 1 / invR;
         const expMuR = Math.exp(-mu * r);
         const yukModPair = Math.sqrt(p.yukMod * sYukMod);
@@ -442,7 +444,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
 function _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
                    sx, sy, svx, svy, sMass, sCharge, sYukMod,
                    softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology,
-                   gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu) {
+                   gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, higgsEnabled = false, sHiggsMod = 1) {
     let rx, ry;
     if (periodic) {
         minImage(px, py, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
@@ -488,7 +490,7 @@ function _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
     }
 
     if (yukawaEnabled) {
-        const mu = yukawaMu;
+        const mu = higgsEnabled ? yukawaMu * Math.sqrt(p.higgsMod * sHiggsMod) : yukawaMu;
         const expMuR = Math.exp(-mu * r);
         const nDotV1 = nx * pvx + ny * pvy;
         const nDotV2 = nx * svx + ny * svy;
@@ -505,7 +507,7 @@ function _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
 let _1pnStack = new Int32Array(256);
 
 /** BH tree walk for 1PN velocity-Verlet correction. Signal delay at leaf level. */
-function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology, gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, simTime) {
+function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology, gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, simTime, higgsEnabled = false) {
     const thetaSq = BH_THETA_SQ;
     const px = particle.pos.x, py = particle.pos.y;
     const pvx = particle.vel.x, pvy = particle.vel.y;
@@ -547,7 +549,7 @@ function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, dom
                 _accum1PN(particle, px, py, pvx, pvy, pMass, pCharge,
                     sx, sy, svx, svy, other.mass, other.charge, real.yukMod,
                     softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology,
-                    gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu);
+                    gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, higgsEnabled, real.higgsMod);
             }
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             const nodeMass = pool.totalMass[nodeIdx];
@@ -557,7 +559,7 @@ function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, dom
                 pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy,
                 nodeMass, pool.totalCharge[nodeIdx], 1,
                 softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology,
-                gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu);
+                gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, higgsEnabled, 1);
         } else if (pool.divided[nodeIdx]) {
             _1pnStack[stackTop++] = pool.nw[nodeIdx];
             _1pnStack[stackTop++] = pool.ne[nodeIdx];
@@ -572,7 +574,7 @@ function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, dom
  * O(N log N) BH tree walk when enabled, O(N²) pairwise fallback.
  * Signal delay at leaf level (1PN requires relativity).
  */
-export function compute1PN(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false, yukawaEnabled = false, yukawaMu = 0.05, simTime = 0, pool = null, root = -1, barnesHutEnabled = false) {
+export function compute1PN(particles, SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, gravitomagEnabled = true, magneticEnabled = false, yukawaEnabled = false, yukawaMu = 0.05, simTime = 0, pool = null, root = -1, barnesHutEnabled = false, higgsEnabled = false) {
     const n = particles.length;
     for (let i = 0; i < n; i++) {
         particles[i].force1PN.x = particles[i].force1PN.y = 0;
@@ -583,7 +585,7 @@ export function compute1PN(particles, SOFTENING_SQ_VAL, periodic, domW, domH, ha
         for (let i = 0; i < n; i++) {
             _compute1PNTreeWalk(particles[i], pool, root,
                 SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology,
-                gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, simTime);
+                gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, simTime, higgsEnabled);
         }
     } else {
         for (let i = 0; i < n; i++) {
@@ -600,7 +602,7 @@ export function compute1PN(particles, SOFTENING_SQ_VAL, periodic, domW, domH, ha
                 _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
                     ret.x, ret.y, ret.vx, ret.vy, o.mass, o.charge, o.yukMod,
                     SOFTENING_SQ_VAL, periodic, domW, domH, halfDomW, halfDomH, topology,
-                    gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu);
+                    gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu, higgsEnabled, o.higgsMod);
             }
         }
     }
@@ -672,14 +674,14 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
                     sAngVel = other.angVel; sMagMom = other.magMoment; sAngMom = other.angMomentum;
                     delayed = false;
                 }
-                pairForce(particle, sx, sy, svx, svy, other.mass, other.charge, sAngVel, sMagMom, sAngMom, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, real.axMod, real.yukMod, delayed);
+                pairForce(particle, sx, sy, svx, svy, other.mass, other.charge, sAngVel, sMagMom, sAngMom, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, real.axMod, real.yukMod, delayed, real.higgsMod);
             }
         } else if (pool.divided[nodeIdx] && (size * size < thetaSq * dSq)) {
             // Distant node: use aggregate (size/d < theta, computed as size²<theta²·d²)
             const nodeMass = pool.totalMass[nodeIdx];
             const avgVx = pool.totalMomentumX[nodeIdx] / nodeMass;
             const avgVy = pool.totalMomentumY[nodeIdx] / nodeMass;
-            pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, nodeMass, pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, 1, 1, useSignalDelay);
+            pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, nodeMass, pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, 1, 1, useSignalDelay, 1);
         } else if (pool.divided[nodeIdx]) {
             // Push children onto stack
             _bhStack[stackTop++] = pool.nw[nodeIdx];

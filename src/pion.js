@@ -17,6 +17,7 @@ export default class Pion {
         this.pos = new Vec2(x, y);
         this.w = new Vec2(wx, wy);
         this.vel = new Vec2(0, 0);
+        this.baseMass = mass; // intrinsic mass (yukawaMu at emission)
         this.mass = mass;
         this.charge = charge;   // +1, -1, or 0
         this.energy = energy;
@@ -34,6 +35,7 @@ export default class Pion {
     _reset(x, y, wx, wy, mass, charge, energy, emitterId) {
         this.pos.x = x; this.pos.y = y;
         this.w.x = wx; this.w.y = wy;
+        this.baseMass = mass;
         this.mass = mass;
         this.charge = charge;
         this._srcCharge = charge;

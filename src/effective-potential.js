@@ -144,7 +144,10 @@ export default class EffectivePotentialPlot {
         if (gm) v -= selL * refL * invR3;
 
         // Yukawa: -g²m₁m₂·exp(-μr)/r (with PQ modulation)
-        if (yuk) v -= YUKAWA_COUPLING * yukMod * sel.mass * ref.mass * Math.exp(-physics.yukawaMu * r) * invR;
+        if (yuk) {
+            const muEff = physics.higgsEnabled ? physics.yukawaMu * Math.sqrt(sel.higgsMod * ref.higgsMod) : physics.yukawaMu;
+            v -= YUKAWA_COUPLING * yukMod * sel.mass * ref.mass * Math.exp(-muEff * r) * invR;
+        }
 
         return v;
     }
