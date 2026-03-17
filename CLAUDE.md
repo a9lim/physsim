@@ -23,13 +23,14 @@ index.html                498 lines  UI: 4-tab sidebar, reference overlay, zoom 
 styles.css                295 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                  18 lines  Project color tokens (extends shared-tokens.js)
 src/
-  integrator.js          1619 lines  CPU physics: Boris substep loop, radiation, pion emission/absorption,
+  integrator.js          1622 lines  CPU physics: Boris substep loop, radiation, pion emission/absorption,
                                       field excitations, tidal, GW quadrupole, expansion, Roche, external fields,
                                       Hertz bounce, scalar fields
   scalar-field.js         858 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C²
                                       gradients, field energy, excitations, particle-field gravity, self-gravity
-  forces.js               808 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(),
-                                      boson gravity, PE accumulator (resetPEAccum/getPEAccum)
+  forces.js               921 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(),
+                                      boson gravity, PE accumulator (resetPEAccum/getPEAccum),
+                                      Higgs-modulated Yukawa μ (higgsMod per particle)
   ui.js                   716 lines  setupUI(), declarative dependency graph, info tips, reference overlay,
                                       shortcuts, dirty flag, KaTeX render cache, lazy field init triggers
   reference.js            725 lines  REFERENCE object: physics reference content (KaTeX math)
@@ -40,20 +41,22 @@ src/
   quadtree.js             348 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard,
                                       iterative insert, direct quadrant child selection, boson distribution
   heatmap.js              315 lines  64x64 potential field overlay, signal-delayed positions, force-toggle-aware
-  higgs-field.js          358 lines  HiggsField: Mexican hat potential, mass modulation, thermal phase transitions,
-                                      portal coupling (otherField param), portalEnergy()
+  higgs-field.js          384 lines  HiggsField: Mexican hat potential, mass modulation, thermal phase transitions,
+                                      portal coupling (otherField param), portalEnergy(),
+                                      modulatePionMasses(), higgsMod caching
   axion-field.js          328 lines  AxionField: quadratic potential, aF² EM coupling, PQ pseudoscalar coupling,
                                       portal coupling (otherField param)
   signal-delay.js         260 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
   save-load.js            259 lines  saveState(), loadState(), downloadState(), uploadState(), quickSave/Load()
   stats-display.js        250 lines  Sidebar energy/momentum/drift readout, textContent change detection
-  effective-potential.js  244 lines  V_eff(r) sidebar canvas, auto-scaling, axMod/yukMod modulation, dirty-flag skip
-  pion.js                 236 lines  Massive Yukawa force carrier: proper velocity, (1+v²) GR deflection, decay, pool
+  effective-potential.js  247 lines  V_eff(r) sidebar canvas, auto-scaling, axMod/yukMod/higgsMod modulation, dirty-flag skip
+  pion.js                 261 lines  Massive Yukawa force carrier: proper velocity, (1+v²) GR deflection, decay, pool,
+                                      baseMass for Higgs mass modulation in flight
   potential.js            211 lines  computePE(), treePE(), pairPE() (7 PE terms)
   energy.js               195 lines  KE, spin KE, PE, field energy, momentum, angular momentum
   config.js               168 lines  Named constants, mode enums (COL_*/BOUND_*/TORUS/KLEIN/RP²), helpers
   collisions.js           158 lines  handleCollisions(), resolveMerge(), annihilation, relativistic merge KE
-  particle.js             142 lines  Particle: pos, vel, w, angw, baseMass, 11 force Vec2s, signal delay history
+  particle.js             133 lines  Particle: pos, vel, w, angw, baseMass, 11 force Vec2s, higgsMod, signal delay history
   phase-plot.js           137 lines  Phase space r-v_r plot (512-sample ring buffer)
   topology.js             131 lines  minImage(), wrapPosition() for Torus/Klein/RP²
   massless-boson.js        91 lines  MasslessBoson: pos, vel, energy, type ('em'/'grav'), BH tree lensing, pool
@@ -64,7 +67,7 @@ src/
   relativity.js            25 lines  angwToAngVel(), setVelocity()
   canvas-renderer.js       20 lines  CanvasRenderer: thin adapter wrapping Renderer to RenderBackend
   gpu/
-    gpu-physics.js       3890 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
+    gpu-physics.js       3893 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
                                       all dispatch methods, bind group creation, adaptive substepping, readback,
                                       per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
     gpu-pipelines.js     1966 lines  Pipeline + bind group layout creation for all compute/render shaders,
@@ -72,11 +75,11 @@ src/
     gpu-renderer.js      1215 lines  WebGPU instanced rendering: particles, bosons, field overlays, heatmap,
                                       trails, force arrows, spin rings, torque arcs, dashed rings
                                       (dual light/dark pipeline variants)
-    gpu-buffers.js        568 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
+    gpu-buffers.js        569 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
                                       trail buffers, staging, boson tree visitor flags
-    gpu-constants.js      298 lines  buildWGSLConstants(): generates WGSL const block from config.js +
+    gpu-constants.js      299 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                       _PALETTE colors, single source of truth for JS/WGSL constants
-    shaders/               52 files  WGSL compute + render shaders (10087 lines total)
+    shaders/               52 files  WGSL compute + render shaders (10120 lines total)
 ```
 
 ## Key Imports
@@ -192,7 +195,9 @@ Always active when Gravity on (no toggle). `τ = -0.3 · coupling² · r_body⁵
 
 Independent toggle. `F = -g²m₁m₂e^{-μr}/r² · (1+μr)`. Parameters: `yukawaCoupling` (14), `yukawaMu` (0.15, slider 0.05-0.25). Includes analytical jerk for radiation. Emits pions as massive force carriers.
 
-**Scalar Breit correction** (requires 1PN): O(v²/c²) from massive scalar boson exchange. `δH = g²m₁m₂e^{-μr}/(2r) · [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Into `force1PN`, velocity-Verlet corrected.
+**Higgs mass modulation** (when Higgs enabled): Pion mass (Yukawa range parameter μ) derives from the Higgs mechanism. `μ_eff = yukawaMu · √(higgsMod_i · higgsMod_j)` where `higgsMod = max(|φ(x)|, HIGGS_MASS_FLOOR)` cached per particle during `modulateMasses()`. Geometric mean per pair (same pattern as `axMod`). Pion emission uses `yukawaMu · emitter.higgsMod`. Pions in flight: `modulatePionMasses()` interpolates Higgs field at pion position, conserves momentum. During phase transition (φ→0), Yukawa approaches Coulomb-like 1/r². GPU: `higgsMod` in `axYukMod.z` (vec4), used in pair-force, forces-tree, onePN, radiation, compute-stats shaders.
+
+**Scalar Breit correction** (requires 1PN): O(v²/c²) from massive scalar boson exchange. `δH = g²m₁m₂e^{-μr}/(2r) · [v₁·v₂ + (r̂·v₁)(r̂·v₂)(1+μr)]`. Into `force1PN`, velocity-Verlet corrected. Uses Higgs-modulated μ when Higgs enabled.
 
 ### External Background Fields
 
@@ -236,7 +241,7 @@ When both fields active: `V_portal = ½λφ²a²` (`HIGGS_AXION_COUPLING = 0.01`
 
 ## Pions (Massive Force Carriers)
 
-Mass = `yukawaMu`. Proper velocity `w`: `vel = w/√(1+w²)`. GR deflection: `(1+v²)` factor.
+Mass = `yukawaMu` (stored as `baseMass`). Proper velocity `w`: `vel = w/√(1+w²)`. GR deflection: `(1+v²)` factor. When Higgs enabled, emission mass = `yukawaMu · emitter.higgsMod`; in-flight mass modulated by local Higgs field via `modulatePionMasses()` (momentum-conserving).
 
 **Emission**: Scalar Larmor `P = g²F_yuk²/3`. Species: π⁰ (50%), π⁺/π⁻ (25% each). MAX_PIONS = 256 (CPU), GPU_MAX_PIONS = 1024 (GPU).
 
@@ -442,7 +447,7 @@ Evolve bind group 0: field, fieldDot, otherField (portal coupling, read-only —
 - WebGPU disallows binding the same buffer twice in a dispatch
 - Staging buffers must not be copied to while mapped from previous `mapAsync`
 - JS uniform write order must exactly match WGSL struct member order
-- `addParticle()` must initialize ALL per-particle buffers. `axYukMod` defaults to (1.0, 1.0) not (0, 0)
+- `addParticle()` must initialize ALL per-particle buffers. `axYukMod` defaults to (1.0, 1.0, 1.0, 0.0) not (0, 0, 0, 0)
 - `queue.writeBuffer()` executes at queue time (before encoder starts), NOT inline with compute passes. Use `encoder.copyBufferToBuffer()` from pre-allocated staging for resets between dispatches within the same command buffer (e.g., tree build resets between pre-force and post-drift builds)
 
 ### Numerical Stability (GPU)
