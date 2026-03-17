@@ -332,9 +332,7 @@ Forces:                        Physics:
     -> Field Gravity               -> Black Hole      [+Gravity, locks collision to Merge]
   Coulomb                        Spin-Orbit           [requires Magnetic or GM]
     -> Magnetic                  Radiation             [requires Gravity, Coulomb, or Yukawa]
-  (Gravity OR Coulomb) + Barnes-Hut
-    -> Boson Interaction   [boson gravity, pion-pion Coulomb, π⁺π⁻ annihilation]
-  Yukawa               [independent]
+  Yukawa               [independent]  Boson Interaction [requires BH + (Gravity OR Coulomb)]
   Axion                [requires Coulomb or Yukawa]
   Higgs                [independent]
 Disintegration                   [requires Gravity, locks collision to Merge]

@@ -83,11 +83,8 @@ async function _attemptGPURecovery() {
 }
 
 function updateBackendBadge(backend) {
-    const badge = document.getElementById('backend-badge');
-    if (!badge) return;
-    badge.textContent = backend.toUpperCase();
-    badge.classList.toggle('gpu', backend === 'gpu');
-    badge.title = backend === 'gpu' ? 'WebGPU compute + render' : 'CPU physics + Canvas 2D';
+    const ind = document.getElementById('gpu-indicator');
+    if (ind) ind.hidden = backend !== 'gpu';
 }
 
 class Simulation {

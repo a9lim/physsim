@@ -372,12 +372,8 @@ export function setupUI(sim) {
             sim.backend = BACKEND_CPU;
             if (gpuCanvas) gpuCanvas.style.display = 'none';
         }
-        const badge = document.getElementById('backend-badge');
-        if (badge) {
-            badge.textContent = sim.backend.toUpperCase();
-            badge.classList.toggle('gpu', sim.backend === BACKEND_GPU);
-            badge.title = sim.backend === BACKEND_GPU ? 'WebGPU compute + render' : 'CPU physics + Canvas 2D';
-        }
+        const gpuInd = document.getElementById('gpu-indicator');
+        if (gpuInd) gpuInd.hidden = sim.backend !== BACKEND_GPU;
         sim._dirty = true;
         _haptics.trigger('light');
     });
