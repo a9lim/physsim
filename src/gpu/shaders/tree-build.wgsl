@@ -301,17 +301,14 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         if (prev == NONE) {
             // Successfully claimed empty leaf.
-            // Walk up to root, incrementing ancestor expected-visitor counts
-            // in visitorFlags[]. computeAggregates reads these to know how
-            // many leaf threads to wait for before aggregating an internal node.
-            // visitorFlags is separate from particleCount to avoid races with
-            // the subdivide path that resets particleCount.
+            // Increment DIRECT PARENT's expected-visitor count in visitorFlags.
+            // Each non-empty child subtree sends exactly one thread up to its
+            // parent (the last visitor), so the expected count at any internal
+            // node = number of its populated children.
             setParticleCount(cur, 1u);
-            var ancestor: i32 = getParentIndex(cur);
-            loop {
-                if (ancestor < 0) { break; }
-                atomicAdd(&visitorFlags[u32(ancestor)], 1u);
-                ancestor = getParentIndex(u32(ancestor));
+            let parentIdx = getParentIndex(cur);
+            if (parentIdx >= 0) {
+                atomicAdd(&visitorFlags[u32(parentIdx)], 1u);
             }
             break;
         }
@@ -339,11 +336,9 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
                 setParticleIndex(childForDisplaced, i32(displacedIdx));
                 setParticleCount(childForDisplaced, 1u);
 
-                // Count displaced particle as a leaf descendant of cur in
-                // visitorFlags. The displaced particle's original ancestor walk
-                // only incremented ancestors above its old position (cur's parent
-                // and up). Now it's one level deeper (cur → child), so cur itself
-                // is a new ancestor that needs counting.
+                // Count displaced child as a populated child of cur.
+                // cur is now an internal node; its visitorFlags tracks how many
+                // of its 4 children have particles (the expected-visitor count).
                 atomicAdd(&visitorFlags[cur], 1u);
 
                 // Mark current node as internal (clear particleIndex).
