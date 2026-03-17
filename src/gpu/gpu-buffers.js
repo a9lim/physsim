@@ -131,21 +131,21 @@ export function createParticleBuffers(device, maxParticles) {
     const qtNodeCounter = device.createBuffer({
         label: 'qtNodeCounter',
         size: 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
     // Bounds reduction output (minX, minY, maxX, maxY as 4 atomic i32s for fixed-point)
     const qtBoundsBuffer = device.createBuffer({
         label: 'qtBounds',
         size: 16, // 4 x i32 (fixed-point for atomicMin/atomicMax)
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
     // Visitor flags for bottom-up aggregate (one u32 per node)
     const qtVisitorFlags = device.createBuffer({
         label: 'qtVisitorFlags',
         size: 4 * QT_MAX_NODES,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
     // Pool management: aliveCount + freeStack + freeTop
