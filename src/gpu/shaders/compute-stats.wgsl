@@ -299,6 +299,13 @@ fn main() {
                 fieldMomX -= aDot * dfy * scaleY;
                 fieldMomY -= aDot * dfx * scaleX;
             }
+
+            // Portal coupling energy: ½λφ²a² (counted in Higgs to match CPU)
+            if (higgsOn && axionOn) {
+                let phi = higgsField[idx];
+                let a = axionField[idx];
+                higgsFieldE += 0.5 * HIGGS_AXION_COUPLING * phi * phi * a * a * cellArea;
+            }
         }
     }
 

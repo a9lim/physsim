@@ -1827,14 +1827,25 @@ export default class GPUPhysics {
                 size: 256,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
+            // Dummy zero buffer for portal coupling when other field not yet allocated
+            this._dummyFieldBuffer = this.device.createBuffer({
+                label: 'dummyField',
+                size: FIELD_GRID_RES * FIELD_GRID_RES * 4,
+                usage: GPUBufferUsage.STORAGE,
+            });
         }
         if (which === 'higgs' && !this._higgsBuffers) {
             this._higgsBuffers = createFieldBuffers(this.device, 'higgs', MAX_PARTICLES);
             this._initFieldToVacuum('higgs');
+            // Invalidate other field's evolve bind groups (portal coupling references this buffer)
+            this._fieldEvolveBGs['axion'] = null;
+            this._fieldGradBGs['axion'] = null;
         }
         if (which === 'axion' && !this._axionBuffers) {
             this._axionBuffers = createFieldBuffers(this.device, 'axion', MAX_PARTICLES);
             this._initFieldToVacuum('axion');
+            this._fieldEvolveBGs['higgs'] = null;
+            this._fieldGradBGs['higgs'] = null;
         }
     }
 
@@ -1857,7 +1868,6 @@ export default class GPUPhysics {
         this.device.queue.writeBuffer(fb.gradX, 0, _zeroFieldData, 0, gridSq);
         this.device.queue.writeBuffer(fb.gradY, 0, _zeroFieldData, 0, gridSq);
         this.device.queue.writeBuffer(fb.source, 0, _zeroFieldData, 0, gridSq);
-        this.device.queue.writeBuffer(fb.laplacian, 0, _zeroFieldData, 0, gridSq);
         this.device.queue.writeBuffer(fb.thermal, 0, _zeroFieldData, 0, gridSq);
         this.device.queue.writeBuffer(fb.energyDensity, 0, _zeroFieldData, 0, gridSq);
         this.device.queue.writeBuffer(fb.sgPhiFull, 0, _zeroFieldData, 0, gridSq);
@@ -2000,6 +2010,10 @@ export default class GPUPhysics {
         // Use per-field uniform buffer to avoid encoder split when both fields active
         const uBuf = which === 'higgs' ? this._higgsUniformBuffer : this._axionUniformBuffer;
 
+        // Other field's buffer for portal coupling (or dummy zeros if not allocated)
+        const otherFb = which === 'higgs' ? this._axionBuffers : this._higgsBuffers;
+        const otherFieldBuf = otherFb ? otherFb.field : this._dummyFieldBuffer;
+
         // Evolve bind group (gradX/Y are read-only for self-gravity cross-terms)
         this._fieldEvolveBGs[which] = this.device.createBindGroup({
             label: `fieldEvolve_${which}`,
@@ -2007,7 +2021,7 @@ export default class GPUPhysics {
             entries: [
                 { binding: 0, resource: { buffer: fb.field } },
                 { binding: 1, resource: { buffer: fb.fieldDot } },
-                { binding: 2, resource: { buffer: fb.laplacian } },
+                { binding: 2, resource: { buffer: otherFieldBuf } },
                 { binding: 3, resource: { buffer: fb.source } },
                 { binding: 4, resource: { buffer: fb.thermal } },
                 { binding: 5, resource: { buffer: fb.sgPhiFull } },
@@ -2026,7 +2040,7 @@ export default class GPUPhysics {
             entries: [
                 { binding: 0, resource: { buffer: fb.field } },
                 { binding: 1, resource: { buffer: fb.fieldDot } },
-                { binding: 2, resource: { buffer: fb.laplacian } },
+                { binding: 2, resource: { buffer: otherFieldBuf } },
                 { binding: 3, resource: { buffer: fb.source } },
                 { binding: 4, resource: { buffer: fb.thermal } },
                 { binding: 5, resource: { buffer: fb.sgPhiFull } },
@@ -2402,6 +2416,7 @@ export default class GPUPhysics {
             const p = encoder.beginComputePass({ label: `halfKick1_${which}` });
             p.setPipeline(halfKickPipeline);
             p.setBindGroup(0, evolveBG);
+
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }
@@ -2410,6 +2425,7 @@ export default class GPUPhysics {
             const p = encoder.beginComputePass({ label: `fieldDrift_${which}` });
             p.setPipeline(evo.fieldDrift);
             p.setBindGroup(0, evolveBG);
+
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }
@@ -2420,6 +2436,7 @@ export default class GPUPhysics {
                 const p = encoder.beginComputePass({ label: `gridGradientsMid_${which}` });
                 p.setPipeline(evo.computeGridGradients);
                 p.setBindGroup(0, gradBG);
+    
                 p.dispatchWorkgroups(gridWG, gridWG);
                 p.end();
             }
@@ -2430,6 +2447,7 @@ export default class GPUPhysics {
             const p = encoder.beginComputePass({ label: `halfKick2_${which}` });
             p.setPipeline(halfKickPipeline);
             p.setBindGroup(0, evolveBG);
+
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }
@@ -2438,6 +2456,7 @@ export default class GPUPhysics {
             const p = encoder.beginComputePass({ label: `gridGradients_${which}` });
             p.setPipeline(evo.computeGridGradients);
             p.setBindGroup(0, gradBG);
+
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }

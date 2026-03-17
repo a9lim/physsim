@@ -18,7 +18,7 @@
 //    yukMod = 1 + g·a for matter, 1 - g·a for antimatter.
 //    At vacuum (a=0): yukMod = 1 for both → CP conserved (PQ solution).
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, SELFGRAV_PHI_MAX, EPSILON, BOUND_LOOP } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, HIGGS_AXION_COUPLING, SELFGRAV_PHI_MAX, EPSILON, BOUND_LOOP } from './config.js';
 import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -50,7 +50,7 @@ export default class AxionField extends ScalarField {
     }
 
     /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
-    update(dt, particles, boundaryMode, topoConst, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, gravityEnabled = false, softeningSq = 64) {
+    update(dt, particles, boundaryMode, topoConst, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, gravityEnabled = false, softeningSq = 64, otherField = null) {
         if (dt <= 0) return;
         const field = this.field;
         const fieldDot = this.fieldDot;
@@ -96,6 +96,9 @@ export default class AxionField extends ScalarField {
         const lap = this._laplacian;
         const halfDt = dt * 0.5;
 
+        // Portal coupling: V_portal = ½λφ²a², contributes -λφ²a to ddA
+        const portalArr = otherField ? otherField.field : null;
+
         // ── First half-kick ──
         this._computeViscosity(invCellWSq, invCellHSq);
         const visc = this._viscBuf;
@@ -104,10 +107,18 @@ export default class AxionField extends ScalarField {
                 const aVal = field[i];
                 const lapI = lap[i];
                 const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
+                const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
                 const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     + 4 * Phi * lapI
                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                    - 2 * Phi * mASq * aVal;
+                    - 2 * Phi * mASq * aVal
+                    - portalTerm * aVal - 2 * Phi * portalTerm * aVal;
+                fieldDot[i] += ddA * halfDt;
+            }
+        } else if (portalArr) {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
+                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * field[i];
                 fieldDot[i] += ddA * halfDt;
             }
         } else {
@@ -138,12 +149,21 @@ export default class AxionField extends ScalarField {
                 const aVal = field[i];
                 const lapI = lap[i];
                 const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
+                const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
                 const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     + 4 * Phi * lapI
                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                    - 2 * Phi * mASq * aVal;
+                    - 2 * Phi * mASq * aVal
+                    - portalTerm * aVal - 2 * Phi * portalTerm * aVal;
                 fieldDot[i] += ddA * halfDt;
                 if (aVal !== aVal) { field[i] = 0; fieldDot[i] = 0; }
+            }
+        } else if (portalArr) {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
+                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * field[i];
+                fieldDot[i] += ddA * halfDt;
+                if (field[i] !== field[i]) { field[i] = 0; fieldDot[i] = 0; }
             }
         } else {
             for (let i = 0; i < GRID_SQ; i++) {

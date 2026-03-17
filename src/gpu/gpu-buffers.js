@@ -378,7 +378,6 @@ export function createFieldBuffers(device, label, maxParticles) {
     return {
         field:         device.createBuffer({ label: `${label}-field`,         size: gridBytes, usage }),
         fieldDot:      device.createBuffer({ label: `${label}-fieldDot`,      size: gridBytes, usage }),
-        laplacian:     device.createBuffer({ label: `${label}-laplacian`,     size: gridBytes, usage }),
         source:        device.createBuffer({ label: `${label}-source`,        size: gridBytes, usage }),
         gradX:         device.createBuffer({ label: `${label}-gradX`,         size: gridBytes, usage }),
         gradY:         device.createBuffer({ label: `${label}-gradY`,         size: gridBytes, usage }),

@@ -91,6 +91,7 @@ export const EXCITATION_MAX_AMPLITUDE = 1.0; // cap merge wave-packet amplitude 
 
 export const DEFAULT_AXION_MASS = 0.05;      // m_a (oscillation frequency)
 export const AXION_COUPLING = 0.05;          // g in L = -(1+g·a)F²/4
+export const HIGGS_AXION_COUPLING = 0.01;    // λ in V_portal = ½λφ²a² (Higgs portal)
 
 // ── Black Hole ──
 export const BH_NAKED_FLOOR = 0.5;           // naked singularity horizon floor (M × this)

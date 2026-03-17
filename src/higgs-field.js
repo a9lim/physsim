@@ -4,7 +4,7 @@
 // m_H is the free parameter (slider 0.25-1, default 0.5)
 // Extends ScalarField for shared PQS infrastructure.
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, HIGGS_MASS_MAX_DELTA, SELFGRAV_PHI_MAX, EPSILON, BOUND_LOOP, kerrNewmanRadius } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_HIGGS_MASS, HIGGS_COUPLING, HIGGS_MASS_FLOOR, HIGGS_MASS_MAX_DELTA, HIGGS_AXION_COUPLING, SELFGRAV_PHI_MAX, EPSILON, BOUND_LOOP, kerrNewmanRadius } from './config.js';
 import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -38,7 +38,7 @@ export default class HiggsField extends ScalarField {
     }
 
     /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
-    update(dt, particles, boundaryMode, topoConst, domainW, domainH, relativityEnabled, gravityEnabled = false, softeningSq = 64) {
+    update(dt, particles, boundaryMode, topoConst, domainW, domainH, relativityEnabled, gravityEnabled = false, softeningSq = 64, otherField = null) {
         if (dt <= 0) return;
         const field = this.field;
         const fieldDot = this.fieldDot;
@@ -89,6 +89,9 @@ export default class HiggsField extends ScalarField {
         const lap = this._laplacian;
         const halfDt = dt * 0.5;
 
+        // Portal coupling: V_portal = ½λφ²a², contributes -λa²φ to ddphi
+        const portalArr = otherField ? otherField.field : null;
+
         // ── First half-kick ──
         this._computeViscosity(invCellWSq, invCellHSq);
         const visc = this._viscBuf;
@@ -98,11 +101,22 @@ export default class HiggsField extends ScalarField {
                 const muSqEff = muSq - thermal[i];
                 const lapI = lap[i];
                 const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
+                const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
                 const ddphi = lapI + muSqEff * phiVal - muSq * phiVal * phiVal * phiVal
                     - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     + 4 * Phi * lapI
                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                    + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal;
+                    + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal
+                    - portalTerm * phiVal - 2 * Phi * portalTerm * phiVal;
+                fieldDot[i] += ddphi * halfDt;
+            }
+        } else if (portalArr) {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const phiVal = field[i];
+                const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
+                    - muSq * phiVal * phiVal * phiVal
+                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
+                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * phiVal;
                 fieldDot[i] += ddphi * halfDt;
             }
         } else {
@@ -137,11 +151,23 @@ export default class HiggsField extends ScalarField {
                 const muSqEff = muSq - thermal[i];
                 const lapI = lap[i];
                 const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
+                const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
                 const ddphi = lapI + muSqEff * phiVal - muSq * phiVal * phiVal * phiVal
                     - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     + 4 * Phi * lapI
                     + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                    + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal;
+                    + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal
+                    - portalTerm * phiVal - 2 * Phi * portalTerm * phiVal;
+                fieldDot[i] += ddphi * halfDt;
+                if (phiVal !== phiVal) { field[i] = 1; fieldDot[i] = 0; }
+            }
+        } else if (portalArr) {
+            for (let i = 0; i < GRID_SQ; i++) {
+                const phiVal = field[i];
+                const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
+                    - muSq * phiVal * phiVal * phiVal
+                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
+                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * phiVal;
                 fieldDot[i] += ddphi * halfDt;
                 if (phiVal !== phiVal) { field[i] = 1; fieldDot[i] = 0; }
             }
@@ -286,6 +312,20 @@ export default class HiggsField extends ScalarField {
             energy -= p.baseMass * (Math.abs(phiLocal) - 1);
         }
         return energy;
+    }
+
+    /** Portal interaction energy: ½λ∫φ²a² dA. Only counted here (not in Axion) to avoid double-counting. */
+    portalEnergy(axionField, domainW, domainH) {
+        if (!axionField) return 0;
+        const GRID = this._grid;
+        const cellArea = (domainW / GRID) * (domainH / GRID);
+        const hf = this.field;
+        const af = axionField.field;
+        let total = 0;
+        for (let i = 0; i < this._gridSq; i++) {
+            total += hf[i] * hf[i] * af[i] * af[i];
+        }
+        return 0.5 * HIGGS_AXION_COUPLING * total * cellArea;
     }
 
     /** Total field energy: KE + gradient + Mexican hat potential, integrated over grid. */

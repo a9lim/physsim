@@ -671,6 +671,16 @@ export const REFERENCE = {
 <h3>Physical Motivation</h3>
 <p>In quantum field theory, particles <em>are</em> field excitations. The Higgs boson discovered at the LHC in 2012 is a quantum of the Higgs field; axions (if they exist) would be quanta of an axion-like field. This simulation captures the classical wave analog: localized disturbances that propagate, disperse, and interact with particles through the same coupling that governs the background field.</p>
 
+<h3>Higgs Portal Coupling</h3>
+<p>When both the Higgs and Axion fields are active, they interact through a <b>portal coupling</b>:</p>
+<p>$$V_{\\text{portal}} = \\tfrac{1}{2}\\lambda\\,\\phi^2 a^2$$</p>
+<p>This gauge-invariant quartic interaction is one of the most natural ways for an axion-like particle to couple to the Standard Model Higgs. It produces two effects:</p>
+<ul>
+<li><b>Axion effective mass shift</b>: The Higgs VEV contributes to the axion mass — $m_{a,\\text{eff}}^2 = m_a^2 + \\lambda\\langle\\phi\\rangle^2$. During a Higgs phase transition ($\\langle\\phi\\rangle \\to 0$), the axion becomes lighter.</li>
+<li><b>Energy transfer</b>: Oscillations in one field can pump energy into the other, visible as correlated wave patterns in both field overlays.</li>
+</ul>
+<p>The coupling constant $\\lambda = 0.01$ is fixed. The portal energy contributes to total energy conservation.</p>
+
 <h3>Field Gravity</h3>
 <p>When gravity is enabled, the scalar field's energy density gravitates — just as all forms of energy curve spacetime in general relativity.</p>
 

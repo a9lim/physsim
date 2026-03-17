@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 43;
+const SHADER_VERSION = 46;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -1014,7 +1014,7 @@ export async function createFieldEvolvePipelines(device, wgslConstants = '') {
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // otherField (portal coupling, was laplacian)
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // source (rw for encoder compat)
             { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // thermal (rw for encoder compat)
             { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgPhiFull (rw for encoder compat)
@@ -1033,7 +1033,7 @@ export async function createFieldEvolvePipelines(device, wgslConstants = '') {
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // otherField (portal coupling)
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // source (rw for encoder compat)
             { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // thermal (rw for encoder compat)
             { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // sgPhiFull (rw for encoder compat)

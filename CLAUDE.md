@@ -23,7 +23,7 @@ index.html                498 lines  UI: 4-tab sidebar, reference overlay, zoom 
 styles.css                295 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                  18 lines  Project color tokens (extends shared-tokens.js)
 src/
-  integrator.js          1584 lines  CPU physics: Boris substep loop, radiation, pion emission/absorption,
+  integrator.js          1619 lines  CPU physics: Boris substep loop, radiation, pion emission/absorption,
                                       field excitations, tidal, GW quadrupole, expansion, Roche, external fields,
                                       Hertz bounce, scalar fields
   scalar-field.js         858 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C²
@@ -32,7 +32,7 @@ src/
                                       boson gravity, PE accumulator (resetPEAccum/getPEAccum)
   ui.js                   716 lines  setupUI(), declarative dependency graph, info tips, reference overlay,
                                       shortcuts, dirty flag, KaTeX render cache, lazy field init triggers
-  reference.js            715 lines  REFERENCE object: physics reference content (KaTeX math)
+  reference.js            725 lines  REFERENCE object: physics reference content (KaTeX math)
   renderer.js             707 lines  CPU Canvas 2D renderer (used as fallback when GPU unavailable)
   presets.js              680 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   input.js                393 lines  InputHandler: mouse/touch, left/right-click symmetry (matter/antimatter),
@@ -40,16 +40,18 @@ src/
   quadtree.js             348 lines  QuadTreePool: SoA flat typed arrays, pool-based, zero GC, depth guard,
                                       iterative insert, direct quadrant child selection, boson distribution
   heatmap.js              315 lines  64x64 potential field overlay, signal-delayed positions, force-toggle-aware
-  higgs-field.js          309 lines  HiggsField: Mexican hat potential, mass modulation, thermal phase transitions
-  axion-field.js          299 lines  AxionField: quadratic potential, aF² EM coupling, PQ pseudoscalar coupling
+  higgs-field.js          358 lines  HiggsField: Mexican hat potential, mass modulation, thermal phase transitions,
+                                      portal coupling (otherField param), portalEnergy()
+  axion-field.js          328 lines  AxionField: quadratic potential, aF² EM coupling, PQ pseudoscalar coupling,
+                                      portal coupling (otherField param)
   signal-delay.js         260 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
   save-load.js            259 lines  saveState(), loadState(), downloadState(), uploadState(), quickSave/Load()
   stats-display.js        250 lines  Sidebar energy/momentum/drift readout, textContent change detection
   effective-potential.js  244 lines  V_eff(r) sidebar canvas, auto-scaling, axMod/yukMod modulation, dirty-flag skip
   pion.js                 236 lines  Massive Yukawa force carrier: proper velocity, (1+v²) GR deflection, decay, pool
   potential.js            211 lines  computePE(), treePE(), pairPE() (7 PE terms)
-  energy.js               191 lines  KE, spin KE, PE, field energy, momentum, angular momentum
-  config.js               166 lines  Named constants, mode enums (COL_*/BOUND_*/TORUS/KLEIN/RP²), helpers
+  energy.js               195 lines  KE, spin KE, PE, field energy, momentum, angular momentum
+  config.js               168 lines  Named constants, mode enums (COL_*/BOUND_*/TORUS/KLEIN/RP²), helpers
   collisions.js           158 lines  handleCollisions(), resolveMerge(), annihilation, relativistic merge KE
   particle.js             142 lines  Particle: pos, vel, w, angw, baseMass, 11 force Vec2s, signal delay history
   phase-plot.js           137 lines  Phase space r-v_r plot (512-sample ring buffer)
@@ -62,19 +64,19 @@ src/
   relativity.js            25 lines  angwToAngVel(), setVelocity()
   canvas-renderer.js       20 lines  CanvasRenderer: thin adapter wrapping Renderer to RenderBackend
   gpu/
-    gpu-physics.js       3887 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
+    gpu-physics.js       3890 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
                                       all dispatch methods, bind group creation, adaptive substepping, readback,
                                       per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
-    gpu-pipelines.js     1965 lines  Pipeline + bind group layout creation for all compute/render shaders,
+    gpu-pipelines.js     1966 lines  Pipeline + bind group layout creation for all compute/render shaders,
                                       fetchShader() (single source of truth), getSharedPrefix() caching
     gpu-renderer.js      1215 lines  WebGPU instanced rendering: particles, bosons, field overlays, heatmap,
                                       trails, force arrows, spin rings, torque arcs, dashed rings
                                       (dual light/dark pipeline variants)
-    gpu-buffers.js        569 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
+    gpu-buffers.js        568 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
                                       trail buffers, staging, boson tree visitor flags
     gpu-constants.js      298 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                       _PALETTE colors, single source of truth for JS/WGSL constants
-    shaders/               52 files  WGSL compute + render shaders (9888 lines total)
+    shaders/               52 files  WGSL compute + render shaders (10087 lines total)
 ```
 
 ## Key Imports
@@ -227,6 +229,10 @@ Independent toggle; requires Coulomb or Yukawa. Quadratic `V(a) = ½m_a²a²`, v
 **Scalar EM coupling (aF², when Coulomb on)**: Same for matter/antimatter. `α_eff = α(1+g·a)`. Per-particle `p.axMod`, geometric mean pairwise.
 
 **PQ coupling (when Yukawa on)**: Flips sign for antimatter. `yukMod = 1+g·a` (matter) / `1-g·a` (antimatter). At vacuum: CP conserved.
+
+### Higgs-Axion Portal Coupling
+
+When both fields active: `V_portal = ½λφ²a²` (`HIGGS_AXION_COUPLING = 0.01`). Adds `-λa²φ` to Higgs EOM, `-λφ²a` to Axion EOM. Self-gravity correction: `-2Φ·λa²φ` / `-2Φ·λφ²a`. Portal energy (`½λ∫φ²a²dA`) counted in `higgsFieldEnergy` to avoid double-counting. GPU: separate group 1 bind group (`portalGroup1Layout`) provides the other field's buffer (dummy zeros when only one field active). No toggle/slider — always active when both fields are on.
 
 ## Pions (Massive Force Carriers)
 
@@ -412,13 +418,13 @@ GPU field evolution (`_dispatchFieldEvolve`) uses fused dispatches to minimize p
 
 1. **Deposit** (source + thermal): PQS atomic deposition, finalize passes
 2. **Self-gravity pre-kick**: fused `energyDensityHiggsAndPack` / `energyDensityAxionAndPack` writes ρ·cellArea directly to FFT complex buffer (group 2 = fftA) → Stockham FFT forward (14 butterfly stages) → `complexMultiply` by cached Ĝ → FFT inverse (14 stages) → fused `unpackAndSGGradients` reads complex IFFT output at stride 2, writes sgPhiFull + sgGradX/sgGradY
-3. **Half-kick 1**: Laplacian computed inline via `inlineLaplacian()` helper (topology-aware 5-point stencil). NaN guard on fieldDot.
+3. **Half-kick 1**: Laplacian computed inline via `inlineLaplacian()` helper (topology-aware 5-point stencil). Portal coupling adds `-λa²φ` (Higgs) or `-λφ²a` (Axion) when both fields active. NaN guard on fieldDot.
 4. **Drift**: field += fieldDot·dt with NaN/Inf fixup (resets to vacuum value)
 5. **Mid-KDK refresh**: `computeGridGradients` + full self-gravity pipeline again (restores O(dt²) for GR correction)
 6. **Half-kick 2**: same fused pipeline as kick 1
 7. **Grid gradients**: final `computeGridGradients` for force interpolation
 
-FFT always ends with data in fftA (total stages = 2×log₂(GRID) is even for any power-of-2 grid). Self-gravity bind groups use 3 groups: g0 (field arrays + uniforms), g1 (SG outputs), g2 (fftA complex buffer). `SHADER_VERSION` in gpu-pipelines.js must be bumped after shader edits to invalidate browser cache.
+Evolve bind group 0: field, fieldDot, otherField (portal coupling, read-only — dummy zeros when other field inactive), source, thermal, sgPhiFull, sgGradX, sgGradY, fieldGradX, fieldGradY, uniforms (11 bindings: 9 storage + 1 read-only-storage + 1 uniform = 10 storage per stage). Laplacian buffer removed (computed inline). FFT always ends with data in fftA (total stages = 2×log₂(GRID) is even for any power-of-2 grid). Self-gravity bind groups use 3 groups: g0 (field arrays + uniforms), g1 (SG outputs), g2 (fftA complex buffer). `SHADER_VERSION` in gpu-pipelines.js must be bumped after shader edits to invalidate browser cache.
 
 ### GPU ↔ CPU Sync
 

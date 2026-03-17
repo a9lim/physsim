@@ -145,6 +145,10 @@ export function computeEnergies(particles, physics, sim) {
     let higgsFieldEnergy = 0;
     if (physics.higgsEnabled && sim && sim.higgsField) {
         higgsFieldEnergy = sim.higgsField.energy(physics.domainW, physics.domainH);
+        // Portal coupling energy: ½λ∫φ²a² dA (counted in Higgs to avoid double-counting)
+        if (physics.axionEnabled && sim.axionField) {
+            higgsFieldEnergy += sim.higgsField.portalEnergy(sim.axionField, physics.domainW, physics.domainH);
+        }
     }
 
     // Axion field energy

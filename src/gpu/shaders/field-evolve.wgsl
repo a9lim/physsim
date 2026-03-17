@@ -4,7 +4,7 @@
 
 @group(0) @binding(0) var<storage, read_write> field: array<f32>;
 @group(0) @binding(1) var<storage, read_write> fieldDot: array<f32>;
-@group(0) @binding(2) var<storage, read_write> laplacian: array<f32>;  // unused (kept for layout compat)
+@group(0) @binding(2) var<storage, read> otherField: array<f32>;       // cross-field for portal coupling (was laplacian)
 @group(0) @binding(3) var<storage, read_write> source: array<f32>;     // rw for encoder compat
 @group(0) @binding(4) var<storage, read_write> thermal: array<f32>;    // rw for encoder compat
 @group(0) @binding(5) var<storage, read_write> sgPhiFull: array<f32>;  // rw for encoder compat
@@ -80,6 +80,12 @@ fn higgsHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
     var ddphi = lapI + muSqEff * phi - muSq * phi * phi * phi
               - damp * fdC + srcTerm + viscosity;
 
+    // Higgs-Axion portal coupling: -λa²φ (only when both fields active)
+    if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
+        let aVal = otherField[idx];
+        ddphi -= HIGGS_AXION_COUPLING * aVal * aVal * phi;
+    }
+
     // Self-gravity correction (weak-field GR, clamp Φ for stability)
     if (uniforms.gravityEnabled != 0u) {
         let Phi = clamp(sgPhiFull[idx], -SELFGRAV_PHI_MAX, SELFGRAV_PHI_MAX);
@@ -87,6 +93,11 @@ fn higgsHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
                + 2.0 * (sgGradX[idx] * fieldGradX[idx] * invCWsq
                        + sgGradY[idx] * fieldGradY[idx] * invCHsq)
                + 2.0 * Phi * (muSqEff * phi - muSq * phi * phi * phi);
+        // Portal SG correction: -2Φ·λa²φ
+        if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
+            let aVal2 = otherField[idx];
+            ddphi -= 2.0 * Phi * HIGGS_AXION_COUPLING * aVal2 * aVal2 * phi;
+        }
     }
 
     var newFdot = fdC + ddphi * halfDt;
@@ -132,12 +143,23 @@ fn axionHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     var ddA = lapI - mASq * aVal - damp * fdC + srcTerm + viscosity;
 
+    // Higgs-Axion portal coupling: -λφ²a (only when both fields active)
+    if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
+        let phiVal = otherField[idx];
+        ddA -= HIGGS_AXION_COUPLING * phiVal * phiVal * aVal;
+    }
+
     if (uniforms.gravityEnabled != 0u) {
         let Phi = clamp(sgPhiFull[idx], -SELFGRAV_PHI_MAX, SELFGRAV_PHI_MAX);
         ddA += 4.0 * Phi * lapI
              + 2.0 * (sgGradX[idx] * fieldGradX[idx] * invCWsq
                      + sgGradY[idx] * fieldGradY[idx] * invCHsq)
              - 2.0 * Phi * mASq * aVal;
+        // Portal SG correction: -2Φ·λφ²a
+        if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
+            let phiVal2 = otherField[idx];
+            ddA -= 2.0 * Phi * HIGGS_AXION_COUPLING * phiVal2 * phiVal2 * aVal;
+        }
     }
 
     var newFdot = fdC + ddA * (uniforms.dt * 0.5);
