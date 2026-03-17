@@ -9,7 +9,7 @@ import PhasePlot from './src/phase-plot.js';
 import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS, HEATMAP_INTERVAL, HEATMAP_GRID, GPU_HEATMAP_GRID, STATS_THROTTLE_MASK, SIDEBAR_THROTTLE_MASK } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, PHOTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS, HEATMAP_INTERVAL, HEATMAP_GRID, GPU_HEATMAP_GRID, STATS_THROTTLE_MASK, SIDEBAR_THROTTLE_MASK, MAX_PARTICLES } from './src/config.js';
 import MasslessBoson from './src/massless-boson.js';
 import Pion from './src/pion.js';
 
@@ -97,7 +97,10 @@ class Simulation {
         this.width = window.innerWidth;
         this.height = window.innerHeight;
 
+        // Pre-allocate particle array to MAX_PARTICLES to avoid reallocation
         this.particles = [];
+        this.particles.length = MAX_PARTICLES;
+        this.particles.length = 0;
         this.deadParticles = [];
         this.physics = new Physics();
         this.renderer = new Renderer(this.ctx, this.width, this.height);
@@ -398,6 +401,8 @@ class Simulation {
     }
 
     addParticle(x, y, vx, vy, options = {}) {
+        // Cap particle count (GPU has its own cap via GPU_MAX_PARTICLES)
+        if (this.particles.length >= MAX_PARTICLES && this.backend !== BACKEND_GPU) return;
         // Always maintain CPU-side particle array (needed for presets, sidebar, etc.)
         const p = new Particle(x, y);
         p.mass = options.mass ?? 10;
@@ -434,8 +439,10 @@ class Simulation {
 
     /** Backend-agnostic reset: clears all simulation state. */
     reset() {
-        // CPU state
+        // CPU state — pre-allocate backing store to avoid reallocation
         this.particles = [];
+        this.particles.length = MAX_PARTICLES;
+        this.particles.length = 0;
         this.deadParticles = [];
         this.clearBosons();
         this.totalRadiated = 0;
@@ -521,15 +528,16 @@ class Simulation {
                     this.physics.update(this.particles, PHYSICS_DT, this.collisionMode, this.boundaryMode, this.topology, this.domainW, this.domainH, 0, 0);
 
                     // Update photons, swap-and-pop dead ones, release to pool
-                    // Gravitational lensing only when gravity is on
-                    const _bosonGrav = this.physics.bosonGravEnabled;
-                    const _pool = (_bosonGrav && this.physics.barnesHutEnabled) ? this.physics.pool : null;
+                    // Boson deflection: gravity lensing gated behind bosonInter, Coulomb always on
+                    const _bosonInter = this.physics.bosonInterEnabled;
+                    const _coulomb = this.physics.coulombEnabled;
+                    const _pool = (this.physics.barnesHutEnabled) ? this.physics.pool : null;
                     const _root = this.physics._lastRoot;
-                    const _lensParticles = _bosonGrav ? this.particles : null;
+                    const _lensParticles = (_bosonInter || _coulomb) ? this.particles : null;
                     let pLen = this.photons.length;
                     for (let i = pLen - 1; i >= 0; i--) {
                         const ph = this.photons[i];
-                        ph.update(PHYSICS_DT, _lensParticles, _pool, _root);
+                        ph.update(PHYSICS_DT, _bosonInter ? _lensParticles : null, _pool, _root);
                         if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
                             ph.alive = false;
                             MasslessBoson.release(ph);
@@ -577,7 +585,7 @@ class Simulation {
                     let piLen = this.pions.length;
                     for (let i = piLen - 1; i >= 0; i--) {
                         const pn = this.pions[i];
-                        pn.update(PHYSICS_DT, _lensParticles, _pool, _root);
+                        pn.update(PHYSICS_DT, _lensParticles, _pool, _root, _bosonInter, _coulomb);
                         if (!pn.alive) {
                             Pion.release(pn);
                             this.pions[i] = this.pions[--piLen];

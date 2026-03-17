@@ -148,7 +148,7 @@ export function setupUI(sim) {
     // ─── Physics toggles ───
     const toggleDefs = [
         { id: 'gravity-toggle', prop: 'gravityEnabled' },
-        { id: 'bosongrav-toggle', prop: 'bosonGravEnabled' },
+        { id: 'bosoninter-toggle', prop: 'bosonInterEnabled' },
         { id: 'fieldgrav-toggle', prop: 'fieldGravEnabled' },
         { id: 'coulomb-toggle', prop: 'coulombEnabled' },
         { id: 'magnetic-toggle', prop: 'magneticEnabled' },
@@ -178,7 +178,7 @@ export function setupUI(sim) {
     // Evaluated in order: parents before children so cascading disables propagate
     const DEPS = [
         ['gravitomag-toggle', () => !tEl['gravity-toggle'].checked],
-        ['bosongrav-toggle', () => !tEl['gravity-toggle'].checked || !tEl['barneshut-toggle'].checked],
+        ['bosoninter-toggle', () => !tEl['barneshut-toggle'].checked || (!tEl['gravity-toggle'].checked && !tEl['coulomb-toggle'].checked)],
         ['fieldgrav-toggle', () => !tEl['gravity-toggle'].checked],
         ['magnetic-toggle', () => !tEl['coulomb-toggle'].checked],
         ['radiation-toggle', () => !tEl['gravity-toggle'].checked && !tEl['coulomb-toggle'].checked && !tEl['yukawa-toggle'].checked],

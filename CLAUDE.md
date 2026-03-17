@@ -232,15 +232,19 @@ Independent toggle; requires Coulomb or Yukawa. Quadratic `V(a) = ½m_a²a²`, v
 
 Mass = `yukawaMu`. Proper velocity `w`: `vel = w/√(1+w²)`. GR deflection: `(1+v²)` factor.
 
-**Emission**: Scalar Larmor `P = g²F_yuk²/3`. Species: π⁰ (50%), π⁺/π⁻ (25% each). MAX_PIONS = 256.
+**Emission**: Scalar Larmor `P = g²F_yuk²/3`. Species: π⁰ (50%), π⁺/π⁻ (25% each). MAX_PIONS = 256 (CPU), GPU_MAX_PIONS = 1024 (GPU).
 
-**Decay**: π⁰→2γ (half-life 32), π⁺→e⁺+γ (half-life 128), π⁻→e⁻+γ (half-life 128). Two-body kinematics in rest frame, Lorentz-boosted.
+**Decay**: π⁰→2γ (half-life 32), π⁺→e⁺+γ (half-life 64), π⁻→e⁻+γ (half-life 64). Two-body kinematics in rest frame, Lorentz-boosted.
 
 **Absorption**: Quadtree overlap query (CPU: `queryReuse()`, GPU: tree range query in `bosons-tree-walk.wgsl` when BH on, pairwise fallback in `bosons.wgsl` when BH off). Self-absorption permanently blocked by `emitterId`.
 
 **Gravitational lensing**: Photon (2x Newtonian, null geodesic) and pion ((1+v²) GR factor) deflection by particles. CPU: pairwise. GPU: BH particle tree walk (`bosons-tree-walk.wgsl`) when BH on, pairwise (`bosons.wgsl`) when off.
 
-**Boson gravity** (requires Gravity + Barnes-Hut -> Boson Gravity toggle): Particle→boson and boson→boson via BH tree walks. GPU boson tree (`boson-tree.wgsl`) uses CAS+lock insertion and visitor-flag bottom-up aggregation matching the main particle tree. CPU uses separate `_bosonPool` QuadTreePool.
+**Coulomb deflection**: Charged pions (π⁺/π⁻) feel Coulomb force from particles (always on when Coulomb enabled). `F = -q_pion · q_particle / r²`. Tree-accelerated when BH on, pairwise fallback. GPU: integrated into `updatePions`/`updatePionsTree`.
+
+**π⁺π⁻ annihilation** (requires Boson Interaction toggle): Opposite-charge pions within softening distance annihilate into 2 photons. COM-frame kinematics with Lorentz boost. CPU: `findPionAnnihilations()` via boson tree range query. GPU: pairwise scan in `annihilatePions` entry point.
+
+**Boson Interaction** (requires Barnes-Hut + (Gravity OR Coulomb) -> Boson Interaction toggle): Boson↔boson gravity (BH tree walks), pion↔pion Coulomb (BH tree walk with charge aggregates), and π⁺π⁻ annihilation. GPU boson tree (`boson-tree.wgsl`) uses CAS+lock insertion and visitor-flag bottom-up aggregation with mass + charge. CPU uses separate `_bosonPool` QuadTreePool with `calculateBosonDistribution()` (mass + charge).
 
 ## Advanced Physics
 
@@ -328,8 +332,8 @@ Forces:                        Physics:
     -> Field Gravity               -> Black Hole      [+Gravity, locks collision to Merge]
   Coulomb                        Spin-Orbit           [requires Magnetic or GM]
     -> Magnetic                  Radiation             [requires Gravity, Coulomb, or Yukawa]
-  Gravity + Barnes-Hut
-    -> Boson Gravity
+  (Gravity OR Coulomb) + Barnes-Hut
+    -> Boson Interaction   [boson gravity, pion-pion Coulomb, π⁺π⁻ annihilation]
   Yukawa               [independent]
   Axion                [requires Coulomb or Yukawa]
   Higgs                [independent]
@@ -341,7 +345,7 @@ Expansion                        [independent, in Engine tab]
 Declarative `DEPS` array in `ui.js`, topological evaluation via `updateAllDeps()`.
 
 Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit, radiation.
-Defaults off: Boson Gravity, Field Gravity, Yukawa, Axion, Higgs, Disintegration, Expansion, Barnes-Hut, Black Hole.
+Defaults off: Boson Interaction, Field Gravity, Yukawa, Axion, Higgs, Disintegration, Expansion, Barnes-Hut, Black Hole.
 
 ## UI
 
@@ -357,6 +361,16 @@ Two interchangeable backends via `selectBackend()`:
 - **GPU**: `GPUPhysics` + `GPURenderer`. GPU renders to `<canvas id="gpuCanvas">` (z-index: -1). CPU canvas (z-index: 0) on top for 2D overlays.
 
 Falls back to CPU on WebGPU unavailability or device loss. Force CPU via `?cpu=1`. Runtime toggle in Engine tab.
+
+### Capacity Limits
+
+| Resource | CPU | GPU |
+|----------|-----|-----|
+| Particles | MAX_PARTICLES = 128 | GPU_MAX_PARTICLES = 512 |
+| Photons | MAX_PHOTONS = 1024 | GPU_MAX_PHOTONS = 4096 |
+| Pions | MAX_PIONS = 256 | GPU_MAX_PIONS = 1024 |
+
+CPU particle array pre-allocated to `MAX_PARTICLES` slots in constructor/reset to avoid reallocation. `addParticle()` caps at `MAX_PARTICLES` in CPU mode.
 
 ### GPU Packed Struct Buffers
 

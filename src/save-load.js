@@ -1,12 +1,12 @@
 import Particle from './particle.js';
 import { angwToAngVel } from './relativity.js';
-import { DEFAULT_SPEED_SCALE, COL_NAMES, BOUND_NAMES, TOPO_NAMES, colFromString, boundFromString, topoFromString } from './config.js';
+import { DEFAULT_SPEED_SCALE, MAX_PARTICLES, COL_NAMES, BOUND_NAMES, TOPO_NAMES, colFromString, boundFromString, topoFromString } from './config.js';
 import { BACKEND_GPU } from './backend-interface.js';
 
 // Maps physics flag names to UI toggle element IDs (same order as presets.js TOGGLE_ORDER)
 const TOGGLE_SYNC = [
     ['gravityEnabled', 'gravity-toggle'],
-    ['bosonGravEnabled', 'bosongrav-toggle'],
+    ['bosonInterEnabled', 'bosoninter-toggle'],
     ['fieldGravEnabled', 'fieldgrav-toggle'],
     ['coulombEnabled', 'coulomb-toggle'],
     ['relativityEnabled', 'relativity-toggle'],
@@ -94,7 +94,7 @@ function _cpuSaveState(sim) {
         camera: { x: sim.camera.x, y: sim.camera.y, zoom: sim.camera.zoom },
     };
     const ph = sim.physics;
-    for (const key of ['gravityEnabled', 'bosonGravEnabled', 'fieldGravEnabled',
+    for (const key of ['gravityEnabled', 'bosonInterEnabled', 'fieldGravEnabled',
         'coulombEnabled', 'magneticEnabled',
         'gravitomagEnabled', 'relativityEnabled', 'barnesHutEnabled',
         'radiationEnabled', 'blackHoleEnabled', 'disintegrationEnabled',
@@ -185,6 +185,7 @@ function _cpuLoadState(state, sim) {
     if (state.settings && state.settings.friction != null) ph.bounceFriction = state.settings.friction;
 
     for (const pd of state.particles) {
+        if (sim.particles.length >= MAX_PARTICLES) break;
         const p = new Particle(pd.x, pd.y, pd.mass, pd.charge);
         p.baseMass = pd.baseMass ?? pd.mass;
         p.angw = pd.angw;

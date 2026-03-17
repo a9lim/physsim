@@ -61,11 +61,13 @@ export const QUADTREE_CAPACITY = 4;
 // ── Radiation & Bosons ──
 export const PHOTON_LIFETIME = 256;
 export const MAX_PHOTONS = 1024;
+export const MAX_PIONS = 256;
+export const GPU_MAX_PHOTONS = 4096;
+export const GPU_MAX_PIONS = 1024;
 export const PION_HALF_LIFE = 32;                // pi0 half-life (fast EM decay)
 export const CHARGED_PION_HALF_LIFE = 64;        // pi+/- half-life (slower weak decay)
 export const PION_DECAY_PROB = 1 - Math.exp(-Math.LN2 / PION_HALF_LIFE * PHYSICS_DT);
 export const CHARGED_PION_DECAY_PROB = 1 - Math.exp(-Math.LN2 / CHARGED_PION_HALF_LIFE * PHYSICS_DT);
-export const MAX_PIONS = 256;
 export const ELECTRON_MASS = 0.05;                // decay product mass for pi+/- -> e+/- + photon
 export const MAX_REJECTION_SAMPLES = 32;     // quadrupole rejection sampling cap
 export const ABERRATION_THRESHOLD = 1.01;    // min gamma for relativistic aberration
@@ -117,7 +119,8 @@ export const HISTORY_STRIDE = 64;            // ~120 snapshots/second
 export const GPU_SCALAR_GRID = 128;            // GPU scalar field grid resolution
 export const GPU_NR_TOLERANCE = 1e-5;         // GPU Newton-Raphson tolerance (f32 precision limit)
 export const GPU_HEATMAP_GRID = 128;           // GPU heatmap overlay resolution (tunable to 128)
-export const GPU_MAX_PARTICLES = 4096;        // GPU buffer pre-allocation limit
+export const MAX_PARTICLES = 128;             // CPU particle pool cap
+export const GPU_MAX_PARTICLES = 512;         // GPU buffer pre-allocation limit
 export const GPU_MAX_SPEED_RATIO = 0.9999;    // GPU speed cap (f32 needs tighter bound than CPU 0.99)
 
 // ── Cosmological Expansion ──

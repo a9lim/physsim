@@ -13,7 +13,7 @@
  */
 
 import {
-    HISTORY_SIZE, MAX_PHOTONS, MAX_PIONS, MAX_TRAIL_LENGTH,
+    HISTORY_SIZE, GPU_GPU_MAX_PHOTONS, GPU_GPU_MAX_PIONS, MAX_TRAIL_LENGTH,
     GPU_SCALAR_GRID,
 } from '../config.js';
 import { HIST_STRIDE as HIST_STRIDE_CONST } from './gpu-constants.js';
@@ -239,16 +239,16 @@ export function createParticleBuffers(device, maxParticles) {
     });
 
     // ── Boson pool buffers (Phase 4: packed photon/pion structs) ──
-    // Photon pool: array<Photon, MAX_PHOTONS> (32 bytes each)
-    const photonPool = storageBuffer('photonPool', PHOTON_SIZE, MAX_PHOTONS);
+    // Photon pool: array<Photon, GPU_MAX_PHOTONS> (32 bytes each)
+    const photonPool = storageBuffer('photonPool', PHOTON_SIZE, GPU_MAX_PHOTONS);
     const phCount = device.createBuffer({
         size: 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         label: 'phCount',
     }); // atomic<u32>
 
-    // Pion pool: array<Pion, MAX_PIONS> (48 bytes each)
-    const pionPool = storageBuffer('pionPool', PION_SIZE, MAX_PIONS);
+    // Pion pool: array<Pion, GPU_MAX_PIONS> (48 bytes each)
+    const pionPool = storageBuffer('pionPool', PION_SIZE, GPU_MAX_PIONS);
     const piCount = device.createBuffer({
         size: 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
@@ -256,7 +256,7 @@ export function createParticleBuffers(device, maxParticles) {
     }); // atomic<u32>
 
     // ── Boson tree buffers (Phase 4: boson gravity BH tree) ──
-    const MAX_BOSON_NODES = (MAX_PHOTONS + MAX_PIONS) * 6;
+    const MAX_BOSON_NODES = (GPU_MAX_PHOTONS + GPU_MAX_PIONS) * 6;
     const bosonTreeNodes = device.createBuffer({
         size: MAX_BOSON_NODES * QTNODE_SIZE_BYTES,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -309,10 +309,10 @@ export function createParticleBuffers(device, maxParticles) {
         f1pnOld,
         // Photon pool (Phase 4, packed struct)
         photonPool, phCount,
-        MAX_PHOTONS,
+        GPU_MAX_PHOTONS,
         // Pion pool (Phase 4, packed struct)
         pionPool, piCount,
-        MAX_PIONS,
+        GPU_MAX_PIONS,
         // Boson tree (Phase 4)
         bosonTreeNodes, bosonTreeCounter, bosonVisitorFlags, MAX_BOSON_NODES,
 

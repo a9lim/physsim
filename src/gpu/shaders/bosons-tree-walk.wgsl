@@ -89,7 +89,8 @@ fn updatePhotonsTree(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // ─── updatePionsTree ───
-// BH tree walk for pion gravitational lensing ((1+v²) factor, massive).
+// BH tree walk for pion gravitational lensing ((1+v²) factor, massive)
+// + Coulomb deflection from particles (always on when Coulomb enabled).
 @compute @workgroup_size(64)
 fn updatePionsTree(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
@@ -107,6 +108,9 @@ fn updatePionsTree(@builtin(global_invocation_id) gid: vec3u) {
     let gamma = sqrt(1.0 + wSq);
     let vSq = wSq / max(gamma * gamma, EPSILON);
     let grFactor = 1.0 + vSq;
+    let coulombOn = (u.toggles0 & COULOMB_BIT) != 0u;
+    let piCharge = pi.charge;
+    let coulombScale = select(0.0, -f32(piCharge) * dt, coulombOn && piCharge != 0);
 
     var stack: array<u32, 48>;
     var top: i32 = 0;
@@ -116,7 +120,9 @@ fn updatePionsTree(@builtin(global_invocation_id) gid: vec3u) {
         top--;
         let nIdx = stack[u32(top)];
         let nodeMass = getTotalMass(nIdx);
-        if (nodeMass < EPSILON) { continue; }
+        let nodeCharge = getTotalCharge(nIdx);
+        let skip = nodeMass < EPSILON && (nodeCharge == 0.0 || coulombScale == 0.0);
+        if (skip) { continue; }
         let cx = getComX(nIdx);
         let cy = getComY(nIdx);
         let dx = cx - piPosX;
@@ -131,6 +137,12 @@ fn updatePionsTree(@builtin(global_invocation_id) gid: vec3u) {
             let invR3 = invRSq * sqrt(invRSq);
             piWX += grFactor * nodeMass * dx * invR3 * dt;
             piWY += grFactor * nodeMass * dy * invR3 * dt;
+            // Coulomb from particle tree aggregate charge
+            if (coulombScale != 0.0 && nodeCharge != 0.0) {
+                let fC = coulombScale * nodeCharge * invR3;
+                piWX += fC * dx;
+                piWY += fC * dy;
+            }
         } else if (top + 4 <= 48) {
             let nw = getNW(nIdx); let ne = getNE(nIdx);
             let sw = getSW(nIdx); let se = getSE(nIdx);

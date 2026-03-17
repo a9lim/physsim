@@ -805,6 +805,7 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
     const bosonTreeEntries = [
         'insertBosonsIntoTree', 'computeBosonAggregates',
         'computeBosonGravity', 'applyBosonBosonGravity',
+        'applyPionPionCoulomb', 'annihilatePions',
     ];
     const bosonTreePipelines = {};
     for (const entry of bosonTreeEntries) {
