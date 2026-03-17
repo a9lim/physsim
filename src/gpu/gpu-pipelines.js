@@ -1133,7 +1133,7 @@ export async function createFieldForcesPipelines(device, wgslConstants = '') {
 /**
  * Create particle-field gravity pipeline (Phase 5).
  * F = -m·∇Φ via PQS interpolation of pre-computed potential gradients: O(N × 16).
- * Dispatched once per active field (Higgs, Axion) when fieldGravEnabled.
+ * Dispatched once per active field (Higgs, Axion) when gravity is enabled.
  */
 export async function createFieldParticleGravPipeline(device, wgslConstants = '') {
     const prefix = await getSharedPrefix(wgslConstants);

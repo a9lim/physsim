@@ -21,7 +21,7 @@ struct FieldUniforms {
     axionEnabled: u32,
     coulombEnabled: u32,
     yukawaEnabled: u32,
-    gravityEnabled: u32,      // field self-gravity
+    gravityEnabled: u32,      // gravity (enables field self-gravity + particle-field gravity)
     relativityEnabled: u32,
     blackHoleEnabled: u32,
     particleCount: u32,

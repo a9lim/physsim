@@ -1,7 +1,7 @@
 // ─── Particle-Field Gravity ───
 // F = -m · ∇Φ(x), where Φ is the gravitational potential from field energy density.
 // PQS interpolation of pre-computed grid gradients: O(N × 16).
-// Dispatched once per active field (Higgs, Axion) when fieldGravEnabled.
+// Dispatched once per active field (Higgs, Axion) when gravity is enabled.
 
 // Struct definitions (ParticleState, AllForces) provided by shared-structs.wgsl.
 

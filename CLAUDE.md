@@ -208,9 +208,9 @@ PQS (cubic B-spline, order 3) grid on 64×64 (CPU) or 128×128 (GPU). 4×4 stenc
 
 Key methods: `_nb()` (topology-aware neighbor, absolute coords), `_depositPQS()` (interior fast path + border fallback), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()`, `_computeViscosity()`, `interpolate()`, `gradient()`, `interpolateWithGradient()` (fused, single stencil walk), `_fieldEnergy()`, `depositExcitation()`, `_computeEnergyDensity()`, `applyGravForces()`, `gravPE()`, `computeSelfGravity()`.
 
-**Particle-field gravity** (requires Gravity -> Field Gravity toggle): F = -m·∇Φ via PQS interpolation of pre-computed potential gradients, O(N×16). Subclasses override `_addPotentialEnergy()` for V(φ). Default off.
+**Particle-field gravity** (requires Gravity): F = -m·∇Φ via PQS interpolation of pre-computed potential gradients, O(N×16). Subclasses override `_addPotentialEnergy()` for V(φ). Active whenever gravity is on.
 
-**Field self-gravity** (requires Gravity -> Field Gravity toggle): Weak-field GR correction to Klein-Gordon. Φ computed via FFT convolution with Green's function G(r) = -1/√(r²+ε²) on the full grid, O(N² log N). Φ clamped to ±`SELFGRAV_PHI_MAX` (0.2) to prevent Laplacian sign-flip instability when `1+4Φ < 0`.
+**Field self-gravity** (requires Gravity): Weak-field GR correction to Klein-Gordon. Φ computed via FFT convolution with Green's function G(r) = -1/√(r²+ε²) on the full grid, O(N² log N). Φ clamped to ±`SELFGRAV_PHI_MAX` (0.2) to prevent Laplacian sign-flip instability when `1+4Φ < 0`.
 
 **Numerical viscosity**: `ν·∇²(ȧ)` in both KDK half-kicks, where `ν = 1/(2√(1/dx²+1/dy²))`. Gives Q=1 at Nyquist frequency, vanishes for physical (long-wavelength) modes. Prevents grid-scale noise from ringing indefinitely at high resolution.
 
@@ -329,7 +329,7 @@ Boundary "loop": Torus (TORUS=0), Klein bottle (KLEIN=1), RP² (RP2=2). `minImag
 Forces:                        Physics:
   Gravity                        Relativity          [signal delay auto-activates]
     -> Gravitomagnetic             -> 1PN             [requires Magnetic, GM, or Yukawa]
-    -> Field Gravity               -> Black Hole      [+Gravity, locks collision to Merge]
+    (field gravity auto-on)        -> Black Hole      [+Gravity, locks collision to Merge]
   Coulomb                        Spin-Orbit           [requires Magnetic or GM]
     -> Magnetic                  Radiation             [requires Gravity, Coulomb, or Yukawa]
   Yukawa               [independent]  Boson Interaction [requires BH + (Gravity OR Coulomb)]
@@ -343,7 +343,7 @@ Expansion                        [independent, in Engine tab]
 Declarative `DEPS` array in `ui.js`, topological evaluation via `updateAllDeps()`.
 
 Defaults on: gravity, coulomb, magnetic, gravitomag, 1PN, relativity, spin-orbit, radiation.
-Defaults off: Boson Interaction, Field Gravity, Yukawa, Axion, Higgs, Disintegration, Expansion, Barnes-Hut, Black Hole.
+Defaults off: Boson Interaction, Yukawa, Axion, Higgs, Disintegration, Expansion, Barnes-Hut, Black Hole.
 
 ## UI
 

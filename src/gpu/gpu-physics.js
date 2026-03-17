@@ -36,7 +36,7 @@
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
 import { fetchShader, createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFFTPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
-import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, FIELD_GRAV_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
+import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, HIST_META_STRIDE } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, GPU_MAX_PHOTONS, GPU_MAX_PIONS,
     GPU_MAX_PARTICLES, GPU_HEATMAP_GRID, PHYSICS_DT,
@@ -253,7 +253,7 @@ export default class GPUPhysics {
         this._higgsEnabled = false;
         this._axionEnabled = false;
         this._fieldResolution = FIELD_GRID_RES; // default: 64, configurable to 128/256
-        this._fieldGravEnabled = false;
+        this._gravityEnabled = false;
         this._expansionEnabled = false;
         this._disintegrationEnabled = false;
         this._hubbleParam = 0.001;
@@ -1741,7 +1741,7 @@ export default class GPUPhysics {
         this._toggles0 = t0;
 
         let t1 = 0;
-        if (physics.fieldGravEnabled) t1 |= FIELD_GRAV_BIT_T1;
+        if (physics.gravityEnabled) t1 |= 1; // field gravity follows gravity
         this._toggles1 = t1;
 
         this._gravityEnabled = physics.gravityEnabled;
@@ -1778,7 +1778,6 @@ export default class GPUPhysics {
         // Phase 5 toggle state
         this._higgsEnabled = physics.higgsEnabled;
         this._axionEnabled = physics.axionEnabled;
-        this._fieldGravEnabled = physics.fieldGravEnabled;
         this._expansionEnabled = physics.expansionEnabled;
         this._disintegrationEnabled = physics.disintegrationEnabled;
         this._hubbleParam = physics.hubbleParam || 0.001;
@@ -1934,7 +1933,7 @@ export default class GPUPhysics {
         u[12] = this._axionEnabled ? 1 : 0;
         u[13] = this._coulombEnabled ? 1 : 0;
         u[14] = this._yukawaEnabled ? 1 : 0;
-        u[15] = this._fieldGravEnabled ? 1 : 0;
+        u[15] = this._gravityEnabled ? 1 : 0;
         u[16] = this._relativityEnabled ? 1 : 0;
         u[17] = this._blackHoleEnabled ? 1 : 0;
         u[18] = this.aliveCount;
@@ -2423,7 +2422,7 @@ export default class GPUPhysics {
         }
 
         // Step 4: Self-gravity via FFT convolution (if field gravity enabled)
-        if (this._fieldGravEnabled) {
+        if (this._gravityEnabled) {
             this._dispatchSelfGravity(encoder, which, fb, gridWG, 'pre');
         }
 
@@ -2465,7 +2464,7 @@ export default class GPUPhysics {
             p.end();
         }
         // Refresh self-gravity at drifted field (restores O(dt²) for GR correction)
-        if (this._fieldGravEnabled) {
+        if (this._gravityEnabled) {
             // Recompute field gradients first (needed by energy density + cross-term)
             {
                 const p = encoder.beginComputePass({ label: `gridGradientsMid_${which}` });
@@ -2554,10 +2553,10 @@ export default class GPUPhysics {
     /**
      * Dispatch particle-field gravity (O(N × GRID²)).
      * Force from scalar field energy density onto particles.
-     * Dispatched once per active field when fieldGravEnabled.
+     * Dispatched once per active field when gravity is enabled.
      */
     _dispatchFieldParticleGrav(encoder) {
-        if (!this._fieldParticleGrav || !this._fieldGravEnabled || this.aliveCount === 0) return;
+        if (!this._fieldParticleGrav || !this._gravityEnabled || this.aliveCount === 0) return;
         if (!this._higgsEnabled && !this._axionEnabled) return;
 
         // Create uniform buffer once
@@ -3282,7 +3281,7 @@ export default class GPUPhysics {
         }
         this._dispatchFieldForces(encoder);
 
-        // Pass 5c2: particle-field gravity (O(N×GRID²), if fieldGravEnabled)
+        // Pass 5c2: particle-field gravity (O(N×GRID²), if gravity enabled)
         // Uses energyDensity computed by previous substep's field self-gravity pass.
         this._dispatchFieldParticleGrav(encoder);
 
@@ -3537,7 +3536,7 @@ export default class GPUPhysics {
         state.toggles.axionEnabled = !!(t0 & AXION_BIT);
         state.toggles.barnesHutEnabled = !!(t0 & BARNES_HUT_BIT);
         state.toggles.bosonInterEnabled = !!(t0 & BOSON_INTER_BIT);
-        state.toggles.fieldGravEnabled = !!(t1 & 1);
+        // field gravity follows gravity (no separate toggle)
 
         state.yukawaMu = this._yukawaMu;
         state.higgsMass = this._higgsMass;

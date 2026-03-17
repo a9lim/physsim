@@ -7,7 +7,6 @@ import { BACKEND_GPU } from './backend-interface.js';
 const TOGGLE_SYNC = [
     ['gravityEnabled', 'gravity-toggle'],
     ['bosonInterEnabled', 'bosoninter-toggle'],
-    ['fieldGravEnabled', 'fieldgrav-toggle'],
     ['coulombEnabled', 'coulomb-toggle'],
     ['relativityEnabled', 'relativity-toggle'],
     ['gravitomagEnabled', 'gravitomag-toggle'],
@@ -94,7 +93,7 @@ function _cpuSaveState(sim) {
         camera: { x: sim.camera.x, y: sim.camera.y, zoom: sim.camera.zoom },
     };
     const ph = sim.physics;
-    for (const key of ['gravityEnabled', 'bosonInterEnabled', 'fieldGravEnabled',
+    for (const key of ['gravityEnabled', 'bosonInterEnabled',
         'coulombEnabled', 'magneticEnabled',
         'gravitomagEnabled', 'relativityEnabled', 'barnesHutEnabled',
         'radiationEnabled', 'blackHoleEnabled', 'disintegrationEnabled',

@@ -103,7 +103,6 @@ body {
    ═══════════════════════════════════════════════ */
 .tog-gravity     { --tog-color: var(--ext-red); }
 .tog-bosoninter  { --tog-color: var(--ext-brown); }
-.tog-fieldgrav   { --tog-color: var(--ext-red); }
 .tog-gravitomag  { --tog-color: var(--ext-rose); }
 .tog-coulomb     { --tog-color: var(--ext-blue); }
 .tog-magnetic    { --tog-color: var(--ext-cyan); }
