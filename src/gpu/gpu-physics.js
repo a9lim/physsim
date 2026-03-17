@@ -152,6 +152,29 @@ export default class GPUPhysics {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
+        // Encoder-side staging buffers for tree build resets.
+        // queue.writeBuffer() happens at queue time (before encoder start), so it
+        // can't reset state between two tree builds in the same command buffer.
+        // These COPY_SRC buffers let us use encoder.copyBufferToBuffer() instead,
+        // which executes in-order within the command buffer.
+        this._qtCounterSrc = device.createBuffer({
+            label: 'qt-counter-src',
+            size: 4,
+            usage: GPUBufferUsage.COPY_SRC,
+            mappedAtCreation: true,
+        });
+        new Uint32Array(this._qtCounterSrc.getMappedRange()).set([1]);
+        this._qtCounterSrc.unmap();
+
+        this._qtBoundsSrc = device.createBuffer({
+            label: 'qt-bounds-src',
+            size: 16,
+            usage: GPUBufferUsage.COPY_SRC,
+            mappedAtCreation: true,
+        });
+        new Int32Array(this._qtBoundsSrc.getMappedRange()).set([2147483647, 2147483647, -2147483647, -2147483647]);
+        this._qtBoundsSrc.unmap();
+
         // Phase 2 pipelines + bind groups
         this._phase2 = null;
 
@@ -1467,15 +1490,17 @@ export default class GPUPhysics {
 
         const b = this.buffers;
 
-        // 1. Reset nodeCounter to 1 (root is node 0, already allocated)
-        this.device.queue.writeBuffer(b.qtNodeCounter, 0, _qtNodeCounterData);
+        // 1-2. Reset nodeCounter and bounds via encoder.copyBufferToBuffer.
+        // MUST be encoder ops (not queue.writeBuffer) because _dispatchTreeBuild
+        // may be called twice per substep (before forces + after drift for 1PN VV).
+        // queue.writeBuffer executes at queue time (before encoder starts), so a
+        // second call can't reset state between two tree builds in the same encoder.
+        encoder.copyBufferToBuffer(this._qtCounterSrc, 0, b.qtNodeCounter, 0, 4);
+        encoder.copyBufferToBuffer(this._qtBoundsSrc, 0, b.qtBoundsBuffer, 0, 16);
 
-        // 2. Reset bounds: minX=INT_MAX, minY=INT_MAX, maxX=INT_MIN, maxY=INT_MIN
-        this.device.queue.writeBuffer(b.qtBoundsBuffer, 0, _qtBoundsResetData);
-
-        // 3. Clear visitor flags to 0 (write zeros for all nodes)
-        // Use clearBuffer instead of allocating a zero array each frame
-        const clearSize = Math.min(b.QT_MAX_NODES, totalCount * 6) * 4;
+        // 3. Clear ALL visitor flags (not just totalCount*6 — a second tree build
+        // in the same substep allocates nodes beyond that range).
+        const clearSize = Math.min(b.QT_MAX_NODES * 4, b.qtVisitorFlags.size);
         encoder.clearBuffer(b.qtVisitorFlags, 0, clearSize);
 
         // 4. computeBounds dispatch
@@ -3849,6 +3874,8 @@ export default class GPUPhysics {
         this.buffers.destroy();
         this.uniformBuffer.destroy();
         if (this._dummyHistBuf) this._dummyHistBuf.destroy();
+        if (this._qtCounterSrc) this._qtCounterSrc.destroy();
+        if (this._qtBoundsSrc) this._qtBoundsSrc.destroy();
     }
 }
 
