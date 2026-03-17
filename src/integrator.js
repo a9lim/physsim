@@ -141,6 +141,7 @@ export default class Physics {
         this._toggles.axionEnabled = this.axionEnabled;
         this._toggles.softeningSq = this.blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
         this._toggles.higgsEnabled = this.higgsEnabled;
+        this._toggles.radiationEnabled = this.radiationEnabled;
     }
 
     /** Move a removed particle to deadParticles for signal delay fade-out. */
@@ -884,8 +885,8 @@ export default class Physics {
             }
 
             // Pion emission from Yukawa interactions (scalar Larmor radiation)
+            const pions = this.sim ? this.sim.pions : [];
             if (this.yukawaEnabled && this.radiationEnabled && this.sim) {
-                const pions = this.sim.pions;
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const fYukSq = p.forceYukawa.x * p.forceYukawa.x + p.forceYukawa.y * p.forceYukawa.y;
