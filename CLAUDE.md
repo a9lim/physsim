@@ -62,7 +62,7 @@ src/
   relativity.js            25 lines  angwToAngVel(), setVelocity()
   canvas-renderer.js       20 lines  CanvasRenderer: thin adapter wrapping Renderer to RenderBackend
   gpu/
-    gpu-physics.js       3791 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
+    gpu-physics.js       3794 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
                                       all dispatch methods, bind group creation, adaptive substepping, readback,
                                       per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
     gpu-pipelines.js     1897 lines  Pipeline + bind group layout creation for all compute/render shaders,
@@ -74,7 +74,7 @@ src/
                                       trail buffers, staging
     gpu-constants.js      298 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                       _PALETTE colors, single source of truth for JS/WGSL constants
-    shaders/               51 files  WGSL compute + render shaders (9199 lines total)
+    shaders/               51 files  WGSL compute + render shaders (9302 lines total)
 ```
 
 ## Key Imports
