@@ -79,12 +79,12 @@ export default class Pion {
         this._srcMass = this.gravMass;     // source gravitational mass for BH tree
     }
 
-    update(dt, particles, pool, root, gravLensing, coulombEnabled) {
+    update(dt, particles, pool, root, gravLensing, coulombEnabled, periodic, topology, domW, domH, halfDomW, halfDomH) {
         // Gravitational deflection: massive particle gets (1+v²) factor, not 2
         if (gravLensing) {
             const grFactor = 1 + this.vSq;
             if (pool && root >= 0) {
-                treeDeflectBoson(this.pos, this.w, grFactor * dt, pool, root);
+                treeDeflectBoson(this.pos, this.w, grFactor * dt, pool, root, periodic, topology, domW, domH, halfDomW, halfDomH);
             } else if (particles) {
                 for (let i = 0; i < particles.length; i++) {
                     const p = particles[i];
@@ -102,7 +102,7 @@ export default class Pion {
         if (coulombEnabled && this.charge !== 0 && particles) {
             const scale = -this.charge * dt;
             if (pool && root >= 0) {
-                treeDeflectBosonCoulomb(this.pos, this.w, scale, pool, root);
+                treeDeflectBosonCoulomb(this.pos, this.w, scale, pool, root, periodic, topology, domW, domH, halfDomW, halfDomH);
             } else {
                 for (let i = 0; i < particles.length; i++) {
                     const p = particles[i];

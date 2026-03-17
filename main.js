@@ -531,10 +531,14 @@ class Simulation {
                     const _pool = (this.physics.barnesHutEnabled) ? this.physics.pool : null;
                     const _root = this.physics._lastRoot;
                     const _lensParticles = (_bosonInter || _coulomb) ? this.particles : null;
+                    const _periodic = this.physics.periodic;
+                    const _topo = this.physics._topologyConst;
+                    const _dw = this.domainW, _dh = this.domainH;
+                    const _hdw = _dw * 0.5, _hdh = _dh * 0.5;
                     let pLen = this.photons.length;
                     for (let i = pLen - 1; i >= 0; i--) {
                         const ph = this.photons[i];
-                        ph.update(PHYSICS_DT, _bosonInter ? _lensParticles : null, _pool, _root);
+                        ph.update(PHYSICS_DT, _bosonInter ? _lensParticles : null, _pool, _root, _periodic, _topo, _dw, _dh, _hdw, _hdh);
                         if (!ph.alive || ph.lifetime > PHOTON_LIFETIME) {
                             ph.alive = false;
                             MasslessBoson.release(ph);
@@ -582,7 +586,7 @@ class Simulation {
                     let piLen = this.pions.length;
                     for (let i = piLen - 1; i >= 0; i--) {
                         const pn = this.pions[i];
-                        pn.update(PHYSICS_DT, _lensParticles, _pool, _root, _bosonInter, _coulomb);
+                        pn.update(PHYSICS_DT, _lensParticles, _pool, _root, _bosonInter, _coulomb, _periodic, _topo, _dw, _dh, _hdw, _hdh);
                         if (!pn.alive) {
                             Pion.release(pn);
                             this.pions[i] = this.pions[--piLen];

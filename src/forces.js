@@ -70,7 +70,7 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
     // Cache dipole moments once per particle (valid for all pairForce/pairPE calls this substep)
     for (let i = 0; i < n; i++) {
         const p = particles[i];
-        const rSq = p.radiusSq;
+        const rSq = p.bodyRadiusSq;
         p.magMoment = MAG_MOMENT_K * p.charge * p.angVel * rSq;
         p.angMomentum = INERTIA_K * p.mass * p.angVel * rSq;
     }
@@ -681,7 +681,7 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
             const nodeMass = pool.totalMass[nodeIdx];
             const avgVx = pool.totalMomentumX[nodeIdx] / nodeMass;
             const avgVy = pool.totalMomentumY[nodeIdx] / nodeMass;
-            pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, nodeMass, pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, 1, 1, useSignalDelay, 1);
+            pairForce(particle, pool.comX[nodeIdx], pool.comY[nodeIdx], avgVx, avgVy, nodeMass, pool.totalCharge[nodeIdx], 0, pool.totalMagneticMoment[nodeIdx], pool.totalAngularMomentum[nodeIdx], out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology, 1, 1, false, 1);
         } else if (pool.divided[nodeIdx]) {
             // Push children onto stack
             _bhStack[stackTop++] = pool.nw[nodeIdx];
@@ -707,7 +707,7 @@ const _bwOut = { x: 0, y: 0 };
  * @param {Object} pool        - boson QuadTreePool
  * @param {number} root        - tree root index
  */
-function _walkBosonTree(px, py, scale, softeningSq, pool, root) {
+function _walkBosonTree(px, py, scale, softeningSq, pool, root, periodic, topology, domW, domH, halfDomW, halfDomH) {
     let kx = 0, ky = 0;
     let stackTop = 0;
     _bosonBHStack[stackTop++] = root;
@@ -716,8 +716,14 @@ function _walkBosonTree(px, py, scale, softeningSq, pool, root) {
         const nodeIdx = _bosonBHStack[--stackTop];
         if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
-        const dx = pool.comX[nodeIdx] - px;
-        const dy = pool.comY[nodeIdx] - py;
+        let dx, dy;
+        if (periodic) {
+            minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
+            dx = _miOut.x; dy = _miOut.y;
+        } else {
+            dx = pool.comX[nodeIdx] - px;
+            dy = pool.comY[nodeIdx] - py;
+        }
         const dSq = dx * dx + dy * dy;
         const size = pool.bw[nodeIdx] * 2;
         const cnt = pool.pointCount[nodeIdx];
@@ -726,8 +732,14 @@ function _walkBosonTree(px, py, scale, softeningSq, pool, root) {
             const base = nodeIdx * pool.nodeCapacity;
             for (let k = 0; k < cnt; k++) {
                 const b = pool.points[base + k];
-                const bdx = b.pos.x - px;
-                const bdy = b.pos.y - py;
+                let bdx, bdy;
+                if (periodic) {
+                    minImage(px, py, b.pos.x, b.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                    bdx = _miOut.x; bdy = _miOut.y;
+                } else {
+                    bdx = b.pos.x - px;
+                    bdy = b.pos.y - py;
+                }
                 const rSq = bdx * bdx + bdy * bdy + softeningSq;
                 const invRSq = 1 / rSq;
                 const f = scale * b._srcMass * Math.sqrt(invRSq) * invRSq;
@@ -756,15 +768,16 @@ function _walkBosonTree(px, py, scale, softeningSq, pool, root) {
  * Gravitational force from bosons onto particles via Barnes-Hut tree walk.
  * O(N_particles × log(N_bosons)).
  */
-export function computeBosonGravity(particles, bosonPool, bosonRoot, softeningSq) {
+export function computeBosonGravity(particles, bosonPool, bosonRoot, softeningSq, periodic, topology, domW, domH) {
     const n = particles.length;
     if (n === 0 || bosonRoot < 0 || bosonPool.totalMass[bosonRoot] < EPSILON) return;
     if (_bosonBHStack.length < bosonPool.maxNodes) _bosonBHStack = new Int32Array(bosonPool.maxNodes);
+    const halfDomW = domW * 0.5, halfDomH = domH * 0.5;
 
     for (let i = 0; i < n; i++) {
         const p = particles[i];
         // Pass p.mass as scale — avoids multiply-by-1 per node + 2 post-multiplies
-        _walkBosonTree(p.pos.x, p.pos.y, p.mass, softeningSq, bosonPool, bosonRoot);
+        _walkBosonTree(p.pos.x, p.pos.y, p.mass, softeningSq, bosonPool, bosonRoot, periodic, topology, domW, domH, halfDomW, halfDomH);
         p.force.x += _bwOut.x;
         p.force.y += _bwOut.y;
         p.forceGravity.x += _bwOut.x;
@@ -777,18 +790,19 @@ export function computeBosonGravity(particles, bosonPool, bosonRoot, softeningSq
  * GR receiver factors: 2 for photons (null geodesic), 1+v² for pions (massive).
  * O(N_bosons × log(N_bosons)).
  */
-export function applyBosonBosonGravity(photons, pions, dt, bosonPool, bosonRoot) {
+export function applyBosonBosonGravity(photons, pions, dt, bosonPool, bosonRoot, periodic, topology, domW, domH) {
     const nPh = photons ? photons.length : 0;
     const nPi = pions ? pions.length : 0;
     if (nPh + nPi < 2 || bosonRoot < 0 || bosonPool.totalMass[bosonRoot] < EPSILON) return;
     if (_bosonBHStack.length < bosonPool.maxNodes) _bosonBHStack = new Int32Array(bosonPool.maxNodes);
+    const halfDomW = domW * 0.5, halfDomH = domH * 0.5;
 
     // Photons: receiver GR factor = 2, kick into vel, renormalize to c=1
     const twoDt = 2 * dt;
     for (let i = 0; i < nPh; i++) {
         const ph = photons[i];
         if (!ph.alive) continue;
-        _walkBosonTree(ph.pos.x, ph.pos.y, twoDt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot);
+        _walkBosonTree(ph.pos.x, ph.pos.y, twoDt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot, periodic, topology, domW, domH, halfDomW, halfDomH);
         ph.vel.x += _bwOut.x;
         ph.vel.y += _bwOut.y;
         const vSq = ph.vel.x * ph.vel.x + ph.vel.y * ph.vel.y;
@@ -802,7 +816,7 @@ export function applyBosonBosonGravity(photons, pions, dt, bosonPool, bosonRoot)
     for (let i = 0; i < nPi; i++) {
         const pn = pions[i];
         if (!pn.alive) continue;
-        _walkBosonTree(pn.pos.x, pn.pos.y, (1 + pn.vSq) * dt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot);
+        _walkBosonTree(pn.pos.x, pn.pos.y, (1 + pn.vSq) * dt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot, periodic, topology, domW, domH, halfDomW, halfDomH);
         pn.w.x += _bwOut.x;
         pn.w.y += _bwOut.y;
         pn._syncVel();
@@ -813,7 +827,7 @@ export function applyBosonBosonGravity(photons, pions, dt, bosonPool, bosonRoot)
  * Shared BH tree walk for boson Coulomb. Accumulates Coulomb impulse into _bwOut.
  * Reads _srcCharge from leaf points, totalCharge from aggregate nodes.
  */
-function _walkBosonTreeCharge(px, py, scale, softeningSq, pool, root) {
+function _walkBosonTreeCharge(px, py, scale, softeningSq, pool, root, periodic, topology, domW, domH, halfDomW, halfDomH) {
     let kx = 0, ky = 0;
     let stackTop = 0;
     _bosonBHStack[stackTop++] = root;
@@ -823,8 +837,14 @@ function _walkBosonTreeCharge(px, py, scale, softeningSq, pool, root) {
         const nodeCharge = pool.totalCharge[nodeIdx];
         if (nodeCharge === 0) continue;
 
-        const dx = pool.comX[nodeIdx] - px;
-        const dy = pool.comY[nodeIdx] - py;
+        let dx, dy;
+        if (periodic) {
+            minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
+            dx = _miOut.x; dy = _miOut.y;
+        } else {
+            dx = pool.comX[nodeIdx] - px;
+            dy = pool.comY[nodeIdx] - py;
+        }
         const dSq = dx * dx + dy * dy;
         const size = pool.bw[nodeIdx] * 2;
         const cnt = pool.pointCount[nodeIdx];
@@ -834,8 +854,14 @@ function _walkBosonTreeCharge(px, py, scale, softeningSq, pool, root) {
             for (let k = 0; k < cnt; k++) {
                 const b = pool.points[base + k];
                 if (b._srcCharge === 0) continue;
-                const bdx = b.pos.x - px;
-                const bdy = b.pos.y - py;
+                let bdx, bdy;
+                if (periodic) {
+                    minImage(px, py, b.pos.x, b.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                    bdx = _miOut.x; bdy = _miOut.y;
+                } else {
+                    bdx = b.pos.x - px;
+                    bdy = b.pos.y - py;
+                }
                 const rSq = bdx * bdx + bdy * bdy + softeningSq;
                 const invRSq = 1 / rSq;
                 const f = scale * b._srcCharge * Math.sqrt(invRSq) * invRSq;
@@ -864,15 +890,16 @@ function _walkBosonTreeCharge(px, py, scale, softeningSq, pool, root) {
  * Mutual Coulomb interaction between charged pions via Barnes-Hut tree walk.
  * F = -q_i * q_j / r² (like-charges repel). O(N_pions × log(N_bosons)).
  */
-export function applyPionPionCoulomb(pions, dt, bosonPool, bosonRoot) {
+export function applyPionPionCoulomb(pions, dt, bosonPool, bosonRoot, periodic, topology, domW, domH) {
     const nPi = pions ? pions.length : 0;
     if (nPi < 2 || bosonRoot < 0) return;
     if (_bosonBHStack.length < bosonPool.maxNodes) _bosonBHStack = new Int32Array(bosonPool.maxNodes);
+    const halfDomW = domW * 0.5, halfDomH = domH * 0.5;
 
     for (let i = 0; i < nPi; i++) {
         const pn = pions[i];
         if (!pn.alive || pn.charge === 0) continue;
-        _walkBosonTreeCharge(pn.pos.x, pn.pos.y, -pn.charge * dt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot);
+        _walkBosonTreeCharge(pn.pos.x, pn.pos.y, -pn.charge * dt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot, periodic, topology, domW, domH, halfDomW, halfDomH);
         pn.w.x += _bwOut.x;
         pn.w.y += _bwOut.y;
         pn._syncVel();
