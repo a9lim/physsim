@@ -60,6 +60,18 @@ function syncUI(sim) {
     if (yukawaMuEl) { yukawaMuEl.value = ph.yukawaMu; yukawaMuEl.dispatchEvent(new Event('input')); }
     const axionMassEl = document.getElementById('axionMassInput');
     if (axionMassEl) { axionMassEl.value = ph.axionMass; axionMassEl.dispatchEvent(new Event('input')); }
+    const higgsMassEl = document.getElementById('higgsMassInput');
+    if (higgsMassEl) { higgsMassEl.value = ph.higgsMass; higgsMassEl.dispatchEvent(new Event('input')); }
+    const extGravEl = document.getElementById('extGravityInput');
+    if (extGravEl) { extGravEl.value = ph.extGravity; extGravEl.dispatchEvent(new Event('input')); }
+    const extGravAngleEl = document.getElementById('extGravityAngleInput');
+    if (extGravAngleEl) { extGravAngleEl.value = (ph.extGravityAngle || 0) * 180 / Math.PI; extGravAngleEl.dispatchEvent(new Event('input')); }
+    const extElecEl = document.getElementById('extElectricInput');
+    if (extElecEl) { extElecEl.value = ph.extElectric; extElecEl.dispatchEvent(new Event('input')); }
+    const extElecAngleEl = document.getElementById('extElectricAngleInput');
+    if (extElecAngleEl) { extElecAngleEl.value = (ph.extElectricAngle || 0) * 180 / Math.PI; extElecAngleEl.dispatchEvent(new Event('input')); }
+    const extBzEl = document.getElementById('extBzInput');
+    if (extBzEl) { extBzEl.value = ph.extBz; extBzEl.dispatchEvent(new Event('input')); }
 }
 
 /**
@@ -105,6 +117,12 @@ function _cpuSaveState(sim) {
     state.yukawaMu = ph.yukawaMu;
     state.axionMass = ph.axionMass;
     state.hubbleParam = ph.hubbleParam;
+    state.higgsMass = ph.higgsMass;
+    state.extGravity = ph.extGravity;
+    state.extGravityAngle = ph.extGravityAngle;
+    state.extElectric = ph.extElectric;
+    state.extElectricAngle = ph.extElectricAngle;
+    state.extBz = ph.extBz;
     return state;
 }
 
@@ -134,6 +152,12 @@ export function loadState(state, sim) {
             if (state.yukawaMu != null) ph.yukawaMu = state.yukawaMu;
             if (state.axionMass != null) ph.axionMass = state.axionMass;
             if (state.hubbleParam != null) ph.hubbleParam = state.hubbleParam;
+            if (state.higgsMass !== undefined) ph.higgsMass = state.higgsMass;
+            if (state.extGravity !== undefined) ph.extGravity = state.extGravity;
+            if (state.extGravityAngle !== undefined) ph.extGravityAngle = state.extGravityAngle;
+            if (state.extElectric !== undefined) ph.extElectric = state.extElectric;
+            if (state.extElectricAngle !== undefined) ph.extElectricAngle = state.extElectricAngle;
+            if (state.extBz !== undefined) ph.extBz = state.extBz;
             if (state.settings && state.settings.friction != null) ph.bounceFriction = state.settings.friction;
 
             _restoreSettings(state, sim);
@@ -179,6 +203,12 @@ function _cpuLoadState(state, sim) {
     if (state.yukawaMu != null) ph.yukawaMu = state.yukawaMu;
     if (state.axionMass != null) ph.axionMass = state.axionMass;
     if (state.hubbleParam != null) ph.hubbleParam = state.hubbleParam;
+    if (state.higgsMass !== undefined) ph.higgsMass = state.higgsMass;
+    if (state.extGravity !== undefined) ph.extGravity = state.extGravity;
+    if (state.extGravityAngle !== undefined) ph.extGravityAngle = state.extGravityAngle;
+    if (state.extElectric !== undefined) ph.extElectric = state.extElectric;
+    if (state.extElectricAngle !== undefined) ph.extElectricAngle = state.extElectricAngle;
+    if (state.extBz !== undefined) ph.extBz = state.extBz;
 
     _restoreSettings(state, sim);
     if (state.settings && state.settings.friction != null) ph.bounceFriction = state.settings.friction;
