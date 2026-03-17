@@ -301,14 +301,16 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         if (prev == NONE) {
             // Successfully claimed empty leaf.
-            // Walk up to root, incrementing ancestor leaf-descendant counts.
-            // computeAggregates uses these counts to know how many visitors
-            // to expect before it is safe to aggregate an internal node.
+            // Walk up to root, incrementing ancestor expected-visitor counts
+            // in visitorFlags[]. computeAggregates reads these to know how
+            // many leaf threads to wait for before aggregating an internal node.
+            // visitorFlags is separate from particleCount to avoid races with
+            // the subdivide path that resets particleCount.
             setParticleCount(cur, 1u);
             var ancestor: i32 = getParentIndex(cur);
             loop {
                 if (ancestor < 0) { break; }
-                atomicAddParticleCount(u32(ancestor), 1u);
+                atomicAdd(&visitorFlags[u32(ancestor)], 1u);
                 ancestor = getParentIndex(u32(ancestor));
             }
             break;
@@ -327,21 +329,22 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let displacedPs = particleState[displacedIdx];
 
                 // Transition cur from leaf to internal: reset particleCount to 0.
-                // The old particleCount=1 (from leaf claim) is stale — internal
-                // nodes use particleCount as leaf-descendant count for aggregation.
+                // particleCount on internal nodes is reused as the actual-visit
+                // counter during computeAggregates (separate from visitorFlags
+                // which holds the expected count).
                 setParticleCount(cur, 0u);
 
                 // Reinsert displaced particle into correct child.
                 let childForDisplaced = childFor(cur, displacedPs.posX, displacedPs.posY);
                 setParticleIndex(childForDisplaced, i32(displacedIdx));
                 setParticleCount(childForDisplaced, 1u);
-                // Count displaced particle as a leaf descendant of cur (and all
-                // of cur's ancestors). Cur's ancestors were already incremented
-                // by the displaced particle's original insertion — but that was
-                // for a leaf at cur's level, not one level deeper. The net effect
-                // is the same count (cur's ancestors still have +1 from the
-                // original), so we only need to increment cur itself.
-                atomicAddParticleCount(cur, 1u);
+
+                // Count displaced particle as a leaf descendant of cur in
+                // visitorFlags. The displaced particle's original ancestor walk
+                // only incremented ancestors above its old position (cur's parent
+                // and up). Now it's one level deeper (cur → child), so cur itself
+                // is a new ancestor that needs counting.
+                atomicAdd(&visitorFlags[cur], 1u);
 
                 // Mark current node as internal (clear particleIndex).
                 setParticleIndex(cur, NONE);
@@ -442,17 +445,15 @@ fn computeAggregates(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (curNode < 0) { break; } // reached root's parent (NONE)
 
         let nodeU = u32(curNode);
-        // Each visitor increments the flag.  Only the last visitor (the one
-        // that brings the count up to the number of populated children) is
-        // allowed to aggregate and continue climbing.  All earlier visitors
-        // must exit here so they do not read partially-written child data.
+        // Two separate counters avoid races between insertion and aggregation:
+        //   visitorFlags[nodeU] = expected leaf-descendant count (set during
+        //                         insertParticles by each leaf's ancestor walk)
+        //   particleCount[nodeU] = actual visit count (atomicAdd here, starts
+        //                          at 0 — set by subdivide path in insertParticles)
         //
-        // `particleCount` on an internal node was repurposed during the
-        // insertParticles pass to count how many of its 4 children received
-        // at least one particle.  That tells us exactly how many threads will
-        // walk through this node, so we can use it as the threshold.
-        let expectedVisitors = getParticleCount(nodeU); // populated child count
-        let prev = atomicAdd(&visitorFlags[nodeU], 1u);
+        // The last visitor (who brings actual count to expected) aggregates.
+        let expectedVisitors = atomicLoad(&visitorFlags[nodeU]);
+        let prev = atomicAddParticleCount(nodeU, 1u);
         if (prev < expectedVisitors - 1u) {
             // Not the last visitor — exit, let the last one aggregate
             break;
