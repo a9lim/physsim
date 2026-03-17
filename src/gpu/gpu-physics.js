@@ -51,6 +51,7 @@ const MAX_PARTICLES = GPU_MAX_PARTICLES;
 // Pre-allocated typed arrays for per-frame writeBuffer calls (avoid GC pressure)
 const _qtNodeCounterData = new Uint32Array([1]);
 const _qtBoundsResetData = new Int32Array([2147483647, 2147483647, -2147483647, -2147483647]);
+const _postSubDt = new Float32Array(1); // scratch for writing total dt to uniforms post-substep
 const _bosonRootData = new Uint32Array(20);
 const _bosonRootF32 = new Float32Array(_bosonRootData.buffer);
 
@@ -3108,7 +3109,11 @@ export default class GPUPhysics {
                 this.dispatchHeatmap(encoder, this._lastCamera);
             }
 
-            // Pion decay (once per frame, not per substep — probability calibrated per PHYSICS_DT)
+            // Pion decay: dispatched once per frame. Probability scaled by dt/PHYSICS_DT
+            // in the shader to match CPU (which checks once per PHYSICS_DT tick).
+            // Write total dt (not substep dt) so the shader can compute tick count.
+            _postSubDt[0] = dt;
+            this.device.queue.writeBuffer(this.uniformBuffer, 0, _postSubDt);
             this._dispatchPionDecay(encoder);
 
             // Boson interaction (if enabled): build boson tree + particle<-boson + boson<->boson + pion Coulomb + annihilation

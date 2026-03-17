@@ -237,12 +237,16 @@ fn decayPions(@builtin(global_invocation_id) gid: vec3u) {
     let piState = pions[i];
     if ((piState.flags & 1u) == 0u) { return; }
 
-    // Decay probability depends on charge
+    // Decay probability: base prob is calibrated per PHYSICS_DT.
+    // GPU update() spans N = dt/PHYSICS_DT ticks per frame, so scale:
+    // P_eff = 1 - (1 - p)^N  (probability of decaying in at least one of N trials)
     let isNeutral = piState.charge == 0;
-    let prob = select(CHARGED_PION_DECAY_PROB, PION_DECAY_PROB, isNeutral);
+    let baseProb = select(CHARGED_PION_DECAY_PROB, PION_DECAY_PROB, isNeutral);
+    let ticks = max(u.dt / PHYSICS_DT, 1.0);
+    let prob = 1.0 - pow(1.0 - baseProb, ticks);
 
-    // Pseudo-random from pion index + age (deterministic per-frame)
-    let rng = pcgRand((i * 73856093u) ^ (piState.age * 19349663u));
+    // Pseudo-random from pion index + frame count (varies each frame)
+    let rng = pcgRand((i * 73856093u) ^ (u.frameCount * 19349663u));
     if (rng > prob) { return; }
 
     let mPi = piState.mass;
