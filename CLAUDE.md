@@ -62,10 +62,10 @@ src/
   relativity.js            25 lines  angwToAngVel(), setVelocity()
   canvas-renderer.js       20 lines  CanvasRenderer: thin adapter wrapping Renderer to RenderBackend
   gpu/
-    gpu-physics.js       3803 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
+    gpu-physics.js       3860 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
                                       all dispatch methods, bind group creation, adaptive substepping, readback,
                                       per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
-    gpu-pipelines.js     1899 lines  Pipeline + bind group layout creation for all compute/render shaders,
+    gpu-pipelines.js     1965 lines  Pipeline + bind group layout creation for all compute/render shaders,
                                       fetchShader() (single source of truth), getSharedPrefix() caching
     gpu-renderer.js      1215 lines  WebGPU instanced rendering: particles, bosons, field overlays, heatmap,
                                       trails, force arrows, spin rings, torque arcs, dashed rings
@@ -74,7 +74,7 @@ src/
                                       trail buffers, staging, boson tree visitor flags
     gpu-constants.js      298 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                       _PALETTE colors, single source of truth for JS/WGSL constants
-    shaders/               51 files  WGSL compute + render shaders (9423 lines total)
+    shaders/               52 files  WGSL compute + render shaders (9886 lines total)
 ```
 
 ## Key Imports
@@ -236,7 +236,9 @@ Mass = `yukawaMu`. Proper velocity `w`: `vel = w/√(1+w²)`. GR deflection: `(1
 
 **Decay**: π⁰→2γ (half-life 32), π⁺→e⁺+γ (half-life 128), π⁻→e⁻+γ (half-life 128). Two-body kinematics in rest frame, Lorentz-boosted.
 
-**Absorption**: Quadtree overlap query. Self-absorption permanently blocked by `emitterId`.
+**Absorption**: Quadtree overlap query (CPU: `queryReuse()`, GPU: tree range query in `bosons-tree-walk.wgsl` when BH on, pairwise fallback in `bosons.wgsl` when BH off). Self-absorption permanently blocked by `emitterId`.
+
+**Gravitational lensing**: Photon (2x Newtonian, null geodesic) and pion ((1+v²) GR factor) deflection by particles. CPU: pairwise. GPU: BH particle tree walk (`bosons-tree-walk.wgsl`) when BH on, pairwise (`bosons.wgsl`) when off.
 
 **Boson gravity** (requires Gravity + Barnes-Hut -> Boson Gravity toggle): Particle→boson and boson→boson via BH tree walks. GPU boson tree (`boson-tree.wgsl`) uses CAS+lock insertion and visitor-flag bottom-up aggregation matching the main particle tree. CPU uses separate `_bosonPool` QuadTreePool.
 
@@ -250,7 +252,7 @@ Requires Relativity. Four O(v²/c²) sectors into `force1PN`:
 - **Bazanski** (GM + Magnetic + 1PN): mixed 1/r³.
 - **Scalar Breit** (Yukawa + 1PN): massive scalar exchange.
 
-NOT Newton's 3rd law. Velocity-Verlet corrected. `compute1PN()` zeroes `force1PN` before accumulating.
+NOT Newton's 3rd law. Velocity-Verlet corrected. `compute1PN()` zeroes `force1PN` before accumulating. GPU uses BH tree walk (`compute1PNTree` in `onePN.wgsl`) when Barnes-Hut enabled, with post-drift tree rebuild. Falls back to O(N²) pairwise when BH off.
 
 ### Radiation
 
