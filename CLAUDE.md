@@ -28,8 +28,9 @@ src/
                                       Hertz bounce, scalar fields
   scalar-field.js         858 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C²
                                       gradients, field energy, excitations, particle-field gravity, self-gravity
-  forces.js               921 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(),
-                                      boson gravity, PE accumulator (resetPEAccum/getPEAccum),
+  forces.js               921 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk, uses
+                                      BH_THETA_SQ const directly), compute1PN(), topology-aware boson
+                                      gravity, PE accumulator (resetPEAccum/getPEAccum),
                                       Higgs-modulated Yukawa μ (higgsMod per particle)
   ui.js                   716 lines  setupUI(), declarative dependency graph, info tips, reference overlay,
                                       shortcuts, dirty flag, KaTeX render cache, lazy field init triggers
@@ -46,8 +47,10 @@ src/
                                       modulatePionMasses(), higgsMod caching
   axion-field.js          328 lines  AxionField: quadratic potential, aF² EM coupling, PQ pseudoscalar coupling,
                                       portal coupling (otherField param)
-  signal-delay.js         260 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards)
+  signal-delay.js         260 lines  getDelayedState() (3-phase light-cone solver, creationTime/deathTime guards,
+                                      minImage-wrapped interpolation for periodic boundaries)
   save-load.js            259 lines  saveState(), loadState(), downloadState(), uploadState(), quickSave/Load()
+                                      Persists: yukawaMu, axionMass, higgsMass, extGravity/Electric/Bz + angles
   stats-display.js        250 lines  Sidebar energy/momentum/drift readout, textContent change detection
   effective-potential.js  247 lines  V_eff(r) sidebar canvas, auto-scaling, axMod/yukMod/higgsMod modulation, dirty-flag skip
   pion.js                 261 lines  Massive Yukawa force carrier: proper velocity, (1+v²) GR deflection, decay, pool,
@@ -58,18 +61,21 @@ src/
   collisions.js           158 lines  handleCollisions(), resolveMerge(), annihilation, relativistic merge KE
   particle.js             133 lines  Particle: pos, vel, w, angw, baseMass, 11 force Vec2s, higgsMod, signal delay history
   phase-plot.js           137 lines  Phase space r-v_r plot (512-sample ring buffer)
-  topology.js             131 lines  minImage(), wrapPosition() for Torus/Klein/RP²
+  topology.js             131 lines  minImage(), wrapPosition() for Torus/Klein/RP² (RP² uses iterative
+                                      wrapping, max 2 passes, to handle simultaneous x+y out-of-bounds)
   massless-boson.js        91 lines  MasslessBoson: pos, vel, energy, type ('em'/'grav'), BH tree lensing, pool
-  vec2.js                  61 lines  Vec2 class: set, clone, add, sub, scale, mag, normalize, dist
-  boson-utils.js           59 lines  treeDeflectBoson(): shared BH tree walk for photon/pion lensing
-  backend-interface.js     57 lines  PhysicsBackend/RenderBackend typedefs, BACKEND_CPU/BACKEND_GPU constants
+  vec2.js                  58 lines  Vec2 class: set, clone, add, sub, scale, mag, normalize, dist
+  boson-utils.js           59 lines  treeDeflectBoson()/treeDeflectBosonCoulomb(): shared BH tree walk
+                                      for photon/pion lensing, topology-aware via minImage
+  backend-interface.js     56 lines  PhysicsBackend/RenderBackend typedefs, BACKEND_CPU/BACKEND_GPU constants
   cpu-physics.js           25 lines  CPUPhysics: thin adapter wrapping Physics (integrator.js) to PhysicsBackend
   relativity.js            25 lines  angwToAngVel(), setVelocity()
   canvas-renderer.js       20 lines  CanvasRenderer: thin adapter wrapping Renderer to RenderBackend
   gpu/
     gpu-physics.js       3893 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
                                       all dispatch methods, bind group creation, adaptive substepping, readback,
-                                      per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
+                                      readbackFieldData() for GPU→CPU field migration, per-field uniform
+                                      buffers (Higgs/Axion), pre-allocated write buffers, _phase5Ready guard
     gpu-pipelines.js     1966 lines  Pipeline + bind group layout creation for all compute/render shaders,
                                       fetchShader() (single source of truth), getSharedPrefix() caching
     gpu-renderer.js      1215 lines  WebGPU instanced rendering: particles, bosons, field overlays, heatmap,
@@ -101,9 +107,9 @@ potential.js  <- config, topology
 scalar-field.js <- config, topology (minImage for gravity)
 higgs-field.js  <- config, ScalarField
 axion-field.js  <- config, ScalarField
-boson-utils.js  <- config (BH_THETA, BOSON_SOFTENING_SQ)
-massless-boson.js <- Vec2, config, boson-utils
-pion.js         <- Vec2, config, boson-utils
+boson-utils.js  <- config (BOSON_SOFTENING_SQ), topology (minImage)
+massless-boson.js <- Vec2, config, boson-utils (topology params passed through)
+pion.js         <- Vec2, config, boson-utils (topology params passed through)
 save-load.js    <- BACKEND_GPU (backend-interface)
 
 gpu-physics.js   <- gpu-buffers, gpu-pipelines (fetchShader + pipeline creators), gpu-constants
@@ -133,7 +139,7 @@ Key derived quantities (INERTIA_K = 0.4, MAG_MOMENT_K = 0.2):
 - Angular momentum: `L = Iω` -- cached as `p.angMomentum`
 - Particle radius: `r = ∛(mass)`; BH mode: `kerrNewmanRadius()` in config.js
 
-`magMoment`/`angMomentum` cached per particle at start of `computeAllForces()`. Used by `pairForce()`, `pairPE()`, BH leaf walks, spin-orbit, display. Ghost particles carry these cached fields.
+`magMoment`/`angMomentum` cached per particle at start of `computeAllForces()` using `bodyRadiusSq` (intrinsic body radius, not horizon radius in BH mode). Used by `pairForce()`, `pairPE()`, BH leaf walks, spin-orbit, display. Ghost particles carry these cached fields.
 
 ### Per-Particle Force Vectors
 
@@ -249,7 +255,7 @@ Mass = `yukawaMu` (stored as `baseMass`). Proper velocity `w`: `vel = w/√(1+w�
 
 **Absorption**: Quadtree overlap query (CPU: `queryReuse()`, GPU: tree range query in `bosons-tree-walk.wgsl` when BH on, pairwise fallback in `bosons.wgsl` when BH off). Self-absorption permanently blocked by `emitterId`.
 
-**Gravitational lensing**: Photon (2x Newtonian, null geodesic) and pion ((1+v²) GR factor) deflection by particles. CPU: pairwise. GPU: BH particle tree walk (`bosons-tree-walk.wgsl`) when BH on, pairwise (`bosons.wgsl`) when off.
+**Gravitational lensing**: Photon (2x Newtonian, null geodesic) and pion ((1+v²) GR factor) deflection by particles. CPU: topology-aware BH tree walk via `treeDeflectBoson()` (uses `minImage` for periodic boundaries). GPU: BH particle tree walk (`bosons-tree-walk.wgsl`) when BH on, pairwise (`bosons.wgsl`) when off.
 
 **Coulomb deflection**: Charged pions (π⁺/π⁻) feel Coulomb force from particles (always on when Coulomb enabled). `F = -q_pion · q_particle / r²`. Tree-accelerated when BH on, pairwise fallback. GPU: integrated into `updatePions`/`updatePionsTree`.
 
@@ -295,7 +301,9 @@ Auto-activates with Relativity. Per-particle circular history buffers (Float64Ar
 
 **Causality**: `creationTime` rejects extrapolation past creation. Dead particles continue exerting forces via signal delay until `simTime - deathTime > 2·domain_diagonal`.
 
-**Liénard-Wiechert aberration**: `(1 - n̂·v_source)^{-3}`, clamped [0.01, 100]. Applied to gravity, Coulomb, Yukawa, dipole. Not 1PN (already O(v²)).
+**Periodic boundary interpolation**: When `periodic` is true, position interpolation between history samples uses `minImage()` to wrap displacements across domain seams.
+
+**Liénard-Wiechert aberration**: `(1 - n̂·v_source)^{-3}`, clamped [0.01, 100]. Applied to gravity, Coulomb, Yukawa, dipole at leaf level only (not BH tree aggregate nodes, which use current-time positions). Not 1PN (already O(v²)).
 
 ### Additional Physics
 
@@ -324,7 +332,7 @@ All GEM interactions are **attractive** (gravity has one sign of "charge"):
 
 ## Topology
 
-Boundary "loop": Torus (TORUS=0), Klein bottle (KLEIN=1), RP² (RP2=2). `minImage()` zero-alloc via `out` parameter.
+Boundary "loop": Torus (TORUS=0), Klein bottle (KLEIN=1), RP² (RP2=2). `minImage()` zero-alloc via `out` parameter. `wrapPosition()` for RP² uses iterative wrapping (max 2 passes) to handle simultaneous x+y out-of-bounds from glide reflections.
 
 ## Quadtree
 
@@ -434,10 +442,13 @@ Evolve bind group 0: field, fieldDot, otherField (portal coupling, read-only —
 ### GPU ↔ CPU Sync
 
 - `addParticle()` writes packed structs via `queue.writeBuffer()`
-- `setToggles()` packs booleans into `toggles0`/`toggles1` u32 bitfields, caches individual `_xxxEnabled` booleans
+- `setToggles()` packs booleans into `toggles0`/`toggles1` u32 bitfields (including `HERTZ_BOUNCE_BIT` in toggles1), caches individual `_xxxEnabled` booleans and `_isDarkTheme`
 - `serialize()`/`deserialize()` for save/load and GPU→CPU toggle
+- `readbackFieldData()` reads Higgs/Axion field grids (128×128 Float32) for GPU→CPU migration with 2×2 downsampling to 64×64
 - GPU hit test: `hitTest()`/`readHitResult()` with 1-frame latency via staging buffer
 - GPU stats: `requestStats()`/`readStats()` at STATS_THROTTLE_MASK rate, 512-byte double-buffered staging
+- Async readback methods (`_readbackMaxAccel`, `_readbackMergeResults`, `_readbackGhostCount`) use try/catch/finally to clear pending flags on device loss
+- `_phase5Ready` flag guards field dispatches until async pipeline creation completes
 - `device.lost` handler falls back to CPU with auto-save recovery
 
 ### WGSL Gotchas
