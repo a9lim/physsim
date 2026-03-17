@@ -850,7 +850,7 @@ document.addEventListener('visibilitychange', () => {
         sim._hidden = true;
     } else {
         sim._hidden = false;
-        sim.lastTime = 0;
+        sim.lastTime = performance.now();
         sim._scheduleLoop(); // safe: prevents duplicate rAF chains
     }
 });

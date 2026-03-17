@@ -304,6 +304,8 @@ export function setupUI(sim) {
         gpuToggle.setAttribute('aria-checked', 'true');
         const lbl = gpuToggle.closest('.checkbox-label');
         if (lbl) lbl.classList.remove('ctrl-disabled');
+        const grg = document.getElementById('grid-res-group');
+        if (grg) grg.style.display = '';
     };
     sim._onGPULost = () => {
         gpuToggle.disabled = true;
@@ -311,6 +313,8 @@ export function setupUI(sim) {
         gpuToggle.setAttribute('aria-checked', 'false');
         const lbl = gpuToggle.closest('.checkbox-label');
         if (lbl) lbl.classList.add('ctrl-disabled');
+        const grg = document.getElementById('grid-res-group');
+        if (grg) grg.style.display = 'none';
     };
     gpuToggle.addEventListener('change', async () => {
         const on = gpuToggle.checked;
@@ -588,7 +592,7 @@ export function setupUI(sim) {
         { key: 'Space', label: 'Pause / Play', group: 'Simulation', action: togglePause },
         { key: 'R', label: 'Reset simulation', group: 'Simulation', action: () => document.getElementById('clearBtn').click() },
         { key: '.', label: 'Step forward', group: 'Simulation', action: stepSim },
-        ...PRESET_ORDER.map((key, i) => ({
+        ...PRESET_ORDER.slice(0, 9).map((key, i) => ({
             key: String(i + 1),
             label: PRESETS[key].name,
             group: 'Presets',
