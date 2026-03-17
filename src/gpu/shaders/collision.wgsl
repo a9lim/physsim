@@ -505,14 +505,24 @@ fn resolveBouncePairwise(@builtin(global_invocation_id) gid: vec3<u32>) {
         let I2 = INERTIA_K * ps2.mass * r2 * r2;
         if (I1 > EPSILON) { ps1.angW += r1 * Ft * dt / I1; }
         if (I2 > EPSILON) { ps2.angW -= r2 * Ft * dt / I2; }
-        // Record contact torque for display (torques.w)
-        var af1 = allForces[idx1];
-        af1.torques.w += r1 * Ft;
-        allForces[idx1] = af1;
-        var af2 = allForces[idx2];
-        af2.torques.w -= r2 * Ft;
-        allForces[idx2] = af2;
     }
+
+    // Record Hertz force + contact torque in allForces for display (external force arrow)
+    var af1 = allForces[idx1];
+    af1.f4.x += F1x;
+    af1.f4.y += F1y;
+    af1.totalForce.x += F1x;
+    af1.totalForce.y += F1y;
+    if (friction > 0.0) { af1.torques.w += r1 * Ft; }
+    allForces[idx1] = af1;
+
+    var af2 = allForces[idx2];
+    af2.f4.x -= F1x;
+    af2.f4.y -= F1y;
+    af2.totalForce.x -= F1x;
+    af2.totalForce.y -= F1y;
+    if (friction > 0.0) { af2.torques.w -= r2 * Ft; }
+    allForces[idx2] = af2;
 
     particleState[idx1] = ps1;
     particleState[idx2] = ps2;

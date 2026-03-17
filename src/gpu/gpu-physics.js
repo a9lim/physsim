@@ -350,6 +350,7 @@ export default class GPUPhysics {
                 { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
                 { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
                 { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // particleAux
+                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // allForces
             ],
         });
 
@@ -366,6 +367,7 @@ export default class GPUPhysics {
                 { binding: 0, resource: { buffer: this.uniformBuffer } },
                 { binding: 1, resource: { buffer: this.buffers.particleState } },
                 { binding: 2, resource: { buffer: this.buffers.particleAux } },
+                { binding: 3, resource: { buffer: this.buffers.allForces } },
             ],
         });
 
