@@ -1,10 +1,10 @@
-// ─── Scalar Field Evolution ───
-// Störmer-Verlet KDK: half-kick → drift → recompute Laplacian → second half-kick
-// Separate entry points for Higgs (Mexican hat) and Axion (quadratic)
+// ─── Scalar Field Evolution (Fused) ───
+// KDK half-kicks compute Laplacian inline (no separate Laplacian pass).
+// NaN/Inf fixup integrated into drift + kick (no separate fixup pass).
 
 @group(0) @binding(0) var<storage, read_write> field: array<f32>;
 @group(0) @binding(1) var<storage, read_write> fieldDot: array<f32>;
-@group(0) @binding(2) var<storage, read_write> laplacian: array<f32>;
+@group(0) @binding(2) var<storage, read_write> laplacian: array<f32>;  // unused (kept for layout compat)
 @group(0) @binding(3) var<storage, read_write> source: array<f32>;     // rw for encoder compat
 @group(0) @binding(4) var<storage, read_write> thermal: array<f32>;    // rw for encoder compat
 @group(0) @binding(5) var<storage, read_write> sgPhiFull: array<f32>;  // rw for encoder compat
@@ -14,34 +14,21 @@
 @group(0) @binding(9) var<storage, read_write> fieldGradY: array<f32>;
 @group(0) @binding(10) var<uniform> uniforms: FieldUniforms;
 
-// ─── Laplacian (5-point stencil) ───
-@compute @workgroup_size(8, 8)
-fn computeLaplacian(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let ix = gid.x;
-    let iy = gid.y;
-    if (ix >= GRID || iy >= GRID) { return; }
-
-    let idx = iy * GRID + ix;
-    let cellW = max(uniforms.domainW / f32(GRID), EPSILON);
-    let cellH = max(uniforms.domainH / f32(GRID), EPSILON);
-    let invCWsq = 1.0 / (cellW * cellW);
-    let invCHsq = 1.0 / (cellH * cellH);
+// ─── Inline Laplacian helper ───
+// 5-point stencil with topology-aware border handling.
+fn inlineLaplacian(ix: u32, iy: u32, idx: u32, invCWsq: f32, invCHsq: f32) -> f32 {
     let fC = field[idx];
-    let bcMode = uniforms.boundaryMode;
-    let topoMode = uniforms.topologyMode;
 
-    // Determine vacuum value based on which field is being processed
-    // Higgs: vacValue=1 (VEV), Axion: vacValue=0
-    let vacValue = select(0.0, 1.0, uniforms.currentFieldType == 0u);
-
-    // Interior fast path
+    // Interior fast path (covers ~99.6% of cells)
     if (ix > 0u && ix < GRID_LAST && iy > 0u && iy < GRID_LAST) {
-        laplacian[idx] = (field[idx - 1u] + field[idx + 1u] - 2.0 * fC) * invCWsq
-                       + (field[idx - GRID] + field[idx + GRID] - 2.0 * fC) * invCHsq;
-        return;
+        return (field[idx - 1u] + field[idx + 1u] - 2.0 * fC) * invCWsq
+             + (field[idx - GRID] + field[idx + GRID] - 2.0 * fC) * invCHsq;
     }
 
-    // Border path
+    // Border: topology-aware via nbIndex
+    let bcMode = uniforms.boundaryMode;
+    let topoMode = uniforms.topologyMode;
+    let vacValue = select(0.0, 1.0, uniforms.currentFieldType == 0u);
     let iL = nbIndex(i32(ix) - 1, i32(iy), bcMode, topoMode);
     let iR = nbIndex(i32(ix) + 1, i32(iy), bcMode, topoMode);
     let iT = nbIndex(i32(ix), i32(iy) - 1, bcMode, topoMode);
@@ -50,10 +37,10 @@ fn computeLaplacian(@builtin(global_invocation_id) gid: vec3<u32>) {
     let fR = select(vacValue, field[iR], iR >= 0);
     let fT = select(vacValue, field[iT], iT >= 0);
     let fB = select(vacValue, field[iB], iB >= 0);
-    laplacian[idx] = (fL + fR - 2.0 * fC) * invCWsq + (fT + fB - 2.0 * fC) * invCHsq;
+    return (fL + fR - 2.0 * fC) * invCWsq + (fT + fB - 2.0 * fC) * invCHsq;
 }
 
-// ─── Higgs KDK Half-Kick ───
+// ─── Higgs KDK Half-Kick (Fused: inline Laplacian + NaN guard) ───
 // V(φ) = -½μ²φ² + ¼λφ⁴, VEV=1, λ=μ²=m_H²/2
 // ddphi = ∇²φ + μ²_eff·φ - μ²·φ³ - 2m_H·φ̇ + source/cellArea
 //   + self-grav: 4Φ·∇²φ + 2(∇Φ·∇φ)/cellArea² + 2Φ·(μ²_eff·φ - μ²·φ³)
@@ -77,7 +64,7 @@ fn higgsHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
     let halfDt = uniforms.dt * 0.5;
 
     let phi = field[idx];
-    let lapI = laplacian[idx];
+    let lapI = inlineLaplacian(ix, iy, idx, invCWsq, invCHsq);
     let muSqEff = muSq - thermal[idx];  // Phase transition: KE reduces effective μ²
     let srcTerm = source[idx] * invCellArea;
     let fdC = fieldDot[idx];
@@ -102,10 +89,13 @@ fn higgsHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
                + 2.0 * Phi * (muSqEff * phi - muSq * phi * phi * phi);
     }
 
-    fieldDot[idx] += ddphi * halfDt;
+    var newFdot = fdC + ddphi * halfDt;
+    // NaN/Inf guard on fieldDot
+    if (newFdot != newFdot || abs(newFdot) > 1e6) { newFdot = 0.0; }
+    fieldDot[idx] = newFdot;
 }
 
-// ─── Axion KDK Half-Kick ───
+// ─── Axion KDK Half-Kick (Fused: inline Laplacian + NaN guard) ───
 // V(a) = ½m_a²a², vacuum at a=0
 // ddA = ∇²a - m_a²·a - g·m_a·ȧ + source/cellArea
 //   + self-grav: 4Φ·∇²a + 2(∇Φ·∇a)/cellArea² - 2Φ·m_a²·a
@@ -128,7 +118,7 @@ fn axionHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
     let damp = uniforms.axionCoupling * mA;  // ζ=g/2, Q=1/g → damp = g*m_a
 
     let aVal = field[idx];
-    let lapI = laplacian[idx];
+    let lapI = inlineLaplacian(ix, iy, idx, invCWsq, invCHsq);
     let srcTerm = source[idx] * invCellArea;
     let fdC = fieldDot[idx];
 
@@ -150,49 +140,29 @@ fn axionHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
              - 2.0 * Phi * mASq * aVal;
     }
 
-    fieldDot[idx] += ddA * (uniforms.dt * 0.5);
+    var newFdot = fdC + ddA * (uniforms.dt * 0.5);
+    // NaN/Inf guard on fieldDot
+    if (newFdot != newFdot || abs(newFdot) > 1e6) { newFdot = 0.0; }
+    fieldDot[idx] = newFdot;
 }
 
-// ─── Field Drift (shared Higgs/Axion) ───
+// ─── Field Drift (with NaN/Inf fixup) ───
 // field += fieldDot * dt, clamped to [-SCALAR_FIELD_MAX, SCALAR_FIELD_MAX]
 @compute @workgroup_size(8, 8)
 fn fieldDrift(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.y * GRID + gid.x;
     if (gid.x >= GRID || gid.y >= GRID) { return; }
-    field[idx] = clamp(field[idx] + fieldDot[idx] * uniforms.dt,
-                       -SCALAR_FIELD_MAX, SCALAR_FIELD_MAX);
-}
 
-// ─── NaN/Inf Fixup (post second half-kick) ───
-// Higgs: reset to VEV=1, Axion: reset to 0
-// Checks BOTH field and fieldDot for NaN/Inf to prevent corruption propagation.
-@compute @workgroup_size(8, 8)
-fn nanFixupHiggs(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.y * GRID + gid.x;
-    if (gid.x >= GRID || gid.y >= GRID) { return; }
-    let phi = field[idx];
-    let phiDot = fieldDot[idx];
-    // NaN check: x != x is true only for NaN. Also clamp Inf.
-    if (phi != phi || abs(phi) > 1e6) {
-        field[idx] = 1.0;
-        fieldDot[idx] = 0.0;
-    } else if (phiDot != phiDot || abs(phiDot) > 1e6) {
+    var newField = field[idx] + fieldDot[idx] * uniforms.dt;
+
+    // NaN/Inf fixup: reset to vacuum value
+    if (newField != newField || abs(newField) > 1e6) {
+        let vacValue = select(0.0, 1.0, uniforms.currentFieldType == 0u);
+        newField = vacValue;
         fieldDot[idx] = 0.0;
     }
-}
 
-@compute @workgroup_size(8, 8)
-fn nanFixupAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.y * GRID + gid.x;
-    if (gid.x >= GRID || gid.y >= GRID) { return; }
-    let a = field[idx];
-    let aDot = fieldDot[idx];
-    if (a != a || abs(a) > 1e6) {
-        field[idx] = 0.0;
-        fieldDot[idx] = 0.0;
-    } else if (aDot != aDot || abs(aDot) > 1e6) {
-        fieldDot[idx] = 0.0;
-    }
+    field[idx] = clamp(newField, -SCALAR_FIELD_MAX, SCALAR_FIELD_MAX);
 }
 
 // ─── Grid Gradients (central differences) ───

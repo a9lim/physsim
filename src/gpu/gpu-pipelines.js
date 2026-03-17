@@ -1047,7 +1047,7 @@ export async function createFieldEvolvePipelines(device, wgslConstants = '') {
     const gradBindGroupLayouts = [gradGroup0Layout];
     const gradPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: gradBindGroupLayouts });
 
-    const evolveEntries = ['computeLaplacian', 'higgsHalfKick', 'axionHalfKick', 'fieldDrift', 'nanFixupHiggs', 'nanFixupAxion'];
+    const evolveEntries = ['higgsHalfKick', 'axionHalfKick', 'fieldDrift'];
     const pipelines = {};
     for (const entry of evolveEntries) {
         pipelines[entry] = device.createComputePipeline({
@@ -1201,11 +1201,19 @@ export async function createFieldSelfGravPipelines(device, wgslConstants = '') {
         ],
     });
 
-    const bindGroupLayouts = [group0Layout, group1Layout];
+    // Group 2: FFT complex buffer (for fused energy density + pack / unpack + gradient)
+    const group2Layout = device.createBindGroupLayout({
+        label: 'fieldSelfGrav_group2',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },   // fftComplex (fftA)
+        ],
+    });
+
+    const bindGroupLayouts = [group0Layout, group1Layout, group2Layout];
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 
     const entryPoints = [
-        'computeEnergyDensityHiggs', 'computeEnergyDensityAxion', 'computeSelfGravGradients',
+        'energyDensityHiggsAndPack', 'energyDensityAxionAndPack', 'unpackAndSGGradients',
     ];
     const pipelines = {};
     for (const entry of entryPoints) {
@@ -1254,14 +1262,6 @@ export async function createFFTPipelines(device, wgslConstants = '') {
         fftButterfly: device.createComputePipeline({
             label: 'fftButterfly', layout: butterflyLayout,
             compute: { module, entryPoint: 'fftButterfly' },
-        }),
-        packRealToComplex: device.createComputePipeline({
-            label: 'packRealToComplex', layout: butterflyLayout,
-            compute: { module, entryPoint: 'packRealToComplex' },
-        }),
-        unpackComplexToReal: device.createComputePipeline({
-            label: 'unpackComplexToReal', layout: butterflyLayout,
-            compute: { module, entryPoint: 'unpackComplexToReal' },
         }),
         complexMultiply: device.createComputePipeline({
             label: 'complexMultiply', layout: multiplyLayout,

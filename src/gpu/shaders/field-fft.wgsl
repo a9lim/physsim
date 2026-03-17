@@ -117,25 +117,6 @@ fn fftButterfly(@builtin(global_invocation_id) gid: vec3<u32>) {
     bufB[outLinear + 1u] = outIm;
 }
 
-// ─── Pack real grid → interleaved complex ───
-// Reads from a real f32 grid, writes to interleaved complex buffer.
-@compute @workgroup_size(256)
-fn packRealToComplex(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
-    if (idx >= fftParams.gridSize * fftParams.gridSize) { return; }
-    bufA[idx * 2u] = bufB[idx];       // bufB temporarily holds the real source
-    bufA[idx * 2u + 1u] = 0.0;
-}
-
-// ─── Unpack interleaved complex → real grid ───
-// Reads real part from interleaved complex buffer, writes to real f32 grid.
-@compute @workgroup_size(256)
-fn unpackComplexToReal(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
-    if (idx >= fftParams.gridSize * fftParams.gridSize) { return; }
-    bufB[idx] = bufA[idx * 2u];       // bufB temporarily holds the real output
-}
-
 // ─── Pointwise Complex Multiply ───
 // Φ̂ = ρ̂ · Ĝ. Both in bufA (ρ̂) and greenHat (Ĝ). Result written to bufA.
 @group(1) @binding(0) var<storage, read> greenHat: array<f32>;  // GRID*GRID*2 (precomputed)

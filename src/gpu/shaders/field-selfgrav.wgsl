@@ -1,13 +1,14 @@
-// ─── Field Self-Gravity ───
-// Energy density computation + SG gradient computation.
-// Potential Φ is computed via FFT convolution (field-fft.wgsl), not here.
+// ─── Field Self-Gravity (Fused) ───
+// Energy density → FFT complex pack (fused), and
+// FFT complex unpack → Φ extraction → SG gradient computation (fused).
+// Potential Φ is computed via FFT convolution (field-fft.wgsl) between these two stages.
 
 // Group 0: core field arrays + uniform
 @group(0) @binding(0) var<storage, read_write> field: array<f32>;
 @group(0) @binding(1) var<storage, read_write> fieldDot: array<f32>;
 @group(0) @binding(2) var<storage, read_write> gradX: array<f32>;
 @group(0) @binding(3) var<storage, read_write> gradY: array<f32>;
-@group(0) @binding(4) var<storage, read_write> energyDensity: array<f32>;
+@group(0) @binding(4) var<storage, read_write> energyDensity: array<f32>;  // unused (kept for layout compat)
 @group(0) @binding(5) var<uniform> uniforms: FieldUniforms;
 
 // Group 1: self-gravity output arrays
@@ -15,9 +16,14 @@
 @group(1) @binding(1) var<storage, read_write> sgGradX: array<f32>;
 @group(1) @binding(2) var<storage, read_write> sgGradY: array<f32>;
 
-// ─── Energy Density: ρ = ½φ̇² + ½|∇φ|² + V(φ) ───
+// Group 2: FFT complex buffer (interleaved re/im pairs, size GRID*GRID*2)
+@group(2) @binding(0) var<storage, read_write> fftComplex: array<f32>;
+
+// ─── Fused: Energy Density + Pack (Higgs) ───
+// Computes ρ = ½φ̇² + ½|∇φ|² + V(φ), then writes ρ·cellArea directly
+// to interleaved complex FFT buffer (real part only, imaginary = 0).
 @compute @workgroup_size(8, 8)
-fn computeEnergyDensityHiggs(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn energyDensityHiggsAndPack(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ix = gid.x;
     let iy = gid.y;
     if (ix >= GRID || iy >= GRID) { return; }
@@ -39,11 +45,15 @@ fn computeEnergyDensityHiggs(@builtin(global_invocation_id) gid: vec3<u32>) {
     let vacOffset = 0.25 * muSq;
     rho += muSq * (-0.5 * phi * phi + 0.25 * phi * phi * phi * phi) + vacOffset;
 
-    energyDensity[idx] = rho;
+    // Pack directly into complex FFT buffer: re = ρ·dA, im = 0
+    let cellArea = cellW * cellH;
+    fftComplex[2u * idx] = rho * cellArea;
+    fftComplex[2u * idx + 1u] = 0.0;
 }
 
+// ─── Fused: Energy Density + Pack (Axion) ───
 @compute @workgroup_size(8, 8)
-fn computeEnergyDensityAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn energyDensityAxionAndPack(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ix = gid.x;
     let iy = gid.y;
     if (ix >= GRID || iy >= GRID) { return; }
@@ -64,24 +74,31 @@ fn computeEnergyDensityAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
     let halfMaSq = 0.5 * uniforms.axionMass * uniforms.axionMass;
     rho += halfMaSq * a * a;
 
-    energyDensity[idx] = rho;
+    // Pack directly into complex FFT buffer: re = ρ·dA, im = 0
+    let cellArea = cellW * cellH;
+    fftComplex[2u * idx] = rho * cellArea;
+    fftComplex[2u * idx + 1u] = 0.0;
 }
 
-// ─── Self-Gravity Gradients (topology-aware) ───
-// sgPhiFull is written by FFT convolution pipeline (field-fft.wgsl).
-// Border cells use nbIndex() for correct wrapping on periodic topologies.
+// ─── Fused: Unpack IFFT Result + SG Gradients ───
+// Reads Φ from interleaved complex IFFT output (real part at stride 2),
+// stores to sgPhiFull, and computes topology-aware central-difference gradients.
 @compute @workgroup_size(8, 8)
-fn computeSelfGravGradients(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn unpackAndSGGradients(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ix = gid.x;
     let iy = gid.y;
     if (ix >= GRID || iy >= GRID) { return; }
 
     let idx = iy * GRID + ix;
 
-    // Interior fast path
+    // Extract real part of IFFT result → Φ
+    let phi = fftComplex[2u * idx];
+    sgPhiFull[idx] = phi;
+
+    // Interior fast path: direct indexing of complex buffer at stride 2
     if (ix > 0u && ix < GRID_LAST && iy > 0u && iy < GRID_LAST) {
-        sgGradX[idx] = (sgPhiFull[idx + 1u] - sgPhiFull[idx - 1u]) * 0.5;
-        sgGradY[idx] = (sgPhiFull[idx + GRID] - sgPhiFull[idx - GRID]) * 0.5;
+        sgGradX[idx] = (fftComplex[2u * (idx + 1u)] - fftComplex[2u * (idx - 1u)]) * 0.5;
+        sgGradY[idx] = (fftComplex[2u * (idx + GRID)] - fftComplex[2u * (idx - GRID)]) * 0.5;
         return;
     }
 
@@ -92,10 +109,10 @@ fn computeSelfGravGradients(@builtin(global_invocation_id) gid: vec3<u32>) {
     let iL = nbIndex(i32(ix) - 1, i32(iy), bcMode, topoMode);
     let iB = nbIndex(i32(ix), i32(iy) + 1, bcMode, topoMode);
     let iT = nbIndex(i32(ix), i32(iy) - 1, bcMode, topoMode);
-    let fR = select(0.0, sgPhiFull[iR], iR >= 0);
-    let fL = select(0.0, sgPhiFull[iL], iL >= 0);
-    let fB = select(0.0, sgPhiFull[iB], iB >= 0);
-    let fT = select(0.0, sgPhiFull[iT], iT >= 0);
+    let fR = select(0.0, fftComplex[2u * u32(iR)], iR >= 0);
+    let fL = select(0.0, fftComplex[2u * u32(iL)], iL >= 0);
+    let fB = select(0.0, fftComplex[2u * u32(iB)], iB >= 0);
+    let fT = select(0.0, fftComplex[2u * u32(iT)], iT >= 0);
     sgGradX[idx] = (fR - fL) * 0.5;
     sgGradY[idx] = (fB - fT) * 0.5;
 }

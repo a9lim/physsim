@@ -2073,6 +2073,14 @@ export default class GPUPhysics {
                 { binding: 2, resource: { buffer: fb.sgGradY } },
             ],
         });
+        // Group 2: FFT complex buffer (fftA) for fused energy density + pack / unpack + gradient
+        this._fieldSelfGravBGs[which + '_g2'] = this.device.createBindGroup({
+            label: `fieldSelfGrav_${which}_g2`,
+            layout: this._fieldSelfGrav.bindGroupLayouts[2],
+            entries: [
+                { binding: 0, resource: { buffer: fb.fftA } },
+            ],
+        });
     }
 
     /** Ensure FFT bind groups exist for a given field. Also uploads Green's function Ĝ. */
@@ -2234,6 +2242,7 @@ export default class GPUPhysics {
 
         const sgBG0 = this._fieldSelfGravBGs[which];
         const sgBG1 = this._fieldSelfGravBGs[which + '_g1'];
+        const sgBG2 = this._fieldSelfGravBGs[which + '_g2'];
         const sg = this._fieldSelfGrav;
         const fft = this._fftPipelines;
         const fftBG = this._fftBGs[which];
@@ -2243,44 +2252,30 @@ export default class GPUPhysics {
         this._uploadGreenHat(which, this.domainW, this.domainH,
             softeningSq, this.boundaryMode === BOUND_LOOP, this.topologyMode);
 
-        // Compute energy density
+        // Fused: compute energy density and pack directly into fftA (complex format)
         const edPipeline = which === 'higgs'
-            ? sg.computeEnergyDensityHiggs
-            : sg.computeEnergyDensityAxion;
+            ? sg.energyDensityHiggsAndPack
+            : sg.energyDensityAxionAndPack;
         {
-            const p = encoder.beginComputePass({ label: `energyDensity_${tag}_${which}` });
+            const p = encoder.beginComputePass({ label: `energyDensityAndPack_${tag}_${which}` });
             p.setPipeline(edPipeline);
             p.setBindGroup(0, sgBG0);
             p.setBindGroup(1, sgBG1);
+            p.setBindGroup(2, sgBG2);
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }
 
-        // Copy ρ·dA to fftB (temp real source for packRealToComplex)
+        // Forward FFT rows then columns (data starts in fftA)
         const N = FIELD_GRID_RES;
         const N2 = N * N;
         const elemWG = Math.ceil(N2 / 256);
         const logN = Math.log2(N);
-        encoder.copyBufferToBuffer(fb.energyDensity, 0, fb.fftB, 0, N2 * 4);
-
-        // Pack real → complex (reads fftB, writes fftA)
-        {
-            _fftParamsU32[0] = 1; _fftParamsF32[1] = 0; _fftParamsU32[2] = 0; _fftParamsU32[3] = N; _fftParamsF32[4] = 1/N; _fftParamsU32[5] = 0; _fftParamsU32[6] = 0; _fftParamsU32[7] = 0;
-            this.device.queue.writeBuffer(this._fftParamsBuffer, 0, _fftParamsData);
-        }
-        {
-            const p = encoder.beginComputePass({ label: `packReal_${tag}_${which}` });
-            p.setPipeline(fft.packRealToComplex);
-            p.setBindGroup(0, fftBG.g0_AB);
-            p.dispatchWorkgroups(elemWG);
-            p.end();
-        }
-
-        // Forward FFT rows then columns
         let currentInA = true;
-        const dispatchButterfly = (stageLen, axis, isLast) => {
+
+        const dispatchButterfly = (stageLen, axis, dir, isLast) => {
             _fftParamsU32[0] = stageLen;
-            _fftParamsI32[1] = -1; // forward
+            _fftParamsI32[1] = dir;
             _fftParamsU32[2] = axis;
             _fftParamsU32[3] = N;
             _fftParamsF32[4] = 1 / N;
@@ -2288,21 +2283,19 @@ export default class GPUPhysics {
             this.device.queue.writeBuffer(this._fftParamsBuffer, 0, _fftParamsData);
 
             const bg = currentInA ? fftBG.g0_AB : fftBG.g0_BA;
-            const p = encoder.beginComputePass({ label: `fftFwd_${tag}_${axis}_${stageLen}_${which}` });
+            const p = encoder.beginComputePass({ label: `fft_${tag}_${dir < 0 ? 'fwd' : 'inv'}_${axis}_${stageLen}_${which}` });
             p.setPipeline(fft.fftButterfly);
             p.setBindGroup(0, bg);
             p.dispatchWorkgroups(elemWG);
             p.end();
             currentInA = !currentInA;
         };
-        for (let s = 0; s < logN; s++) dispatchButterfly(1 << s, 0, false);
-        for (let s = 0; s < logN; s++) dispatchButterfly(1 << s, 1, false);
 
-        // Pointwise multiply by Ĝ (data must be in fftA)
-        if (!currentInA) {
-            encoder.copyBufferToBuffer(fb.fftB, 0, fb.fftA, 0, N2 * 2 * 4);
-            currentInA = true;
-        }
+        // Forward FFT (direction = -1)
+        for (let s = 0; s < logN; s++) dispatchButterfly(1 << s, 0, -1, false);
+        for (let s = 0; s < logN; s++) dispatchButterfly(1 << s, 1, -1, false);
+
+        // Pointwise multiply by Ĝ (2×logN stages is even → data always in fftA)
         {
             const p = encoder.beginComputePass({ label: `complexMul_${tag}_${which}` });
             p.setPipeline(fft.complexMultiply);
@@ -2312,46 +2305,19 @@ export default class GPUPhysics {
             p.end();
         }
 
-        // Inverse FFT rows then columns
-        const dispatchButterflyInv = (stageLen, axis, isLast) => {
-            _fftParamsU32[0] = stageLen;
-            _fftParamsI32[1] = 1; // inverse
-            _fftParamsU32[2] = axis;
-            _fftParamsU32[3] = N;
-            _fftParamsF32[4] = 1 / N;
-            _fftParamsU32[5] = isLast ? 1 : 0;
-            this.device.queue.writeBuffer(this._fftParamsBuffer, 0, _fftParamsData);
+        // Inverse FFT (direction = +1, normalize on last stage)
+        currentInA = true;
+        for (let s = 0; s < logN; s++) dispatchButterfly(1 << s, 0, 1, s === logN - 1);
+        for (let s = 0; s < logN; s++) dispatchButterfly(1 << s, 1, 1, s === logN - 1);
 
-            const bg = currentInA ? fftBG.g0_AB : fftBG.g0_BA;
-            const p = encoder.beginComputePass({ label: `fftInv_${tag}_${axis}_${stageLen}_${which}` });
-            p.setPipeline(fft.fftButterfly);
-            p.setBindGroup(0, bg);
-            p.dispatchWorkgroups(elemWG);
-            p.end();
-            currentInA = !currentInA;
-        };
-        for (let s = 0; s < logN; s++) dispatchButterflyInv(1 << s, 0, s === logN - 1);
-        for (let s = 0; s < logN; s++) dispatchButterflyInv(1 << s, 1, s === logN - 1);
-
-        // Unpack complex → real (fftA → fftB → sgPhiFull)
-        if (!currentInA) {
-            encoder.copyBufferToBuffer(fb.fftB, 0, fb.fftA, 0, N2 * 2 * 4);
-        }
+        // Fused: unpack IFFT result from fftA (complex) + compute SG gradients
+        // 2×logN stages is even → data always in fftA
         {
-            const p = encoder.beginComputePass({ label: `unpackReal_${tag}_${which}` });
-            p.setPipeline(fft.unpackComplexToReal);
-            p.setBindGroup(0, fftBG.g0_AB);
-            p.dispatchWorkgroups(elemWG);
-            p.end();
-        }
-        encoder.copyBufferToBuffer(fb.fftB, 0, fb.sgPhiFull, 0, N2 * 4);
-
-        // SG gradients
-        {
-            const p = encoder.beginComputePass({ label: `sgGradients_${tag}_${which}` });
-            p.setPipeline(sg.computeSelfGravGradients);
+            const p = encoder.beginComputePass({ label: `unpackAndSGGrad_${tag}_${which}` });
+            p.setPipeline(sg.unpackAndSGGradients);
             p.setBindGroup(0, sgBG0);
             p.setBindGroup(1, sgBG1);
+            p.setBindGroup(2, sgBG2);
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }
@@ -2426,20 +2392,12 @@ export default class GPUPhysics {
             this._dispatchSelfGravity(encoder, which, fb, gridWG, 'pre');
         }
 
-        // Step 6: KDK Störmer-Verlet
+        // Step 6: KDK Störmer-Verlet (Laplacian computed inline in half-kick, NaN fixup in drift)
         const halfKickPipeline = which === 'higgs'
             ? evo.higgsHalfKick
             : evo.axionHalfKick;
 
-        // Laplacian (1st)
-        {
-            const p = encoder.beginComputePass({ label: `laplacian1_${which}` });
-            p.setPipeline(evo.computeLaplacian);
-            p.setBindGroup(0, evolveBG);
-            p.dispatchWorkgroups(gridWG, gridWG);
-            p.end();
-        }
-        // Half-kick (1st)
+        // Half-kick (1st) — computes Laplacian inline
         {
             const p = encoder.beginComputePass({ label: `halfKick1_${which}` });
             p.setPipeline(halfKickPipeline);
@@ -2447,18 +2405,10 @@ export default class GPUPhysics {
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
         }
-        // Field drift
+        // Field drift (with NaN/Inf fixup)
         {
             const p = encoder.beginComputePass({ label: `fieldDrift_${which}` });
             p.setPipeline(evo.fieldDrift);
-            p.setBindGroup(0, evolveBG);
-            p.dispatchWorkgroups(gridWG, gridWG);
-            p.end();
-        }
-        // Laplacian (2nd)
-        {
-            const p = encoder.beginComputePass({ label: `laplacian2_${which}` });
-            p.setPipeline(evo.computeLaplacian);
             p.setBindGroup(0, evolveBG);
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
@@ -2475,21 +2425,10 @@ export default class GPUPhysics {
             }
             this._dispatchSelfGravity(encoder, which, fb, gridWG, 'mid');
         }
-        // Half-kick (2nd)
+        // Half-kick (2nd) — computes Laplacian inline
         {
             const p = encoder.beginComputePass({ label: `halfKick2_${which}` });
             p.setPipeline(halfKickPipeline);
-            p.setBindGroup(0, evolveBG);
-            p.dispatchWorkgroups(gridWG, gridWG);
-            p.end();
-        }
-        // NaN fixup
-        {
-            const nanPipeline = which === 'higgs'
-                ? evo.nanFixupHiggs
-                : evo.nanFixupAxion;
-            const p = encoder.beginComputePass({ label: `nanFixup_${which}` });
-            p.setPipeline(nanPipeline);
             p.setBindGroup(0, evolveBG);
             p.dispatchWorkgroups(gridWG, gridWG);
             p.end();
