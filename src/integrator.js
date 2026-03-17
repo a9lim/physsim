@@ -99,6 +99,7 @@ export default class Physics {
         this.domainW = 0;
         this.domainH = 0;
         this.periodic = false;
+        this._boundaryMode = BOUND_DESPAWN;
         this._topologyConst = TORUS;
         this.potentialEnergy = 0;
         this._forcesInit = false;
@@ -518,6 +519,7 @@ export default class Physics {
         this.domainW = width;
         this.domainH = height;
         this.periodic = (boundaryMode === BOUND_LOOP);
+        this._boundaryMode = boundaryMode;
         this._topologyConst = topology;
 
         let n = particles.length;
@@ -549,10 +551,10 @@ export default class Physics {
             }
             if (this.gravityEnabled && this.sim) {
                 if (this.higgsEnabled && this.sim.higgsField) {
-                    this.sim.higgsField.applyGravForces(particles, width, height);
+                    this.sim.higgsField.applyGravForces(particles, width, height, boundaryMode, this._topologyConst);
                 }
                 if (this.axionEnabled && this.sim.axionField) {
-                    this.sim.axionField.applyGravForces(particles, width, height);
+                    this.sim.axionField.applyGravForces(particles, width, height, boundaryMode, this._topologyConst);
                 }
             }
             if (this.bosonInterEnabled && this.sim) {
@@ -1183,10 +1185,10 @@ export default class Physics {
             }
             if (this.gravityEnabled && this.sim) {
                 if (this.higgsEnabled && this.sim.higgsField) {
-                    this.sim.higgsField.applyGravForces(particles, width, height);
+                    this.sim.higgsField.applyGravForces(particles, width, height, boundaryMode, this._topologyConst);
                 }
                 if (this.axionEnabled && this.sim.axionField) {
-                    this.sim.axionField.applyGravForces(particles, width, height);
+                    this.sim.axionField.applyGravForces(particles, width, height, boundaryMode, this._topologyConst);
                 }
             }
             if (this.bosonInterEnabled && this.sim) {
@@ -1409,9 +1411,9 @@ export default class Physics {
         this.potentialEnergy = getPEAccum();
         if (this.gravityEnabled && this.sim) {
             if (this.higgsEnabled && this.sim.higgsField)
-                this.potentialEnergy += this.sim.higgsField.gravPE(particles, width, height);
+                this.potentialEnergy += this.sim.higgsField.gravPE(particles, width, height, boundaryMode, this._topologyConst);
             if (this.axionEnabled && this.sim.axionField)
-                this.potentialEnergy += this.sim.axionField.gravPE(particles, width, height);
+                this.potentialEnergy += this.sim.axionField.gravPE(particles, width, height, boundaryMode, this._topologyConst);
         }
 
         // Reconstruct all display forces in a single fused loop
@@ -1498,9 +1500,9 @@ export default class Physics {
         if (this.gravityEnabled && this.sim) {
             const dw = this.domainW, dh = this.domainH;
             if (this.higgsEnabled && this.sim.higgsField)
-                this.potentialEnergy += this.sim.higgsField.gravPE(particles, dw, dh);
+                this.potentialEnergy += this.sim.higgsField.gravPE(particles, dw, dh, this._boundaryMode, this._topologyConst);
             if (this.axionEnabled && this.sim.axionField)
-                this.potentialEnergy += this.sim.axionField.gravPE(particles, dw, dh);
+                this.potentialEnergy += this.sim.axionField.gravPE(particles, dw, dh, this._boundaryMode, this._topologyConst);
         }
     }
 

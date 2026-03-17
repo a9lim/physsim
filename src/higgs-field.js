@@ -71,7 +71,7 @@ export default class HiggsField extends ScalarField {
         // φ̈ = (1+4Φ)∇²φ + 2∇Φ·∇φ - (1+2Φ)V'(φ)
         // Correction: 4Φ·∇²φ + 2∇Φ·∇φ + 2Φ·(μ²_eff·φ - μ²·φ³)
         const sgOn = gravityEnabled;
-        if (sgOn) this.computeSelfGravity(domainW, domainH, softeningSq, bcMode === BOUND_LOOP, topoConst);
+        if (sgOn) this.computeSelfGravity(domainW, domainH, softeningSq, bcMode, topoConst);
         const sgFull = this._sgPhiFull;
         const sgGx = this._sgGradX;
         const sgGy = this._sgGradY;
@@ -126,7 +126,7 @@ export default class HiggsField extends ScalarField {
         // ── Refresh self-gravity at drifted field (restores O(dt²) for GR correction) ──
         if (sgOn) {
             this._computeGridGradients(bcMode, topoConst, 1);
-            this.computeSelfGravity(domainW, domainH, softeningSq, bcMode === BOUND_LOOP, topoConst);
+            this.computeSelfGravity(domainW, domainH, softeningSq, bcMode, topoConst);
         }
 
         // ── Second half-kick (with updated field values) ──

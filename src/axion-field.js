@@ -78,7 +78,7 @@ export default class AxionField extends ScalarField {
         // ä = (1+4Φ)∇²a + 2∇Φ·∇a - (1+2Φ)V'(a)
         // Correction: 4Φ·∇²a + 2∇Φ·∇a - 2Φ·m_a²·a
         const sgOn = gravityEnabled;
-        if (sgOn) this.computeSelfGravity(domainW, domainH, softeningSq, bcMode === BOUND_LOOP, topoConst);
+        if (sgOn) this.computeSelfGravity(domainW, domainH, softeningSq, bcMode, topoConst);
         const sgFull = this._sgPhiFull;
         const sgGx = this._sgGradX;
         const sgGy = this._sgGradY;
@@ -128,7 +128,7 @@ export default class AxionField extends ScalarField {
         // ── Refresh self-gravity at drifted field (restores O(dt²) for GR correction) ──
         if (sgOn) {
             this._computeGridGradients(bcMode, topoConst, 0);
-            this.computeSelfGravity(domainW, domainH, softeningSq, bcMode === BOUND_LOOP, topoConst);
+            this.computeSelfGravity(domainW, domainH, softeningSq, bcMode, topoConst);
         }
 
         // ── Second half-kick (with updated field values) ──

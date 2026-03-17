@@ -208,9 +208,9 @@ PQS (cubic B-spline, order 3) grid on 64×64 (CPU) or 128×128 (GPU). 4×4 stenc
 
 Key methods: `_nb()` (topology-aware neighbor, absolute coords), `_depositPQS()` (interior fast path + border fallback), `_computeLaplacian()` (interior fast path + border path), `_computeGridGradients()`, `_computeViscosity()`, `interpolate()`, `gradient()`, `interpolateWithGradient()` (fused, single stencil walk), `_fieldEnergy()`, `depositExcitation()`, `_computeEnergyDensity()`, `applyGravForces()`, `gravPE()`, `computeSelfGravity()`.
 
-**Particle-field gravity** (requires Gravity): F = -m·∇Φ via PQS interpolation of pre-computed potential gradients, O(N×16). Subclasses override `_addPotentialEnergy()` for V(φ). Active whenever gravity is on.
+**Particle-field gravity** (requires Gravity): F = -m·∇Φ via PQS interpolation of pre-computed potential gradients, O(N×16). Topology-aware via `_nb()` for border stencils. Subclasses override `_addPotentialEnergy()` for V(φ). Active whenever gravity is on.
 
-**Field self-gravity** (requires Gravity): Weak-field GR correction to Klein-Gordon. Φ computed via FFT convolution with Green's function G(r) = -1/√(r²+ε²) on the full grid, O(N² log N). Φ clamped to ±`SELFGRAV_PHI_MAX` (0.2) to prevent Laplacian sign-flip instability when `1+4Φ < 0`.
+**Field self-gravity** (requires Gravity): Weak-field GR correction to Klein-Gordon. Φ computed via FFT convolution with Green's function G(r) = -1/√(r²+ε²) on the full grid, O(N² log N). Green's function uses `minImage()` for periodic topologies (exact circular convolution). Gradients of Φ computed via topology-aware central differences (`_nb()`/`nbIndex()`). Φ clamped to ±`SELFGRAV_PHI_MAX` (0.2) to prevent Laplacian sign-flip instability when `1+4Φ < 0`.
 
 **Numerical viscosity**: `ν·∇²(ȧ)` in both KDK half-kicks, where `ν = 1/(2√(1/dx²+1/dy²))`. Gives Q=1 at Nyquist frequency, vanishes for physical (long-wavelength) modes. Prevents grid-scale noise from ringing indefinitely at high resolution.
 

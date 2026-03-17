@@ -67,8 +67,9 @@ fn computeEnergyDensityAxion(@builtin(global_invocation_id) gid: vec3<u32>) {
     energyDensity[idx] = rho;
 }
 
-// ─── Self-Gravity Gradients (clamp-to-edge) ───
+// ─── Self-Gravity Gradients (topology-aware) ───
 // sgPhiFull is written by FFT convolution pipeline (field-fft.wgsl).
+// Border cells use nbIndex() for correct wrapping on periodic topologies.
 @compute @workgroup_size(8, 8)
 fn computeSelfGravGradients(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ix = gid.x;
@@ -76,7 +77,6 @@ fn computeSelfGravGradients(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (ix >= GRID || iy >= GRID) { return; }
 
     let idx = iy * GRID + ix;
-    let phi = sgPhiFull[idx];
 
     // Interior fast path
     if (ix > 0u && ix < GRID_LAST && iy > 0u && iy < GRID_LAST) {
@@ -85,11 +85,17 @@ fn computeSelfGravGradients(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
 
-    // Border: clamp-to-edge
-    let fR = select(phi, sgPhiFull[idx + 1u], ix < GRID_LAST);
-    let fL = select(phi, sgPhiFull[idx - 1u], ix > 0u);
-    let fB = select(phi, sgPhiFull[idx + GRID], iy < GRID_LAST);
-    let fT = select(phi, sgPhiFull[idx - GRID], iy > 0u);
+    // Border: topology-aware via nbIndex()
+    let bcMode = uniforms.boundaryMode;
+    let topoMode = uniforms.topologyMode;
+    let iR = nbIndex(i32(ix) + 1, i32(iy), bcMode, topoMode);
+    let iL = nbIndex(i32(ix) - 1, i32(iy), bcMode, topoMode);
+    let iB = nbIndex(i32(ix), i32(iy) + 1, bcMode, topoMode);
+    let iT = nbIndex(i32(ix), i32(iy) - 1, bcMode, topoMode);
+    let fR = select(0.0, sgPhiFull[iR], iR >= 0);
+    let fL = select(0.0, sgPhiFull[iL], iL >= 0);
+    let fB = select(0.0, sgPhiFull[iB], iB >= 0);
+    let fT = select(0.0, sgPhiFull[iT], iT >= 0);
     sgGradX[idx] = (fR - fL) * 0.5;
     sgGradY[idx] = (fB - fT) * 0.5;
 }

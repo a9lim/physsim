@@ -550,14 +550,16 @@ export default class ScalarField {
         fft2d(re, im, GRID, false);
     }
 
-    /** Central-difference gradient of gravitational potential (clamp-to-edge). */
-    _computeSelfGravGradients() {
+    /** Central-difference gradient of gravitational potential.
+     *  Topology-aware via _nb() for border cells (matches _computeGridGradients pattern). */
+    _computeSelfGravGradients(bcMode, topoConst) {
         const GRID = this._grid;
         const phi = this._sgPhiFull;
         const gx = this._sgGradX;
         const gy = this._sgGradY;
         const last = GRID - 1;
 
+        // Interior fast path: direct indexing (no _nb dispatch)
         for (let iy = 1; iy < last; iy++) {
             const row = iy * GRID;
             for (let ix = 1; ix < last; ix++) {
@@ -567,11 +569,15 @@ export default class ScalarField {
             }
         }
 
-        // Border cells (explicit edge traversal, ~248 cells vs 4096)
+        // Border cells: topology-aware via _nb() (~248 cells)
         const _sgBorderCell = (ix, iy) => {
             const idx = iy * GRID + ix;
-            gx[idx] = ((ix < last ? phi[idx + 1] : phi[idx]) - (ix > 0 ? phi[idx - 1] : phi[idx])) * 0.5;
-            gy[idx] = ((iy < last ? phi[idx + GRID] : phi[idx]) - (iy > 0 ? phi[idx - GRID] : phi[idx])) * 0.5;
+            const iL = this._nb(ix - 1, iy, bcMode, topoConst);
+            const iR = this._nb(ix + 1, iy, bcMode, topoConst);
+            const iT = this._nb(ix, iy - 1, bcMode, topoConst);
+            const iB = this._nb(ix, iy + 1, bcMode, topoConst);
+            gx[idx] = ((iR >= 0 ? phi[iR] : 0) - (iL >= 0 ? phi[iL] : 0)) * 0.5;
+            gy[idx] = ((iB >= 0 ? phi[iB] : 0) - (iT >= 0 ? phi[iT] : 0)) * 0.5;
         };
         for (let ix = 0; ix < GRID; ix++) { _sgBorderCell(ix, 0); _sgBorderCell(ix, last); }
         for (let iy = 1; iy < last; iy++) { _sgBorderCell(0, iy); _sgBorderCell(last, iy); }
@@ -579,7 +585,9 @@ export default class ScalarField {
 
     /** Compute self-gravity potential and gradient from field energy density.
      *  FFT convolution O(N² log N) on full grid: Φ = G * ρ · dA. */
-    computeSelfGravity(domainW, domainH, softeningSq, periodic, topology) {
+    computeSelfGravity(domainW, domainH, softeningSq, bcMode, topoConst) {
+        const periodic = bcMode === BOUND_LOOP;
+        const topology = topoConst;
         this._computeEnergyDensity(domainW, domainH);
 
         const GRID = this._grid;
@@ -634,13 +642,13 @@ export default class ScalarField {
             phi[i] = re[i];
         }
 
-        this._computeSelfGravGradients();
+        this._computeSelfGravGradients(bcMode, topoConst);
     }
 
     /** Apply gravitational force from field potential onto particles.
      *  F = -m · ∇Φ(x), where Φ and ∇Φ are computed by computeSelfGravity().
      *  PQS interpolation of pre-computed grid gradients: O(N × 16). */
-    applyGravForces(particles, domainW, domainH) {
+    applyGravForces(particles, domainW, domainH, bcMode, topoConst) {
         if (!this._hasEnergy) return;
         const GRID = this._grid;
         const cellW = domainW / GRID;
@@ -679,8 +687,7 @@ export default class ScalarField {
                 for (let jy = 0; jy < 4; jy++) {
                     const wyj = wy[jy];
                     for (let jx = 0; jx < 4; jx++) {
-                        const idx = iy + jy - 1 < 0 || iy + jy - 1 >= GRID || ix + jx - 1 < 0 || ix + jx - 1 >= GRID
-                            ? -1 : (iy + jy - 1) * GRID + (ix + jx - 1);
+                        const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
                         if (idx >= 0) {
                             const w = wx[jx] * wyj;
                             gx += gxArr[idx] * w;
@@ -703,7 +710,7 @@ export default class ScalarField {
     /** Gravitational PE between particles and field potential.
      *  PE = Σ m · Φ(x), where Φ is computed by computeSelfGravity().
      *  PQS interpolation: O(N × 16). */
-    gravPE(particles, domainW, domainH) {
+    gravPE(particles, domainW, domainH, bcMode, topoConst) {
         if (!this._hasEnergy) return 0;
         const GRID = this._grid;
         const cellW = domainW / GRID;
@@ -737,8 +744,7 @@ export default class ScalarField {
                 for (let jy = 0; jy < 4; jy++) {
                     const wyj = wy[jy];
                     for (let jx = 0; jx < 4; jx++) {
-                        const idx = iy + jy - 1 < 0 || iy + jy - 1 >= GRID || ix + jx - 1 < 0 || ix + jx - 1 >= GRID
-                            ? -1 : (iy + jy - 1) * GRID + (ix + jx - 1);
+                        const idx = this._nb(ix + jx - 1, iy + jy - 1, bcMode, topoConst);
                         if (idx >= 0) val += phi[idx] * wx[jx] * wyj;
                     }
                 }
