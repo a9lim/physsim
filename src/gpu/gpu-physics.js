@@ -1234,7 +1234,17 @@ export default class GPUPhysics {
         passAbsorbPi.dispatchWorkgroups(piWG);
         passAbsorbPi.end();
 
-        // decayPions (always pairwise — no tree needed)
+    }
+
+    /**
+     * Dispatch pion decay (once per frame, NOT per substep).
+     * Decay probability is calibrated per PHYSICS_DT, matching CPU path.
+     */
+    _dispatchPionDecay(encoder) {
+        if (!this._radiationEnabled && !this._yukawaEnabled) return;
+        const p4 = this._phase4;
+        const bgs = this._phase4BindGroups;
+        const piWG = Math.ceil(GPU_MAX_PIONS / 64);
         const passDecay = encoder.beginComputePass({ label: 'decayPions' });
         passDecay.setPipeline(p4.decayPions.pipeline);
         passDecay.setBindGroup(0, bgs.bosG0);
@@ -3098,7 +3108,10 @@ export default class GPUPhysics {
                 this.dispatchHeatmap(encoder, this._lastCamera);
             }
 
-            // Boson gravity (if enabled): build boson tree + particle<-boson + boson<->boson
+            // Pion decay (once per frame, not per substep — probability calibrated per PHYSICS_DT)
+            this._dispatchPionDecay(encoder);
+
+            // Boson interaction (if enabled): build boson tree + particle<-boson + boson<->boson + pion Coulomb + annihilation
             this._dispatchBosonInteraction(encoder);
 
             // Dead particle garbage collection
