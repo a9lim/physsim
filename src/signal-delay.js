@@ -188,8 +188,14 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             else if (s > segDt) s = segDt;
 
             const frac = s / segDt;
-            _delayedOut.x  = xLo + frac * (xHi - xLo);
-            _delayedOut.y  = yLo + frac * (yHi - yLo);
+            if (periodic) {
+                minImage(xLo, yLo, xHi, yHi, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                _delayedOut.x = xLo + frac * _miOut.x;
+                _delayedOut.y = yLo + frac * _miOut.y;
+            } else {
+                _delayedOut.x = xLo + frac * (xHi - xLo);
+                _delayedOut.y = yLo + frac * (yHi - yLo);
+            }
             _delayedOut.vx = histVx[loIdx] + frac * (histVx[hiIdx] - histVx[loIdx]);
             _delayedOut.vy = histVy[loIdx] + frac * (histVy[hiIdx] - histVy[loIdx]);
             _delayedOut.angw = source.histAngW[loIdx] + frac * (source.histAngW[hiIdx] - source.histAngW[loIdx]);

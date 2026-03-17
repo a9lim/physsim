@@ -105,27 +105,31 @@ export function wrapPosition(p, topology, W, H) {
         return;
     }
 
-    // RP2: both axes carry glide reflections
-    if (p.pos.x < 0) {
-        p.pos.x += W;
-        p.pos.y = H - p.pos.y;
-        p.w.y = -p.w.y; p.vel.y = -p.vel.y;
-        p.angw = -p.angw; p.angVel = -p.angVel;
-    } else if (p.pos.x > W) {
-        p.pos.x -= W;
-        p.pos.y = H - p.pos.y;
-        p.w.y = -p.w.y; p.vel.y = -p.vel.y;
-        p.angw = -p.angw; p.angVel = -p.angVel;
-    }
-    if (p.pos.y < 0) {
-        p.pos.y += H;
-        p.pos.x = W - p.pos.x;
-        p.w.x = -p.w.x; p.vel.x = -p.vel.x;
-        p.angw = -p.angw; p.angVel = -p.angVel;
-    } else if (p.pos.y > H) {
-        p.pos.y -= H;
-        p.pos.x = W - p.pos.x;
-        p.w.x = -p.w.x; p.vel.x = -p.vel.x;
-        p.angw = -p.angw; p.angVel = -p.angVel;
+    // RP2: apply identifications until in bounds (max 2 iterations)
+    for (let iter = 0; iter < 2; iter++) {
+        let wrapped = false;
+        if (p.pos.x < 0) {
+            p.pos.x += W; p.pos.y = H - p.pos.y;
+            p.w.y = -p.w.y; p.vel.y = -p.vel.y;
+            p.angw = -p.angw; p.angVel = -p.angVel;
+            wrapped = true;
+        } else if (p.pos.x > W) {
+            p.pos.x -= W; p.pos.y = H - p.pos.y;
+            p.w.y = -p.w.y; p.vel.y = -p.vel.y;
+            p.angw = -p.angw; p.angVel = -p.angVel;
+            wrapped = true;
+        }
+        if (p.pos.y < 0) {
+            p.pos.y += H; p.pos.x = W - p.pos.x;
+            p.w.x = -p.w.x; p.vel.x = -p.vel.x;
+            p.angw = -p.angw; p.angVel = -p.angVel;
+            wrapped = true;
+        } else if (p.pos.y > H) {
+            p.pos.y -= H; p.pos.x = W - p.pos.x;
+            p.w.x = -p.w.x; p.vel.x = -p.vel.x;
+            p.angw = -p.angw; p.angVel = -p.angVel;
+            wrapped = true;
+        }
+        if (!wrapped) break;
     }
 }
