@@ -300,16 +300,16 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
         let prev = casParticleIndex(cur, NONE, i32(pIdx));
 
         if (prev == NONE) {
-            // Successfully claimed empty node — we're a leaf.
-            // Record that this child slot is now populated so the parent knows
-            // how many children to wait for during aggregate phase.
+            // Successfully claimed empty leaf.
+            // Walk up to root, incrementing ancestor leaf-descendant counts.
+            // computeAggregates uses these counts to know how many visitors
+            // to expect before it is safe to aggregate an internal node.
             setParticleCount(cur, 1u);
-            let parentIdx = getParentIndex(cur);
-            if (parentIdx >= 0) {
-                // Increment parent's populated-child count (stored in particleCount
-                // field; internal nodes are always 0 after subdivision and we reuse
-                // it here as an atomic counter during the insert phase).
-                atomicAddParticleCount(u32(parentIdx), 1u);
+            var ancestor: i32 = getParentIndex(cur);
+            loop {
+                if (ancestor < 0) { break; }
+                atomicAddParticleCount(u32(ancestor), 1u);
+                ancestor = getParentIndex(u32(ancestor));
             }
             break;
         }
@@ -326,18 +326,24 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let displacedIdx = u32(prev);
                 let displacedPs = particleState[displacedIdx];
 
+                // Transition cur from leaf to internal: reset particleCount to 0.
+                // The old particleCount=1 (from leaf claim) is stale — internal
+                // nodes use particleCount as leaf-descendant count for aggregation.
+                setParticleCount(cur, 0u);
+
                 // Reinsert displaced particle into correct child.
-                // Also bump the subdivided node's populated-child count so
-                // computeAggregates knows how many children to wait for.
                 let childForDisplaced = childFor(cur, displacedPs.posX, displacedPs.posY);
                 setParticleIndex(childForDisplaced, i32(displacedIdx));
                 setParticleCount(childForDisplaced, 1u);
-                atomicAddParticleCount(cur, 1u); // cur now has one populated child
+                // Count displaced particle as a leaf descendant of cur (and all
+                // of cur's ancestors). Cur's ancestors were already incremented
+                // by the displaced particle's original insertion — but that was
+                // for a leaf at cur's level, not one level deeper. The net effect
+                // is the same count (cur's ancestors still have +1 from the
+                // original), so we only need to increment cur itself.
+                atomicAddParticleCount(cur, 1u);
 
                 // Mark current node as internal (clear particleIndex).
-                // Do NOT reset particleCount — it is now the populated-child
-                // counter used by computeAggregates to know how many visitors
-                // to wait for before aggregating.
                 setParticleIndex(cur, NONE);
 
                 // Now descend into correct child for our particle
