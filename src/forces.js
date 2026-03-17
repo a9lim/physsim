@@ -159,14 +159,8 @@ export function computeAllForces(particles, toggles, pool, root, barnesHutEnable
  * and their gradients are accumulated for the Boris rotation step.
  */
 export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMomentum, out, toggles, periodic, domW, domH, halfDomW, halfDomH, topology = TORUS, sAxMod = 1, sYukMod = 1, signalDelayed = false) {
-    // M3: Inline torus minImage — avoids cross-module call in O(N²) loop
     let rx, ry;
-    if (periodic && topology === TORUS) {
-        rx = sx - p.pos.x;
-        if (rx > halfDomW) rx -= domW; else if (rx < -halfDomW) rx += domW;
-        ry = sy - p.pos.y;
-        if (ry > halfDomH) ry -= domH; else if (ry < -halfDomH) ry += domH;
-    } else if (periodic) {
+    if (periodic) {
         minImage(p.pos.x, p.pos.y, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
         rx = _miOut.x; ry = _miOut.y;
     } else {
@@ -449,14 +443,8 @@ function _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
                    sx, sy, svx, svy, sMass, sCharge, sYukMod,
                    softeningSq, periodic, domW, domH, halfDomW, halfDomH, topology,
                    gravitomagEnabled, magneticEnabled, yukawaEnabled, yukawaMu) {
-    // M3: Inline torus minImage
     let rx, ry;
-    if (periodic && topology === TORUS) {
-        rx = sx - px;
-        if (rx > halfDomW) rx -= domW; else if (rx < -halfDomW) rx += domW;
-        ry = sy - py;
-        if (ry > halfDomH) ry -= domH; else if (ry < -halfDomH) ry += domH;
-    } else if (periodic) {
+    if (periodic) {
         minImage(px, py, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
         rx = _miOut.x; ry = _miOut.y;
     } else {
@@ -529,14 +517,8 @@ function _compute1PNTreeWalk(particle, pool, rootIdx, softeningSq, periodic, dom
         const nodeIdx = _1pnStack[--stackTop];
         if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
-        // M3: Inline torus minImage for 1PN tree walk
         let dx, dy;
-        if (periodic && topology === TORUS) {
-            dx = pool.comX[nodeIdx] - px;
-            if (dx > halfDomW) dx -= domW; else if (dx < -halfDomW) dx += domW;
-            dy = pool.comY[nodeIdx] - py;
-            if (dy > halfDomH) dy -= domH; else if (dy < -halfDomH) dy += domH;
-        } else if (periodic) {
+        if (periodic) {
             minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
             dx = _miOut.x; dy = _miOut.y;
         } else {
@@ -644,14 +626,8 @@ export function calculateForce(particle, pool, rootIdx, theta, out, toggles, per
         const nodeIdx = _bhStack[--stackTop];
         if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
-        // M3: Inline torus minImage for BH tree walk
         let dx, dy;
-        if (periodic && topology === TORUS) {
-            dx = pool.comX[nodeIdx] - px;
-            if (dx > halfDomW) dx -= domW; else if (dx < -halfDomW) dx += domW;
-            dy = pool.comY[nodeIdx] - py;
-            if (dy > halfDomH) dy -= domH; else if (dy < -halfDomH) dy += domH;
-        } else if (periodic) {
+        if (periodic) {
             minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
             dx = _miOut.x; dy = _miOut.y;
         } else {
