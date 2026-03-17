@@ -62,7 +62,7 @@ src/
   relativity.js            25 lines  angwToAngVel(), setVelocity()
   canvas-renderer.js       20 lines  CanvasRenderer: thin adapter wrapping Renderer to RenderBackend
   gpu/
-    gpu-physics.js       3860 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
+    gpu-physics.js       3887 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
                                       all dispatch methods, bind group creation, adaptive substepping, readback,
                                       per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
     gpu-pipelines.js     1965 lines  Pipeline + bind group layout creation for all compute/render shaders,
@@ -74,7 +74,7 @@ src/
                                       trail buffers, staging, boson tree visitor flags
     gpu-constants.js      298 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                       _PALETTE colors, single source of truth for JS/WGSL constants
-    shaders/               52 files  WGSL compute + render shaders (9886 lines total)
+    shaders/               52 files  WGSL compute + render shaders (9888 lines total)
 ```
 
 ## Key Imports
@@ -315,6 +315,8 @@ Boundary "loop": Torus (TORUS=0), Klein bottle (KLEIN=1), RP² (RP2=2). `minImag
 
 `QuadTreePool`: SoA typed arrays, 512-node pool (grows). BH_THETA = 0.5, QUADTREE_CAPACITY = 4. Depth guard max 48. **Always built** every substep regardless of BH toggle -- used by collisions, hit testing, and optionally BH force computation.
 
+**GPU tree build** (`tree-build.wgsl`): 4 dispatches (computeBounds, initRoot, insertParticles, computeAggregates). Lock-free CAS insertion with LOCK_BIT. Bottom-up aggregation via visitor-flag counting: `visitorFlags[node]` = number of populated children (set during insertion), `particleCount` on internal nodes = actual visit counter (reset to 0 on subdivision). Each non-empty child subtree sends exactly one thread (the last visitor) up to its parent. Tree resets use `encoder.copyBufferToBuffer` (not `queue.writeBuffer`) because the tree may be built twice per substep (before forces + after drift for 1PN VV); queue-level operations would execute before the encoder starts, preventing proper inter-build resets.
+
 **Dead particles in GPU tree**: Retired particles (FLAG_RETIRED, mass zeroed) are inserted into the GPU BH tree alongside alive/ghost particles. `computeAggregates` uses `deathMass`/`deathAngVel` from `ParticleAux` for retired particle leaf data. At leaf level in `forces-tree.wgsl`, retired particles use signal delay with `isDead=true`. The CPU dead-particle path remains pairwise (separate loop in `computeAllForces`). The GPU `pair-force.wgsl` also keeps a pairwise dead scan for when BH is off.
 
 ## Toggle Dependencies
@@ -376,12 +378,12 @@ Falls back to CPU on WebGPU unavailability or device loss. Force CPU via `?cpu=1
 - `shared-rng.wgsl`: `pcgHash(seed)`/`pcgRand(seed)` PCG hash PRNG.
 
 **Additional shared includes** (prepended selectively via `getTreePrefix()`):
-- `shared-tree-nodes.wgsl`: Read-only BH node accessors (`getMinX`, `getComX`, `getTotalMass`, etc.). Used by forces-tree and collision. tree-build.wgsl has its own atomic versions.
+- `shared-tree-nodes.wgsl`: Read-only BH node accessors (`getMinX`, `getComX`, `getTotalMass`, `getParticleIndex`, etc.). Used by forces-tree, collision, onePN (tree variant), and bosons-tree-walk. tree-build.wgsl has its own atomic versions.
 
 **Prepend chains** (all start with `wgslConstants + shared-structs + shared-topology + shared-rng`):
 - Phase 2 shaders + `boundary.wgsl`: + `common.wgsl` (toggle helpers, `fullMinImage` wrapper). Force shaders also get `signal-delay-common.wgsl`.
 - Field shaders: + `field-common.wgsl` (FieldUniforms, PQS helpers).
-- Tree-walk shaders (forces-tree, collision): + `shared-tree-nodes.wgsl` (node accessors).
+- Tree-walk shaders (forces-tree, collision, onePN tree, bosons-tree-walk): + `shared-tree-nodes.wgsl` (node accessors).
 - Signal delay shaders (forces-tree, onePN, heatmap): + `signal-delay-common.wgsl` (getDelayedStateGPU).
 - All other standalone shaders: shared prefix only.
 - `fetchShader()` exported from `gpu-pipelines.js` (single source of truth, imported by gpu-physics.js and gpu-renderer.js).
@@ -403,6 +405,7 @@ Falls back to CPU on WebGPU unavailability or device loss. Force CPU via `?cpu=1
 - Staging buffers must not be copied to while mapped from previous `mapAsync`
 - JS uniform write order must exactly match WGSL struct member order
 - `addParticle()` must initialize ALL per-particle buffers. `axYukMod` defaults to (1.0, 1.0) not (0, 0)
+- `queue.writeBuffer()` executes at queue time (before encoder starts), NOT inline with compute passes. Use `encoder.copyBufferToBuffer()` from pre-allocated staging for resets between dispatches within the same command buffer (e.g., tree build resets between pre-force and post-drift builds)
 
 ### Numerical Stability (GPU)
 
