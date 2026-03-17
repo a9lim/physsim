@@ -59,10 +59,10 @@ export default class MasslessBoson {
         _pool.length = 0;
     }
 
-    update(dt, particles, pool, root) {
+    update(dt, particles, pool, root, periodic, topology, domW, domH, halfDomW, halfDomH) {
         // Gravitational deflection: GR gives 2× Newtonian (null geodesic)
         if (pool && root >= 0) {
-            treeDeflectBoson(this.pos, this.vel, 2 * dt, pool, root);
+            treeDeflectBoson(this.pos, this.vel, 2 * dt, pool, root, periodic, topology, domW, domH, halfDomW, halfDomH);
         } else if (particles) {
             for (let i = 0; i < particles.length; i++) {
                 const p = particles[i];

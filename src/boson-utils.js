@@ -3,8 +3,10 @@
 // massless (photon) and massive (pion) bosons. Shared to avoid code duplication.
 
 import { BH_THETA_SQ, BOSON_SOFTENING_SQ, EPSILON } from './config.js';
+import { minImage } from './topology.js';
 
 let _bStack = new Int32Array(256);
+const _miOut = { x: 0, y: 0 };
 
 /**
  * Iterative BH tree walk for gravitational deflection of a boson.
@@ -15,7 +17,7 @@ let _bStack = new Int32Array(256);
  * @param {Object} pool     - quadtree pool (particle tree)
  * @param {number} rootIdx  - tree root index
  */
-export function treeDeflectBoson(pos, targetVec, scale, pool, rootIdx) {
+export function treeDeflectBoson(pos, targetVec, scale, pool, rootIdx, periodic, topology, domW, domH, halfDomW, halfDomH) {
     const px = pos.x, py = pos.y;
     let stackTop = 0;
     if (_bStack.length < pool.maxNodes) _bStack = new Int32Array(pool.maxNodes);
@@ -25,8 +27,14 @@ export function treeDeflectBoson(pos, targetVec, scale, pool, rootIdx) {
         const nodeIdx = _bStack[--stackTop];
         if (pool.totalMass[nodeIdx] < EPSILON) continue;
 
-        const dx = pool.comX[nodeIdx] - px;
-        const dy = pool.comY[nodeIdx] - py;
+        let dx, dy;
+        if (periodic) {
+            minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
+            dx = _miOut.x; dy = _miOut.y;
+        } else {
+            dx = pool.comX[nodeIdx] - px;
+            dy = pool.comY[nodeIdx] - py;
+        }
         const dSq = dx * dx + dy * dy;
         const size = pool.bw[nodeIdx] * 2;
 
@@ -35,8 +43,14 @@ export function treeDeflectBoson(pos, targetVec, scale, pool, rootIdx) {
             const base = nodeIdx * pool.nodeCapacity;
             for (let i = 0; i < cnt; i++) {
                 const p = pool.points[base + i];
-                const pdx = p.pos.x - px;
-                const pdy = p.pos.y - py;
+                let pdx, pdy;
+                if (periodic) {
+                    minImage(px, py, p.pos.x, p.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                    pdx = _miOut.x; pdy = _miOut.y;
+                } else {
+                    pdx = p.pos.x - px;
+                    pdy = p.pos.y - py;
+                }
                 const rSq = pdx * pdx + pdy * pdy + BOSON_SOFTENING_SQ;
                 const invRSq = 1 / rSq;
                 const f = scale * p.mass * Math.sqrt(invRSq) * invRSq;
@@ -67,7 +81,7 @@ export function treeDeflectBoson(pos, targetVec, scale, pool, rootIdx) {
  * @param {Object} pool     - quadtree pool (particle tree)
  * @param {number} rootIdx  - tree root index
  */
-export function treeDeflectBosonCoulomb(pos, targetVec, scale, pool, rootIdx) {
+export function treeDeflectBosonCoulomb(pos, targetVec, scale, pool, rootIdx, periodic, topology, domW, domH, halfDomW, halfDomH) {
     const px = pos.x, py = pos.y;
     let stackTop = 0;
     if (_bStack.length < pool.maxNodes) _bStack = new Int32Array(pool.maxNodes);
@@ -78,8 +92,14 @@ export function treeDeflectBosonCoulomb(pos, targetVec, scale, pool, rootIdx) {
         const nodeCharge = pool.totalCharge[nodeIdx];
         if (nodeCharge === 0) continue;
 
-        const dx = pool.comX[nodeIdx] - px;
-        const dy = pool.comY[nodeIdx] - py;
+        let dx, dy;
+        if (periodic) {
+            minImage(px, py, pool.comX[nodeIdx], pool.comY[nodeIdx], topology, domW, domH, halfDomW, halfDomH, _miOut);
+            dx = _miOut.x; dy = _miOut.y;
+        } else {
+            dx = pool.comX[nodeIdx] - px;
+            dy = pool.comY[nodeIdx] - py;
+        }
         const dSq = dx * dx + dy * dy;
         const size = pool.bw[nodeIdx] * 2;
 
@@ -89,8 +109,14 @@ export function treeDeflectBosonCoulomb(pos, targetVec, scale, pool, rootIdx) {
             for (let i = 0; i < cnt; i++) {
                 const p = pool.points[base + i];
                 if (p.charge === 0) continue;
-                const pdx = p.pos.x - px;
-                const pdy = p.pos.y - py;
+                let pdx, pdy;
+                if (periodic) {
+                    minImage(px, py, p.pos.x, p.pos.y, topology, domW, domH, halfDomW, halfDomH, _miOut);
+                    pdx = _miOut.x; pdy = _miOut.y;
+                } else {
+                    pdx = p.pos.x - px;
+                    pdy = p.pos.y - py;
+                }
                 const rSq = pdx * pdx + pdy * pdy + BOSON_SOFTENING_SQ;
                 const invRSq = 1 / rSq;
                 const f = scale * p.charge * Math.sqrt(invRSq) * invRSq;

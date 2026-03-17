@@ -561,7 +561,7 @@ export default class Physics {
             if (this.bosonInterEnabled && this.sim) {
                 const bRoot = this._buildBosonTree();
                 if (bRoot >= 0 && this.gravityEnabled) {
-                    computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq);
+                    computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq, this.periodic, this._topologyConst, this.domainW, this.domainH);
                 }
             }
             if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, initRoot);
@@ -1201,11 +1201,11 @@ export default class Physics {
                 const bRoot = this._buildBosonTree();
                 if (bRoot >= 0) {
                     if (this.gravityEnabled) {
-                        computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq);
-                        applyBosonBosonGravity(this.sim.photons, this.sim.pions, dtSub, this._bosonPool, bRoot);
+                        computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq, this.periodic, this._topologyConst, this.domainW, this.domainH);
+                        applyBosonBosonGravity(this.sim.photons, this.sim.pions, dtSub, this._bosonPool, bRoot, this.periodic, this._topologyConst, this.domainW, this.domainH);
                     }
                     if (this.coulombEnabled) {
-                        applyPionPionCoulomb(this.sim.pions, dtSub, this._bosonPool, bRoot);
+                        applyPionPionCoulomb(this.sim.pions, dtSub, this._bosonPool, bRoot, this.periodic, this._topologyConst, this.domainW, this.domainH);
                     }
                     // π⁺π⁻ annihilation: opposite-charge pions → 2 photons
                     if (this.coulombEnabled || this.yukawaEnabled) {
