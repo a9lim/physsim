@@ -292,6 +292,7 @@ export const BARNES_HUT_BIT  = 16384;
 export const BOSON_INTER_BIT = 32768;
 
 // toggles1
+export const FIELD_GRAV_BIT_T1 = 1;
 export const HERTZ_BOUNCE_BIT_T1 = 2;
 
 // History buffer layout

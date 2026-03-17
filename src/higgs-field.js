@@ -109,6 +109,7 @@ export default class HiggsField extends ScalarField {
                     + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal
                     - portalTerm * phiVal - 2 * Phi * portalTerm * phiVal;
                 fieldDot[i] += ddphi * halfDt;
+                if (phiVal !== phiVal) { field[i] = 1; fieldDot[i] = 0; }
             }
         } else if (portalArr) {
             for (let i = 0; i < GRID_SQ; i++) {
@@ -118,6 +119,7 @@ export default class HiggsField extends ScalarField {
                     - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
                     - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * phiVal;
                 fieldDot[i] += ddphi * halfDt;
+                if (phiVal !== phiVal) { field[i] = 1; fieldDot[i] = 0; }
             }
         } else {
             for (let i = 0; i < GRID_SQ; i++) {
@@ -126,6 +128,7 @@ export default class HiggsField extends ScalarField {
                     - muSq * phiVal * phiVal * phiVal
                     - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
                 fieldDot[i] += ddphi * halfDt;
+                if (phiVal !== phiVal) { field[i] = 1; fieldDot[i] = 0; }
             }
         }
 

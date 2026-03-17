@@ -36,7 +36,7 @@
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
 import { fetchShader, createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFFTPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
-import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, HERTZ_BOUNCE_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
+import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, FIELD_GRAV_BIT_T1, HERTZ_BOUNCE_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, GPU_MAX_PHOTONS, GPU_MAX_PIONS,
     GPU_MAX_PARTICLES, GPU_HEATMAP_GRID, PHYSICS_DT,
@@ -222,6 +222,7 @@ export default class GPUPhysics {
         // Toggle state
         this._toggles0 = 0;
         this._toggles1 = 0;
+        this._isDarkTheme = document.documentElement.dataset.theme === 'dark';
         this._gravityEnabled = false;
         this._coulombEnabled = false;
         this._magneticEnabled = false;
@@ -1735,10 +1736,11 @@ export default class GPUPhysics {
         this._toggles0 = t0;
 
         let t1 = 0;
-        if (physics.gravityEnabled) t1 |= 1; // field gravity follows gravity
+        if (physics.gravityEnabled) t1 |= FIELD_GRAV_BIT_T1; // field gravity follows gravity
         if (physics.collisionMode === COL_BOUNCE) t1 |= HERTZ_BOUNCE_BIT_T1;
         this._toggles1 = t1;
 
+        this._isDarkTheme = document.documentElement.dataset.theme === 'dark';
         this._gravityEnabled = physics.gravityEnabled;
         this._coulombEnabled = physics.coulombEnabled;
         this._magneticEnabled = physics.magneticEnabled;
@@ -3098,7 +3100,7 @@ export default class GPUPhysics {
             // Update particle colors from charge/mass/antimatter state
             if (this._updateColorsPipeline && this.aliveCount > 0) {
                 _colorUniformData[0] = this._blackHoleEnabled ? 1 : 0;
-                _colorUniformData[1] = document.documentElement.dataset.theme === 'dark' ? 1 : 0;
+                _colorUniformData[1] = this._isDarkTheme ? 1 : 0;
                 this.device.queue.writeBuffer(this._colorUniformBuffer, 0, _colorUniformData);
                 const p = encoder.beginComputePass({ label: 'updateColors' });
                 p.setPipeline(this._updateColorsPipeline);

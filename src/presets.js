@@ -71,7 +71,7 @@ export const PRESETS = {
         desc: 'Gravitational wave emission — quadrupole radiation drains orbital energy',
         // particles carry zero charge so EM forces contribute nothing.
         toggles: {
-            gravity: true, coulomb: true, magnetic: false, gravitomag: true,
+            gravity: true, coulomb: false, magnetic: false, gravitomag: true,
             relativity: true, onepn: true, blackhole: false,
             radiation: true, spinorbit: false, disintegration: false,
             barneshut: false, bosonInter: false, yukawa: false, axion: false, expansion: false, higgs: false,

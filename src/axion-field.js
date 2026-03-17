@@ -114,17 +114,22 @@ export default class AxionField extends ScalarField {
                     - 2 * Phi * mASq * aVal
                     - portalTerm * aVal - 2 * Phi * portalTerm * aVal;
                 fieldDot[i] += ddA * halfDt;
+                if (aVal !== aVal) { field[i] = 0; fieldDot[i] = 0; }
             }
         } else if (portalArr) {
             for (let i = 0; i < GRID_SQ; i++) {
-                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * field[i];
+                const aVal = field[i];
+                const ddA = lap[i] - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
+                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * aVal;
                 fieldDot[i] += ddA * halfDt;
+                if (aVal !== aVal) { field[i] = 0; fieldDot[i] = 0; }
             }
         } else {
             for (let i = 0; i < GRID_SQ; i++) {
-                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
+                const aVal = field[i];
+                const ddA = lap[i] - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
                 fieldDot[i] += ddA * halfDt;
+                if (aVal !== aVal) { field[i] = 0; fieldDot[i] = 0; }
             }
         }
 
