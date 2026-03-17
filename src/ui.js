@@ -1,7 +1,7 @@
 // ─── UI Setup ───
 // Wires all panel controls, toggles, presets, shortcuts, and info tips to the sim.
 import { loadPreset, PRESETS, PRESET_ORDER } from './presets.js';
-import { PHYSICS_DT, WORLD_SCALE, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, colFromString, boundFromString, topoFromString } from './config.js';
+import { PHYSICS_DT, WORLD_SCALE, SCALAR_GRID, GPU_SCALAR_GRID, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, colFromString, boundFromString, topoFromString } from './config.js';
 import { REFERENCE } from './reference.js';
 import { BACKEND_CPU, BACKEND_GPU } from './backend-interface.js';
 import Particle from './particle.js';
@@ -365,6 +365,37 @@ export function setupUI(sim) {
                         p.updateColor();
                         sim.particles.push(p);
                     }
+                    // Read back scalar field data (GPU 128×128 → CPU 64×64)
+                    const fieldData = await sim._gpuPhysics.readbackFieldData();
+                    const ratio = GPU_SCALAR_GRID / SCALAR_GRID; // 2
+                    const cpuGrid = SCALAR_GRID;
+                    const _downsample = (gpuArr) => {
+                        const cpu = new Float64Array(cpuGrid * cpuGrid);
+                        const invBlock = 1 / (ratio * ratio);
+                        for (let cy = 0; cy < cpuGrid; cy++) {
+                            for (let cx = 0; cx < cpuGrid; cx++) {
+                                let sum = 0;
+                                for (let dy = 0; dy < ratio; dy++) {
+                                    for (let dx = 0; dx < ratio; dx++) {
+                                        sum += gpuArr[(cy * ratio + dy) * GPU_SCALAR_GRID + (cx * ratio + dx)];
+                                    }
+                                }
+                                cpu[cy * cpuGrid + cx] = sum * invBlock;
+                            }
+                        }
+                        return cpu;
+                    };
+                    if (fieldData.higgsField && sim.physics.higgsEnabled) {
+                        const hf = sim.ensureHiggsField();
+                        hf.field.set(_downsample(fieldData.higgsField));
+                        hf.fieldDot.set(_downsample(fieldData.higgsFieldDot));
+                    }
+                    if (fieldData.axionField && sim.physics.axionEnabled) {
+                        const af = sim.ensureAxionField();
+                        af.field.set(_downsample(fieldData.axionField));
+                        af.fieldDot.set(_downsample(fieldData.axionFieldDot));
+                    }
+
                     sim.clearBosons();
                     sim.stats.resetBaseline();
                 } catch (e) {

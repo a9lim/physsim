@@ -3509,6 +3509,48 @@ export default class GPUPhysics {
     }
 
     /**
+     * Read back scalar field data from GPU for CPU fallback on backend switch.
+     * Returns Float32Arrays at GPU resolution (FIELD_GRID_RES × FIELD_GRID_RES).
+     * Caller must downsample from GPU grid (128×128) to CPU grid (64×64).
+     * @returns {Promise<{higgsField, higgsFieldDot, axionField, axionFieldDot}>}
+     */
+    async readbackFieldData() {
+        const gridBytes = FIELD_GRID_RES * FIELD_GRID_RES * 4;
+        const result = { higgsField: null, higgsFieldDot: null, axionField: null, axionFieldDot: null };
+
+        const readBuffer = async (gpuBuffer) => {
+            const staging = this.device.createBuffer({
+                size: gridBytes,
+                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+            });
+            const encoder = this.device.createCommandEncoder({ label: 'field-readback' });
+            encoder.copyBufferToBuffer(gpuBuffer, 0, staging, 0, gridBytes);
+            this.device.queue.submit([encoder.finish()]);
+            await staging.mapAsync(GPUMapMode.READ);
+            const data = new Float32Array(FIELD_GRID_RES * FIELD_GRID_RES);
+            data.set(new Float32Array(staging.getMappedRange()));
+            staging.unmap();
+            staging.destroy();
+            return data;
+        };
+
+        try {
+            if (this._higgsBuffers) {
+                result.higgsField = await readBuffer(this._higgsBuffers.field);
+                result.higgsFieldDot = await readBuffer(this._higgsBuffers.fieldDot);
+            }
+            if (this._axionBuffers) {
+                result.axionField = await readBuffer(this._axionBuffers.field);
+                result.axionFieldDot = await readBuffer(this._axionBuffers.fieldDot);
+            }
+        } catch (e) {
+            console.warn('[physsim] Field readback failed:', e);
+        }
+
+        return result;
+    }
+
+    /**
      * Load a save state into GPU buffers.
      * @param {Object} state - JSON state from serialize() or CPU saveState()
      * @param {Object} sim - The Simulation instance
