@@ -192,12 +192,13 @@ export async function createTreeBuildPipelines(device, wgslConstants = '') {
         ],
     });
 
-    // Group 1: packed particle state + derived = 2 bindings (rw for encoder compat)
+    // Group 1: packed particle state + derived + aux = 3 bindings (rw for encoder compat)
     const group1Layout = device.createBindGroupLayout({
         label: 'treeBuild_group1',
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         ],
     });
 
