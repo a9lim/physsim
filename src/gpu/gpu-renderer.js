@@ -1201,14 +1201,22 @@ export default class GPURenderer {
     }
 
     destroy() {
+        const _d = b => { if (b) b.destroy(); };
         this.cameraBuffer.destroy();
-        if (this._arrowUniformBuffer) this._arrowUniformBuffer.destroy();
-        if (this._trailUniformBuffer) this._trailUniformBuffer.destroy();
+        _d(this._arrowUniformBuffer);
+        _d(this._trailUniformBuffer);
+        _d(this._torqueUniformBuffer);
+        _d(this._ringUniformBuffer);
         if (this._fieldRenderUniformBuffers) {
             this._fieldRenderUniformBuffers.higgs.destroy();
             this._fieldRenderUniformBuffers.axion.destroy();
         }
-        if (this._heatmapRenderUniformBuffer) this._heatmapRenderUniformBuffer.destroy();
+        _d(this._heatmapRenderUniformBuffer);
+        this._arrowUniformBuffer = null;
+        this._trailUniformBuffer = null;
+        this._torqueUniformBuffer = null;
+        this._ringUniformBuffer = null;
+        this._heatmapRenderUniformBuffer = null;
     }
 }
 

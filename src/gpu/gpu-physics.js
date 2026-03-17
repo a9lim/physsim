@@ -36,7 +36,7 @@
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
 import { fetchShader, createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFFTPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
-import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, HIST_META_STRIDE } from './gpu-constants.js';
+import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, HERTZ_BOUNCE_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
     HISTORY_STRIDE, GPU_MAX_PHOTONS, GPU_MAX_PIONS,
     GPU_MAX_PARTICLES, GPU_HEATMAP_GRID, PHYSICS_DT,
@@ -262,6 +262,7 @@ export default class GPUPhysics {
         this._heatmapFrame = 0;
 
         // Phase 5: Pipelines (lazy-initialized)
+        this._phase5Ready = false;
         this._fieldDeposit = null;
         this._fieldEvolve = null;
         this._fieldForces = null;
@@ -1460,42 +1461,46 @@ export default class GPUPhysics {
         if (this._collisionMode !== COL_MERGE) return;
         this._mergeResultsPending = true;
 
-        const b = this.buffers;
-        const encoder = this.device.createCommandEncoder();
-        encoder.copyBufferToBuffer(b.mergeResultCounter, 0, b.mergeCountStaging, 0, 4);
-        this.device.queue.submit([encoder.finish()]);
+        try {
+            const b = this.buffers;
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyBufferToBuffer(b.mergeResultCounter, 0, b.mergeCountStaging, 0, 4);
+            this.device.queue.submit([encoder.finish()]);
 
-        await b.mergeCountStaging.mapAsync(GPUMapMode.READ);
-        const countData = new Uint32Array(b.mergeCountStaging.getMappedRange().slice(0));
-        b.mergeCountStaging.unmap();
+            await b.mergeCountStaging.mapAsync(GPUMapMode.READ);
+            const countData = new Uint32Array(b.mergeCountStaging.getMappedRange().slice(0));
+            b.mergeCountStaging.unmap();
 
-        const mergeCount = countData[0];
-        if (mergeCount > 0) {
-            const readBytes = Math.min(mergeCount, this.buffers.maxParticles) * 16;
-            const encoder2 = this.device.createCommandEncoder();
-            encoder2.copyBufferToBuffer(b.mergeResultBuffer, 0, b.mergeResultStaging, 0, readBytes);
-            this.device.queue.submit([encoder2.finish()]);
+            const mergeCount = countData[0];
+            if (mergeCount > 0) {
+                const readBytes = Math.min(mergeCount, this.buffers.maxParticles) * 16;
+                const encoder2 = this.device.createCommandEncoder();
+                encoder2.copyBufferToBuffer(b.mergeResultBuffer, 0, b.mergeResultStaging, 0, readBytes);
+                this.device.queue.submit([encoder2.finish()]);
 
-            await b.mergeResultStaging.mapAsync(GPUMapMode.READ);
-            const resultData = new Float32Array(b.mergeResultStaging.getMappedRange(0, readBytes).slice(0));
-            b.mergeResultStaging.unmap();
+                await b.mergeResultStaging.mapAsync(GPUMapMode.READ);
+                const resultData = new Float32Array(b.mergeResultStaging.getMappedRange(0, readBytes).slice(0));
+                b.mergeResultStaging.unmap();
 
-            // Parse merge events: each is vec4(x, y, energy, type)
-            const events = [];
-            for (let i = 0; i < mergeCount; i++) {
-                events.push({
-                    x: resultData[i * 4],
-                    y: resultData[i * 4 + 1],
-                    energy: resultData[i * 4 + 2],
-                    type: resultData[i * 4 + 3] < 0.5 ? 'annihilation' : 'merge',
-                });
+                // Parse merge events: each is vec4(x, y, energy, type)
+                const events = [];
+                for (let i = 0; i < mergeCount; i++) {
+                    events.push({
+                        x: resultData[i * 4],
+                        y: resultData[i * 4 + 1],
+                        energy: resultData[i * 4 + 2],
+                        type: resultData[i * 4 + 3] < 0.5 ? 'annihilation' : 'merge',
+                    });
+                }
+                this._pendingMergeEvents = events;
+            } else {
+                this._pendingMergeEvents = [];
             }
-            this._pendingMergeEvents = events;
-        } else {
-            this._pendingMergeEvents = [];
+        } catch (e) {
+            // Device lost or other error — don't block future readbacks
+        } finally {
+            this._mergeResultsPending = false;
         }
-
-        this._mergeResultsPending = false;
     }
 
     /**
@@ -1594,17 +1599,22 @@ export default class GPUPhysics {
         }
         this._ghostCountPending = true;
 
-        const encoder = this.device.createCommandEncoder();
-        encoder.copyBufferToBuffer(this.buffers.ghostCounter, 0,
-            this.buffers.ghostCountStaging, 0, 4);
-        this.device.queue.submit([encoder.finish()]);
+        try {
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyBufferToBuffer(this.buffers.ghostCounter, 0,
+                this.buffers.ghostCountStaging, 0, 4);
+            this.device.queue.submit([encoder.finish()]);
 
-        await this.buffers.ghostCountStaging.mapAsync(GPUMapMode.READ);
-        const data = new Uint32Array(this.buffers.ghostCountStaging.getMappedRange().slice(0));
-        this.buffers.ghostCountStaging.unmap();
+            await this.buffers.ghostCountStaging.mapAsync(GPUMapMode.READ);
+            const data = new Uint32Array(this.buffers.ghostCountStaging.getMappedRange().slice(0));
+            this.buffers.ghostCountStaging.unmap();
 
-        this._ghostCount = data[0];
-        this._ghostCountPending = false;
+            this._ghostCount = data[0];
+        } catch (e) {
+            // Device lost or other error — don't block future readbacks
+        } finally {
+            this._ghostCountPending = false;
+        }
     }
 
     /**
@@ -1744,6 +1754,7 @@ export default class GPUPhysics {
 
         let t1 = 0;
         if (physics.gravityEnabled) t1 |= 1; // field gravity follows gravity
+        if (physics.collisionMode === COL_BOUNCE) t1 |= HERTZ_BOUNCE_BIT_T1;
         this._toggles1 = t1;
 
         this._gravityEnabled = physics.gravityEnabled;
@@ -1883,6 +1894,7 @@ export default class GPUPhysics {
      */
     async _ensurePhase5Pipelines() {
         if (this._fieldDeposit) return; // already initialized
+        this._phase5Ready = false;
 
         const wgslConstants = buildWGSLConstants();
 
@@ -1913,6 +1925,7 @@ export default class GPUPhysics {
         this._expansionPipeline = expansion;
         this._disintPipeline = disint;
         this._pairProdPipeline = pairProd;
+        this._phase5Ready = true;
     }
 
     /**
@@ -2345,6 +2358,7 @@ export default class GPUPhysics {
      * [refresh self-gravity] → Laplacian → halfKick → NaN fixup → compute gradients
      */
     _dispatchFieldEvolve(encoder, which, dt) {
+        if (!this._phase5Ready) return;
         const fb = which === 'higgs' ? this._higgsBuffers : this._axionBuffers;
         if (!fb || !this._fieldDeposit || !this._fieldEvolve) return;
 
@@ -3344,19 +3358,24 @@ export default class GPUPhysics {
         if (this._maxAccelPending) return;
         this._maxAccelPending = true;
 
-        const encoder = this.device.createCommandEncoder();
-        encoder.copyBufferToBuffer(this.buffers.maxAccelBuffer, 0,
-            this.buffers.maxAccelStaging, 0, 4);
-        this.device.queue.submit([encoder.finish()]);
+        try {
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyBufferToBuffer(this.buffers.maxAccelBuffer, 0,
+                this.buffers.maxAccelStaging, 0, 4);
+            this.device.queue.submit([encoder.finish()]);
 
-        await this.buffers.maxAccelStaging.mapAsync(GPUMapMode.READ);
-        const data = new Float32Array(this.buffers.maxAccelStaging.getMappedRange().slice(0));
-        this.buffers.maxAccelStaging.unmap();
+            await this.buffers.maxAccelStaging.mapAsync(GPUMapMode.READ);
+            const data = new Float32Array(this.buffers.maxAccelStaging.getMappedRange().slice(0));
+            this.buffers.maxAccelStaging.unmap();
 
-        // NaN/Inf guard: corrupted GPU readback would break adaptive substepping
-        const val = data[0];
-        this._maxAccel = (val === val && val < 1e20) ? val : 0;
-        this._maxAccelPending = false;
+            // NaN/Inf guard: corrupted GPU readback would break adaptive substepping
+            const val = data[0];
+            this._maxAccel = (val === val && val < 1e20) ? val : 0;
+        } catch (e) {
+            // Device lost or other error — don't block future readbacks
+        } finally {
+            this._maxAccelPending = false;
+        }
     }
 
     /**
@@ -3877,11 +3896,86 @@ export default class GPUPhysics {
     }
 
     destroy() {
+        const _d = b => { if (b) b.destroy(); };
+        const _dObj = o => { if (o) Object.values(o).forEach(_d); };
+
+        // Core buffers
         this.buffers.destroy();
         this.uniformBuffer.destroy();
-        if (this._dummyHistBuf) this._dummyHistBuf.destroy();
-        if (this._qtCounterSrc) this._qtCounterSrc.destroy();
-        if (this._qtBoundsSrc) this._qtBoundsSrc.destroy();
+        _d(this._dummyHistBuf);
+        _d(this._qtCounterSrc);
+        _d(this._qtBoundsSrc);
+
+        // Scalar field buffers
+        _dObj(this._higgsBuffers);
+        _dObj(this._axionBuffers);
+        _d(this._atomicGrid);
+        _d(this._fieldUniformBuffer);
+        _d(this._higgsUniformBuffer);
+        _d(this._axionUniformBuffer);
+        _d(this._dummyFieldBuffer);
+        _d(this._fieldParticleGravUniform);
+
+        // Heatmap
+        _dObj(this._heatmapBuffers);
+        _d(this._heatmapUniformBuffer);
+
+        // Excitation, disintegration, pair production
+        _dObj(this._excitationBuffers);
+        _dObj(this._disintBuffers);
+        _d(this._disintUniformBuffer);
+        _dObj(this._pairProdBuffers);
+        _d(this._pairProdUniformBuffer);
+
+        // Trails
+        _dObj(this._trailBuffers);
+
+        // Expansion
+        _d(this._expansionUniformBuffer);
+
+        // FFT
+        _d(this._fftParamsBuffer);
+
+        // Update colors
+        _d(this._colorUniformBuffer);
+
+        // Hit test
+        _d(this._hitUniformBuffer);
+        _d(this._hitResultBuffer);
+        _d(this._hitResultStaging);
+
+        // Stats
+        _d(this._statsUniformBuffer);
+        _d(this._statsDummyBuffer);
+
+        // Null out references
+        this._higgsBuffers = null;
+        this._axionBuffers = null;
+        this._atomicGrid = null;
+        this._heatmapBuffers = null;
+        this._excitationBuffers = null;
+        this._disintBuffers = null;
+        this._pairProdBuffers = null;
+        this._trailBuffers = null;
+        this._fieldUniformBuffer = null;
+        this._higgsUniformBuffer = null;
+        this._axionUniformBuffer = null;
+        this._dummyFieldBuffer = null;
+        this._fieldParticleGravUniform = null;
+        this._heatmapUniformBuffer = null;
+        this._expansionUniformBuffer = null;
+        this._disintUniformBuffer = null;
+        this._pairProdUniformBuffer = null;
+        this._fftParamsBuffer = null;
+        this._colorUniformBuffer = null;
+        this._hitUniformBuffer = null;
+        this._hitResultBuffer = null;
+        this._hitResultStaging = null;
+        this._statsUniformBuffer = null;
+        this._statsDummyBuffer = null;
+        this._dummyHistBuf = null;
+        this._qtCounterSrc = null;
+        this._qtBoundsSrc = null;
     }
 }
 
