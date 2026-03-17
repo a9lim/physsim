@@ -637,13 +637,14 @@ export default class GPUPhysics {
             ],
         });
 
-        // Group 1: particle state (packed struct) + derived
+        // Group 1: particle state (packed struct) + derived + aux
         this._treeBuildBG1 = this.device.createBindGroup({
             label: 'treeBuild_g1',
             layout: layouts[1],
             entries: [
                 { binding: 0, resource: { buffer: b.particleState } },
                 { binding: 1, resource: { buffer: b.derived } },
+                { binding: 2, resource: { buffer: b.particleAux } },
             ],
         });
 

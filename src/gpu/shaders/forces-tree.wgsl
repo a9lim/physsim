@@ -428,7 +428,42 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
             if (origIdx == pIdx) { continue; } // skip self
             if (sIdx == pIdx) { continue; }
-            if ((sPs.flags & FLAG_ALIVE) == 0u) { continue; } // skip dead/retired particles
+            let sIsRetired = (sPs.flags & FLAG_RETIRED) != 0u && (sPs.flags & FLAG_ALIVE) == 0u;
+            if ((sPs.flags & FLAG_ALIVE) == 0u && !sIsRetired) { continue; }
+
+            // Retired leaf particle: use signal delay with isDead=true
+            if (sIsRetired) {
+                let delayed = getDelayedStateGPU(
+                    sIdx, px, py, sdTime,
+                    isPeriodic, uniforms.domainW, uniforms.domainH,
+                    uniforms.topologyMode, true // isDead
+                );
+                if (!delayed.valid) { continue; }
+                let sAuxR = particleAux[sIdx];
+                let deadMass = sAuxR.deathMass;
+                let deadCharge = sPs.charge;
+                let bodyRadSq = pow(deadMass, 2.0 / 3.0);
+                let retAngwSq = delayed.angw * delayed.angw;
+                let sAngVelRet = delayed.angw / sqrt(1.0 + retAngwSq * bodyRadSq);
+                let sMagMomRet = MAG_MOMENT_K * deadCharge * sAngVelRet * bodyRadSq;
+                let sAngMomRet = INERTIA_K * deadMass * sAngVelRet * bodyRadSq;
+                let deadAxYuk = axYukMod_in[sIdx];
+                accumulateForce(
+                    &localAF, px, py, pMass, pCharge,
+                    pMagMoment, pAngMomentum, pAngVel, pVelX, pVelY,
+                    pAxMod, pYukMod,
+                    delayed.x, delayed.y,
+                    delayed.vx, delayed.vy,
+                    deadMass, deadCharge,
+                    sAngVelRet, sMagMomRet, sAngMomRet,
+                    select(deadAxYuk.x, 1.0, abs(deadAxYuk.x) < EPSILON),
+                    select(deadAxYuk.y, 1.0, abs(deadAxYuk.y) < EPSILON),
+                    pRi5,
+                    &localJerk,
+                    true, // useAberration
+                );
+                continue;
+            }
 
             let sAYM = axYukMod_in[sIdx];
 
@@ -546,47 +581,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
-    // After tree walk, iterate retired particles (pairwise, matching CPU behavior).
-    // Only relevant when relativity is on (dead particles exert forces via signal delay).
-    // Skip entirely otherwise — the O(N) scan per thread dominates BH O(N log N) cost.
-    // Uses particleCount (not aliveCount) because retired slots can be beyond aliveCount.
-    for (var ri = 0u; ri < select(0u, uniforms.particleCount, hasSignalDelay); ri++) {
-        let rPs = particleState[ri];
-        if ((rPs.flags & FLAG_RETIRED) == 0u) { continue; }
-        if ((rPs.flags & FLAG_ALIVE) != 0u) { continue; }
-
-        let delayed = getDelayedStateGPU(
-            ri, px, py, sdTime,
-            isPeriodic, uniforms.domainW, uniforms.domainH,
-            uniforms.topologyMode, true // isDead
-        );
-        if (!delayed.valid) { continue; }
-
-        let rAux = particleAux[ri];
-        let deadMass = rAux.deathMass;
-        let deadCharge = rPs.charge;
-        // Recompute dipoles from retarded angw using deathMass
-        let bodyRadSq = pow(deadMass, 2.0 / 3.0);
-        let retAngwSq = delayed.angw * delayed.angw;
-        let sAngVelRet = delayed.angw / sqrt(1.0 + retAngwSq * bodyRadSq);
-        let sMagMomRet = MAG_MOMENT_K * deadCharge * sAngVelRet * bodyRadSq;
-        let sAngMomRet = INERTIA_K * deadMass * sAngVelRet * bodyRadSq;
-        let deadAxYuk = axYukMod_in[ri];
-        accumulateForce(
-            &localAF, px, py, pMass, pCharge,
-            pMagMoment, pAngMomentum, pAngVel, pVelX, pVelY,
-            pAxMod, pYukMod,
-            delayed.x, delayed.y,
-            delayed.vx, delayed.vy,
-            deadMass, deadCharge,
-            sAngVelRet, sMagMomRet, sAngMomRet,
-            select(deadAxYuk.x, 1.0, abs(deadAxYuk.x) < EPSILON),
-            select(deadAxYuk.y, 1.0, abs(deadAxYuk.y) < EPSILON),
-            pRi5,
-            &localJerk,
-            true, // useAberration
-        );
-    }
+    // Dead (retired) particles are now inserted into the BH tree and handled
+    // at leaf level during the tree walk above, replacing the former O(N²) pairwise scan.
+    // The pairwise scan in pair-force.wgsl is still needed when BH is off.
 
     // NaN guard on total force — must happen BEFORE writing to global memory
     localAF.totalForce = vec2(

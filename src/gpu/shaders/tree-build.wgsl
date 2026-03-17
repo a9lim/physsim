@@ -37,9 +37,10 @@ const FP_INV_SCALE: f32 = 0.0000152587890625; // 1/65536
 @group(0) @binding(2) var<storage, read_write> bounds: array<atomic<i32>>;
 @group(0) @binding(3) var<storage, read_write> visitorFlags: array<atomic<u32>>;
 
-// Group 1: packed particle state + derived (read_write for encoder compat)
+// Group 1: packed particle state + derived + aux (read_write for encoder compat)
 @group(1) @binding(0) var<storage, read_write> particleState: array<ParticleState>;
 @group(1) @binding(1) var<storage, read_write> derived_in: array<ParticleDerived>;
+@group(1) @binding(2) var<storage, read_write> particleAux: array<ParticleAux>;
 
 @group(2) @binding(0) var<uniform> uniforms: SimUniforms;
 
@@ -147,7 +148,9 @@ fn computeBounds(@builtin(global_invocation_id) gid: vec3<u32>,
 
     if (idx < n) {
         let ps = particleState[idx];
-        if ((ps.flags & (FLAG_ALIVE | FLAG_GHOST)) != 0u) {
+        let isAliveOrGhost = (ps.flags & (FLAG_ALIVE | FLAG_GHOST)) != 0u;
+        let isRetired = (ps.flags & FLAG_RETIRED) != 0u && (ps.flags & FLAG_ALIVE) == 0u;
+        if (isAliveOrGhost || isRetired) {
             let px = i32(ps.posX * FP_SCALE);
             let py = i32(ps.posY * FP_SCALE);
             atomicMin(&wgMinX, px);
@@ -279,7 +282,9 @@ fn insertParticles(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (pIdx >= n) { return; }
 
     let ps = particleState[pIdx];
-    if ((ps.flags & (FLAG_ALIVE | FLAG_GHOST)) == 0u) { return; }
+    let isAliveOrGhost = (ps.flags & (FLAG_ALIVE | FLAG_GHOST)) != 0u;
+    let isRetired = (ps.flags & FLAG_RETIRED) != 0u && (ps.flags & FLAG_ALIVE) == 0u;
+    if (!isAliveOrGhost && !isRetired) { return; }
 
     let px = ps.posX;
     let py = ps.posY;
@@ -365,7 +370,9 @@ fn computeAggregates(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (pIdx >= n) { return; }
 
     let ps = particleState[pIdx];
-    if ((ps.flags & (FLAG_ALIVE | FLAG_GHOST)) == 0u) { return; }
+    let isAliveOrGhost = (ps.flags & (FLAG_ALIVE | FLAG_GHOST)) != 0u;
+    let isRetired = (ps.flags & FLAG_RETIRED) != 0u && (ps.flags & FLAG_ALIVE) == 0u;
+    if (!isAliveOrGhost && !isRetired) { return; }
 
     // Find the leaf node containing this particle
     // Walk from root to leaf to find our node
@@ -381,13 +388,36 @@ fn computeAggregates(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // Write leaf aggregates (single particle)
-    let m = ps.mass;
-    let q = ps.charge;
-    let drvd = derived_in[pIdx];
-    let mm = drvd.magMoment;
-    let am = drvd.angMomentum;
-    let wx = ps.velWX;
-    let wy = ps.velWY;
+    // Retired particles use deathMass/deathAngVel from aux buffer
+    // (their mass is zeroed on merge, so ps.mass == 0)
+    var m: f32;
+    var q: f32;
+    var mm: f32;
+    var am: f32;
+    var wx: f32;
+    var wy: f32;
+
+    if (isRetired) {
+        let aux = particleAux[pIdx];
+        m = aux.deathMass;
+        q = ps.charge;
+        let bodyRadSq = pow(m, 2.0 / 3.0);
+        let dAngW = aux.deathAngVel;
+        let dAngWSq = dAngW * dAngW;
+        let dAngVel = dAngW / sqrt(1.0 + dAngWSq * bodyRadSq);
+        mm = MAG_MOMENT_K * q * dAngVel * bodyRadSq;
+        am = INERTIA_K * m * dAngVel * bodyRadSq;
+        wx = 0.0;
+        wy = 0.0;
+    } else {
+        m = ps.mass;
+        q = ps.charge;
+        let drvd = derived_in[pIdx];
+        mm = drvd.magMoment;
+        am = drvd.angMomentum;
+        wx = ps.velWX;
+        wy = ps.velWY;
+    }
 
     setTotalMass(leafNode, m);
     setTotalCharge(leafNode, q);
