@@ -33,6 +33,8 @@ struct StatsUniforms {
 struct AxYukMod {
     axMod: f32,
     yukMod: f32,
+    higgsMod: f32,
+    _pad: f32,
 };
 
 // Group 0: particle data
@@ -225,9 +227,10 @@ fn main() {
                 }
             }
 
-            // Yukawa PE
+            // Yukawa PE (Higgs-modulated μ when both enabled)
             if (yukOn) {
-                let mur = yukMu * r;
+                let muEff = select(yukMu, yukMu * sqrt(modi.higgsMod * modj.higgsMod), higgsOn);
+                let mur = muEff * r;
                 if (mur < 6.0) {
                     let yukPE = -YUKAWA_COUPLING * yukModPair * pi.mass * pj.mass * exp(-mur) * invR;
                     pe += yukPE;

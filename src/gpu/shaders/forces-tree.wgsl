@@ -17,7 +17,7 @@ const MAX_STACK: u32 = 48u;
 @group(1) @binding(0) var<storage, read_write> particleState: array<ParticleState>;
 @group(1) @binding(1) var<storage, read_write> particleAux: array<ParticleAux>;
 @group(1) @binding(2) var<storage, read_write> derived_in: array<ParticleDerived>;
-@group(1) @binding(3) var<storage, read_write> axYukMod_in: array<vec2<f32>>; // packed: axMod, yukMod
+@group(1) @binding(3) var<storage, read_write> axYukMod_in: array<vec4<f32>>; // packed: axMod, yukMod, higgsMod, pad
 @group(1) @binding(4) var<storage, read_write> ghostOriginalIdx: array<u32>;
 
 // Group 2: force accumulators + maxAccel — 2 bindings (radiationState removed, jerk now in AllForces)
@@ -45,12 +45,12 @@ fn accumulateForce(
     pMass: f32, pCharge: f32,
     pMagMoment: f32, pAngMomentum: f32,
     pAngVel: f32, pVelX: f32, pVelY: f32,
-    pAxMod: f32, pYukMod: f32,
+    pAxMod: f32, pYukMod: f32, pHiggsMod: f32,
     sx: f32, sy: f32,
     svx: f32, svy: f32,
     sMass: f32, sCharge: f32,
     sAngVel: f32, sMagMoment: f32, sAngMomentum: f32,
-    sAxMod: f32, sYukMod: f32,
+    sAxMod: f32, sYukMod: f32, sHiggsMod: f32,
     pRi5: f32,
     jerkOut: ptr<function, vec2<f32>>,
     useAberration: bool,
@@ -217,10 +217,11 @@ fn accumulateForce(
         (*af).torques.y += fdTorque;
     }
 
-    // Yukawa
+    // Yukawa (Higgs-modulated μ when both enabled)
     if ((toggles & YUKAWA_BIT) != 0u) {
-        let mu = uniforms.yukawaMu;
-        let cutoffSq = (6.0 / mu) * (6.0 / mu);
+        let higgsOn = (toggles & HIGGS_BIT) != 0u;
+        let mu = select(uniforms.yukawaMu, uniforms.yukawaMu * sqrt(pHiggsMod * sHiggsMod), higgsOn);
+        let cutoffSq = select((6.0 / uniforms.yukawaMu) * (6.0 / uniforms.yukawaMu), (6.0 / max(mu, EPSILON)) * (6.0 / max(mu, EPSILON)), higgsOn);
         if (rawRSq < cutoffSq) {
             let r = 1.0 / invR;
             let muR = mu * r;
@@ -355,8 +356,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pBodyRadius = sqrt(pBodyRadiusSq);
     let pRi5 = pBodyRadiusSq * pBodyRadiusSq * pBodyRadius;
     let pAngW = ps.angW;
-    let pAxMod = axYukMod_in[pIdx].x;
-    let pYukMod = axYukMod_in[pIdx].y;
+    let pAym = axYukMod_in[pIdx];
+    let pAxMod = pAym.x;
+    let pYukMod = pAym.y;
+    let pHiggsMod = pAym.z;
 
     // Derive velocity from proper velocity
     let wSq = ps.velWX * ps.velWX + ps.velWY * ps.velWY;
@@ -451,13 +454,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 accumulateForce(
                     &localAF, px, py, pMass, pCharge,
                     pMagMoment, pAngMomentum, pAngVel, pVelX, pVelY,
-                    pAxMod, pYukMod,
+                    pAxMod, pYukMod, pHiggsMod,
                     delayed.x, delayed.y,
                     delayed.vx, delayed.vy,
                     deadMass, deadCharge,
                     sAngVelRet, sMagMomRet, sAngMomRet,
                     select(deadAxYuk.x, 1.0, abs(deadAxYuk.x) < EPSILON),
                     select(deadAxYuk.y, 1.0, abs(deadAxYuk.y) < EPSILON),
+                    select(deadAxYuk.z, 1.0, abs(deadAxYuk.z) < EPSILON),
                     pRi5,
                     &localJerk,
                     true, // useAberration
@@ -485,12 +489,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 accumulateForce(
                     &localAF, px, py, pMass, pCharge,
                     pMagMoment, pAngMomentum, pAngVel, pVelX, pVelY,
-                    pAxMod, pYukMod,
+                    pAxMod, pYukMod, pHiggsMod,
                     delayed.x, delayed.y,
                     delayed.vx, delayed.vy,
                     sPs.mass, sPs.charge,
                     sAngVelRet, sMagMomRet, sAngMomRet,
-                    sAYM.x, sAYM.y,
+                    sAYM.x, sAYM.y, sAYM.z,
                     pRi5,
                     &localJerk,
                     true, // useAberration
@@ -519,12 +523,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 accumulateForce(
                     &localAF, px, py, pMass, pCharge,
                     pMagMoment, pAngMomentum, pAngVel, pVelX, pVelY,
-                    pAxMod, pYukMod,
+                    pAxMod, pYukMod, pHiggsMod,
                     gsx, gsy,
                     delayed.vx, delayed.vy,
                     sPs.mass, sPs.charge,
                     sAngVelRet, sMagMomRet, sAngMomRet,
-                    sAYM.x, sAYM.y,
+                    sAYM.x, sAYM.y, sAYM.z,
                     pRi5,
                     &localJerk,
                     true, // useAberration
@@ -535,13 +539,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 accumulateForce(
                     &localAF, px, py, pMass, pCharge,
                     pMagMoment, pAngMomentum, pAngVel, pVelX, pVelY,
-                    pAxMod, pYukMod,
+                    pAxMod, pYukMod, pHiggsMod,
                     sPs.posX, sPs.posY,
                     sDerived.velX, sDerived.velY,
                     sPs.mass, sPs.charge,
                     sDerived.angVel,
                     sDerived.magMoment, sDerived.angMomentum,
-                    sAYM.x, sAYM.y,
+                    sAYM.x, sAYM.y, sAYM.z,
                     pRi5,
                     &localJerk,
                     false, // no aberration
@@ -561,7 +565,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 nodeMass, getTotalCharge(nodeIdx),
                 0.0, // sAngVel = 0 for aggregate
                 getTotalMagMoment(nodeIdx), getTotalAngMomentum(nodeIdx),
-                1.0, 1.0, // axMod/yukMod = 1 for aggregate
+                1.0, 1.0, 1.0, // axMod/yukMod/higgsMod = 1 for aggregate
                 pRi5,
                 &localJerk,
                 hasSignalDelay, // aberration on aggregates when signal delay active

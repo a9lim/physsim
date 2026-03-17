@@ -27,6 +27,7 @@ struct TileParticle {
     angMomentum: f32,
     axMod: f32,
     yukMod: f32,
+    higgsMod: f32,
     bodyRadSq: f32,  // pow(mass, 2/3) — true body radius squared (not BH horizon)
     srcIdx: u32,     // global index for signal delay lookup
 };
@@ -39,7 +40,7 @@ var<workgroup> tile: array<TileParticle, TILE_SIZE>;
 // Bind group 1: particle state (read_write for encoder compat) — 4 bindings
 @group(1) @binding(0) var<storage, read_write> particles: array<ParticleState>;
 @group(1) @binding(1) var<storage, read_write> derived: array<ParticleDerived>;
-@group(1) @binding(2) var<storage, read_write> axYukMod: array<vec2<f32>>;  // packed: axMod, yukMod
+@group(1) @binding(2) var<storage, read_write> axYukMod: array<vec4<f32>>;  // packed: axMod, yukMod, higgsMod, pad
 @group(1) @binding(3) var<storage, read_write> particleAux: array<ParticleAux>;
 
 // Bind group 2: force accumulators + maxAccel — 2 bindings
@@ -59,7 +60,7 @@ struct SourceData {
     velX: f32, velY: f32,
     mass: f32, charge: f32,
     angVel: f32, magMoment: f32, angMomentum: f32,
-    axMod: f32, yukMod: f32,
+    axMod: f32, yukMod: f32, higgsMod: f32,
     useAberration: bool,
 };
 
@@ -85,13 +86,13 @@ fn accumulatePairForce(
     pPosX: f32, pPosY: f32, pVelX: f32, pVelY: f32,
     pMass: f32, pCharge: f32, pAngVel: f32,
     pMagMom: f32, pAngMom: f32,
-    pAxMod: f32, pYukMod: f32,
+    pAxMod: f32, pYukMod: f32, pHiggsMod: f32,
     pRi5: f32,
     src: SourceData,
     softeningSq: f32,
     yukMu: f32, yukCutoffSq: f32,
     gravOn: bool, coulOn: bool, magOn: bool, gmOn: bool,
-    onePNOn: bool, yukawaOn: bool, radOn: bool,
+    onePNOn: bool, yukawaOn: bool, higgsOn: bool, radOn: bool,
     needAxMod: bool, isPeriodic: bool,
     accum: ptr<function, ForceAccum>,
 ) {
@@ -309,20 +310,21 @@ fn accumulatePairForce(
     // -- Yukawa --
     if (yukawaOn && rawRSq < yukCutoffSq) {
         let r_dist = 1.0 / invR;
-        let muR = yukMu * r_dist;
+        let mu = select(yukMu, yukMu * sqrt(pHiggsMod * src.higgsMod), higgsOn);
+        let muR = mu * r_dist;
         let expMuR = select(0.0, exp(-muR), muR < 80.0);
         let yukModPair = sqrt(max(pYukMod * src.yukMod, 0.0));
         let yukCoupling = uniforms.yukawaCoupling;
         let yukInvRa = select(invR, invR * aberr, src.useAberration);
         let fDir = yukCoupling * yukModPair * pMass * src.mass * expMuR
-                   * (invRSq + yukMu * invR) * yukInvRa;
+                   * (invRSq + mu * invR) * yukInvRa;
         (*accum).yukX += rx * fDir;
         (*accum).yukY += ry * fDir;
         (*accum).totalX += rx * fDir;
         (*accum).totalY += ry * fDir;
 
         if (radOn) {
-            let jRadial = -(3.0 * invRSq + 3.0 * yukMu * invR + yukMu * yukMu)
+            let jRadial = -(3.0 * invRSq + 3.0 * mu * invR + mu * mu)
                           * rDotVr * yukCoupling * yukModPair * pMass * src.mass
                           * expMuR * invRSq * yukInvRa;
             (*accum).jerkX += vrx * fDir + rx * jRadial;
@@ -336,7 +338,7 @@ fn accumulatePairForce(
             let nDotV1 = nx * pVelX + ny * pVelY;
             let nDotV2 = nx * src.velX + ny * src.velY;
             let v1DotV2 = pVelX * src.velX + pVelY * src.velY;
-            let alpha = 1.0 + yukMu * r_dist;
+            let alpha = 1.0 + mu * r_dist;
             let beta = 0.5 * yukCoupling * yukModPair * pMass * src.mass * expMuR * invRSq;
             let radial = -(alpha * v1DotV2 + (alpha * alpha + alpha + 1.0) * nDotV1 * nDotV2);
             let fx = beta * (radial * nx + alpha * (nDotV2 * pVelX + nDotV1 * src.velX));
@@ -353,7 +355,7 @@ fn accumulatePairForce(
 fn makeDelayedSource(
     delayed: DelayedState,
     sMass: f32, sCharge: f32,
-    sAxMod: f32, sYukMod: f32,
+    sAxMod: f32, sYukMod: f32, sHiggsMod: f32,
     bodyRadSq: f32,
 ) -> SourceData {
     var src: SourceData;
@@ -371,6 +373,7 @@ fn makeDelayedSource(
     src.angMomentum = INERTIA_K * sMass * sAngVel * bodyRadSq;
     src.axMod = sAxMod;
     src.yukMod = sYukMod;
+    src.higgsMod = sHiggsMod;
     src.useAberration = true;
     return src;
 }
@@ -398,6 +401,7 @@ fn main(
     var pAngMom: f32 = 0.0;
     var pAxMod: f32 = 1.0;
     var pYukMod: f32 = 1.0;
+    var pHiggsMod: f32 = 1.0;
     var pInvMass: f32 = 0.0;
     var pRadiusSq: f32 = 0.0;
     // pRi5 = mass^(5/3) pre-hoisted for tidal locking
@@ -422,6 +426,7 @@ fn main(
         let aym = axYukMod[idx];
         pAxMod = aym.x;
         pYukMod = aym.y;
+        pHiggsMod = aym.z;
         // Hoist ri5 = mass^(5/3) out of inner loop (avoids pow per pair)
         pRi5 = pow(pMass, 5.0 / 3.0);
     }
@@ -434,6 +439,7 @@ fn main(
     let onePNOn = hasToggle0(ONE_PN_BIT);
     let relOn = hasToggle0(RELATIVITY_BIT);
     let yukawaOn = hasToggle0(YUKAWA_BIT);
+    let higgsOn = hasToggle0(HIGGS_BIT);
     let radOn = hasToggle0(RADIATION_BIT);
     let isPeriodic = uniforms.boundaryMode == BOUND_LOOP;
 
@@ -443,8 +449,10 @@ fn main(
     let needAxMod = (coulOn || magOn) && hasToggle0(AXION_BIT);
 
     // Yukawa cutoff: exp(-mu*r) < 0.002 when mu*r > 6
+    // When Higgs enabled, muEff can be as small as yukawaMu * HIGGS_MASS_FLOOR — widen cutoff
     let yukMu = uniforms.yukawaMu;
-    let yukCutoffSq = select(1e30, (6.0 / yukMu) * (6.0 / yukMu), yukawaOn && yukMu > EPSILON);
+    let muMin = select(yukMu, yukMu * HIGGS_MASS_FLOOR, higgsOn);
+    let yukCutoffSq = select(1e30, (6.0 / muMin) * (6.0 / muMin), yukawaOn && muMin > EPSILON);
 
     // Signal delay is active when relativity is on
     let signalDelayed = relOn;
@@ -490,6 +498,7 @@ fn main(
             let saym = axYukMod[tileSrcIdx];
             tile[localIdx].axMod = saym.x;
             tile[localIdx].yukMod = saym.y;
+            tile[localIdx].higgsMod = saym.z;
             tile[localIdx].bodyRadSq = pow(sp.mass, 2.0 / 3.0);
             tile[localIdx].srcIdx = tileSrcIdx;
         } else {
@@ -518,7 +527,7 @@ fn main(
                         uniforms.topologyMode, false
                     );
                     if (!delayed.valid) { continue; }
-                    src = makeDelayedSource(delayed, s.mass, s.charge, s.axMod, s.yukMod, s.bodyRadSq);
+                    src = makeDelayedSource(delayed, s.mass, s.charge, s.axMod, s.yukMod, s.higgsMod, s.bodyRadSq);
                 } else {
                     src.posX = s.posX;
                     src.posY = s.posY;
@@ -531,6 +540,7 @@ fn main(
                     src.angMomentum = s.angMomentum;
                     src.axMod = s.axMod;
                     src.yukMod = s.yukMod;
+                    src.higgsMod = s.higgsMod;
                     src.useAberration = false;
                 }
 
@@ -538,11 +548,11 @@ fn main(
                     pPosX, pPosY, pVelX, pVelY,
                     pMass, pCharge, pAngVel,
                     pMagMom, pAngMom,
-                    pAxMod, pYukMod, pRi5,
+                    pAxMod, pYukMod, pHiggsMod, pRi5,
                     src, softeningSq,
                     yukMu, yukCutoffSq,
                     gravOn, coulOn, magOn, gmOn,
-                    onePNOn, yukawaOn, radOn,
+                    onePNOn, yukawaOn, higgsOn, radOn,
                     needAxMod, isPeriodic,
                     &accum,
                 );
@@ -579,6 +589,7 @@ fn main(
                 delayed, deadMass, deadCharge,
                 select(deadAxYuk.x, 1.0, abs(deadAxYuk.x) < EPSILON),
                 select(deadAxYuk.y, 1.0, abs(deadAxYuk.y) < EPSILON),
+                select(deadAxYuk.z, 1.0, abs(deadAxYuk.z) < EPSILON),
                 bodyRadSq
             );
 
@@ -586,7 +597,7 @@ fn main(
                 pPosX, pPosY, pVelX, pVelY,
                 pMass, pCharge, pAngVel,
                 pMagMom, pAngMom,
-                pAxMod, pYukMod, pRi5,
+                pAxMod, pYukMod, pHiggsMod, pRi5,
                 src, softeningSq,
                 yukMu, yukCutoffSq,
                 gravOn, coulOn, magOn, gmOn,

@@ -7,7 +7,7 @@
 @group(0) @binding(1) var<storage, read_write> particles: array<ParticleState>;
 @group(0) @binding(2) var<storage, read_write> derived: array<ParticleDerived>;
 @group(0) @binding(3) var<storage, read_write> particleAux: array<ParticleAux>;
-@group(0) @binding(4) var<storage, read_write> axYukMod: array<vec2<f32>>;
+@group(0) @binding(4) var<storage, read_write> axYukMod: array<vec4<f32>>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -72,7 +72,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     d.bodyRSq = bodyRSq;
     derived[idx] = d;
 
-    // Reset axYukMod to default (1,1) — recomputed by applyAxionForces when axion enabled.
+    // Reset axYukMod to default (1,1,1,0) — recomputed by field-forces when fields enabled.
     // Ensures newly spawned particles (e.g. from pion decay) get safe defaults.
-    axYukMod[idx] = vec2<f32>(1.0, 1.0);
+    axYukMod[idx] = vec4<f32>(1.0, 1.0, 1.0, 0.0);
 }

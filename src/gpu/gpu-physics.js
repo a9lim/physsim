@@ -83,7 +83,7 @@ const _addParticleAuxData = new ArrayBuffer(20);     // PARTICLE_AUX_SIZE
 const _addParticleAuxF32 = new Float32Array(_addParticleAuxData);
 const _addParticleAuxU32 = new Uint32Array(_addParticleAuxData);
 const _addParticleColorData = new Uint32Array(1);
-const _addParticleModData = new Float32Array(2);
+const _addParticleModData = new Float32Array(4);
 const _addParticleRadData = new Float32Array(12);    // RADIATION_STATE_SIZE / 4
 const _addParticleMetaBuf = new ArrayBuffer(16);       // 4 u32 for histMeta (stride 4)
 const _addParticleMetaU32 = new Uint32Array(_addParticleMetaBuf);
@@ -1668,7 +1668,9 @@ export default class GPUPhysics {
         // No need to initialize derived here — but axYukMod must be set to (1, 1).
         _addParticleModData[0] = 1.0; // axMod
         _addParticleModData[1] = 1.0; // yukMod
-        this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 8, _addParticleModData);
+        _addParticleModData[2] = 1.0; // higgsMod
+        _addParticleModData[3] = 0.0; // pad
+        this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 16, _addParticleModData);
 
         // Initialize radiationState to zero (jerk, accumulators, display force)
         _addParticleRadData.fill(0);
@@ -3545,7 +3547,8 @@ export default class GPUPhysics {
             this.device.queue.writeBuffer(this.buffers.color, idx * 4, _addParticleColorData);
 
             _addParticleModData[0] = 1.0; _addParticleModData[1] = 1.0;
-            this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 8, _addParticleModData);
+            _addParticleModData[2] = 1.0; _addParticleModData[3] = 0.0;
+            this.device.queue.writeBuffer(this.buffers.axYukMod, idx * 16, _addParticleModData);
 
             _addParticleRadData.fill(0);
             this.device.queue.writeBuffer(this.buffers.radiationState, idx * RADIATION_STATE_SIZE, _addParticleRadData);

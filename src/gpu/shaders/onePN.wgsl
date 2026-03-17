@@ -50,7 +50,7 @@ struct Uniforms {
 // Group 1: particle state (read_write for encoder compat)
 @group(1) @binding(0) var<storage, read_write> particles: array<ParticleState>;
 @group(1) @binding(1) var<storage, read_write> derived: array<ParticleDerived>;
-@group(1) @binding(2) var<storage, read_write> axYukMod: array<vec2<f32>>;  // packed: axMod, yukMod
+@group(1) @binding(2) var<storage, read_write> axYukMod: array<vec4<f32>>;  // packed: axMod, yukMod, higgsMod, pad
 
 // Group 2: force outputs (particleState accessed via group 1 to avoid aliasing)
 @group(2) @binding(0) var<storage, read_write> allForces: array<AllForces>;
@@ -72,8 +72,8 @@ fn accum1PN(
     sx: f32, sy: f32, svx: f32, svy: f32, sMass: f32, sCharge: f32,
     sYukMod: f32, softeningSq: f32,
     periodic: bool, domW: f32, domH: f32, topo: u32,
-    gmOn: bool, magOn: bool, yukOn: bool, yukawaMu: f32,
-    yukawaCoupling: f32, pYukMod: f32,
+    gmOn: bool, magOn: bool, yukOn: bool, higgsOn: bool, yukawaMu: f32,
+    yukawaCoupling: f32, pYukMod: f32, pHiggsMod: f32, sHiggsMod: f32,
 ) -> vec2f {
     var rx = sx - px;
     var ry = sy - py;
@@ -128,7 +128,7 @@ fn accum1PN(
 
     // Scalar Breit (Yukawa + 1PN)
     if (yukOn) {
-        let mu = yukawaMu;
+        let mu = select(yukawaMu, yukawaMu * sqrt(pHiggsMod * sHiggsMod), higgsOn);
         let muR_val = mu * r_val;
         let expMuR = select(0.0, exp(-muR_val), muR_val < 80.0);
         let nDotV1 = nx * pvx + ny * pvy;
@@ -204,12 +204,13 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
             svx = swx / sg; svy = swy / sg;
         }
 
+        let higgsOn = (u.toggles0 & HIGGS_BIT) != 0u;
         let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
                          sx, sy, svx, svy,
                          particles[j].mass, particles[j].charge, axYukMod[j].y,
                          u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
-                         gmOn, magOn, yukOn, u.yukawaMu,
-                         u.yukawaCoupling, axYukMod[i].y);
+                         gmOn, magOn, yukOn, higgsOn, u.yukawaMu,
+                         u.yukawaCoupling, axYukMod[i].y, axYukMod[i].z, axYukMod[j].z);
         f1pnX += f.x;
         f1pnY += f.y;
     }
@@ -332,12 +333,13 @@ fn compute1PNTree(@builtin(global_invocation_id) gid: vec3u) {
                 svx = swx / sg; svy = swy / sg;
             }
 
+            let higgsOn = (u.toggles0 & HIGGS_BIT) != 0u;
             let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
                              sx, sy, svx, svy,
                              sPs.mass, sPs.charge, axYukMod[sIdx].y,
                              u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
-                             gmOn, magOn, yukOn, u.yukawaMu,
-                             u.yukawaCoupling, axYukMod[i].y);
+                             gmOn, magOn, yukOn, higgsOn, u.yukawaMu,
+                             u.yukawaCoupling, axYukMod[i].y, axYukMod[i].z, axYukMod[sIdx].z);
             f1pnX += f.x;
             f1pnY += f.y;
 
@@ -345,13 +347,14 @@ fn compute1PNTree(@builtin(global_invocation_id) gid: vec3u) {
             // Distant node: use aggregate data
             let avgVx = getTotalMomX(nodeIdx) / nodeMass;
             let avgVy = getTotalMomY(nodeIdx) / nodeMass;
+            let higgsOn = (u.toggles0 & HIGGS_BIT) != 0u;
 
             let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
                              comX, comY, avgVx, avgVy,
                              nodeMass, getTotalCharge(nodeIdx), 1.0,
                              u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
-                             gmOn, magOn, yukOn, u.yukawaMu,
-                             u.yukawaCoupling, axYukMod[i].y);
+                             gmOn, magOn, yukOn, higgsOn, u.yukawaMu,
+                             u.yukawaCoupling, axYukMod[i].y, axYukMod[i].z, 1.0);
             f1pnX += f.x;
             f1pnY += f.y;
 

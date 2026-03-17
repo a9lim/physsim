@@ -60,7 +60,7 @@ struct Uniforms {
 @group(1) @binding(2) var<storage, read_write> derived: array<ParticleDerived>;
 @group(1) @binding(3) var<storage, read_write> allForces: array<AllForces>;
 @group(1) @binding(4) var<storage, read_write> radState: array<RadiationState>;
-@group(1) @binding(5) var<storage, read_write> axYukMod: array<vec2<f32>>;
+@group(1) @binding(5) var<storage, read_write> axYukMod: array<vec4<f32>>;
 
 // Group 2: photon pool
 @group(2) @binding(0) var<storage, read_write> photons: array<Photon>;
@@ -336,7 +336,8 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
 
     var rs = radState[i];
     rs.yukawaRadAccum += dE;
-    let pionMass = u.yukawaMu;
+    let higgsOn = (u.toggles0 & HIGGS_BIT) != 0u;
+    let pionMass = select(u.yukawaMu, u.yukawaMu * axYukMod[i].z, higgsOn);
 
     if (rs.yukawaRadAccum >= pionMass + MIN_MASS) {
         let ke = rs.yukawaRadAccum - pionMass;

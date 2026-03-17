@@ -20,7 +20,7 @@
 
 // Packed force accumulators + axYukMod output
 @group(2) @binding(0) var<storage, read_write> allForces: array<AllForces>;
-@group(2) @binding(1) var<storage, read_write> axYukMod: array<vec2<f32>>; // packed: axMod, yukMod
+@group(2) @binding(1) var<storage, read_write> axYukMod: array<vec4<f32>>; // packed: axMod, yukMod, higgsMod, pad
 
 @group(3) @binding(0) var<uniform> uniforms: FieldUniforms;
 
@@ -112,8 +112,14 @@ fn applyHiggsForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Interpolate field value
     let phiLocal = pqsInterpolate(&higgsField, px, py, invCellW, invCellH, bcMode, topoMode, 1.0);
 
+    // Cache higgsMod = max(|φ(x)|, floor) for Yukawa μ modulation
+    let hmFloor = uniforms.higgsMassFloor;
+    var aym = axYukMod[pid];
+    aym.z = max(abs(phiLocal), hmFloor);
+    axYukMod[pid] = aym;
+
     // ── Mass modulation ──
-    let floor = uniforms.higgsMassFloor;
+    let floor = hmFloor;
     let targetMass = max(bm * abs(phiLocal), floor * bm);
     let maxDelta = uniforms.higgsMassMaxDelta * uniforms.dt;
     let currentMass = p.mass;
@@ -201,10 +207,13 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     let aLocal = pqsInterpolate(&axionField, px, py, invCellW, invCellH, bcMode, topoMode, 0.0);
     let ga = g * aLocal;
 
+    // Read existing axYukMod (preserves higgsMod written by applyHiggsForces)
+    var aymVal = axYukMod[pid];
     // axMod: scalar EM coupling
-    var aymVal = vec2<f32>(1.0, 1.0);
     if (uniforms.coulombEnabled != 0u) {
         aymVal.x = select(0.0, 1.0 + ga, ga > -1.0);
+    } else {
+        aymVal.x = 1.0;
     }
 
     // yukMod: pseudoscalar PQ coupling (flips for antimatter)
@@ -213,6 +222,8 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
         let sign = select(1.0, -1.0, isAnti);
         let pq = sign * ga;
         aymVal.y = select(0.0, 1.0 + pq, pq > -1.0);
+    } else {
+        aymVal.y = 1.0;
     }
     axYukMod[pid] = aymVal;
 

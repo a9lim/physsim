@@ -32,6 +32,7 @@ const PHOTON_SIZE = 32;          // 8 × 4 bytes
 const PION_SIZE = 48;            // 12 × 4 bytes
 const DERIVED_SIZE = 32;         // 8 × f32 (ParticleDerived)
 const VEC2_SIZE = 8;             // 2 × f32
+const VEC4_SIZE = 16;            // 4 × f32
 const ALLFORCES_SIZE = 160;      // 10 × vec4
 
 /** @param {GPUDevice} device */
@@ -70,8 +71,8 @@ export function createParticleBuffers(device, maxParticles) {
     // Replaces: magAngMom, invMassRadSq, vel, angVel (4 buffers → 1)
     const derived = storageBuffer('derived', DERIVED_SIZE, soaCapacity);
 
-    // Packed axMod + yukMod (vec2, 8 bytes per particle)
-    const axYukMod = storageBuffer('axYukMod', VEC2_SIZE, soaCapacity);
+    // Packed axMod + yukMod + higgsMod (vec4, 16 bytes per particle)
+    const axYukMod = storageBuffer('axYukMod', VEC4_SIZE, soaCapacity);
 
     // Packed AllForces struct (160 bytes per particle)
     // Replaces: forces0-5, torques, bFields, bFieldGrads, totalForce (10 buffers → 1)
@@ -496,7 +497,7 @@ export function createTrailBuffers(device, maxParticles) {
 export {
     FIELD_GRID_RES, FIELD_GRID_SQ,
     PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE,
-    PHOTON_SIZE, PION_SIZE, DERIVED_SIZE, VEC2_SIZE, ALLFORCES_SIZE, TRAIL_LEN,
+    PHOTON_SIZE, PION_SIZE, DERIVED_SIZE, VEC2_SIZE, VEC4_SIZE, ALLFORCES_SIZE, TRAIL_LEN,
 };
 
 /**
