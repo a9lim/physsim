@@ -210,7 +210,7 @@ Key methods: `_nb()` (topology-aware neighbor, absolute coords), `_depositPQS()`
 
 **Particle-field gravity** (requires Gravity): F = -m·∇Φ via PQS interpolation of pre-computed potential gradients, O(N×16). Topology-aware via `_nb()` for border stencils. Subclasses override `_addPotentialEnergy()` for V(φ). Active whenever gravity is on.
 
-**Field self-gravity** (requires Gravity): Weak-field GR correction to Klein-Gordon. Φ computed via FFT convolution with Green's function G(r) = -1/√(r²+ε²) on the full grid, O(N² log N). Green's function uses `minImage()` for periodic topologies (exact circular convolution). Gradients of Φ computed via topology-aware central differences (`_nb()`/`nbIndex()`). Φ clamped to ±`SELFGRAV_PHI_MAX` (0.2) to prevent Laplacian sign-flip instability when `1+4Φ < 0`.
+**Field self-gravity** (requires Gravity): Weak-field GR correction to Klein-Gordon. Φ computed via FFT convolution with Green's function G(r) = -1/√(r²+ε²) on the full grid, O(N² log N). Green's function uses `minImage()` for periodic topologies on CPU (exact circular convolution for torus; approximate for Klein/RP² due to non-translationally-invariant glide reflections). GPU uses wrapped-index distances (approximate for all periodic topologies). Gradients of Φ computed via topology-aware central differences (`_nb()`/`nbIndex()`). Φ clamped to ±`SELFGRAV_PHI_MAX` (0.2) to prevent Laplacian sign-flip instability when `1+4Φ < 0`. `computeSelfGravity()` takes `(domainW, domainH, softeningSq, bcMode, topoConst)` — callers pass boundary mode directly, not a boolean periodic flag. Called twice per KDK cycle (pre-kick + post-drift) for O(dt²) accuracy on GR correction terms.
 
 **Numerical viscosity**: `ν·∇²(ȧ)` in both KDK half-kicks, where `ν = 1/(2√(1/dx²+1/dy²))`. Gives Q=1 at Nyquist frequency, vanishes for physical (long-wavelength) modes. Prevents grid-scale noise from ringing indefinitely at high resolution.
 
@@ -406,6 +406,20 @@ CPU particle array pre-allocated to `MAX_PARTICLES` slots in constructor/reset t
 - All other standalone shaders: shared prefix only.
 - `fetchShader()` exported from `gpu-pipelines.js` (single source of truth, imported by gpu-physics.js and gpu-renderer.js).
 
+### GPU Scalar Field Pipeline
+
+GPU field evolution (`_dispatchFieldEvolve`) uses fused dispatches to minimize pass count. Per field per substep (with self-gravity):
+
+1. **Deposit** (source + thermal): PQS atomic deposition, finalize passes
+2. **Self-gravity pre-kick**: fused `energyDensityHiggsAndPack` / `energyDensityAxionAndPack` writes ρ·cellArea directly to FFT complex buffer (group 2 = fftA) → Stockham FFT forward (14 butterfly stages) → `complexMultiply` by cached Ĝ → FFT inverse (14 stages) → fused `unpackAndSGGradients` reads complex IFFT output at stride 2, writes sgPhiFull + sgGradX/sgGradY
+3. **Half-kick 1**: Laplacian computed inline via `inlineLaplacian()` helper (topology-aware 5-point stencil). NaN guard on fieldDot.
+4. **Drift**: field += fieldDot·dt with NaN/Inf fixup (resets to vacuum value)
+5. **Mid-KDK refresh**: `computeGridGradients` + full self-gravity pipeline again (restores O(dt²) for GR correction)
+6. **Half-kick 2**: same fused pipeline as kick 1
+7. **Grid gradients**: final `computeGridGradients` for force interpolation
+
+FFT always ends with data in fftA (total stages = 2×log₂(GRID) is even for any power-of-2 grid). Self-gravity bind groups use 3 groups: g0 (field arrays + uniforms), g1 (SG outputs), g2 (fftA complex buffer). `SHADER_VERSION` in gpu-pipelines.js must be bumped after shader edits to invalidate browser cache.
+
 ### GPU ↔ CPU Sync
 
 - `addParticle()` writes packed structs via `queue.writeBuffer()`
@@ -428,7 +442,7 @@ CPU particle array pre-allocated to `MAX_PARTICLES` slots in constructor/reset t
 ### Numerical Stability (GPU)
 
 - Division-by-zero: `select(0, 1/x, x > EPSILON)` or `max(x, EPSILON)`
-- NaN barriers before writing to global memory (not after)
+- NaN barriers before writing to global memory (not after). Field NaN/Inf guards fused into half-kick (fieldDot) and drift (field) shaders.
 - `sqrt(max(x, 0))` on all discriminants; `exp(-μr)` guarded with `select(0, ..., μr < 80)`
 - `deathTime` sentinel uses `FLT_MAX` (3.4028235e38) not `Infinity`
 - Collision merge: `mass <= EPSILON` guards (not `== 0`) for race conditions
