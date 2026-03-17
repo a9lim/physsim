@@ -459,7 +459,10 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
     // Total: 7 storage + 1 uniform
     // Prepend signal-delay-common.wgsl for getDelayedStateGPU()
     const signalDelayWGSL_1PN = await fetchShader('signal-delay-common.wgsl');
-    const onePNCode = prefix + '\n' + signalDelayWGSL_1PN + '\n'
+    const c = await _ensureSharedCache();
+    // Both modules need tree-nodes prepended because onePN.wgsl contains
+    // compute1PNTree which references tree accessor functions.
+    const onePNCode = prefix + '\n' + c.treeNodes + '\n' + signalDelayWGSL_1PN + '\n'
         + await fetchShader('onePN.wgsl');
     const onePNModule = device.createShaderModule({ label: 'onePN', code: onePNCode });
 
@@ -509,6 +512,40 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
             compute: { module: onePNModule, entryPoint: 'vvKick1PN' },
         }),
         bindGroupLayouts: onePNLayouts,
+    };
+
+    // ── 1PN Tree Walk (onePN.wgsl, entry: compute1PNTree) ──
+    // Same module (tree-nodes already prepended above), different bind group layouts.
+    // Group 0: uniforms (same)
+    // Group 1: particleState (rw) + derived (rw) + axYukMod (rw) + ghostOriginalIdx (rw) = 4 storage
+    // Group 2: allForces (rw) + f1pnOld (rw) = 2 storage (same)
+    // Group 3: histData (rw) + histMeta (rw) + treeNodes (rw) = 3 storage
+
+    const onePNTreeG1 = device.createBindGroupLayout({
+        label: 'onePNTree_g1',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // particleState
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // derived
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // axYukMod
+            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // ghostOriginalIdx
+        ],
+    });
+    const onePNTreeG3 = device.createBindGroupLayout({
+        label: 'onePNTree_g3',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // histData
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // histMeta
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // treeNodes
+        ],
+    });
+    const onePNTreeLayouts = [onePNG0, onePNTreeG1, onePNG2, onePNTreeG3];
+    const compute1PNTree = {
+        pipeline: device.createComputePipeline({
+            label: 'compute1PNTree',
+            layout: device.createPipelineLayout({ bindGroupLayouts: onePNTreeLayouts }),
+            compute: { module: onePNModule, entryPoint: 'compute1PNTree' },
+        }),
+        bindGroupLayouts: onePNTreeLayouts,
     };
 
     // ── Radiation (radiation.wgsl) ──
@@ -753,7 +790,7 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
 
     return {
         recordHistory,
-        compute1PN, vvKick1PN,
+        compute1PN, vvKick1PN, compute1PNTree,
         larmorRadiation, hawkingRadiation, pionEmission,
         quadrupoleCoM, quadrupoleContrib, quadrupoleApply,
         ...bosonPipelines,

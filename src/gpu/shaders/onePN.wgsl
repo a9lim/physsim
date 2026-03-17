@@ -5,16 +5,22 @@
 //   Bazanski (GM + Magnetic + 1PN): mixed 1/r³
 //   Scalar Breit (Yukawa + 1PN): massive scalar exchange
 //
-// Two entry points:
-//   compute1PN — recomputes 1PN forces at post-drift positions (pairwise)
-//   vvKick1PN — applies VV correction kick: w += (f1pn_new - f1pn_old) * dt/(2m)
+// Three entry points:
+//   compute1PN     — recomputes 1PN forces at post-drift positions (O(N²) pairwise)
+//   compute1PNTree — recomputes 1PN forces via Barnes-Hut tree walk (O(N log N))
+//   vvKick1PN      — applies VV correction kick: w += (f1pn_new - f1pn_old) * dt/(2m)
 //
-// Prepended with: wgslConstants + shared-structs.wgsl + shared-topology.wgsl + signal-delay-common.wgsl
+// Prepended with: wgslConstants + shared-structs.wgsl + shared-topology.wgsl + shared-rng.wgsl
+//   + signal-delay-common.wgsl
+//   + shared-tree-nodes.wgsl (for compute1PNTree only — tree node accessors)
 // Shared structs (ParticleState, ParticleDerived, AllForces, etc.) provided by shared-structs.wgsl.
 // Topology helpers (fullMinImageP) provided by shared-topology.wgsl.
 // Signal delay (getDelayedStateGPU, DelayedState) provided by signal-delay-common.wgsl.
 // Signal delay: when relativity is on, uses retarded positions/velocities for all 1PN terms.
 // No aberration — 1PN is already O(v²/c²). Dead particles excluded from 1PN.
+
+const NONE: i32 = -1;
+const MAX_STACK: u32 = 48u;
 
 // Must match SimUniforms byte layout in common.wgsl / writeUniforms() exactly.
 // Fields we don't use are kept as padding to preserve alignment.
@@ -53,6 +59,12 @@ struct Uniforms {
 // Group 3: signal delay history (interleaved) — used by getDelayedStateGPU()
 @group(3) @binding(0) var<storage, read_write> histData: array<f32>;
 @group(3) @binding(1) var<storage, read_write> histMeta: array<u32>;
+
+// ── Tree walk bindings (used by compute1PNTree only) ──
+// Group 1 binding 3: ghost original index mapping
+@group(1) @binding(3) var<storage, read_write> ghostOriginalIdx: array<u32>;
+// Group 3 binding 2: BH tree nodes (accessor fns from shared-tree-nodes.wgsl reference 'nodes')
+@group(3) @binding(2) var<storage, read_write> nodes: array<u32>;
 
 // Per-source 1PN accumulation (shared between tree and pairwise paths)
 fn accum1PN(
@@ -200,6 +212,162 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
                          u.yukawaCoupling, axYukMod[i].y);
         f1pnX += f.x;
         f1pnY += f.y;
+    }
+
+    var afOut = allForces[i];
+    afOut.f2.x = f1pnX;
+    afOut.f2.y = f1pnY;
+    allForces[i] = afOut;
+}
+
+@compute @workgroup_size(64)
+fn compute1PNTree(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= u.aliveCount) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
+    if ((particles[i].flags & FLAG_GHOST) != 0u) { return; } // Ghosts don't receive forces
+
+    let gmOn = (u.toggles0 & GRAVITOMAG_BIT) != 0u;
+    let magOn = (u.toggles0 & MAGNETIC_BIT) != 0u;
+    let yukOn = (u.toggles0 & YUKAWA_BIT) != 0u;
+    let periodic = u.boundaryMode == BOUND_LOOP;
+    let signalDelayed = (u.toggles0 & RELATIVITY_BIT) != 0u;
+
+    // Zero 1PN forces before accumulation (preserve spinCurv in f2.zw)
+    var af = allForces[i];
+    af.f2.x = 0.0;
+    af.f2.y = 0.0;
+    allForces[i] = af;
+
+    let px = particles[i].posX; let py = particles[i].posY;
+    let wx = particles[i].velWX; let wy = particles[i].velWY;
+    let gamma = sqrt(1.0 + wx * wx + wy * wy);
+    let invG = 1.0 / gamma;
+    let pvx = wx * invG; let pvy = wy * invG;
+    let pMass = particles[i].mass; let pCharge = particles[i].charge;
+
+    var f1pnX: f32 = 0.0;
+    var f1pnY: f32 = 0.0;
+
+    // Stack-based BH tree walk
+    var stack: array<u32, 48>;
+    var stackTop: u32 = 1u;
+    stack[0] = 0u; // root
+
+    loop {
+        if (stackTop == 0u) { break; }
+        stackTop -= 1u;
+        let nodeIdx = stack[stackTop];
+
+        let nodeMass = getTotalMass(nodeIdx);
+        if (nodeMass < EPSILON) { continue; }
+
+        let comX = getComX(nodeIdx);
+        let comY = getComY(nodeIdx);
+        var dx = comX - px;
+        var dy = comY - py;
+        if (periodic) {
+            let d = fullMinImageP(px, py, comX, comY, u.domainW, u.domainH, u.topologyMode);
+            dx = d.x;
+            dy = d.y;
+        }
+        let dSq = dx * dx + dy * dy;
+        let size = getMaxX(nodeIdx) - getMinX(nodeIdx);
+
+        let isLeaf = getNW(nodeIdx) == NONE;
+        let particleIdx = getParticleIndex(nodeIdx);
+
+        if (isLeaf && particleIdx >= 0) {
+            // Leaf node: accumulate from individual particle
+            let sIdx = u32(particleIdx);
+            let sPs = particles[sIdx];
+
+            // Skip self
+            if (sIdx == i) { continue; }
+
+            // Ghost handling: skip if original is self
+            let isGhost = (sPs.flags & FLAG_GHOST) != 0u;
+            var origIdx: u32 = sIdx;
+            if (isGhost && sIdx >= u.aliveCount) {
+                origIdx = ghostOriginalIdx[sIdx - u.aliveCount];
+            }
+            if (origIdx == i) { continue; }
+
+            // Skip dead/non-alive (dead particles excluded from 1PN)
+            let sIsRetired = (sPs.flags & FLAG_RETIRED) != 0u;
+            if ((sPs.flags & FLAG_ALIVE) == 0u) { continue; }
+            if (sIsRetired) { continue; }
+
+            var sx: f32; var sy: f32;
+            var svx: f32; var svy: f32;
+
+            if (signalDelayed && !isGhost) {
+                // Non-ghost leaf: signal delay from own history
+                let delayed = getDelayedStateGPU(
+                    sIdx, px, py, u.simTime,
+                    periodic, u.domainW, u.domainH,
+                    u.topologyMode, false
+                );
+                if (!delayed.valid) { continue; }
+                sx = delayed.x; sy = delayed.y;
+                svx = delayed.vx; svy = delayed.vy;
+            } else if (signalDelayed && isGhost) {
+                // Ghost leaf: signal delay from original + periodic shift
+                let origPs = particles[origIdx];
+                let delayed = getDelayedStateGPU(
+                    origIdx, px, py, u.simTime,
+                    periodic, u.domainW, u.domainH,
+                    u.topologyMode, false
+                );
+                if (!delayed.valid) { continue; }
+                let shiftX = sPs.posX - origPs.posX;
+                let shiftY = sPs.posY - origPs.posY;
+                sx = delayed.x + shiftX; sy = delayed.y + shiftY;
+                svx = delayed.vx; svy = delayed.vy;
+            } else {
+                // No signal delay: use current positions/velocities
+                sx = sPs.posX; sy = sPs.posY;
+                let swx = sPs.velWX; let swy = sPs.velWY;
+                let sg = sqrt(1.0 + swx * swx + swy * swy);
+                svx = swx / sg; svy = swy / sg;
+            }
+
+            let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
+                             sx, sy, svx, svy,
+                             sPs.mass, sPs.charge, axYukMod[sIdx].y,
+                             u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
+                             gmOn, magOn, yukOn, u.yukawaMu,
+                             u.yukawaCoupling, axYukMod[i].y);
+            f1pnX += f.x;
+            f1pnY += f.y;
+
+        } else if (!isLeaf && (size * size < BH_THETA_SQ * dSq)) {
+            // Distant node: use aggregate data
+            let avgVx = getTotalMomX(nodeIdx) / nodeMass;
+            let avgVy = getTotalMomY(nodeIdx) / nodeMass;
+
+            let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
+                             comX, comY, avgVx, avgVy,
+                             nodeMass, getTotalCharge(nodeIdx), 1.0,
+                             u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
+                             gmOn, magOn, yukOn, u.yukawaMu,
+                             u.yukawaCoupling, axYukMod[i].y);
+            f1pnX += f.x;
+            f1pnY += f.y;
+
+        } else if (!isLeaf) {
+            // Near field: push 4 children
+            if (stackTop + 4u <= MAX_STACK) {
+                let nw = getNW(nodeIdx);
+                let ne = getNE(nodeIdx);
+                let sw = getSW(nodeIdx);
+                let se = getSE(nodeIdx);
+                if (nw != NONE) { stack[stackTop] = u32(nw); stackTop += 1u; }
+                if (ne != NONE) { stack[stackTop] = u32(ne); stackTop += 1u; }
+                if (sw != NONE) { stack[stackTop] = u32(sw); stackTop += 1u; }
+                if (se != NONE) { stack[stackTop] = u32(se); stackTop += 1u; }
+            }
+        }
     }
 
     var afOut = allForces[i];

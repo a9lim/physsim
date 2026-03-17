@@ -807,6 +807,19 @@ export default class GPUPhysics {
             });
             this._onePNG3_isDummy = false;
         }
+        if (this._onePNTreeG3_isDummy && this._phase4) {
+            const p4 = this._phase4;
+            this._phase4BindGroups.onePNTreeG3 = this.device.createBindGroup({
+                label: 'onePNTree_g3_history',
+                layout: p4.compute1PNTree.bindGroupLayouts[3],
+                entries: [
+                    { binding: 0, resource: { buffer: b.histData } },
+                    { binding: 1, resource: { buffer: b.histMeta } },
+                    { binding: 2, resource: { buffer: b.qtNodeBuffer } },
+                ],
+            });
+            this._onePNTreeG3_isDummy = false;
+        }
     }
 
     /**
@@ -907,6 +920,20 @@ export default class GPUPhysics {
             ],
         });
         this._onePNG3_isDummy = true;
+
+        // ── 1PN Tree Walk (compute1PNTree — shares G0, G2 with pairwise) ──
+        this._phase4BindGroups.onePNTreeG1 = bg('onePNTree_g1', p4.compute1PNTree.bindGroupLayouts[1],
+            [b.particleState, b.derived, b.axYukMod, b.ghostOriginalIdx]);
+        this._phase4BindGroups.onePNTreeG3 = this.device.createBindGroup({
+            label: 'onePNTree_g3_dummy',
+            layout: p4.compute1PNTree.bindGroupLayouts[3],
+            entries: [
+                { binding: 0, resource: { buffer: this._dummyHistBuf } },
+                { binding: 1, resource: { buffer: this._dummyHistBuf } },
+                { binding: 2, resource: { buffer: b.qtNodeBuffer } },
+            ],
+        });
+        this._onePNTreeG3_isDummy = true;
 
         // ── Radiation (larmorRadiation, hawkingRadiation, pionEmission share bind groups) ──
         this._phase4BindGroups.radG0 = bg('radiation_g0', p4.larmorRadiation.bindGroupLayouts[0],
@@ -1072,7 +1099,8 @@ export default class GPUPhysics {
 
     /**
      * Dispatch 1PN velocity-Verlet correction (Phase 4, Pass 14).
-     * After drift: rebuild tree if BH on, recompute 1PN, apply VV kick.
+     * After drift: rebuild tree if BH on, recompute 1PN via tree walk, apply VV kick.
+     * Falls back to O(N²) pairwise when Barnes-Hut is off.
      */
     _dispatch1PNVV(encoder) {
         if (!this._onePNEnabled) return;
@@ -1082,14 +1110,30 @@ export default class GPUPhysics {
         const p4 = this._phase4;
 
         // Step 1: Recompute 1PN forces at post-drift positions
-        const passCompute = encoder.beginComputePass({ label: 'compute1PN' });
-        passCompute.setPipeline(p4.compute1PN.pipeline);
-        passCompute.setBindGroup(0, bgs.onePNG0);
-        passCompute.setBindGroup(1, bgs.onePNG1);
-        passCompute.setBindGroup(2, bgs.onePNG2);
-        passCompute.setBindGroup(3, bgs.onePNG3);
-        passCompute.dispatchWorkgroups(workgroups);
-        passCompute.end();
+        if (this._barnesHutEnabled) {
+            // Rebuild tree at post-drift positions for VV correction
+            this._dispatchGhostGen(encoder);
+            this._dispatchTreeBuild(encoder);
+
+            this._ensureTreeForceHistoryBG(); // upgrades onePNTreeG3 from dummy
+            const passCompute = encoder.beginComputePass({ label: 'compute1PNTree' });
+            passCompute.setPipeline(p4.compute1PNTree.pipeline);
+            passCompute.setBindGroup(0, bgs.onePNG0);
+            passCompute.setBindGroup(1, bgs.onePNTreeG1);
+            passCompute.setBindGroup(2, bgs.onePNG2);
+            passCompute.setBindGroup(3, bgs.onePNTreeG3);
+            passCompute.dispatchWorkgroups(workgroups);
+            passCompute.end();
+        } else {
+            const passCompute = encoder.beginComputePass({ label: 'compute1PN' });
+            passCompute.setPipeline(p4.compute1PN.pipeline);
+            passCompute.setBindGroup(0, bgs.onePNG0);
+            passCompute.setBindGroup(1, bgs.onePNG1);
+            passCompute.setBindGroup(2, bgs.onePNG2);
+            passCompute.setBindGroup(3, bgs.onePNG3);
+            passCompute.dispatchWorkgroups(workgroups);
+            passCompute.end();
+        }
 
         // Step 2: Apply VV correction kick
         const passKick = encoder.beginComputePass({ label: 'vvKick1PN' });
