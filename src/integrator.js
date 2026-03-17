@@ -8,7 +8,7 @@ import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
 import { angwToAngVel } from './relativity.js';
 
-import { resetForces, computeAllForces, compute1PN, computeBosonGravity, applyBosonBosonGravity, getPEAccum } from './forces.js';
+import { resetForces, computeAllForces, compute1PN, computeBosonGravity, applyBosonBosonGravity, applyPionPionCoulomb, findPionAnnihilations, getPEAccum } from './forces.js';
 import { handleCollisions } from './collisions.js';
 import { computePE } from './potential.js'; // kept for preset-load recomputation
 import { minImage, wrapPosition } from './topology.js';
@@ -58,7 +58,7 @@ export default class Physics {
         this._collisionCount = 0;
 
         this.gravityEnabled = true;
-        this.bosonGravEnabled = false;
+        this.bosonInterEnabled = false;
         this.fieldGravEnabled = false;
         this.coulombEnabled = true;
         this.magneticEnabled = true;
@@ -266,6 +266,74 @@ export default class Physics {
         for (let i = 0; i < nPi; i++) if (pions[i].alive) bp.insert(root, pions[i]);
         bp.calculateBosonDistribution(root);
         return root;
+    }
+
+    /** Annihilate a π⁺π⁻ pair into 2 photons. COM-frame kinematics + Lorentz boost. */
+    _annihilatePions(p1, p2) {
+        if (!this.sim) return;
+        const MBoson = this.sim._MasslessBosonClass;
+        if (!MBoson) return;
+
+        // Combined 4-momentum
+        const g1 = Math.sqrt(1 + p1.w.x * p1.w.x + p1.w.y * p1.w.y);
+        const g2 = Math.sqrt(1 + p2.w.x * p2.w.x + p2.w.y * p2.w.y);
+        const E = p1.mass * g1 + p2.mass * g2;
+        const px = p1.w.x * p1.mass + p2.w.x * p2.mass; // total proper momentum
+        const py = p1.w.y * p1.mass + p2.w.y * p2.mass;
+        if (E < EPSILON) return;
+
+        // COM velocity
+        const vComX = px / E, vComY = py / E;
+        const vComSq = vComX * vComX + vComY * vComY;
+        const gammaCom = vComSq < 1e-12 ? 1 : 1 / Math.sqrt(1 - Math.min(vComSq, MAX_SPEED_RATIO * MAX_SPEED_RATIO));
+
+        // COM energy (invariant mass)
+        const sCom = E * E - px * px - py * py;
+        const mInv = sCom > 0 ? Math.sqrt(sCom) : E;
+        const ePhRest = mInv * 0.5; // each photon in COM frame
+
+        // Random rest-frame angle
+        const angle = Math.random() * TWO_PI;
+        const cosA = Math.cos(angle), sinA = Math.sin(angle);
+
+        const midX = (p1.pos.x + p2.pos.x) * 0.5;
+        const midY = (p1.pos.y + p2.pos.y) * 0.5;
+        const offset = spawnOffset(Math.cbrt(p1.mass));
+
+        // Bookkeeping: remove pion energy from radiated tally
+        this.sim.totalRadiated -= p1.energy + p2.energy;
+        this.sim.totalRadiatedPx -= p1.energy * p1.vel.x + p2.energy * p2.vel.x;
+        this.sim.totalRadiatedPy -= p1.energy * p1.vel.y + p2.energy * p2.vel.y;
+
+        for (let s = 0; s < 2; s++) {
+            const sign = s === 0 ? 1 : -1;
+            let phPx = sign * ePhRest * cosA;
+            let phPy = sign * ePhRest * sinA;
+
+            // Lorentz boost from COM to lab
+            if (vComSq > 1e-12) {
+                const vCom = Math.sqrt(vComSq);
+                const nx = vComX / vCom, ny = vComY / vCom;
+                const pPar = phPx * nx + phPy * ny;
+                const pPerpX = phPx - pPar * nx;
+                const pPerpY = phPy - pPar * ny;
+                const pParB = gammaCom * (pPar + vCom * ePhRest);
+                phPx = pParB * nx + pPerpX;
+                phPy = pParB * ny + pPerpY;
+            }
+
+            const pMag = Math.sqrt(phPx * phPx + phPy * phPy);
+            if (pMag < EPSILON) continue;
+            const dirX = phPx / pMag, dirY = phPy / pMag;
+            const ph = MBoson.acquire(
+                midX + dirX * offset, midY + dirY * offset,
+                dirX, dirY, pMag, -1 // no emitter
+            );
+            this.sim.photons.push(ph);
+            this.sim.totalRadiated += pMag;
+            this.sim.totalRadiatedPx += pMag * dirX;
+            this.sim.totalRadiatedPy += pMag * dirY;
+        }
     }
 
     /** Cache external field direction vectors (call once per frame, not per substep). */
@@ -488,9 +556,11 @@ export default class Physics {
                     this.sim.axionField.applyGravForces(particles, width, height);
                 }
             }
-            if (this.bosonGravEnabled && this.sim) {
+            if (this.bosonInterEnabled && this.sim) {
                 const bRoot = this._buildBosonTree();
-                if (bRoot >= 0) computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq);
+                if (bRoot >= 0 && this.gravityEnabled) {
+                    computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq);
+                }
             }
             if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, initRoot);
             if (boundaryMode === BOUND_BOUNCE) this._applyBoundaryForces(particles, width, height, offX, offY);
@@ -1120,11 +1190,23 @@ export default class Physics {
                     this.sim.axionField.applyGravForces(particles, width, height);
                 }
             }
-            if (this.bosonGravEnabled && this.sim) {
+            if (this.bosonInterEnabled && this.sim) {
                 const bRoot = this._buildBosonTree();
                 if (bRoot >= 0) {
-                    computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq);
-                    applyBosonBosonGravity(this.sim.photons, this.sim.pions, dtSub, this._bosonPool, bRoot);
+                    if (this.gravityEnabled) {
+                        computeBosonGravity(particles, this._bosonPool, bRoot, toggles.softeningSq);
+                        applyBosonBosonGravity(this.sim.photons, this.sim.pions, dtSub, this._bosonPool, bRoot);
+                    }
+                    if (this.coulombEnabled) {
+                        applyPionPionCoulomb(this.sim.pions, dtSub, this._bosonPool, bRoot);
+                    }
+                    // π⁺π⁻ annihilation: opposite-charge pions → 2 photons
+                    if (this.coulombEnabled || this.yukawaEnabled) {
+                        const pairs = findPionAnnihilations(this.sim.pions, this._bosonPool, bRoot);
+                        for (let ai = 0; ai < pairs.length; ai += 2) {
+                            this._annihilatePions(pairs[ai], pairs[ai + 1]);
+                        }
+                    }
                 }
             }
             if (collisionMode === COL_BOUNCE) this._applyRepulsion(particles, this.pool, root);

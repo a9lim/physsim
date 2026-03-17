@@ -30,15 +30,15 @@
  *
  * Post-substep (once per frame):
  *  - heatmap compute + blur   (Phase 5 — every HEATMAP_INTERVAL frames)
- *  - bosonGravity             (Phase 4 — build boson tree + particle/boson gravity)
+ *  - bosonInteraction         (Phase 4 — build boson tree + particle/boson gravity + pion Coulomb)
  *  - deadParticleGC           (Phase 3)
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
 import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
 import { fetchShader, createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFFTPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
-import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_GRAV_BIT, FIELD_GRAV_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
+import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, FIELD_GRAV_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
-    HISTORY_STRIDE, MAX_PHOTONS, MAX_PIONS,
+    HISTORY_STRIDE, GPU_GPU_MAX_PHOTONS, GPU_GPU_MAX_PIONS,
     GPU_MAX_PARTICLES, GPU_HEATMAP_GRID, PHYSICS_DT,
     COL_MERGE, COL_BOUNCE, BOUND_LOOP,
     COL_NAMES, BOUND_NAMES, TOPO_NAMES,
@@ -216,7 +216,7 @@ export default class GPUPhysics {
         this._onePNEnabled = false;
         this._radiationEnabled = false;
         this._yukawaEnabled = false;
-        this._bosonGravEnabled = false;
+        this._bosonInterEnabled = false;
 
         // Toggle state
         this._toggles0 = 0;
@@ -1193,7 +1193,7 @@ export default class GPUPhysics {
         const g1 = useBHTree ? bgs.bosTreeG1 : bgs.bosG1;
 
         // updatePhotons: drift + lensing
-        const phWG = Math.ceil(MAX_PHOTONS / 64);
+        const phWG = Math.ceil(GPU_MAX_PHOTONS / 64);
         const passPhotons = encoder.beginComputePass({ label: 'updatePhotons' });
         passPhotons.setPipeline(phUpdatePipeline);
         passPhotons.setBindGroup(0, bgs.bosG0);
@@ -1204,7 +1204,7 @@ export default class GPUPhysics {
         passPhotons.end();
 
         // updatePions: drift with proper velocity
-        const piWG = Math.ceil(MAX_PIONS / 64);
+        const piWG = Math.ceil(GPU_MAX_PIONS / 64);
         const passPions = encoder.beginComputePass({ label: 'updatePions' });
         passPions.setPipeline(piUpdatePipeline);
         passPions.setBindGroup(0, bgs.bosG0);
@@ -1246,11 +1246,11 @@ export default class GPUPhysics {
     }
 
     /**
-     * Dispatch boson gravity passes (Phase 4).
-     * Runs once per frame after all substeps: build boson tree, compute gravity.
+     * Dispatch boson interaction passes (Phase 4).
+     * Runs once per frame after all substeps: build boson tree, gravity, Coulomb, annihilation.
      */
-    _dispatchBosonGravity(encoder) {
-        if (!this._bosonGravEnabled) return;
+    _dispatchBosonInteraction(encoder) {
+        if (!this._bosonInterEnabled) return;
 
         const p4 = this._phase4;
         const bgs = this._phase4BindGroups;
@@ -1277,7 +1277,7 @@ export default class GPUPhysics {
         _bosonRootData[19] = 0xFFFFFFFF;   // parent = NONE (-1)
         this.device.queue.writeBuffer(b.bosonTreeNodes, 0, _bosonRootData);
 
-        const totalBosons = MAX_PHOTONS + MAX_PIONS;
+        const totalBosons = GPU_MAX_PHOTONS + GPU_MAX_PIONS;
         const bosonWG = Math.ceil(totalBosons / 64);
 
         // insertBosonsIntoTree
@@ -1300,28 +1300,56 @@ export default class GPUPhysics {
         passAgg.dispatchWorkgroups(bosonWG);
         passAgg.end();
 
-        // computeBosonGravity: particle <- boson gravity
-        const particleWG = Math.ceil(this.aliveCount / 64);
-        if (particleWG > 0) {
-            const passGrav = encoder.beginComputePass({ label: 'computeBosonGravity' });
-            passGrav.setPipeline(p4.computeBosonGravity.pipeline);
-            passGrav.setBindGroup(0, bgs.btG0);
-            passGrav.setBindGroup(1, bgs.btG1);
-            passGrav.setBindGroup(2, bgs.btG2);
-            passGrav.setBindGroup(3, bgs.btG3);
-            passGrav.dispatchWorkgroups(particleWG);
-            passGrav.end();
+        // computeBosonGravity: particle <- boson gravity (only when gravity enabled)
+        if (this._gravityEnabled) {
+            const particleWG = Math.ceil(this.aliveCount / 64);
+            if (particleWG > 0) {
+                const passGrav = encoder.beginComputePass({ label: 'computeBosonGravity' });
+                passGrav.setPipeline(p4.computeBosonGravity.pipeline);
+                passGrav.setBindGroup(0, bgs.btG0);
+                passGrav.setBindGroup(1, bgs.btG1);
+                passGrav.setBindGroup(2, bgs.btG2);
+                passGrav.setBindGroup(3, bgs.btG3);
+                passGrav.dispatchWorkgroups(particleWG);
+                passGrav.end();
+            }
+
+            // applyBosonBosonGravity: boson <-> boson mutual gravity
+            const passBosonBoson = encoder.beginComputePass({ label: 'applyBosonBosonGravity' });
+            passBosonBoson.setPipeline(p4.applyBosonBosonGravity.pipeline);
+            passBosonBoson.setBindGroup(0, bgs.btG0);
+            passBosonBoson.setBindGroup(1, bgs.btG1);
+            passBosonBoson.setBindGroup(2, bgs.btG2);
+            passBosonBoson.setBindGroup(3, bgs.btG3);
+            passBosonBoson.dispatchWorkgroups(bosonWG);
+            passBosonBoson.end();
         }
 
-        // applyBosonBosonGravity: boson <-> boson mutual gravity
-        const passBosonBoson = encoder.beginComputePass({ label: 'applyBosonBosonGravity' });
-        passBosonBoson.setPipeline(p4.applyBosonBosonGravity.pipeline);
-        passBosonBoson.setBindGroup(0, bgs.btG0);
-        passBosonBoson.setBindGroup(1, bgs.btG1);
-        passBosonBoson.setBindGroup(2, bgs.btG2);
-        passBosonBoson.setBindGroup(3, bgs.btG3);
-        passBosonBoson.dispatchWorkgroups(bosonWG);
-        passBosonBoson.end();
+        // applyPionPionCoulomb: pion <-> pion Coulomb via boson tree (only when Coulomb enabled)
+        if (this._coulombEnabled) {
+            const pionWG = Math.ceil(GPU_MAX_PIONS / 64);
+            const passPiCoulomb = encoder.beginComputePass({ label: 'applyPionPionCoulomb' });
+            passPiCoulomb.setPipeline(p4.applyPionPionCoulomb.pipeline);
+            passPiCoulomb.setBindGroup(0, bgs.btG0);
+            passPiCoulomb.setBindGroup(1, bgs.btG1);
+            passPiCoulomb.setBindGroup(2, bgs.btG2);
+            passPiCoulomb.setBindGroup(3, bgs.btG3);
+            passPiCoulomb.dispatchWorkgroups(pionWG);
+            passPiCoulomb.end();
+        }
+
+        // annihilatePions: π⁺π⁻ → 2 photons
+        {
+            const pionWG = Math.ceil(GPU_MAX_PIONS / 64);
+            const passAnnihilate = encoder.beginComputePass({ label: 'annihilatePions' });
+            passAnnihilate.setPipeline(p4.annihilatePions.pipeline);
+            passAnnihilate.setBindGroup(0, bgs.btG0);
+            passAnnihilate.setBindGroup(1, bgs.btG1);
+            passAnnihilate.setBindGroup(2, bgs.btG2);
+            passAnnihilate.setBindGroup(3, bgs.btG3);
+            passAnnihilate.dispatchWorkgroups(pionWG);
+            passAnnihilate.end();
+        }
     }
 
     /**
@@ -1698,7 +1726,7 @@ export default class GPUPhysics {
         if (physics.higgsEnabled) t0 |= HIGGS_BIT;
         if (physics.axionEnabled) t0 |= AXION_BIT;
         if (physics.barnesHutEnabled) t0 |= BARNES_HUT_BIT;
-        if (physics.bosonGravEnabled) t0 |= BOSON_GRAV_BIT;
+        if (physics.bosonInterEnabled) t0 |= BOSON_INTER_BIT;
         this._toggles0 = t0;
 
         let t1 = 0;
@@ -1716,7 +1744,7 @@ export default class GPUPhysics {
         this._onePNEnabled = physics.onePNEnabled;
         this._radiationEnabled = physics.radiationEnabled;
         this._yukawaEnabled = physics.yukawaEnabled;
-        this._bosonGravEnabled = physics.bosonGravEnabled;
+        this._bosonInterEnabled = physics.bosonInterEnabled;
         this._yukawaCoupling = physics.yukawaCoupling ?? 14;
 
         // Lazily allocate history buffers when relativity is first enabled
@@ -2781,7 +2809,7 @@ export default class GPUPhysics {
         _pairProdUniformF32[3] = 64.0;    // minAge (time units, matches CPU PAIR_PROD_MIN_AGE)
         _pairProdUniformU32[4] = 32;      // maxParticles (PAIR_PROD_MAX_PARTICLES)
         _pairProdUniformU32[5] = this.aliveCount;
-        _pairProdUniformU32[6] = MAX_PHOTONS;
+        _pairProdUniformU32[6] = GPU_MAX_PHOTONS;
         _pairProdUniformU32[7] = this._blackHoleEnabled ? 1 : 0;
         _pairProdUniformF32[8] = this.simTime;
         this.device.queue.writeBuffer(this._pairProdUniformBuffer, 0, _pairProdUniformData);
@@ -2818,7 +2846,7 @@ export default class GPUPhysics {
             this._pairProdBGs = [g0, g1, g2];
         }
 
-        const workgroups = Math.ceil(MAX_PHOTONS / 256);
+        const workgroups = Math.ceil(GPU_MAX_PHOTONS / 256);
         const p = encoder.beginComputePass({ label: 'pairProduction' });
         p.setPipeline(this._pairProdPipeline.pipeline);
         p.setBindGroup(0, this._pairProdBGs[0]);
@@ -3071,7 +3099,7 @@ export default class GPUPhysics {
             }
 
             // Boson gravity (if enabled): build boson tree + particle<-boson + boson<->boson
-            this._dispatchBosonGravity(encoder);
+            this._dispatchBosonInteraction(encoder);
 
             // Dead particle garbage collection
             this._dispatchDeadGC(encoder);
@@ -3490,7 +3518,7 @@ export default class GPUPhysics {
         state.toggles.higgsEnabled = !!(t0 & HIGGS_BIT);
         state.toggles.axionEnabled = !!(t0 & AXION_BIT);
         state.toggles.barnesHutEnabled = !!(t0 & BARNES_HUT_BIT);
-        state.toggles.bosonGravEnabled = !!(t0 & BOSON_GRAV_BIT);
+        state.toggles.bosonInterEnabled = !!(t0 & BOSON_INTER_BIT);
         state.toggles.fieldGravEnabled = !!(t1 & 1);
 
         state.yukawaMu = this._yukawaMu;

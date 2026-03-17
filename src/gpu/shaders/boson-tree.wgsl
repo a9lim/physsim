@@ -23,6 +23,7 @@ const N_MAX_Y: u32 = 3u;
 const N_COM_X: u32 = 4u;
 const N_COM_Y: u32 = 5u;
 const N_TOTAL_MASS: u32 = 6u;
+const N_TOTAL_CHARGE: u32 = 7u;
 const N_PARTICLE_COUNT: u32 = 12u;
 const N_DIVIDED: u32 = 13u;
 const N_NW: u32 = 14u;
@@ -98,6 +99,7 @@ fn initNode(idx: u32, minX: f32, minY: f32, maxX: f32, maxY: f32, parentIdx: i32
     atomicStore(&bosonTree[base + N_COM_X], bitcast<u32>(0.0));
     atomicStore(&bosonTree[base + N_COM_Y], bitcast<u32>(0.0));
     atomicStore(&bosonTree[base + N_TOTAL_MASS], bitcast<u32>(0.0));
+    atomicStore(&bosonTree[base + N_TOTAL_CHARGE], bitcast<u32>(0.0));
     atomicStore(&bosonTree[base + N_PARTICLE_COUNT], 0u);
     atomicStore(&bosonTree[base + N_DIVIDED], 0u);
     atomicStore(&bosonTree[base + N_NW], 0xFFFFFFFFu);
@@ -258,12 +260,13 @@ fn computeBosonAggregates(@builtin(global_invocation_id) gid: vec3u) {
     let total = phN + piN;
     if (i >= total) { return; }
 
-    var bx: f32; var by: f32; var bMass: f32;
+    var bx: f32; var by: f32; var bMass: f32; var bCharge: f32;
     var alive: bool;
     if (i < phN) {
         alive = (photons[i].flags & 1u) != 0u;
         bx = photons[i].posX; by = photons[i].posY;
         bMass = photons[i].energy;
+        bCharge = 0.0; // photons carry no charge
     } else {
         let pi = i - phN;
         alive = (pions[pi].flags & 1u) != 0u;
@@ -271,6 +274,7 @@ fn computeBosonAggregates(@builtin(global_invocation_id) gid: vec3u) {
         let wx = pions[pi].wX; let wy = pions[pi].wY;
         let gamma = sqrt(1.0 + wx * wx + wy * wy);
         bMass = pions[pi].mass * gamma;
+        bCharge = f32(pions[pi].charge);
     }
     if (!alive) { return; }
 
@@ -286,6 +290,7 @@ fn computeBosonAggregates(@builtin(global_invocation_id) gid: vec3u) {
 
     // Write leaf aggregates (single boson)
     setNodeF32(leafNode, N_TOTAL_MASS, bMass);
+    setNodeF32(leafNode, N_TOTAL_CHARGE, bCharge);
     if (bMass > 0.0) {
         setNodeF32(leafNode, N_COM_X, bx);
         setNodeF32(leafNode, N_COM_Y, by);
@@ -320,6 +325,9 @@ fn computeBosonAggregates(@builtin(global_invocation_id) gid: vec3u) {
         let totalM = m0 + m1 + m2 + m3;
 
         setNodeF32(nodeU, N_TOTAL_MASS, totalM);
+        setNodeF32(nodeU, N_TOTAL_CHARGE,
+            nodeF32(c0, N_TOTAL_CHARGE) + nodeF32(c1, N_TOTAL_CHARGE) +
+            nodeF32(c2, N_TOTAL_CHARGE) + nodeF32(c3, N_TOTAL_CHARGE));
         if (totalM > EPSILON) {
             let invM = 1.0 / totalM;
             setNodeF32(nodeU, N_COM_X, (nodeF32(c0, N_COM_X) * m0 + nodeF32(c1, N_COM_X) * m1 + nodeF32(c2, N_COM_X) * m2 + nodeF32(c3, N_COM_X) * m3) * invM);
@@ -335,6 +343,14 @@ fn bhGravForce(dx: f32, dy: f32, nodeMass: f32, massFactor: f32) -> vec2f {
     let rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
     let invRSq = 1.0 / rSq;
     let f = massFactor * nodeMass * sqrt(invRSq) * invRSq;
+    return vec2f(dx * f, dy * f);
+}
+
+// Shared BH Coulomb force: F = -q_self * Q_node / (r^2 + softening)^{3/2} * r_hat
+fn bhCoulombForce(dx: f32, dy: f32, nodeCharge: f32, scale: f32) -> vec2f {
+    let rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
+    let invRSq = 1.0 / rSq;
+    let f = scale * nodeCharge * sqrt(invRSq) * invRSq;
     return vec2f(dx * f, dy * f);
 }
 
@@ -466,5 +482,161 @@ fn applyBosonBosonGravity(@builtin(global_invocation_id) gid: vec3u) {
         let pi2 = i - phN;
         pions[pi2].wX += kick.x;
         pions[pi2].wY += kick.y;
+    }
+}
+
+// Mutual Coulomb interaction between charged pions via BH tree walk.
+// F = -q_i * q_j / r² (like-charges repel). Only pions participate.
+@compute @workgroup_size(64)
+fn applyPionPionCoulomb(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    let piN = atomicLoad(&piCount);
+    if (i >= piN) { return; }
+
+    let piState = pions[i];
+    if ((piState.flags & 1u) == 0u) { return; }
+    if (piState.charge == 0) { return; }
+
+    let dt = u.dt;
+    let bx = piState.posX;
+    let by = piState.posY;
+    let scale = -f32(piState.charge) * dt;
+
+    // BH tree walk of boson tree using charge aggregates
+    var kick = vec2f(0.0);
+    var stack: array<u32, 48>;
+    var top: i32 = 0;
+    stack[0] = 0u;
+    top = 1;
+
+    while (top > 0) {
+        top--;
+        let nIdx = stack[top];
+        let nodeCharge = nodeF32(nIdx, N_TOTAL_CHARGE);
+        if (nodeCharge == 0.0) { continue; }
+
+        let cx = nodeF32(nIdx, N_COM_X);
+        let cy = nodeF32(nIdx, N_COM_Y);
+        let dx = cx - bx;
+        let dy = cy - by;
+        let dSq = dx * dx + dy * dy;
+        let size = nodeF32(nIdx, N_MAX_X) - nodeF32(nIdx, N_MIN_X);
+        let isDivided = bitcast<i32>(nodeU32(nIdx, N_NW)) != NONE;
+
+        if (!isDivided || size * size < BH_THETA_SQ * dSq) {
+            kick += bhCoulombForce(dx, dy, nodeCharge, scale);
+        } else if (top + 4 <= 48) {
+            stack[top] = nodeU32(nIdx, N_NW); top++;
+            stack[top] = nodeU32(nIdx, N_NE); top++;
+            stack[top] = nodeU32(nIdx, N_SW); top++;
+            stack[top] = nodeU32(nIdx, N_SE); top++;
+        }
+    }
+
+    pions[i].wX += kick.x;
+    pions[i].wY += kick.y;
+}
+
+// π⁺π⁻ annihilation: opposite-charge pions within softening distance → 2 photons.
+// Pairwise scan over pions only (MAX_PIONS = 1024, so O(1024²) is acceptable).
+@compute @workgroup_size(64)
+fn annihilatePions(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    let piN = atomicLoad(&piCount);
+    if (i >= piN) { return; }
+
+    var pi1 = pions[i];
+    if ((pi1.flags & 1u) == 0u) { return; }
+    if (pi1.charge == 0) { return; }
+    if (pi1.age < BOSON_MIN_AGE) { return; }
+
+    let p1x = pi1.posX;
+    let p1y = pi1.posY;
+    let p1c = pi1.charge;
+
+    // Search for nearest opposite-charge pion (lower index wins tie to avoid double-annihilation)
+    for (var j = i + 1u; j < piN; j++) {
+        let pi2 = pions[j];
+        if ((pi2.flags & 1u) == 0u) { continue; }
+        if (pi2.charge == 0 || pi2.charge == p1c) { continue; } // need opposite charge
+        if (pi2.age < BOSON_MIN_AGE) { continue; }
+
+        let dx = p1x - pi2.posX;
+        let dy = p1y - pi2.posY;
+        if (dx * dx + dy * dy >= BOSON_SOFTENING_SQ) { continue; }
+
+        // Annihilate: mark both dead
+        pions[i].flags &= ~1u;
+        pions[j].flags &= ~1u;
+
+        // Compute COM kinematics for 2 photons
+        let w1x = pi1.wX; let w1y = pi1.wY;
+        let w2x = pi2.wX; let w2y = pi2.wY;
+        let g1 = sqrt(1.0 + w1x * w1x + w1y * w1y);
+        let g2 = sqrt(1.0 + w2x * w2x + w2y * w2y);
+        let E = pi1.mass * g1 + pi2.mass * g2;
+        let px = w1x * pi1.mass + w2x * pi2.mass;
+        let py2 = w1y * pi1.mass + w2y * pi2.mass;
+        if (E < EPSILON) { break; }
+
+        let vComX = px / E;
+        let vComY = py2 / E;
+        let vComSq = vComX * vComX + vComY * vComY;
+        let gammaCom = select(1.0 / sqrt(max(1.0 - min(vComSq, MAX_SPEED_RATIO * MAX_SPEED_RATIO), EPSILON)), 1.0, vComSq < 1e-12);
+
+        let sCom = E * E - px * px - py2 * py2;
+        let mInv = select(E, sqrt(sCom), sCom > 0.0);
+        let ePhRest = mInv * 0.5;
+
+        // Random rest-frame angle from hash
+        let rng = pcgRand((i * 73856093u) ^ (pi1.age * 19349663u));
+        let angle = rng * TWO_PI;
+        let cosA = cos(angle);
+        let sinA = sin(angle);
+
+        let midX = (p1x + pi2.posX) * 0.5;
+        let midY = (p1y + pi2.posY) * 0.5;
+        let emitOffset = max(pi1.mass * 1.5, 1.0);
+
+        for (var s = 0; s < 2; s++) {
+            let sign = select(-1.0, 1.0, s == 0);
+            var phPx = sign * ePhRest * cosA;
+            var phPy = sign * ePhRest * sinA;
+
+            // Lorentz boost from COM to lab
+            if (vComSq > 1e-12) {
+                let vCom = sqrt(vComSq);
+                let nx = vComX / vCom;
+                let ny = vComY / vCom;
+                let pPar = phPx * nx + phPy * ny;
+                let pPerpX = phPx - pPar * nx;
+                let pPerpY = phPy - pPar * ny;
+                let pParB = gammaCom * (pPar + vCom * ePhRest);
+                phPx = pParB * nx + pPerpX;
+                phPy = pParB * ny + pPerpY;
+            }
+
+            let pMag = sqrt(phPx * phPx + phPy * phPy);
+            if (pMag < EPSILON) { continue; }
+            let dirX = phPx / pMag;
+            let dirY = phPy / pMag;
+
+            let phIdx = atomicAdd(&phCount, 1u);
+            if (phIdx < MAX_PHOTONS) {
+                var ph: Photon;
+                ph.posX = midX + dirX * emitOffset;
+                ph.posY = midY + dirY * emitOffset;
+                ph.velX = dirX;
+                ph.velY = dirY;
+                ph.energy = pMag;
+                ph.emitterId = 0xFFFFFFFFu; // no emitter
+                ph.lifetime = 0.0;
+                ph.flags = 1u;
+                photons[phIdx] = ph;
+            } else {
+                atomicSub(&phCount, 1u);
+            }
+        }
+        break; // each pion annihilates at most once
     }
 }

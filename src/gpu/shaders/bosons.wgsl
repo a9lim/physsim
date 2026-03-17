@@ -101,6 +101,8 @@ fn updatePions(@builtin(global_invocation_id) gid: vec3u) {
 
     // Gravitational deflection: (1+v^2) factor for massive particle
     let grFactor = 1.0 + vSq;
+    let coulombOn = (u.toggles0 & COULOMB_BIT) != 0u;
+    let piCharge = pi.charge;
     for (var j = 0u; j < aliveN; j++) {
         let pj = particles[j];
         if ((pj.flags & FLAG_ALIVE) == 0u) { continue; }
@@ -111,6 +113,12 @@ fn updatePions(@builtin(global_invocation_id) gid: vec3u) {
         let invR3 = invRSq2 * sqrt(invRSq2);
         piWX += grFactor * pj.mass * dx * invR3 * dt;
         piWY += grFactor * pj.mass * dy * invR3 * dt;
+        // Coulomb: F = -q_pion * q_particle / r² (like-charges repel)
+        if (coulombOn && piCharge != 0 && pj.charge != 0.0) {
+            let fC = -f32(piCharge) * pj.charge * invR3 * dt;
+            piWX += fC * dx;
+            piWY += fC * dy;
+        }
     }
 
     // NaN guard

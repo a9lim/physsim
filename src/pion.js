@@ -4,7 +4,7 @@
 
 import Vec2 from './vec2.js';
 import { BOSON_SOFTENING_SQ, ELECTRON_MASS, MAX_SPEED_RATIO, EPSILON, MAX_PIONS, spawnOffset } from './config.js';
-import { treeDeflectBoson } from './boson-utils.js';
+import { treeDeflectBoson, treeDeflectBosonCoulomb } from './boson-utils.js';
 
 // ─── Object Pool ───
 // Recycles dead Pion instances to eliminate GC pressure from
@@ -22,6 +22,7 @@ export default class Pion {
         this.energy = energy;
         this.vSq = 0;       // cached coordinate velocity squared (set by _syncVel)
         this.gravMass = 0;   // cached gravitational mass = m·γ (set by _syncVel)
+        this._srcCharge = charge; // source charge for boson tree aggregation
         this.lifetime = 0;
         this.alive = true;
         this.emitterId = emitterId;
@@ -35,6 +36,7 @@ export default class Pion {
         this.w.x = wx; this.w.y = wy;
         this.mass = mass;
         this.charge = charge;
+        this._srcCharge = charge;
         this.energy = energy;
         this.lifetime = 0;
         this.alive = true;
@@ -75,20 +77,41 @@ export default class Pion {
         this._srcMass = this.gravMass;     // source gravitational mass for BH tree
     }
 
-    update(dt, particles, pool, root) {
+    update(dt, particles, pool, root, gravLensing, coulombEnabled) {
         // Gravitational deflection: massive particle gets (1+v²) factor, not 2
-        const grFactor = 1 + this.vSq;
-        if (pool && root >= 0) {
-            treeDeflectBoson(this.pos, this.w, grFactor * dt, pool, root);
-        } else if (particles) {
-            for (let i = 0; i < particles.length; i++) {
-                const p = particles[i];
-                const dx = p.pos.x - this.pos.x;
-                const dy = p.pos.y - this.pos.y;
-                const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
-                const invR3 = 1 / (rSq * Math.sqrt(rSq));
-                this.w.x += grFactor * p.mass * dx * invR3 * dt;
-                this.w.y += grFactor * p.mass * dy * invR3 * dt;
+        if (gravLensing) {
+            const grFactor = 1 + this.vSq;
+            if (pool && root >= 0) {
+                treeDeflectBoson(this.pos, this.w, grFactor * dt, pool, root);
+            } else if (particles) {
+                for (let i = 0; i < particles.length; i++) {
+                    const p = particles[i];
+                    const dx = p.pos.x - this.pos.x;
+                    const dy = p.pos.y - this.pos.y;
+                    const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
+                    const invR3 = 1 / (rSq * Math.sqrt(rSq));
+                    this.w.x += grFactor * p.mass * dx * invR3 * dt;
+                    this.w.y += grFactor * p.mass * dy * invR3 * dt;
+                }
+            }
+        }
+
+        // Coulomb deflection: F = -q_pion * q_particle / r² (like-charges repel)
+        if (coulombEnabled && this.charge !== 0 && particles) {
+            const scale = -this.charge * dt;
+            if (pool && root >= 0) {
+                treeDeflectBosonCoulomb(this.pos, this.w, scale, pool, root);
+            } else {
+                for (let i = 0; i < particles.length; i++) {
+                    const p = particles[i];
+                    if (p.charge === 0) continue;
+                    const dx = p.pos.x - this.pos.x;
+                    const dy = p.pos.y - this.pos.y;
+                    const rSq = dx * dx + dy * dy + BOSON_SOFTENING_SQ;
+                    const invR3 = 1 / (rSq * Math.sqrt(rSq));
+                    this.w.x += scale * p.charge * dx * invR3;
+                    this.w.y += scale * p.charge * dy * invR3;
+                }
             }
         }
 

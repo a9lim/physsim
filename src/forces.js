@@ -2,7 +2,7 @@
 // Pairwise and Barnes-Hut force accumulation. Separates E-like (position-dependent)
 // from B-like (velocity-dependent) forces for the Boris integrator.
 
-import { BH_THETA, BH_THETA_SQ, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_COUPLING, EPSILON, TORUS, BOSON_SOFTENING_SQ } from './config.js';
+import { BH_THETA, BH_THETA_SQ, INERTIA_K, MAG_MOMENT_K, TIDAL_STRENGTH, YUKAWA_COUPLING, EPSILON, TORUS, BOSON_SOFTENING_SQ, BOSON_MIN_AGE } from './config.js';
 import { getDelayedState } from './signal-delay.js';
 import { minImage } from './topology.js';
 
@@ -806,3 +806,114 @@ export function applyBosonBosonGravity(photons, pions, dt, bosonPool, bosonRoot)
         pn._syncVel();
     }
 }
+
+/**
+ * Shared BH tree walk for boson Coulomb. Accumulates Coulomb impulse into _bwOut.
+ * Reads _srcCharge from leaf points, totalCharge from aggregate nodes.
+ */
+function _walkBosonTreeCharge(px, py, scale, softeningSq, pool, root) {
+    let kx = 0, ky = 0;
+    let stackTop = 0;
+    _bosonBHStack[stackTop++] = root;
+
+    while (stackTop > 0) {
+        const nodeIdx = _bosonBHStack[--stackTop];
+        const nodeCharge = pool.totalCharge[nodeIdx];
+        if (nodeCharge === 0) continue;
+
+        const dx = pool.comX[nodeIdx] - px;
+        const dy = pool.comY[nodeIdx] - py;
+        const dSq = dx * dx + dy * dy;
+        const size = pool.bw[nodeIdx] * 2;
+        const cnt = pool.pointCount[nodeIdx];
+
+        if (!pool.divided[nodeIdx] && cnt > 0) {
+            const base = nodeIdx * pool.nodeCapacity;
+            for (let k = 0; k < cnt; k++) {
+                const b = pool.points[base + k];
+                if (b._srcCharge === 0) continue;
+                const bdx = b.pos.x - px;
+                const bdy = b.pos.y - py;
+                const rSq = bdx * bdx + bdy * bdy + softeningSq;
+                const invRSq = 1 / rSq;
+                const f = scale * b._srcCharge * Math.sqrt(invRSq) * invRSq;
+                kx += bdx * f;
+                ky += bdy * f;
+            }
+        } else if (pool.divided[nodeIdx] && size * size < BH_THETA_SQ * dSq) {
+            const rSq = dSq + softeningSq;
+            const invRSq = 1 / rSq;
+            const f = scale * nodeCharge * Math.sqrt(invRSq) * invRSq;
+            kx += dx * f;
+            ky += dy * f;
+        } else if (pool.divided[nodeIdx]) {
+            _bosonBHStack[stackTop++] = pool.nw[nodeIdx];
+            _bosonBHStack[stackTop++] = pool.ne[nodeIdx];
+            _bosonBHStack[stackTop++] = pool.sw[nodeIdx];
+            _bosonBHStack[stackTop++] = pool.se[nodeIdx];
+        }
+    }
+
+    _bwOut.x = kx;
+    _bwOut.y = ky;
+}
+
+/**
+ * Mutual Coulomb interaction between charged pions via Barnes-Hut tree walk.
+ * F = -q_i * q_j / r² (like-charges repel). O(N_pions × log(N_bosons)).
+ */
+export function applyPionPionCoulomb(pions, dt, bosonPool, bosonRoot) {
+    const nPi = pions ? pions.length : 0;
+    if (nPi < 2 || bosonRoot < 0) return;
+    if (_bosonBHStack.length < bosonPool.maxNodes) _bosonBHStack = new Int32Array(bosonPool.maxNodes);
+
+    for (let i = 0; i < nPi; i++) {
+        const pn = pions[i];
+        if (!pn.alive || pn.charge === 0) continue;
+        _walkBosonTreeCharge(pn.pos.x, pn.pos.y, -pn.charge * dt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot);
+        pn.w.x += _bwOut.x;
+        pn.w.y += _bwOut.y;
+        pn._syncVel();
+    }
+}
+
+/**
+ * π⁺π⁻ annihilation: opposite-charge pions within softening distance → 2 photons.
+ * Returns array of {pion1, pion2} pairs to annihilate.
+ * Uses boson tree range query. O(N_charged × log(N_bosons)).
+ */
+export function findPionAnnihilations(pions, bosonPool, bosonRoot) {
+    const nPi = pions ? pions.length : 0;
+    if (nPi < 2 || bosonRoot < 0) return _annihPairs;
+    _annihPairs.length = 0;
+
+    const annihDistSq = BOSON_SOFTENING_SQ; // annihilate within softening distance
+    const searchR = Math.sqrt(BOSON_SOFTENING_SQ);
+
+    for (let i = 0; i < nPi; i++) {
+        const pn = pions[i];
+        if (!pn.alive || pn.charge === 0 || pn.age < BOSON_MIN_AGE) continue;
+
+        // Range query of boson tree for nearby bosons
+        const candidates = bosonPool.queryReuse(bosonRoot,
+            pn.pos.x, pn.pos.y, searchR, searchR);
+        for (let ci = 0; ci < candidates.length; ci++) {
+            const other = candidates[ci];
+            if (other === pn || !other.alive) continue;
+            // Only pions have _srcCharge !== undefined and charge !== 0
+            if (!other.charge || other.charge === 0) continue;
+            if (other.charge === pn.charge) continue; // same sign: no annihilation
+            if (other.age < BOSON_MIN_AGE) continue;
+            const dx = pn.pos.x - other.pos.x;
+            const dy = pn.pos.y - other.pos.y;
+            if (dx * dx + dy * dy < annihDistSq) {
+                pn.alive = false;
+                other.alive = false;
+                _annihPairs.push(pn, other);
+                break; // each pion annihilates at most once
+            }
+        }
+    }
+    return _annihPairs;
+}
+const _annihPairs = [];

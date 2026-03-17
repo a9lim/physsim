@@ -546,7 +546,7 @@ export const PRESET_ORDER = [
 
 const TOGGLE_MAP = {
     gravity: 'gravity-toggle',
-    bosonGrav: 'bosongrav-toggle',
+    bosonInter: 'bosoninter-toggle',
     fieldGrav: 'fieldgrav-toggle',
     coulomb: 'coulomb-toggle',
     magnetic: 'magnetic-toggle',
@@ -567,7 +567,7 @@ const TOGGLE_MAP = {
 // Parent toggles first so dependency cascades run before children are set
 const TOGGLE_ORDER = [
     'gravity', 'coulomb', 'relativity',
-    'bosonGrav', 'fieldGrav', 'gravitomag', 'magnetic',
+    'bosonInter', 'fieldGrav', 'gravitomag', 'magnetic',
     'onepn', 'blackhole',
     'spinorbit', 'radiation', 'disintegration', 'barneshut',
     'yukawa', 'axion', 'expansion', 'higgs',
