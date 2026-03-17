@@ -28,8 +28,8 @@ src/
                                       Hertz bounce, scalar fields
   scalar-field.js         858 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C²
                                       gradients, field energy, excitations, particle-field gravity, self-gravity
-  forces.js               832 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(),
-                                      boson gravity, PE accumulator (resetPEAccum/getPEAccum), inline torus minImage
+  forces.js               808 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(),
+                                      boson gravity, PE accumulator (resetPEAccum/getPEAccum)
   ui.js                   716 lines  setupUI(), declarative dependency graph, info tips, reference overlay,
                                       shortcuts, dirty flag, KaTeX render cache, lazy field init triggers
   reference.js            715 lines  REFERENCE object: physics reference content (KaTeX math)
@@ -62,19 +62,19 @@ src/
   relativity.js            25 lines  angwToAngVel(), setVelocity()
   canvas-renderer.js       20 lines  CanvasRenderer: thin adapter wrapping Renderer to RenderBackend
   gpu/
-    gpu-physics.js       3794 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
+    gpu-physics.js       3803 lines  GPUPhysics: WebGPU compute pipeline orchestrator, addParticle/serialize,
                                       all dispatch methods, bind group creation, adaptive substepping, readback,
                                       per-field uniform buffers (Higgs/Axion), pre-allocated write buffers
-    gpu-pipelines.js     1897 lines  Pipeline + bind group layout creation for all compute/render shaders,
+    gpu-pipelines.js     1899 lines  Pipeline + bind group layout creation for all compute/render shaders,
                                       fetchShader() (single source of truth), getSharedPrefix() caching
     gpu-renderer.js      1215 lines  WebGPU instanced rendering: particles, bosons, field overlays, heatmap,
                                       trails, force arrows, spin rings, torque arcs, dashed rings
                                       (dual light/dark pipeline variants)
-    gpu-buffers.js        564 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
-                                      trail buffers, staging
+    gpu-buffers.js        569 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
+                                      trail buffers, staging, boson tree visitor flags
     gpu-constants.js      298 lines  buildWGSLConstants(): generates WGSL const block from config.js +
                                       _PALETTE colors, single source of truth for JS/WGSL constants
-    shaders/               51 files  WGSL compute + render shaders (9302 lines total)
+    shaders/               51 files  WGSL compute + render shaders (9423 lines total)
 ```
 
 ## Key Imports
@@ -238,7 +238,7 @@ Mass = `yukawaMu`. Proper velocity `w`: `vel = w/√(1+w²)`. GR deflection: `(1
 
 **Absorption**: Quadtree overlap query. Self-absorption permanently blocked by `emitterId`.
 
-**Boson gravity** (requires Gravity + Barnes-Hut -> Boson Gravity toggle): Particle→boson and boson→boson via BH tree walks.
+**Boson gravity** (requires Gravity + Barnes-Hut -> Boson Gravity toggle): Particle→boson and boson→boson via BH tree walks. GPU boson tree (`boson-tree.wgsl`) uses CAS+lock insertion and visitor-flag bottom-up aggregation matching the main particle tree. CPU uses separate `_bosonPool` QuadTreePool.
 
 ## Advanced Physics
 
@@ -312,6 +312,8 @@ Boundary "loop": Torus (TORUS=0), Klein bottle (KLEIN=1), RP² (RP2=2). `minImag
 ## Quadtree
 
 `QuadTreePool`: SoA typed arrays, 512-node pool (grows). BH_THETA = 0.5, QUADTREE_CAPACITY = 4. Depth guard max 48. **Always built** every substep regardless of BH toggle -- used by collisions, hit testing, and optionally BH force computation.
+
+**Dead particles in GPU tree**: Retired particles (FLAG_RETIRED, mass zeroed) are inserted into the GPU BH tree alongside alive/ghost particles. `computeAggregates` uses `deathMass`/`deathAngVel` from `ParticleAux` for retired particle leaf data. At leaf level in `forces-tree.wgsl`, retired particles use signal delay with `isDead=true`. The CPU dead-particle path remains pairwise (separate loop in `computeAllForces`). The GPU `pair-force.wgsl` also keeps a pairwise dead scan for when BH is off.
 
 ## Toggle Dependencies
 
@@ -442,7 +444,7 @@ Particles, trails, field overlays, heatmap, bosons (photons + pions), spin rings
 - Object pooling: `MasslessBoson.acquire()`/`.release()` and `Pion.acquire()`/`.release()` with pool caps (64)
 - Dirty flag: `sim._dirty` skips entire render/stats when paused with no interaction
 - Batched rendering: force arrows, spin rings, photon alpha buckets -- O(forces) canvas calls not O(particles×forces)
-- Inline torus minImage in pairForce/1PN loops; Klein/RP² dispatch to `minImage()`
+- All periodic topologies use `minImage()` uniformly (torus, Klein, RP²); no inline fast paths
 - Yukawa cutoff: skip `Math.exp` when `μr > 6`
 - Lazy field init: Higgs/Axion fields `null` until first toggle-on
 - KaTeX CSS preload + render cache
