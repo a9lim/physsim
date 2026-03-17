@@ -559,7 +559,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             accumulateForce(
                 &localAF, px, py, pMass, pCharge,
                 pMagMoment, pAngMomentum, pAngVel, pVelX, pVelY,
-                pAxMod, pYukMod,
+                pAxMod, pYukMod, pHiggsMod,
                 comX, comY,
                 avgVx, avgVy,
                 nodeMass, getTotalCharge(nodeIdx),

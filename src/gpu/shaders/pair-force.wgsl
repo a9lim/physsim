@@ -601,7 +601,7 @@ fn main(
                 src, softeningSq,
                 yukMu, yukCutoffSq,
                 gravOn, coulOn, magOn, gmOn,
-                onePNOn, yukawaOn, radOn,
+                onePNOn, yukawaOn, higgsOn, radOn,
                 needAxMod, isPeriodic,
                 &accum,
             );
