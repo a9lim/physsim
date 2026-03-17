@@ -28,11 +28,11 @@ src/
                                       Hertz bounce, scalar fields
   scalar-field.js         858 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C²
                                       gradients, field energy, excitations, particle-field gravity, self-gravity
-  forces.js               803 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(),
+  forces.js               832 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk), compute1PN(),
                                       boson gravity, PE accumulator (resetPEAccum/getPEAccum), inline torus minImage
   ui.js                   716 lines  setupUI(), declarative dependency graph, info tips, reference overlay,
                                       shortcuts, dirty flag, KaTeX render cache, lazy field init triggers
-  reference.js            714 lines  REFERENCE object: physics reference content (KaTeX math)
+  reference.js            715 lines  REFERENCE object: physics reference content (KaTeX math)
   renderer.js             707 lines  CPU Canvas 2D renderer (used as fallback when GPU unavailable)
   presets.js              680 lines  PRESETS (19 scenarios, 4 groups), loadPreset(), SLIDER_MAP, TOGGLE_MAP/TOGGLE_ORDER
   input.js                393 lines  InputHandler: mouse/touch, left/right-click symmetry (matter/antimatter),
@@ -171,7 +171,7 @@ Plummer softening: SOFTENING = 8 (SQ = 64); BH mode: BH_SOFTENING = 4 (SQ = 16).
 |---|---|---|---|
 | Gravity | `+m₁m₂/r²` (attractive) | `-m₁m₂/r` | Gravity |
 | Coulomb | `-q₁q₂/r²` (like-repels) | `+q₁q₂/r` | Coulomb |
-| Magnetic dipole | `+3μ₁μ₂/r⁴` | `+μ₁μ₂/r³` | Coulomb + Magnetic |
+| Magnetic dipole | `-3μ₁μ₂/r⁴` (aligned repel) | `+μ₁μ₂/r³` | Coulomb + Magnetic |
 | GM dipole | `+3L₁L₂/r⁴` (co-rotating attract) | `-L₁L₂/r³` | Gravity + GM |
 
 ### B-like Forces (velocity-dependent, Boris rotation)

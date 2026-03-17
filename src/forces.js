@@ -259,7 +259,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
                 + 5 * p.mass * invR + 4 * sMass * invR;
             const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
             const v2Coeff = 3 * nDotV2;
-            const base = sMass * invR3;
+            const base = p.mass * sMass * invR3;
             const fx = base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
             const fy = base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
             out.x += fx;
@@ -269,7 +269,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
             // Analytical jerk for position-only EIH term: F = m₂(5m₁+4m₂)·r/r⁴
             // Velocity-dependent EIH terms (v², v·n) omitted — O(1/c⁵) contribution
             if (toggles.radiationEnabled) {
-                const kEIH = sMass * (5 * p.mass + 4 * sMass);
+                const kEIH = p.mass * sMass * (5 * p.mass + 4 * sMass);
                 const fDirEIH = kEIH * invRSq * invRSq;
                 const jRadialEIH = -4 * kEIH * rDotVr * invRSq * invRSq * invRSq;
                 p.jerk.x += vrx * fDirEIH + rx * jRadialEIH;
@@ -322,16 +322,16 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
     if (toggles.magneticEnabled) {
         // Axion modulation: geometric mean of observer and source α_eff
         const axMod = axModPair;
-        // Dipole-dipole radial: F = +3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
-        const fDir = 3 * (pMagMoment * sMagMoment) * invR5a * axMod;
+        // Dipole-dipole radial: F = -3μ₁μ₂/r⁴ (aligned ⊥-to-plane dipoles repel)
+        const fDir = -3 * (pMagMoment * sMagMoment) * invR5a * axMod;
         out.x += rx * fDir;
         out.y += ry * fDir;
         p.forceMagnetic.x += rx * fDir;
         p.forceMagnetic.y += ry * fDir;
-        // Analytical jerk: F = 3μ₁μ₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
+        // Analytical jerk: F = -3μ₁μ₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
         if (toggles.radiationEnabled) {
             const invR7a = invR5a * invRSq;
-            const jRadial = -5 * 3 * (pMagMoment * sMagMoment) * rDotVr * invR7a * axMod;
+            const jRadial = 5 * 3 * (pMagMoment * sMagMoment) * rDotVr * invR7a * axMod;
             p.jerk.x += vrx * fDir + rx * jRadial;
             p.jerk.y += vry * fDir + ry * jRadial;
         }
@@ -478,7 +478,7 @@ function _accum1PN(p, px, py, pvx, pvy, pMass, pCharge,
             + 5 * pMass * invR + 4 * sMass * invR;
         const v1Coeff = 4 * nDotV1 - 3 * nDotV2;
         const v2Coeff = 3 * nDotV2;
-        const base = sMass * invRSq * invR;
+        const base = pMass * sMass * invRSq * invR;
         p.force1PN.x += base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r);
         p.force1PN.y += base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r);
     }

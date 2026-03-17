@@ -38,7 +38,7 @@ export const REFERENCE = {
 
 <h3>Tidal Locking</h3>
 <p>Tidal locking synchronizes a body's rotation with its orbital period, so it always shows the same face to its companion. The Moon is tidally locked to Earth.</p>
-<p>$$\\tau = -\\text{TIDAL\\_STRENGTH}\\cdot\\frac{C^2\\,R^3}{r^6}\\,(\\omega_{\\text{spin}}-\\omega_{\\text{orbit}})$$</p>
+<p>$$\\tau = -\\text{TIDAL\\_STRENGTH}\\cdot\\frac{C^2\\,R^5}{r^6}\\,(\\omega_{\\text{spin}}-\\omega_{\\text{orbit}})$$</p>
 <p>where the coupling $C = m_{\\text{other}} + q_1 q_2/m$ combines gravitational and electrostatic tidal fields. The $r^{-6}$ dependence makes tidal torque extremely sensitive to distance — halving the separation increases it 64-fold.</p>
 <p>A non-synchronous body develops a displaced tidal bulge whose gravitational pull creates a torque transferring angular momentum between spin and orbit:</p>
 <ul>
@@ -210,8 +210,9 @@ export const REFERENCE = {
 <p>Requires Gravitomagnetic. The EIH equations of motion at 1PN produce the famous perihelion precession:</p>
 <p>$$\\Delta\\phi = \\frac{6\\pi M}{a(1-e^2)} \\text{ rad/orbit}$$</p>
 <p>For Mercury, this gives 43 arcseconds per century — the anomaly that led Einstein to general relativity. In this simulation, the precession appears as a slowly rotating ellipse.</p>
-<p>The EIH Lagrangian (two-body, symmetric remainder after subtracting the GM Lorentz piece):</p>
-<p>$$\\mathcal{L}_{\\text{EIH}} = \\frac{m_1 m_2}{2r}\\!\\left[(\\mathbf{v}_1 \\!\\cdot\\! \\mathbf{v}_2) + (\\mathbf{v}_1 \\!\\cdot\\! \\hat{r})(\\mathbf{v}_2 \\!\\cdot\\! \\hat{r})\\right] - \\frac{m_1 m_2}{r}\\!\\left[\\frac{v_1^2+v_2^2}{2} - \\frac{m_1+m_2}{2r}\\right]$$</p>
+<p>The full EIH interaction Lagrangian at 1PN:</p>
+<p>$$\\mathcal{L}_{\\text{EIH}} = \\frac{m_1 m_2}{2r}\\!\\left[3(v_1^2\\!+\\!v_2^2) - 7\\,\\mathbf{v}_1\\!\\cdot\\!\\mathbf{v}_2 - (\\mathbf{v}_1\\!\\cdot\\!\\hat{r})(\\mathbf{v}_2\\!\\cdot\\!\\hat{r})\\right] + \\frac{m_1 m_2(m_1\\!+\\!m_2)}{2r^2}$$</p>
+<p>The resulting force is decomposed into a gravitomagnetic Lorentz piece (handled by the Boris rotation via $B_{gz}$) and a direct position-and-velocity-dependent remainder accumulated into the 1PN display vector.</p>
 
 <h3>Darwin EM &mdash; Electromagnetic Sector</h3>
 <p>Requires Magnetic. The Darwin Lagrangian for two charges at $O(v^2/c^2)$:</p>
@@ -225,8 +226,8 @@ export const REFERENCE = {
 
 <h3>Scalar Breit &mdash; Yukawa Sector</h3>
 <p>Requires Yukawa. The $O(v^2/c^2)$ relativistic correction for massive scalar (spin-0) boson exchange, derived from the Breit equation:</p>
-<p>$$\\delta H = \\frac{g^2 m_1 m_2\\,e^{-\\mu r}}{2r}\\left[\\mathbf{v}_1\\!\\cdot\\!\\mathbf{v}_2 + (\\hat{r}\\!\\cdot\\!\\mathbf{v}_1)(\\hat{r}\\!\\cdot\\!\\mathbf{v}_2)(1+\\mu r)\\right]$$</p>
-<p>This is positive (repulsive), weakening the Yukawa attraction for fast-moving particles. The $(1+\\mu r)$ factor on the radial-velocity term comes from the massive propagator. Unlike EM (spin-1) exchange, scalar exchange produces no magnetic-type force &mdash; there is no Boris rotation component. All corrections are radial and velocity-dependent, with both radial and tangential force components accumulated into the 1PN display vector.</p>
+<p>$$\\mathcal{L}_{\\text{Breit}} = \\frac{g^2 m_1 m_2\\,e^{-\\mu r}}{2r}\\left[\\mathbf{v}_1\\!\\cdot\\!\\mathbf{v}_2 + (\\hat{r}\\!\\cdot\\!\\mathbf{v}_1)(\\hat{r}\\!\\cdot\\!\\mathbf{v}_2)(1+\\mu r)\\right]$$</p>
+<p>Because this interaction is bilinear in velocities, the Legendre transform gives $H = L$ &mdash; the Hamiltonian and Lagrangian are numerically identical. This is positive (repulsive), weakening the Yukawa attraction for fast-moving particles. The $(1+\\mu r)$ factor on the radial-velocity term comes from the massive propagator. Unlike EM (spin-1) exchange, scalar exchange produces no magnetic-type force &mdash; there is no Boris rotation component. All corrections are radial and velocity-dependent, with both radial and tangential force components accumulated into the 1PN display vector.</p>
 
 <h3>Integration Scheme</h3>
 <p>All four sectors use velocity-Verlet: the 1PN force is computed before and after the drift step, and the average is applied, giving second-order accuracy. This is necessary because 1PN forces depend on both position and velocity.</p>
@@ -312,9 +313,9 @@ export const REFERENCE = {
 <p>The pion, with mass $\\sim 140$ MeV/$c^2$, gives a range of $\\sim 1.4$ fm, matching the observed range of nuclear binding. Yukawa predicted the pion's existence this way — it was discovered experimentally in 1947, earning him the Nobel Prize.</p>
 
 <h3>Scalar Breit Correction</h3>
-<p>When 1PN corrections are enabled, the Yukawa force receives $O(v^2/c^2)$ relativistic corrections from the Breit equation for massive scalar boson exchange. The correction Hamiltonian is:</p>
-<p>$$\\delta H = \\frac{g^2 m_1 m_2\\,e^{-\\mu r}}{2r}\\left[\\mathbf{v}_1\\!\\cdot\\!\\mathbf{v}_2 + (\\hat{r}\\!\\cdot\\!\\mathbf{v}_1)(\\hat{r}\\!\\cdot\\!\\mathbf{v}_2)(1+\\mu r)\\right]$$</p>
-<p>This is positive (repulsive), weakening the attraction for fast-moving particles. Unlike EM or gravity, scalar (spin-0) exchange produces no magnetic-type force — all corrections are radial and velocity-dependent. The $(1+\\mu r)$ factor on the radial-velocity term comes from the massive propagator.</p>
+<p>When 1PN corrections are enabled, the Yukawa force receives $O(v^2/c^2)$ relativistic corrections from the Breit equation for massive scalar boson exchange. The correction Lagrangian is:</p>
+<p>$$\\delta\\mathcal{L} = \\frac{g^2 m_1 m_2\\,e^{-\\mu r}}{2r}\\left[\\mathbf{v}_1\\!\\cdot\\!\\mathbf{v}_2 + (\\hat{r}\\!\\cdot\\!\\mathbf{v}_1)(\\hat{r}\\!\\cdot\\!\\mathbf{v}_2)(1+\\mu r)\\right]$$</p>
+<p>Because this is bilinear in velocities, $H = L$ (the Legendre transform preserves the expression). This is positive (repulsive), weakening the attraction for fast-moving particles. Unlike EM or gravity, scalar (spin-0) exchange produces no magnetic-type force — all corrections are radial and velocity-dependent. The $(1+\\mu r)$ factor on the radial-velocity term comes from the massive propagator.</p>
 <p>The resulting force has both radial and tangential components, accumulated into the 1PN display vector. A velocity-Verlet correction ensures accuracy for these velocity-dependent terms.</p>
 
 <h3>Beyond Nuclear Physics</h3>
@@ -394,7 +395,7 @@ export const REFERENCE = {
 
 <h3>Field Equation</h3>
 <p>$$\\ddot{\\phi} = \\nabla^2\\phi + \\mu^2\\phi - \\lambda\\phi^3 + \\rho_{\\text{source}} - 2m_H\\dot{\\phi}$$</p>
-<p>The source term $\\rho$ comes from particle deposition (cubic B-spline interpolation), and the damping term $2m_H\\dot{\\phi}$ provides critical damping. The field is evolved via symplectic Euler.</p>
+<p>The source term $\\rho$ comes from particle deposition (cubic B-spline interpolation), and the damping term $2m_H\\dot{\\phi}$ provides critical damping. The field is evolved via St\\u00f6rmer-Verlet (kick-drift-kick).</p>
 
 <h3>Electroweak Phase Transition</h3>
 <p>At high temperatures, thermal corrections modify the effective potential:</p>

@@ -150,8 +150,8 @@ fn accumulateForce(
     // Magnetic: dipole-dipole + Bz field
     if ((toggles & MAGNETIC_BIT) != 0u) {
         let axMod = axModPair;
-        // Dipole-dipole radial: F = +3*mu1*mu2/r^4
-        let fDir = 3.0 * (pMagMoment * sMagMoment) * invR5a * axMod;
+        // Dipole-dipole radial: F = -3*mu1*mu2/r^4 (aligned dipoles repel)
+        let fDir = -3.0 * (pMagMoment * sMagMoment) * invR5a * axMod;
         let fx = rx * fDir;
         let fy = ry * fDir;
         (*af).f1.x += fx;
@@ -162,7 +162,7 @@ fn accumulateForce(
         // Analytical jerk: F = 3μ₁μ₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
         if (radOn) {
             let invR7a = invR5a * invRSq;
-            let jRadial = -15.0 * (pMagMoment * sMagMoment) * rDotVr * invR7a * axMod;
+            let jRadial = 15.0 * (pMagMoment * sMagMoment) * rDotVr * invR7a * axMod;
             (*jerkOut).x += vrx * fDir + rx * jRadial;
             (*jerkOut).y += vry * fDir + ry * jRadial;
         }
@@ -278,7 +278,7 @@ fn accumulateForce(
             + 5.0 * pMass * invR + 4.0 * sMass * invR;
         let v1Coeff = 4.0 * nDotV1 - 3.0 * nDotV2;
         let v2Coeff = 3.0 * nDotV2;
-        let base = sMass * invR3;
+        let base = pMass * sMass * invR3;
         let eihX = base * (rx * radial + (pVelX * v1Coeff + svx * v2Coeff) * r_val);
         let eihY = base * (ry * radial + (pVelY * v1Coeff + svy * v2Coeff) * r_val);
         (*af).f2.x += eihX;
@@ -288,7 +288,7 @@ fn accumulateForce(
 
         // Analytical jerk for position-only EIH term: F = m₂(5m₁+4m₂)·r/r⁴
         if (radOn) {
-            let kEIH = sMass * (5.0 * pMass + 4.0 * sMass);
+            let kEIH = pMass * sMass * (5.0 * pMass + 4.0 * sMass);
             let fDirEIH = kEIH * invRSq * invRSq;
             let jRadialEIH = -4.0 * kEIH * rDotVr * invRSq * invRSq * invRSq;
             (*jerkOut).x += vrx * fDirEIH + rx * jRadialEIH;

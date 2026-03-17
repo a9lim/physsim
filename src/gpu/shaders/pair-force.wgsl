@@ -192,7 +192,7 @@ fn accumulatePairForce(
             + 5.0 * pMass * invR + 4.0 * src.mass * invR;
         let v1Coeff = 4.0 * nDotV1 - 3.0 * nDotV2;
         let v2Coeff = 3.0 * nDotV2;
-        let base = src.mass * invR3;
+        let base = pMass * src.mass * invR3;
         let fx = base * (rx * radial + (pVelX * v1Coeff + src.velX * v2Coeff) * r);
         let fy = base * (ry * radial + (pVelY * v1Coeff + src.velY * v2Coeff) * r);
         (*accum).pnX += fx;
@@ -202,7 +202,7 @@ fn accumulatePairForce(
 
         // Analytical jerk for position-only EIH term: F = m₂(5m₁+4m₂)·r/r⁴
         if (radOn) {
-            let kEIH = src.mass * (5.0 * pMass + 4.0 * src.mass);
+            let kEIH = pMass * src.mass * (5.0 * pMass + 4.0 * src.mass);
             let fDirEIH = kEIH * invRSq * invRSq;
             let jRadialEIH = -4.0 * kEIH * rDotVr * invRSq * invRSq * invRSq;
             (*accum).jerkX += vrx * fDirEIH + rx * jRadialEIH;
@@ -245,7 +245,7 @@ fn accumulatePairForce(
 
     // -- Magnetic dipole-dipole --
     if (magOn) {
-        let fDir = 3.0 * (pMagMom * src.magMoment) * invR5a * axModPair;
+        let fDir = -3.0 * (pMagMom * src.magMoment) * invR5a * axModPair;
         (*accum).magX += rx * fDir;
         (*accum).magY += ry * fDir;
         (*accum).totalX += rx * fDir;
@@ -254,7 +254,7 @@ fn accumulatePairForce(
         // Analytical jerk: F = 3μ₁μ₂·r/r⁵, d/dt(1/r⁵) = -5·rDotVr/r⁷
         if (radOn) {
             let invR7a = invR5a * invRSq;
-            let jRadial = -15.0 * (pMagMom * src.magMoment) * rDotVr * invR7a * axModPair;
+            let jRadial = 15.0 * (pMagMom * src.magMoment) * rDotVr * invR7a * axModPair;
             (*accum).jerkX += vrx * fDir + rx * jRadial;
             (*accum).jerkY += vry * fDir + ry * jRadial;
         }

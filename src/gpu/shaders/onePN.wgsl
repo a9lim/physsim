@@ -91,7 +91,7 @@ fn accum1PN(
             + 5.0 * pMass * invR + 4.0 * sMass * invR;
         let v1Coeff = 4.0 * nDotV1 - 3.0 * nDotV2;
         let v2Coeff = 3.0 * nDotV2;
-        let base = sMass * invRSq * invR;
+        let base = pMass * sMass * invRSq * invR;
         fx += base * (rx * radial + (pvx * v1Coeff + svx * v2Coeff) * r_val);
         fy += base * (ry * radial + (pvy * v1Coeff + svy * v2Coeff) * r_val);
     }
