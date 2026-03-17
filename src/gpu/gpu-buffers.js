@@ -13,7 +13,7 @@
  */
 
 import {
-    HISTORY_SIZE, GPU_GPU_MAX_PHOTONS, GPU_GPU_MAX_PIONS, MAX_TRAIL_LENGTH,
+    HISTORY_SIZE, GPU_MAX_PHOTONS, GPU_MAX_PIONS, MAX_TRAIL_LENGTH,
     GPU_SCALAR_GRID,
 } from '../config.js';
 import { HIST_STRIDE as HIST_STRIDE_CONST } from './gpu-constants.js';
