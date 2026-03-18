@@ -30,8 +30,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (isRetired) {
         let deathT = particleAux[idx].deathTime;
-        // Boundary-killed particles have deathTime = Infinity (never set by boundary shader)
-        // → free immediately. Properly retired particles have finite deathTime → wait for expiry.
+        // All retired particles (collision, boundary) have finite deathTime set at retirement.
+        // Wait for signal-delay expiry (2 × domain diagonal) before freeing the slot.
         if (deathT < 1e30) {
             let domainDiag = sqrt(uniforms.domainW * uniforms.domainW + uniforms.domainH * uniforms.domainH);
             let expiry = 2.0 * domainDiag;
