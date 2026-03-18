@@ -86,6 +86,9 @@ export default class GPURenderer {
         this.canvasWidth = canvas.width;
         this.canvasHeight = canvas.height;
         this.isLight = true;
+        // Domain dimensions (set via setDomain() before first render)
+        this._domainW = 0;
+        this._domainH = 0;
 
         // Uniform buffer for camera
         this.cameraBuffer = device.createBuffer({
