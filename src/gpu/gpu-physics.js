@@ -43,6 +43,7 @@ import {
     COL_MERGE, COL_BOUNCE, BOUND_LOOP,
     COL_NAMES, BOUND_NAMES, TOPO_NAMES,
     SOFTENING_SQ, BH_SOFTENING_SQ,
+    HIGGS_MASS_FLOOR, HIGGS_MASS_MAX_DELTA,
 } from '../config.js';
 import { fft2d } from '../fft.js';
 
@@ -71,7 +72,7 @@ const _heatmapUniformData = new ArrayBuffer(96);
 const _heatmapUniformF32 = new Float32Array(_heatmapUniformData);
 const _heatmapUniformU32 = new Uint32Array(_heatmapUniformData);
 const _colorUniformData = new Uint32Array(4);
-const _fgUniformData = new ArrayBuffer(16);  // FGUniforms: domainW, domainH, aliveCount, _pad
+const _fgUniformData = new ArrayBuffer(32);  // FGUniforms: domainW, domainH, aliveCount, boundaryMode, topologyMode, _pad×3
 const _fgUniformF32 = new Float32Array(_fgUniformData);
 const _fgUniformU32 = new Uint32Array(_fgUniformData);
 
@@ -1934,8 +1935,8 @@ export default class GPUPhysics {
         u[4] = this.topologyMode;
         f[5] = this._higgsMass;
         f[6] = this._higgsCoupling;
-        f[7] = 0.05;                            // higgsMassFloor
-        f[8] = 4.0;                             // higgsMassMaxDelta
+        f[7] = HIGGS_MASS_FLOOR;
+        f[8] = HIGGS_MASS_MAX_DELTA;
         f[9] = this._axionMass;
         f[10] = this._axionCoupling;
         u[11] = this._higgsEnabled ? 1 : 0;
@@ -1946,7 +1947,7 @@ export default class GPUPhysics {
         u[16] = this._relativityEnabled ? 1 : 0;
         u[17] = this._blackHoleEnabled ? 1 : 0;
         u[18] = this.aliveCount;
-        f[19] = this._blackHoleEnabled ? 16 : 64;
+        f[19] = this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
         u[20] = fieldType < 0 ? 0 : fieldType;
         this.device.queue.writeBuffer(buf, 0, _fieldUniformData);
     }
@@ -2521,7 +2522,7 @@ export default class GPUPhysics {
         if (!this._fieldParticleGravUniform) {
             this._fieldParticleGravUniform = this.device.createBuffer({
                 label: 'fieldParticleGrav_uniform',
-                size: 16, // FGUniforms: domainW, domainH, aliveCount, _pad
+                size: 32, // FGUniforms: domainW, domainH, aliveCount, boundaryMode, topologyMode, _pad×3
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
         }
@@ -2530,8 +2531,12 @@ export default class GPUPhysics {
         _fgUniformF32[0] = this.domainW;
         _fgUniformF32[1] = this.domainH;
         _fgUniformU32[2] = this.aliveCount;
-        _fgUniformU32[3] = 0;
-        this.device.queue.writeBuffer(this._fieldParticleGravUniform, 0, _fgUniformData, 0, 16);
+        _fgUniformU32[3] = this.boundaryMode;
+        _fgUniformU32[4] = this.topologyMode;
+        _fgUniformU32[5] = 0;
+        _fgUniformU32[6] = 0;
+        _fgUniformU32[7] = 0;
+        this.device.queue.writeBuffer(this._fieldParticleGravUniform, 0, _fgUniformData, 0, 32);
 
         const pg = this._fieldParticleGrav;
         const workgroups = Math.ceil(this.aliveCount / 256);
@@ -2703,7 +2708,7 @@ export default class GPUPhysics {
         }
 
         // Write DisintUniforms (pre-allocated buffers, no per-frame GC)
-        _disintUniformF32[0] = this._blackHoleEnabled ? 16 : 64; // softeningSq
+        _disintUniformF32[0] = this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ; // softeningSq
         _disintUniformF32[1] = this.domainW;
         _disintUniformF32[2] = this.domainH;
         _disintUniformF32[3] = 0.3;   // tidalStrength
@@ -2861,7 +2866,7 @@ export default class GPUPhysics {
         _heatmapUniformF32[1] = viewTop;
         _heatmapUniformF32[2] = cellW;
         _heatmapUniformF32[3] = cellH;
-        _heatmapUniformF32[4] = this._blackHoleEnabled ? 16 : 64; // softeningSq
+        _heatmapUniformF32[4] = this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ; // softeningSq
         _heatmapUniformF32[5] = this._yukawaCoupling;
         _heatmapUniformF32[6] = this._yukawaMu;
         _heatmapUniformF32[7] = this.simTime;
@@ -3147,7 +3152,7 @@ export default class GPUPhysics {
             domainH: this.domainH,
             speedScale: 1,
             softening: this._blackHoleEnabled ? 4 : 8,
-            softeningSq: this._blackHoleEnabled ? 16 : 64,
+            softeningSq: this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
             toggles0: this._toggles0,
             toggles1: this._toggles1,
             yukawaCoupling: this._yukawaCoupling,
@@ -3797,8 +3802,8 @@ export default class GPUPhysics {
         _statsUniformF32[6] = this._higgsMass;
         _statsUniformF32[7] = this._axionMass || 0.05;
         _statsUniformU32[8] = FIELD_GRID_RES; // fieldGridRes (GPU_SCALAR_GRID)
-        _statsUniformU32[9] = 0;
-        _statsUniformU32[10] = 0;
+        _statsUniformU32[9] = this.boundaryMode;
+        _statsUniformU32[10] = this.topologyMode;
         _statsUniformU32[11] = 0;
         this.device.queue.writeBuffer(this._statsUniformBuffer, 0, _statsUniformData);
 
