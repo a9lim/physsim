@@ -80,10 +80,15 @@ fn higgsHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
     var ddphi = lapI + muSqEff * phi - muSq * phi * phi * phi
               - damp * fdC + srcTerm + viscosity;
 
+    // Hoist portal field read once (avoids two redundant global memory loads)
+    var portalA: f32 = 0.0;
+    if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
+        portalA = otherField[idx];
+    }
+
     // Higgs-Axion portal coupling: -λa²φ (only when both fields active)
     if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
-        let aVal = otherField[idx];
-        ddphi -= HIGGS_AXION_COUPLING * aVal * aVal * phi;
+        ddphi -= HIGGS_AXION_COUPLING * portalA * portalA * phi;
     }
 
     // Self-gravity correction (weak-field GR, clamp Φ for stability)
@@ -95,14 +100,16 @@ fn higgsHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
                + 2.0 * Phi * (muSqEff * phi - muSq * phi * phi * phi);
         // Portal SG correction: -2Φ·λa²φ
         if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
-            let aVal2 = otherField[idx];
-            ddphi -= 2.0 * Phi * HIGGS_AXION_COUPLING * aVal2 * aVal2 * phi;
+            ddphi -= 2.0 * Phi * HIGGS_AXION_COUPLING * portalA * portalA * phi;
         }
     }
 
     var newFdot = fdC + ddphi * halfDt;
-    // NaN/Inf guard on fieldDot
-    if (newFdot != newFdot || abs(newFdot) > 1e6) { newFdot = 0.0; }
+    // NaN/Inf guard: reset fieldDot and field to VEV (matching CPU higgs-field.js:112)
+    if (newFdot != newFdot || abs(newFdot) > 1e6) {
+        newFdot = 0.0;
+        field[idx] = 1.0;  // Reset to VEV=1
+    }
     fieldDot[idx] = newFdot;
 }
 
@@ -143,10 +150,15 @@ fn axionHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     var ddA = lapI - mASq * aVal - damp * fdC + srcTerm + viscosity;
 
+    // Hoist portal field read once (avoids two redundant global memory loads)
+    var portalPhi: f32 = 0.0;
+    if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
+        portalPhi = otherField[idx];
+    }
+
     // Higgs-Axion portal coupling: -λφ²a (only when both fields active)
     if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
-        let phiVal = otherField[idx];
-        ddA -= HIGGS_AXION_COUPLING * phiVal * phiVal * aVal;
+        ddA -= HIGGS_AXION_COUPLING * portalPhi * portalPhi * aVal;
     }
 
     if (uniforms.gravityEnabled != 0u) {
@@ -157,13 +169,12 @@ fn axionHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
              - 2.0 * Phi * mASq * aVal;
         // Portal SG correction: -2Φ·λφ²a
         if (uniforms.higgsEnabled != 0u && uniforms.axionEnabled != 0u) {
-            let phiVal2 = otherField[idx];
-            ddA -= 2.0 * Phi * HIGGS_AXION_COUPLING * phiVal2 * phiVal2 * aVal;
+            ddA -= 2.0 * Phi * HIGGS_AXION_COUPLING * portalPhi * portalPhi * aVal;
         }
     }
 
     var newFdot = fdC + ddA * (uniforms.dt * 0.5);
-    // NaN/Inf guard on fieldDot
+    // NaN/Inf guard on fieldDot only (Axion vacuum is 0.0, handled by drift fixup)
     if (newFdot != newFdot || abs(newFdot) > 1e6) { newFdot = 0.0; }
     fieldDot[idx] = newFdot;
 }

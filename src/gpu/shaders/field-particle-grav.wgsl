@@ -9,7 +9,11 @@ struct FGUniforms {
     domainW: f32,
     domainH: f32,
     aliveCount: u32,
-    _pad0: u32,
+    boundaryMode: u32,
+    topologyMode: u32,
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 };
 
 @group(0) @binding(0) var<uniform> u: FGUniforms;
@@ -18,6 +22,35 @@ struct FGUniforms {
 
 @group(1) @binding(0) var<storage, read> sgGradX: array<f32>;
 @group(1) @binding(1) var<storage, read> sgGradY: array<f32>;
+
+fn nbIndex(nx: i32, ny: i32, bcMode: u32, topoMode: u32) -> i32 {
+    var cx = nx;
+    var cy = ny;
+    let G = i32(GRID);
+    if (bcMode == BOUND_LOOP) {
+        if (topoMode == TORUS) {
+            if (cx < 0) { cx += G; } else if (cx >= G) { cx -= G; }
+            if (cy < 0) { cy += G; } else if (cy >= G) { cy -= G; }
+        } else if (topoMode == KLEIN) {
+            if (cx < 0) { cx += G; } else if (cx >= G) { cx -= G; }
+            if (cy < 0) { cy += G; cx = G - 1 - cx; }
+            else if (cy >= G) { cy -= G; cx = G - 1 - cx; }
+        } else {
+            if (cx < 0) { cx += G; cy = G - 1 - cy; }
+            else if (cx >= G) { cx -= G; cy = G - 1 - cy; }
+            if (cy < 0) { cy += G; cx = G - 1 - cx; }
+            else if (cy >= G) { cy -= G; cx = G - 1 - cx; }
+        }
+        return cy * G + cx;
+    }
+    if (bcMode == BOUND_BOUNCE) {
+        cx = clamp(cx, 0, G - 1);
+        cy = clamp(cy, 0, G - 1);
+        return cy * G + cx;
+    }
+    if (cx < 0 || cx >= G || cy < 0 || cy >= G) { return -1; }
+    return cy * G + cx;
+}
 
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -79,13 +112,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
     } else {
-        // Border: clamp-to-edge
+        // Border: topology-aware wrapping
         for (var jy = 0u; jy < 4u; jy++) {
             let wyj = wy[jy];
-            let ny = clamp(iy + i32(jy) - 1, 0, G - 1);
             for (var jx = 0u; jx < 4u; jx++) {
-                let nx = clamp(ix + i32(jx) - 1, 0, G - 1);
-                let cellIdx = u32(ny) * GRID + u32(nx);
+                let cellIdx = nbIndex(ix + i32(jx) - 1, iy + i32(jy) - 1,
+                                      u.boundaryMode, u.topologyMode);
+                if (cellIdx < 0) { continue; }
                 let w = wx[jx] * wyj;
                 gradX += sgGradX[cellIdx] * w;
                 gradY += sgGradY[cellIdx] * w;

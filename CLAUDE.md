@@ -431,7 +431,7 @@ GPU field evolution (`_dispatchFieldEvolve`) uses fused dispatches to minimize p
 
 1. **Deposit** (source + thermal): PQS atomic deposition, finalize passes
 2. **Self-gravity pre-kick**: fused `energyDensityHiggsAndPack` / `energyDensityAxionAndPack` writes ρ·cellArea directly to FFT complex buffer (group 2 = fftA) → Stockham FFT forward (14 butterfly stages) → `complexMultiply` by cached Ĝ → FFT inverse (14 stages) → fused `unpackAndSGGradients` reads complex IFFT output at stride 2, writes sgPhiFull + sgGradX/sgGradY
-3. **Half-kick 1**: Laplacian computed inline via `inlineLaplacian()` helper (topology-aware 5-point stencil). Portal coupling adds `-λa²φ` (Higgs) or `-λφ²a` (Axion) when both fields active. NaN guard on fieldDot.
+3. **Half-kick 1**: Laplacian computed inline via `inlineLaplacian()` helper (topology-aware 5-point stencil). Portal coupling adds `-λa²φ` (Higgs) or `-λφ²a` (Axion) when both fields active (single `otherField` read hoisted before both portal blocks). NaN/Inf guard on fieldDot; Higgs also resets field to VEV=1.0.
 4. **Drift**: field += fieldDot·dt with NaN/Inf fixup (resets to vacuum value)
 5. **Mid-KDK refresh**: `computeGridGradients` + full self-gravity pipeline again (restores O(dt²) for GR correction)
 6. **Half-kick 2**: same fused pipeline as kick 1

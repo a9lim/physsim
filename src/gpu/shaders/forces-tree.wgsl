@@ -568,7 +568,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 1.0, 1.0, 1.0, // axMod/yukMod/higgsMod = 1 for aggregate
                 pRi5,
                 &localJerk,
-                hasSignalDelay, // aberration on aggregates when signal delay active
+                false, // no aberration on aggregate nodes — velocities are not retarded
             );
         } else if (!isLeaf) {
             // Push children (only valid ones; NONE = -1 would become garbage u32)

@@ -96,10 +96,10 @@ fn main() {
             let ne = getNE(nodeIdx);
             let sw = getSW(nodeIdx);
             let se = getSE(nodeIdx);
-            if (nw != NONE && top < 46) { top += 1; stack[top] = u32(nw); }
-            if (ne != NONE && top < 46) { top += 1; stack[top] = u32(ne); }
-            if (sw != NONE && top < 46) { top += 1; stack[top] = u32(sw); }
-            if (se != NONE && top < 46) { top += 1; stack[top] = u32(se); }
+            if (nw != NONE && top + 4 <= 48) { top += 1; stack[top] = u32(nw); }
+            if (ne != NONE && top + 4 <= 48) { top += 1; stack[top] = u32(ne); }
+            if (sw != NONE && top + 4 <= 48) { top += 1; stack[top] = u32(sw); }
+            if (se != NONE && top + 4 <= 48) { top += 1; stack[top] = u32(se); }
         }
     }
 

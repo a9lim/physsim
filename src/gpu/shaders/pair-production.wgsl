@@ -76,7 +76,7 @@ fn checkPairProduction(@builtin(global_invocation_id) gid: vec3<u32>) {
         let dy = p.posY - phY;
         let dSq = dx * dx + dy * dy;
         // CPU checks dSq < PAIR_PROD_RADIUS² * p.mass (larger bodies have larger cross-section)
-        if (dSq < proxSq * p.mass) {
+        if (dSq < proxSq * p.mass && dSq < minDistSq) {
             minDistSq = dSq;
             nearestIdx = i;
         }

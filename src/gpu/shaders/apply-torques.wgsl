@@ -31,8 +31,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (torque == 0.0) { return; }
 
     let m = particles[idx].mass;
-    let bodyRSq = derived[idx].bodyRSq;  // pre-cached pow(mass, 2/3) from cache-derived
-    let I = INERTIA_K * m * bodyRSq;
+    let rSq = derived[idx].radiusSq;  // horizon radius in BH mode, body radius otherwise
+    let I = INERTIA_K * m * rSq;
     if (I < EPSILON) { return; }
 
     var aw = particles[idx].angW;
@@ -41,7 +41,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // NaN guard
     if (aw != aw) { aw = 0.0; }
 
-    let newAngVel = select(aw, aw / sqrt(1.0 + aw * aw * bodyRSq), relOn);
+    let newAngVel = select(aw, aw / sqrt(1.0 + aw * aw * rSq), relOn);
 
     // Write back angW to ParticleState
     particles[idx].angW = aw;

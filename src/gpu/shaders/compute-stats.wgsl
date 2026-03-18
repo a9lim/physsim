@@ -22,9 +22,9 @@ struct StatsUniforms {
     yukawaMu: f32,
     higgsMass: f32,
     axionMass: f32,      // 32
-    fieldGridRes: u32,   // 64
-    _pad1: u32,
-    _pad2: u32,
+    fieldGridRes: u32,
+    boundaryMode: u32,   // BOUND_DESPAWN/BOUND_BOUNCE/BOUND_LOOP
+    topologyMode: u32,   // TOPO_TORUS/TOPO_KLEIN/TOPO_RP2
     _pad3: u32,          // 48
 };
 
@@ -141,8 +141,13 @@ fn main() {
             let dj = derived[j];
             let modj = axYukMod[j];
 
-            let dx = pj.posX - pi.posX;
-            let dy = pj.posY - pi.posY;
+            var dx = pj.posX - pi.posX;
+            var dy = pj.posY - pi.posY;
+            if (params.boundaryMode == BOUND_LOOP) {
+                let mi = fullMinImageP(pi.posX, pi.posY, pj.posX, pj.posY,
+                                       params.domainW, params.domainH, params.topologyMode);
+                dx = mi.x; dy = mi.y;
+            }
             let rSq = dx * dx + dy * dy + softeningSq;
             let invR = 1.0 / sqrt(rSq);
             let r = rSq * invR; // = sqrt(rSq)
@@ -285,8 +290,8 @@ fn main() {
                 let pot = muSqH * (-0.5 * phi * phi + 0.25 * phi * phi * phi * phi) + vacOffsetH;
                 higgsFieldE += (ke + grad + pot) * cellArea;
                 // Momentum: -φ̇ ∂_i φ
-                fieldMomX -= phiDot * dfy * scaleY; // ∂_x φ via centered diff, *cellW/2 for integration
-                fieldMomY -= phiDot * dfx * scaleX; // ∂_y φ via centered diff, *cellH/2 for integration
+                fieldMomX -= phiDot * dfy * scaleX; // ∂_x φ via centered diff, *cellW/2 for integration
+                fieldMomY -= phiDot * dfx * scaleY; // ∂_y φ via centered diff, *cellH/2 for integration
             }
 
             // Axion field energy
@@ -299,8 +304,8 @@ fn main() {
                 let grad = 0.5 * (dfx * dfx * invCellHSq + dfy * dfy * invCellWSq) * 0.25;
                 let pot = 0.5 * mASq * a * a;
                 axionFieldE += (ke + grad + pot) * cellArea;
-                fieldMomX -= aDot * dfy * scaleY;
-                fieldMomY -= aDot * dfx * scaleX;
+                fieldMomX -= aDot * dfy * scaleX;
+                fieldMomY -= aDot * dfx * scaleY;
             }
 
             // Portal coupling energy: ½λφ²a² (counted in Higgs to match CPU)

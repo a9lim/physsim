@@ -789,17 +789,17 @@ export default class GPURenderer {
                     if (enabledForces.axion) forceTypes.push(10);
                     for (const ft of forceTypes) {
                         const color = GPURenderer.FORCE_COLORS[ft] || [1, 1, 1];
-                        this._submitArrowDraw(textureView, aliveCount, ft, color, arrowScale, minMag, invZoom);
+                        this._submitArrowDraw(textureView, aliveCount, ft, color, arrowScale, minMag);
                     }
                 } else if (this.showForce) {
                     const accentColor = this.isLight ? _accentLight : _accentDark;
-                    this._submitArrowDraw(textureView, aliveCount, 11, accentColor, arrowScale, minMag, invZoom);
+                    this._submitArrowDraw(textureView, aliveCount, 11, accentColor, arrowScale, minMag);
                 }
 
                 if (this.showVelocity) {
                     const textColor = this.isLight ? _textLight : _textDark;
                     // Velocity uses minMag = 1 * invZoom (matching CPU), not force threshold
-                    this._submitArrowDraw(textureView, aliveCount, 12, textColor, 1.0, 1.0 * invZoom, invZoom);
+                    this._submitArrowDraw(textureView, aliveCount, 12, textColor, 1.0, 1.0 * invZoom);
                 }
             } catch (e) {
                 console.warn('[physsim] Arrow render failed, disabling:', e.message);
@@ -867,7 +867,7 @@ export default class GPURenderer {
      * Each arrow type needs a separate submit so that the uniform writeBuffer
      * takes effect before the draw executes on the GPU.
      */
-    _submitArrowDraw(textureView, aliveCount, forceType, color, arrowScale, minMag, invZoom = 0.0625) {
+    _submitArrowDraw(textureView, aliveCount, forceType, color, arrowScale, minMag) {
         if (!this._arrowReady || aliveCount <= 0) return;
 
         _arrowU32[0] = forceType;
@@ -876,7 +876,7 @@ export default class GPURenderer {
         _arrowF32[3] = color[2];
         _arrowF32[4] = arrowScale;
         _arrowF32[5] = minMag;
-        _arrowF32[6] = invZoom;
+        _arrowF32[6] = 0;  // _pad0 (unused by shader)
         _arrowF32[7] = 0;
         this.device.queue.writeBuffer(this._arrowUniformBuffer, 0, _arrowData);
 

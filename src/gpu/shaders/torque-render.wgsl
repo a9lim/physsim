@@ -122,8 +122,7 @@ fn vs_main(
 
     var out: VertexOutput;
     out.pos = camera.viewMatrix * vec4f(wx, wy, 0.0, 1.0);
-    let a = 1.0;
-    out.color = vec4f(torqueParams.colorR * a, torqueParams.colorG * a, torqueParams.colorB * a, a);
+    out.color = vec4f(torqueParams.colorR, torqueParams.colorG, torqueParams.colorB, 1.0);
     return out;
 }
 
@@ -186,8 +185,7 @@ fn vs_arrow(
 
     var out: VertexOutput;
     out.pos = camera.viewMatrix * vec4f(vx, vy, 0.0, 1.0);
-    let a = 1.0;
-    out.color = vec4f(torqueParams.colorR * a, torqueParams.colorG * a, torqueParams.colorB * a, a);
+    out.color = vec4f(torqueParams.colorR, torqueParams.colorG, torqueParams.colorB, 1.0);
     return out;
 }
 

@@ -199,14 +199,14 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         // Retire particles with zero mass
         // Store pre-annihilation mass and coordinate angular velocity
-        if (ps1.mass == 0.0) {
+        if (ps1.mass <= EPSILON) {
             ps1.flags = (ps1.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
             aux1.deathTime = uniforms.simTime;
             aux1.deathMass = annihilated; // full pre-annihilation mass (was all consumed)
             let sr1 = ps1.angW * aux1.radius;
             aux1.deathAngVel = select(ps1.angW, ps1.angW / sqrt(1.0 + sr1 * sr1), relOn);
         }
-        if (ps2.mass == 0.0) {
+        if (ps2.mass <= EPSILON) {
             ps2.flags = (ps2.flags & ~FLAG_ALIVE) | FLAG_RETIRED;
             aux2.deathTime = uniforms.simTime;
             aux2.deathMass = annihilated; // full pre-annihilation mass (was all consumed)
