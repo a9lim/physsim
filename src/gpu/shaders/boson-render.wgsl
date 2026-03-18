@@ -144,9 +144,9 @@ fn fragmentBoson(
     // Dark mode glow halo: exponential falloff beyond circle edge (matches CPU shadowBlur=12)
     let glowRange = DARK_QUAD_SCALE - 1.0;
     let glowDist = clamp((dist - 1.0) / glowRange, 0.0, 1.0);
-    let glowAlpha = exp(-glowDist * BOSON_GLOW_DECAY) * (1.0 - glowDist) * color.a * isDark * BOSON_GLOW_INTENSITY;
+    let glowAlpha = exp(-glowDist * BOSON_GLOW_DECAY) * (1.0 - glowDist) * color.a * isDark * 0.275;
 
-    let totalAlpha = clamp(circleAlpha + glowAlpha * 0.55, 0.0, 1.0);
+    let totalAlpha = clamp(circleAlpha + glowAlpha, 0.0, 1.0);
 
     // Premultiplied alpha output (matches particle.wgsl and canvas alphaMode: 'premultiplied')
     return vec4f(color.rgb * totalAlpha, totalAlpha);
