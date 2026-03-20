@@ -22,7 +22,7 @@
 | D7 | Un-export `resolveMerge`, `treePE`, `pairPE` (only used internally) | `collisions.js:112`, `potential.js:66,142` | Remove `export` keywords |
 | D8 | Delete unused `_engine` getters | `cpu-physics.js:24`, `canvas-renderer.js:19` | Remove getter methods |
 | D9 | Delete `.tog-tidal` CSS rule | `styles.css:112` | Remove CSS rule |
-| D10 | Remove unused params `bounceFriction`, `relativityEnabled`, `periodic` from `handleCollisions`/`resolveMerge` | `collisions.js:24,112` | Remove params, update callers |
+| D10 | Remove unused params: `bounceFriction` + `relativityEnabled` from `handleCollisions`; `relativityEnabled` + `periodic` from `resolveMerge` (`periodic` IS used in `handleCollisions`, keep it there) | `collisions.js:24,112` | Remove params, update callers |
 | D11 | Mark `potential.js` as fallback-only (document, don't delete yet — used in preset load) | `potential.js` | Add comment |
 | D12 | Deduplicate `_walkBosonTree` / `_walkBosonTreeCharge` — keep as 2 functions but extract shared tree walk skeleton into a helper. Keep `treeDeflectBoson` separate (operates on particle tree, different output target). | `forces.js:710-887`, `boson-utils.js:20-73` | Extract `_walkBosonTreeCore(pool, root, pos, softeningSq, topology, extractFn)` shared skeleton; `_walkBosonTree` and `_walkBosonTreeCharge` become thin wrappers. `treeDeflectBoson` stays in `boson-utils.js` unchanged. |
 
