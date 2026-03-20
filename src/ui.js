@@ -8,6 +8,16 @@ import Particle from './particle.js';
 
 const HINT_FADE_DELAY = 5000;
 
+// C3: Persistent GPU toggle proxy — avoids Object.create() allocation on every slider drag.
+// Object.assign copies all own enumerable properties from sim.physics, then we add extras.
+const _gpuToggleProxy = {};
+function _buildGPUToggles(sim) {
+    Object.assign(_gpuToggleProxy, sim.physics);
+    _gpuToggleProxy.heatmapEnabled = sim.heatmap ? sim.heatmap.enabled : false;
+    _gpuToggleProxy.heatmapMode    = sim.heatmap ? sim.heatmap.mode    : 'all';
+    return _gpuToggleProxy;
+}
+
 export function setupUI(sim) {
     // ─── Intro screen dismiss ───
     const introScreen = document.getElementById('intro-screen');
@@ -256,11 +266,8 @@ export function setupUI(sim) {
 
         // 5. Sync toggle state to GPU backend
         if (sim._gpuPhysics && sim._gpuPhysics.setToggles) {
-            // Extend physics with heatmap state (not a physics property, lives on sim.heatmap)
-            const gpuToggles = Object.create(sim.physics);
-            gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
-            gpuToggles.heatmapMode = sim.heatmap ? sim.heatmap.mode : 'all';
-            sim._gpuPhysics.setToggles(gpuToggles);
+            // C3: Use persistent proxy object instead of Object.create per call
+            sim._gpuPhysics.setToggles(_buildGPUToggles(sim));
             // Sync boundary/collision/topology (live on sim, not sim.physics)
             _syncModesToGPU();
         }
@@ -269,10 +276,8 @@ export function setupUI(sim) {
     // Push slider-only changes to GPU (toggles call updateAllDeps which already syncs)
     const _syncSlidersToGPU = () => {
         if (sim._gpuPhysics && sim._gpuPhysics.setToggles) {
-            const gpuToggles = Object.create(sim.physics);
-            gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
-            gpuToggles.heatmapMode = sim.heatmap ? sim.heatmap.mode : 'all';
-            sim._gpuPhysics.setToggles(gpuToggles);
+            // C3: Use persistent proxy object instead of Object.create per call
+            sim._gpuPhysics.setToggles(_buildGPUToggles(sim));
             _syncModesToGPU();
         }
     };
@@ -340,11 +345,8 @@ export function setupUI(sim) {
             if (gpuCanvas) gpuCanvas.style.display = '';
             // Clear stale CPU canvas underneath
             sim.ctx.clearRect(0, 0, sim.width, sim.height);
-            // Sync current state to GPU
-            const gpuToggles = Object.create(sim.physics);
-            gpuToggles.heatmapEnabled = sim.heatmap && sim.heatmap.enabled;
-            gpuToggles.heatmapMode = sim.heatmap ? sim.heatmap.mode : 'all';
-            sim._gpuPhysics.setToggles(gpuToggles);
+            // Sync current state to GPU (C3: persistent proxy, no Object.create)
+            sim._gpuPhysics.setToggles(_buildGPUToggles(sim));
             _syncModesToGPU();
             // Re-sync all particles to GPU
             sim._gpuPhysics.reset();
@@ -452,12 +454,10 @@ export function setupUI(sim) {
     potentialToggle?.addEventListener('change', (e) => {
         sim.heatmap.enabled = e.target.checked;
         potentialModeBar.style.display = e.target.checked ? '' : 'none';
-        // Sync heatmap state to GPU
+        // Sync heatmap state to GPU (C3: persistent proxy, no Object.create)
         if (sim._gpuPhysics) {
-            const gpuToggles = Object.create(sim.physics);
-            gpuToggles.heatmapEnabled = e.target.checked;
-            gpuToggles.heatmapMode = sim.heatmap.mode;
-            sim._gpuPhysics.setToggles(gpuToggles);
+            // heatmap.enabled already updated above; _buildGPUToggles reads it
+            sim._gpuPhysics.setToggles(_buildGPUToggles(sim));
         }
         sim._dirty = true;
         _haptics.trigger('light');

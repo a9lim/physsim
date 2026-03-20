@@ -231,6 +231,30 @@ class Simulation {
 
         this.stats = new StatsDisplay(this.dom, this.selDom);
 
+        // C2: Pre-allocate render options objects to avoid per-frame allocation
+        this._enabledForces = {
+            gravity: false, coulomb: false, magnetic: false, gravitomag: false,
+            onePN: false, spinOrbit: false, radiation: false, yukawa: false,
+            external: false, higgs: false, axion: false,
+        };
+        this._renderOpts = {
+            blackHoleEnabled: false,
+            enabledForces: this._enabledForces,
+            higgsField: null,
+            axionField: null,
+            heatmapBuffers: null,
+            heatmapOpts: null,
+        };
+        this._heatmapOpts = {
+            viewLeft: 0, viewTop: 0, cellW: 0, cellH: 0,
+            doGravity: false, doCoulomb: false, doYukawa: false,
+        };
+        this._renderOpts.heatmapOpts = this._heatmapOpts;
+
+        // C13: Cache sidebar plot visibility check elements (lazily resolved after DOM is ready)
+        this._particleTabEl = null;
+        this._controlPanelEl = null;
+
         selectBackend().then(async ({ backend, device }) => {
             this.backend = backend;
             this._gpuDevice = device || null;
@@ -726,24 +750,26 @@ class Simulation {
                     this._gpuRenderer.initHeatmapOverlay();
                 }
 
-                // Build render opts with field/heatmap buffers
+                // C2: Mutate pre-allocated render opts in place (no per-frame allocation)
                 const gpuPh = this._gpuPhysics;
-                const renderOpts = {
-                    blackHoleEnabled: ph.blackHoleEnabled,
-                    enabledForces: {
-                        gravity: ph.gravityEnabled,
-                        coulomb: ph.coulombEnabled,
-                        magnetic: ph.magneticEnabled,
-                        gravitomag: ph.gravitomagEnabled,
-                        onePN: ph.onePNEnabled,
-                        spinOrbit: ph.spinOrbitEnabled,
-                        radiation: ph.radiationEnabled,
-                        yukawa: ph.yukawaEnabled,
-                        external: (ph.extGravity !== 0 || ph.extElectric !== 0 || ph.extBz !== 0),
-                        higgs: ph.higgsEnabled,
-                        axion: ph.axionEnabled,
-                    },
-                };
+                const ef = this._enabledForces;
+                ef.gravity    = ph.gravityEnabled;
+                ef.coulomb    = ph.coulombEnabled;
+                ef.magnetic   = ph.magneticEnabled;
+                ef.gravitomag = ph.gravitomagEnabled;
+                ef.onePN      = ph.onePNEnabled;
+                ef.spinOrbit  = ph.spinOrbitEnabled;
+                ef.radiation  = ph.radiationEnabled;
+                ef.yukawa     = ph.yukawaEnabled;
+                ef.external   = (ph.extGravity !== 0 || ph.extElectric !== 0 || ph.extBz !== 0);
+                ef.higgs      = ph.higgsEnabled;
+                ef.axion      = ph.axionEnabled;
+
+                const renderOpts = this._renderOpts;
+                renderOpts.blackHoleEnabled = ph.blackHoleEnabled;
+                renderOpts.higgsField       = null;
+                renderOpts.axionField       = null;
+                renderOpts.heatmapBuffers   = null;
 
                 // Pass field buffers for overlay rendering
                 if (ph.higgsEnabled) {
@@ -765,19 +791,17 @@ class Simulation {
                         const cam = this.camera;
                         const viewW = this.width / cam.zoom;
                         const viewH = this.height / cam.zoom;
-                        const viewLeft = cam.x - viewW / 2;
-                        const viewTop = cam.y - viewH / 2;
                         const hmMode = this.heatmap.mode;
                         const hmGrid = GPU_HEATMAP_GRID;
-                        renderOpts.heatmapOpts = {
-                            viewLeft,
-                            viewTop,
-                            cellW: viewW / hmGrid,
-                            cellH: viewH / hmGrid,
-                            doGravity: ph.gravityEnabled && (hmMode === 'all' || hmMode === 'gravity'),
-                            doCoulomb: ph.coulombEnabled && (hmMode === 'all' || hmMode === 'electric'),
-                            doYukawa: ph.yukawaEnabled && (hmMode === 'all' || hmMode === 'yukawa'),
-                        };
+                        const ho = this._heatmapOpts;
+                        ho.viewLeft  = cam.x - viewW / 2;
+                        ho.viewTop   = cam.y - viewH / 2;
+                        ho.cellW     = viewW / hmGrid;
+                        ho.cellH     = viewH / hmGrid;
+                        ho.doGravity = ph.gravityEnabled && (hmMode === 'all' || hmMode === 'gravity');
+                        ho.doCoulomb = ph.coulombEnabled && (hmMode === 'all' || hmMode === 'electric');
+                        ho.doYukawa  = ph.yukawaEnabled  && (hmMode === 'all' || hmMode === 'yukawa');
+                        // _renderOpts.heatmapOpts already points to this._heatmapOpts (set in constructor)
                     }
                 }
 
@@ -821,11 +845,20 @@ class Simulation {
                 }
             } else {
                 const sidebarFrame = !(++this._sbFrame & SIDEBAR_THROTTLE_MASK);
-                if (sidebarFrame) {
+                // C13: Gate phase plot + eff-pot plot behind panel open + Particle tab visible
+                // Lazily resolve DOM elements once after DOM is ready
+                if (!this._particleTabEl) {
+                    this._particleTabEl  = document.getElementById('tab-particle');
+                    this._controlPanelEl = document.getElementById('control-panel');
+                }
+                const particleTabActive = this._particleTabEl &&
+                    this._particleTabEl.classList.contains('active') &&
+                    this._controlPanelEl && this._controlPanelEl.classList.contains('open');
+                if (sidebarFrame && particleTabActive) {
                     this.phasePlot.update(this.particles, this.selectedParticle, this.physics);
                     this.effPotPlot.update(this.particles, this.selectedParticle, this.physics);
                 }
-                if (sidebarFrame) {
+                if (sidebarFrame && particleTabActive) {
                     this.phasePlot.draw(this.renderer.isLight);
                     this.effPotPlot.draw(this.renderer.isLight);
                 }
