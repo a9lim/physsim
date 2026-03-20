@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 52;
+const SHADER_VERSION = 53;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -35,20 +35,35 @@ async function _ensureSharedCache() {
     return _sharedCache;
 }
 
+/** Module-level cache for concatenated shared prefix (keyed by wgslConstants string) */
+let _cachedPrefix = null;
+let _cachedPrefixKey = null;
+/** Module-level cache for tree prefix (shared prefix + treeNodes, keyed by wgslConstants) */
+let _cachedTreePrefix = null;
+let _cachedTreePrefixKey = null;
+
 /**
  * Build the standard prefix for all shaders: wgslConstants + shared-structs + shared-topology + shared-rng.
  * Shared files are fetched once and cached for the lifetime of the page.
+ * The concatenated result is also cached per-wgslConstants to avoid repeated string allocations.
+ * Exported so callers (e.g. gpu-renderer.js) can build shader modules without re-fetching.
  */
-async function getSharedPrefix(wgslConstants) {
+export async function getSharedPrefix(wgslConstants) {
+    if (wgslConstants === _cachedPrefixKey && _cachedPrefix !== null) return _cachedPrefix;
     const c = await _ensureSharedCache();
-    return wgslConstants + '\n' + c.structs + '\n' + c.topo + '\n' + c.rng;
+    _cachedPrefixKey = wgslConstants;
+    _cachedPrefix = wgslConstants + '\n' + c.structs + '\n' + c.topo + '\n' + c.rng;
+    return _cachedPrefix;
 }
 
 /** Prefix for tree-walk shaders: standard prefix + read-only node accessors */
 async function getTreePrefix(wgslConstants) {
+    if (wgslConstants === _cachedTreePrefixKey && _cachedTreePrefix !== null) return _cachedTreePrefix;
     const c = await _ensureSharedCache();
     const prefix = await getSharedPrefix(wgslConstants);
-    return prefix + '\n' + c.treeNodes;
+    _cachedTreePrefixKey = wgslConstants;
+    _cachedTreePrefix = prefix + '\n' + c.treeNodes;
+    return _cachedTreePrefix;
 }
 
 /**
@@ -828,11 +843,18 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
  * Group 0: camera uniforms
  * Group 1: photonPool (ro) + phCount (ro) = 2 (was 5)
  * Group 2: pionPool (ro) + piCount (ro) = 2 (was 5)
+ *
+ * @param {GPUShaderModule|null} [sharedModule] - Optional pre-created shader module to reuse.
+ *   When provided the fetch + createShaderModule are skipped, saving one network round-trip
+ *   and one GPU compilation for the light/dark pipeline pair.
  */
-export async function createBosonRenderPipelines(device, format, isLight, wgslConstants = '') {
-    const prefix = await getSharedPrefix(wgslConstants);
-    const code = await fetchShader('boson-render.wgsl', prefix);
-    const module = device.createShaderModule({ label: 'bosonRender', code });
+export async function createBosonRenderPipelines(device, format, isLight, wgslConstants = '', sharedModule = null) {
+    let module = sharedModule;
+    if (!module) {
+        const prefix = await getSharedPrefix(wgslConstants);
+        const code = await fetchShader('boson-render.wgsl', prefix);
+        module = device.createShaderModule({ label: 'bosonRender', code });
+    }
 
     const g0 = device.createBindGroupLayout({
         label: 'bosonRender_g0',
