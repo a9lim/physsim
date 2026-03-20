@@ -843,7 +843,7 @@ export function applyBosonBosonGravity(photons, pions, dt, bosonPool, bosonRoot,
         _walkBosonTree(pn.pos.x, pn.pos.y, (1 + pn.vSq) * dt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot, periodic, topology, domW, domH, halfDomW, halfDomH);
         pn.w.x += _bwOut.x;
         pn.w.y += _bwOut.y;
-        pn._syncVel();
+        // _syncVel() deferred: integrator batch-syncs all pions after both boson passes (H2)
     }
 }
 
@@ -877,7 +877,7 @@ export function applyPionPionCoulomb(pions, dt, bosonPool, bosonRoot, periodic, 
         _walkBosonTreeCharge(pn.pos.x, pn.pos.y, -pn.charge * dt, BOSON_SOFTENING_SQ, bosonPool, bosonRoot, periodic, topology, domW, domH, halfDomW, halfDomH);
         pn.w.x += _bwOut.x;
         pn.w.y += _bwOut.y;
-        pn._syncVel();
+        // _syncVel() deferred: integrator batch-syncs all pions after both boson passes (H2)
     }
 }
 

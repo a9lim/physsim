@@ -591,27 +591,58 @@ export default class Physics {
         let dtRemain = dt;
         let totalSteps = 0;
         let lastRoot = -1;
+        // H8: maxAccelSq from previous substep's kick reused for next substep's dt estimate.
+        // First substep (totalSteps === 0) always does a fresh scan.
+        let prevMaxAccelSq = 0;
         while (dtRemain > EPSILON && totalSteps < MAX_SUBSTEPS) {
-            let maxAccelSq = 0;
+            let maxAccelSq;
             let maxCyclotron = 0;
-            for (let i = 0; i < n; i++) {
-                const p = particles[i];
-                const fx = p.force.x, fy = p.force.y;
-                const aSq = (fx * fx + fy * fy) * p.invMass * p.invMass;
-                if (aSq > maxAccelSq) maxAccelSq = aSq;
-                if (hasMagnetic || hasExtBz) {
-                    const absBz = p.Bz > 0 ? p.Bz : -p.Bz;
-                    if (absBz > 0) {
-                        const absQ = p.charge > 0 ? p.charge : -p.charge;
-                        const wc = absQ * absBz * p.invMass;
-                        if (wc > maxCyclotron) maxCyclotron = wc;
+            if (totalSteps === 0) {
+                // First substep: scan forces for initial dt estimate
+                maxAccelSq = 0;
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    const fx = p.force.x, fy = p.force.y;
+                    const aSq = (fx * fx + fy * fy) * p.invMass * p.invMass;
+                    if (aSq > maxAccelSq) maxAccelSq = aSq;
+                    if (hasMagnetic || hasExtBz) {
+                        const absBz = p.Bz > 0 ? p.Bz : -p.Bz;
+                        if (absBz > 0) {
+                            const absQ = p.charge > 0 ? p.charge : -p.charge;
+                            const wc = absQ * absBz * p.invMass;
+                            if (wc > maxCyclotron) maxCyclotron = wc;
+                        }
+                    }
+                    if (hasGM) {
+                        const absBgz = p.Bgz > 0 ? p.Bgz : -p.Bgz;
+                        if (absBgz > 0) {
+                            const wc = 4 * absBgz;
+                            if (wc > maxCyclotron) maxCyclotron = wc;
+                        }
                     }
                 }
-                if (hasGM) {
-                    const absBgz = p.Bgz > 0 ? p.Bgz : -p.Bgz;
-                    if (absBgz > 0) {
-                        const wc = 4 * absBgz;
-                        if (wc > maxCyclotron) maxCyclotron = wc;
+            } else {
+                // Subsequent substeps: reuse maxAccelSq accumulated during previous kick (H8)
+                maxAccelSq = prevMaxAccelSq;
+                // Still need cyclotron frequency — scan B fields (cheap, skipped when not needed)
+                if (hasMagnetic || hasExtBz || hasGM) {
+                    for (let i = 0; i < n; i++) {
+                        const p = particles[i];
+                        if (hasMagnetic || hasExtBz) {
+                            const absBz = p.Bz > 0 ? p.Bz : -p.Bz;
+                            if (absBz > 0) {
+                                const absQ = p.charge > 0 ? p.charge : -p.charge;
+                                const wc = absQ * absBz * p.invMass;
+                                if (wc > maxCyclotron) maxCyclotron = wc;
+                            }
+                        }
+                        if (hasGM) {
+                            const absBgz = p.Bgz > 0 ? p.Bgz : -p.Bgz;
+                            if (absBgz > 0) {
+                                const wc = 4 * absBgz;
+                                if (wc > maxCyclotron) maxCyclotron = wc;
+                            }
+                        }
                     }
                 }
             }
@@ -632,6 +663,9 @@ export default class Physics {
             const has1PN = toggles.onePNEnabled;
             const halfDt = dtSub * 0.5;
             const needBoris = hasMagnetic || hasGM || hasExtBz;
+
+            // H8: accumulate maxAccelSq during kick for next substep's dt estimate
+            let nextMaxAccelSq = 0;
 
             // Fused loop: save 1PN old, half-kick 1, Boris rotation, half-kick 2
             for (let i = 0; i < n; i++) {
@@ -673,54 +707,64 @@ export default class Physics {
 
                 // NaN guard: catch bad state before it propagates to all particles
                 if (p.w.x !== p.w.x || p.w.y !== p.w.y) { p.w.x = 0; p.w.y = 0; p.vel.x = 0; p.vel.y = 0; }
-            }
 
-            // Spin-orbit energy transfer + Stern-Gerlach/Mathisson-Papapetrou kicks (fused)
-            if (this.spinOrbitEnabled && (hasMagnetic || hasGM)) {
+                // H8: accumulate accel magnitude for next substep's dt estimate
+                const aSq = (fx * fx + fy * fy) * invM * invM;
+                if (aSq > nextMaxAccelSq) nextMaxAccelSq = aSq;
+            }
+            prevMaxAccelSq = nextMaxAccelSq;
+
+            // Fused spin-orbit + torque loop (C6: eliminates one full particle iteration per substep)
+            const needSpinOrbit = this.spinOrbitEnabled && (hasMagnetic || hasGM);
+            const needTorques = (hasGM && relOn) || hasGrav || collisionMode === COL_BOUNCE;
+            if (needSpinOrbit || needTorques) {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
-                    if (Math.abs(p.angVel) < EPSILON) continue;
-                    const IxOmega = p.angMomentum;
-                    if (Math.abs(IxOmega) < EPSILON) continue;
-                    const dtOverM = dtSub * p.invMass;
 
-                    if (hasMagnetic && Math.abs(p.charge) > EPSILON) {
-                        const mu = p.magMoment;
-                        // Energy transfer
-                        p.angw -= mu * (p.vel.x * p.dBzdx + p.vel.y * p.dBzdy) * dtSub / IxOmega;
-                        // Stern-Gerlach translational kick
-                        p.w.x += mu * p.dBzdx * dtOverM;
-                        p.w.y += mu * p.dBzdy * dtOverM;
-                    }
-                    if (hasGM) {
-                        const L = p.angMomentum;
-                        // Energy transfer
-                        p.angw -= L * (p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy) * dtSub / IxOmega;
-                        // Mathisson-Papapetrou translational kick
-                        p.w.x -= L * p.dBgzdx * dtOverM;
-                        p.w.y -= L * p.dBgzdy * dtOverM;
-                    }
-                    if (p.angw !== p.angw) p.angw = 0; // NaN guard
-                    const sr = p.angw * p.radius;
-                    p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
-                }
-            }
+                    if (needSpinOrbit) {
+                        if (Math.abs(p.angVel) >= EPSILON) {
+                            const IxOmega = p.angMomentum;
+                            if (Math.abs(IxOmega) >= EPSILON) {
+                                const dtOverM = dtSub * p.invMass;
 
-            // Frame-dragging torque + tidal locking + contact friction torque (fused)
-            if ((hasGM && relOn) || hasGrav || collisionMode === COL_BOUNCE) {
-                for (let i = 0; i < n; i++) {
-                    const p = particles[i];
-                    let torque = 0;
-                    if (hasGM && relOn) torque += p._frameDragTorque;
-                    if (hasGrav) torque += p._tidalTorque;
-                    torque += p._contactTorque;
-                    if (torque === 0) continue;
-                    const I = INERTIA_K * p.mass * p.radiusSq;
-                    if (I < EPSILON) continue; // avoid division by near-zero moment of inertia
-                    p.angw += torque * dtSub / I;
-                    if (p.angw !== p.angw) p.angw = 0; // NaN guard
-                    const sr = p.angw * p.radius;
-                    p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
+                                if (hasMagnetic && Math.abs(p.charge) > EPSILON) {
+                                    const mu = p.magMoment;
+                                    // Energy transfer
+                                    p.angw -= mu * (p.vel.x * p.dBzdx + p.vel.y * p.dBzdy) * dtSub / IxOmega;
+                                    // Stern-Gerlach translational kick
+                                    p.w.x += mu * p.dBzdx * dtOverM;
+                                    p.w.y += mu * p.dBzdy * dtOverM;
+                                }
+                                if (hasGM) {
+                                    const L = p.angMomentum;
+                                    // Energy transfer
+                                    p.angw -= L * (p.vel.x * p.dBgzdx + p.vel.y * p.dBgzdy) * dtSub / IxOmega;
+                                    // Mathisson-Papapetrou translational kick
+                                    p.w.x -= L * p.dBgzdx * dtOverM;
+                                    p.w.y -= L * p.dBgzdy * dtOverM;
+                                }
+                                if (p.angw !== p.angw) p.angw = 0; // NaN guard
+                                const sr = p.angw * p.radius;
+                                p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
+                            }
+                        }
+                    }
+
+                    if (needTorques) {
+                        let torque = 0;
+                        if (hasGM && relOn) torque += p._frameDragTorque;
+                        if (hasGrav) torque += p._tidalTorque;
+                        torque += p._contactTorque;
+                        if (torque !== 0) {
+                            const I = INERTIA_K * p.mass * p.radiusSq;
+                            if (I >= EPSILON) { // avoid division by near-zero moment of inertia
+                                p.angw += torque * dtSub / I;
+                                if (p.angw !== p.angw) p.angw = 0; // NaN guard
+                                const sr = p.angw * p.radius;
+                                p.angVel = relOn ? p.angw / Math.sqrt(1 + sr * sr) : p.angw;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1203,6 +1247,12 @@ export default class Physics {
                     }
                     if (this.coulombEnabled) {
                         applyPionPionCoulomb(this.sim.pions, dtSub, this._bosonPool, bRoot, this.periodic, this._topologyConst, this.domainW, this.domainH);
+                    }
+                    // H2: Batch sync all pions once after both boson interaction passes
+                    // (individual _syncVel() calls removed from applyBosonBosonGravity/applyPionPionCoulomb)
+                    const _pions = this.sim.pions;
+                    for (let _pi = 0, _pn = _pions.length; _pi < _pn; _pi++) {
+                        if (_pions[_pi].alive) _pions[_pi]._syncVel();
                     }
                     // π⁺π⁻ annihilation: opposite-charge pions → 2 photons
                     if (this.coulombEnabled || this.yukawaEnabled) {
