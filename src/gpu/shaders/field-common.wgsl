@@ -27,6 +27,11 @@ struct FieldUniforms {
     particleCount: u32,
     softeningSq: f32,
     currentFieldType: u32,  // 0=higgs, 1=axion (set before each field's dispatch)
+    // Precomputed cell dimensions (avoids per-thread division)
+    cellW: f32,
+    cellH: f32,
+    invCellWSq: f32,
+    invCellHSq: f32,
 };
 
 // ─── PQS (Cubic B-Spline, Order 3) Weight Computation ───

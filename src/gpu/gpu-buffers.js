@@ -524,8 +524,11 @@ const _uniformData = new ArrayBuffer(256);
 const _uniformF32 = new Float32Array(_uniformData);
 const _uniformU32 = new Uint32Array(_uniformData);
 
-export function writeUniforms(device, buffer, params) {
-    // Pack into pre-allocated Float32Array matching WGSL struct layout
+export function writeFrameUniforms(device, buffer, params) {
+    // Pack into pre-allocated Float32Array matching WGSL struct layout.
+    // Writes the FULL 256-byte buffer — call once per frame for slow-changing fields.
+    // Substep-varying fields (dt, simTime, aliveCount, particleCount, frameCount)
+    // are overwritten per substep by writeSubstepUniforms().
     const f = _uniformF32;
     const u = _uniformU32;
 
@@ -554,11 +557,11 @@ export function writeUniforms(device, buffer, params) {
     f[21] = params.extElectricAngle || 0;
     f[22] = params.extBz || 0;
     f[23] = params.bounceFriction ?? 0.4;
-    // Precomputed external field directions
-    f[24] = (params.extGravity || 0) * Math.cos(params.extGravityAngle || 0); // extGx
-    f[25] = (params.extGravity || 0) * Math.sin(params.extGravityAngle || 0); // extGy
-    f[26] = (params.extElectric || 0) * Math.cos(params.extElectricAngle || 0); // extEx
-    f[27] = (params.extElectric || 0) * Math.sin(params.extElectricAngle || 0); // extEy
+    // Precomputed external field directions (use cached trig from setToggles)
+    f[24] = params.extGx ?? ((params.extGravity || 0) * Math.cos(params.extGravityAngle || 0));
+    f[25] = params.extGy ?? ((params.extGravity || 0) * Math.sin(params.extGravityAngle || 0));
+    f[26] = params.extEx ?? ((params.extElectric || 0) * Math.cos(params.extElectricAngle || 0));
+    f[27] = params.extEy ?? ((params.extElectric || 0) * Math.sin(params.extElectricAngle || 0));
     f[28] = params.axionCoupling || 0.05;
     f[29] = params.higgsCoupling || 1.0;
     u[30] = params.particleCount || 0;  // actual alive particle count for dispatch sizing
@@ -566,4 +569,32 @@ export function writeUniforms(device, buffer, params) {
     u[32] = params.frameCount || 0;    // frameCount field in SimUniforms
 
     device.queue.writeBuffer(buffer, 0, _uniformData);
+}
+
+// Pre-allocated scratch for per-substep partial uniform writes (avoids GC)
+const _substepF32 = new Float32Array(1);
+const _substepU32 = new Uint32Array(1);
+
+// Byte offsets of substep-varying fields within SimUniforms (index * 4)
+const UNIFORM_DT_OFFSET = 0;           // f[0]
+const UNIFORM_SIMTIME_OFFSET = 4;      // f[1]
+const UNIFORM_ALIVE_OFFSET = 68;       // u[17]
+const UNIFORM_PCOUNT_OFFSET = 120;     // u[30]
+const UNIFORM_FRAME_OFFSET = 128;      // u[32]
+
+/**
+ * Write only the 5 substep-varying fields at their byte offsets within the
+ * existing SimUniforms buffer. Avoids re-uploading the full 256 bytes per substep.
+ */
+export function writeSubstepUniforms(device, buffer, dt, simTime, aliveCount, particleCount, frameCount) {
+    _substepF32[0] = dt;
+    device.queue.writeBuffer(buffer, UNIFORM_DT_OFFSET, _substepF32);
+    _substepF32[0] = simTime;
+    device.queue.writeBuffer(buffer, UNIFORM_SIMTIME_OFFSET, _substepF32);
+    _substepU32[0] = aliveCount;
+    device.queue.writeBuffer(buffer, UNIFORM_ALIVE_OFFSET, _substepU32);
+    _substepU32[0] = particleCount;
+    device.queue.writeBuffer(buffer, UNIFORM_PCOUNT_OFFSET, _substepU32);
+    _substepU32[0] = frameCount;
+    device.queue.writeBuffer(buffer, UNIFORM_FRAME_OFFSET, _substepU32);
 }

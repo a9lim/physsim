@@ -34,7 +34,7 @@
  *  - deadParticleGC           (Phase 3)
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
-import { createParticleBuffers, createUniformBuffer, writeUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
+import { createParticleBuffers, createUniformBuffer, writeFrameUniforms, writeSubstepUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
 import { fetchShader, createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFFTPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
 import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, FIELD_GRAV_BIT_T1, HERTZ_BOUNCE_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
@@ -248,6 +248,10 @@ export default class GPUPhysics {
         this._extElectric = 0;
         this._extElectricAngle = 0;
         this._extBz = 0;
+        this._cachedExtGx = 0;
+        this._cachedExtGy = 0;
+        this._cachedExtEx = 0;
+        this._cachedExtEy = 0;
         this._bounceFriction = 0.4;
         this._collisionMode = 0;
         this._axionCoupling = 0.05;
@@ -1783,6 +1787,13 @@ export default class GPUPhysics {
         this._extElectric = physics.extElectric;
         this._extElectricAngle = physics.extElectricAngle;
         this._extBz = physics.extBz;
+        // Cache precomputed external field direction components (avoid per-frame trig)
+        const gravAngle = physics.extGravityAngle || 0;
+        const elecAngle = physics.extElectricAngle || 0;
+        this._cachedExtGx = (physics.extGravity || 0) * Math.cos(gravAngle);
+        this._cachedExtGy = (physics.extGravity || 0) * Math.sin(gravAngle);
+        this._cachedExtEx = (physics.extElectric || 0) * Math.cos(elecAngle);
+        this._cachedExtEy = (physics.extElectric || 0) * Math.sin(elecAngle);
         this._bounceFriction = physics.bounceFriction;
         this._collisionMode = physics.collisionMode || 0;
         this._axionCoupling = 0.05;
@@ -1964,6 +1975,13 @@ export default class GPUPhysics {
         u[18] = this.aliveCount;
         f[19] = this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ;
         u[20] = fieldType < 0 ? 0 : fieldType;
+        // Precomputed cell dimensions (G17: avoids per-thread division in shaders)
+        const cellW = this.domainW / FIELD_GRID_RES;
+        const cellH = this.domainH / FIELD_GRID_RES;
+        f[21] = cellW;
+        f[22] = cellH;
+        f[23] = 1 / (cellW * cellW);
+        f[24] = 1 / (cellH * cellH);
         this.device.queue.writeBuffer(buf, 0, _fieldUniformData);
     }
 
@@ -3068,6 +3086,43 @@ export default class GPUPhysics {
         const numSubsteps = Math.min(Math.ceil(dt / dtSafe), maxSubsteps);
         const dtSub = dt / numSubsteps;
 
+        // Write slow-changing uniforms once per frame (toggles, domain, sliders, etc.)
+        writeFrameUniforms(this.device, this.uniformBuffer, {
+            dt: dtSub,
+            simTime: this.simTime,
+            domainW: this.domainW,
+            domainH: this.domainH,
+            speedScale: 1,
+            softening: this._blackHoleEnabled ? 4 : 8,
+            softeningSq: this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
+            toggles0: this._toggles0,
+            toggles1: this._toggles1,
+            yukawaCoupling: this._yukawaCoupling,
+            yukawaMu: this._yukawaMu,
+            higgsMass: this._higgsMass,
+            axionMass: this._axionMass,
+            boundaryMode: this.boundaryMode,
+            topologyMode: this.topologyMode,
+            collisionMode: this._collisionMode,
+            maxParticles: this.buffers.maxParticles,
+            aliveCount: this.aliveCount,
+            extGravity: this._extGravity,
+            extGravityAngle: this._extGravityAngle,
+            extElectric: this._extElectric,
+            extElectricAngle: this._extElectricAngle,
+            extBz: this._extBz,
+            bounceFriction: this._bounceFriction,
+            extGx: this._cachedExtGx,
+            extGy: this._cachedExtGy,
+            extEx: this._cachedExtEx,
+            extEy: this._cachedExtEy,
+            axionCoupling: this._axionCoupling,
+            higgsCoupling: this._higgsCoupling,
+            particleCount: this.aliveCount + this._ghostCount,
+            bhTheta: 0.5,
+            frameCount: this._frameCount,
+        });
+
         for (let step = 0; step < numSubsteps; step++) {
             this.simTime += dtSub;
             this._dispatchSubstep(dtSub);
@@ -3160,38 +3215,10 @@ export default class GPUPhysics {
      * @param {number} dtSub - Substep timestep
      */
     _dispatchSubstep(dtSub) {
-        // Upload uniforms (now includes Phase 2 parameters)
-        writeUniforms(this.device, this.uniformBuffer, {
-            dt: dtSub,
-            simTime: this.simTime,
-            domainW: this.domainW,
-            domainH: this.domainH,
-            speedScale: 1,
-            softening: this._blackHoleEnabled ? 4 : 8,
-            softeningSq: this._blackHoleEnabled ? BH_SOFTENING_SQ : SOFTENING_SQ,
-            toggles0: this._toggles0,
-            toggles1: this._toggles1,
-            yukawaCoupling: this._yukawaCoupling,
-            yukawaMu: this._yukawaMu,
-            higgsMass: this._higgsMass,
-            axionMass: this._axionMass,
-            boundaryMode: this.boundaryMode,
-            topologyMode: this.topologyMode,
-            collisionMode: this._collisionMode,
-            maxParticles: this.buffers.maxParticles,
-            aliveCount: this.aliveCount,
-            extGravity: this._extGravity,
-            extGravityAngle: this._extGravityAngle,
-            extElectric: this._extElectric,
-            extElectricAngle: this._extElectricAngle,
-            extBz: this._extBz,
-            bounceFriction: this._bounceFriction,
-            axionCoupling: this._axionCoupling,
-            higgsCoupling: this._higgsCoupling,
-            particleCount: this.aliveCount + this._ghostCount,
-            bhTheta: 0.5,
-            frameCount: this._frameCount,
-        });
+        // Write only the 5 substep-varying fields (dt, simTime, aliveCount, particleCount, frameCount)
+        writeSubstepUniforms(this.device, this.uniformBuffer,
+            dtSub, this.simTime, this.aliveCount,
+            this.aliveCount + this._ghostCount, this._frameCount);
 
         const workgroups = Math.ceil(this.aliveCount / 64);
         if (workgroups === 0) return; // no particles, skip dispatch
@@ -3679,7 +3706,7 @@ export default class GPUPhysics {
      * Called once per frame before compute dispatch.
      */
     syncUniforms() {
-        writeUniforms(this.device, this.uniformBuffer, {
+        writeFrameUniforms(this.device, this.uniformBuffer, {
             dt: 0,
             simTime: this.simTime,
             domainW: this.domainW,
@@ -3702,6 +3729,10 @@ export default class GPUPhysics {
             extElectric: this._extElectric,
             extElectricAngle: this._extElectricAngle,
             extBz: this._extBz,
+            extGx: this._cachedExtGx,
+            extGy: this._cachedExtGy,
+            extEx: this._cachedExtEx,
+            extEy: this._cachedExtEy,
             maxParticles: this.buffers.maxParticles,
             particleCount: this.aliveCount + this._ghostCount,
             bhTheta: 0.5,
