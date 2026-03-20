@@ -3,6 +3,13 @@
 
 const NONE = -1;
 
+// C10: Module-level typed insert stacks — V8 can't optimise a JS array that holds
+// both integers (node indices) and object references.  Two parallel stacks avoid
+// the polymorphic slot problem entirely.
+let _workNodeStack = new Int32Array(256); // node indices
+let _workPartStack = new Array(256);      // particle references
+let _workTop = 0;
+
 export default class QuadTreePool {
     constructor(capacity = 4, maxNodes = 512) {
         this.nodeCapacity = capacity;
@@ -112,25 +119,52 @@ export default class QuadTreePool {
         // P8: Single capacity check before 4 allocations
         if (this.count + 4 > this.maxNodes) this._grow();
         const c = this.count;
-        // Inline alloc without per-call capacity check
+        // C1: Unrolled — eliminates 3 temporary array allocations (ids/xs/ys) and loop.
+        // NW = (x-hw, y-hh), NE = (x+hw, y-hh), SW = (x-hw, y+hh), SE = (x+hw, y+hh)
         this.count = c + 4;
-        const ids = [c, c + 1, c + 2, c + 3];
-        const xs = [x - hw, x + hw, x - hw, x + hw];
-        const ys = [y - hh, y - hh, y + hh, y + hh];
-        for (let k = 0; k < 4; k++) {
-            const id = ids[k];
-            this.bx[id] = xs[k]; this.by[id] = ys[k];
-            this.bw[id] = hw; this.bh[id] = hh;
-            this.totalMass[id] = 0; this.totalCharge[id] = 0;
-            this.totalMagneticMoment[id] = 0; this.totalAngularMomentum[id] = 0;
-            this.totalMomentumX[id] = 0; this.totalMomentumY[id] = 0;
-            this.comX[id] = xs[k]; this.comY[id] = ys[k];
-            this.nw[id] = NONE; this.ne[id] = NONE;
-            this.sw[id] = NONE; this.se[id] = NONE;
-            this.pointCount[id] = 0; this.divided[id] = 0;
-        }
-        this.nw[idx] = ids[0]; this.ne[idx] = ids[1];
-        this.sw[idx] = ids[2]; this.se[idx] = ids[3];
+
+        // NW (c)
+        this.bx[c] = x - hw; this.by[c] = y - hh;
+        this.bw[c] = hw; this.bh[c] = hh;
+        this.totalMass[c] = 0; this.totalCharge[c] = 0;
+        this.totalMagneticMoment[c] = 0; this.totalAngularMomentum[c] = 0;
+        this.totalMomentumX[c] = 0; this.totalMomentumY[c] = 0;
+        this.comX[c] = x - hw; this.comY[c] = y - hh;
+        this.nw[c] = NONE; this.ne[c] = NONE; this.sw[c] = NONE; this.se[c] = NONE;
+        this.pointCount[c] = 0; this.divided[c] = 0;
+
+        // NE (c+1)
+        this.bx[c+1] = x + hw; this.by[c+1] = y - hh;
+        this.bw[c+1] = hw; this.bh[c+1] = hh;
+        this.totalMass[c+1] = 0; this.totalCharge[c+1] = 0;
+        this.totalMagneticMoment[c+1] = 0; this.totalAngularMomentum[c+1] = 0;
+        this.totalMomentumX[c+1] = 0; this.totalMomentumY[c+1] = 0;
+        this.comX[c+1] = x + hw; this.comY[c+1] = y - hh;
+        this.nw[c+1] = NONE; this.ne[c+1] = NONE; this.sw[c+1] = NONE; this.se[c+1] = NONE;
+        this.pointCount[c+1] = 0; this.divided[c+1] = 0;
+
+        // SW (c+2)
+        this.bx[c+2] = x - hw; this.by[c+2] = y + hh;
+        this.bw[c+2] = hw; this.bh[c+2] = hh;
+        this.totalMass[c+2] = 0; this.totalCharge[c+2] = 0;
+        this.totalMagneticMoment[c+2] = 0; this.totalAngularMomentum[c+2] = 0;
+        this.totalMomentumX[c+2] = 0; this.totalMomentumY[c+2] = 0;
+        this.comX[c+2] = x - hw; this.comY[c+2] = y + hh;
+        this.nw[c+2] = NONE; this.ne[c+2] = NONE; this.sw[c+2] = NONE; this.se[c+2] = NONE;
+        this.pointCount[c+2] = 0; this.divided[c+2] = 0;
+
+        // SE (c+3)
+        this.bx[c+3] = x + hw; this.by[c+3] = y + hh;
+        this.bw[c+3] = hw; this.bh[c+3] = hh;
+        this.totalMass[c+3] = 0; this.totalCharge[c+3] = 0;
+        this.totalMagneticMoment[c+3] = 0; this.totalAngularMomentum[c+3] = 0;
+        this.totalMomentumX[c+3] = 0; this.totalMomentumY[c+3] = 0;
+        this.comX[c+3] = x + hw; this.comY[c+3] = y + hh;
+        this.nw[c+3] = NONE; this.ne[c+3] = NONE; this.sw[c+3] = NONE; this.se[c+3] = NONE;
+        this.pointCount[c+3] = 0; this.divided[c+3] = 0;
+
+        this.nw[idx] = c; this.ne[idx] = c + 1;
+        this.sw[idx] = c + 2; this.se[idx] = c + 3;
         this.divided[idx] = 1;
     }
 
@@ -142,19 +176,34 @@ export default class QuadTreePool {
     }
 
     // P7: Iterative insert — eliminates recursive stack frames (up to depth 48)
-    // Uses a local work stack for displaced particles during subdivision to avoid
-    // unbounded recursion when co-located particles cause repeated subdivisions.
+    // C10: Uses module-level typed stacks (_workNodeStack / _workPartStack) so V8 sees
+    //      a monomorphic Int32Array for indices and a stable object array for particles,
+    //      rather than a single polymorphic JS array alternating both types.
     insert(idx, particle) {
         if (!this._contains(idx, particle.pos.x, particle.pos.y)) return false;
         const cap = this.nodeCapacity;
-        // Work stack for particles displaced during subdivision
-        const work = this._insertWork || (this._insertWork = []);
-        work.length = 0;
-        work.push(idx, particle);
 
-        while (work.length > 0) {
-            let pt = work.pop();
-            let nodeIdx = work.pop();
+        // Grow module-level stacks if needed (rare — only on very large trees)
+        if (_workNodeStack.length < this.maxNodes * cap + 8) {
+            const newCap = (this.maxNodes * cap + 8) * 2;
+            const nn = new Int32Array(newCap);
+            nn.set(_workNodeStack);
+            _workNodeStack = nn;
+            const np = new Array(newCap);
+            for (let i = 0; i < _workPartStack.length; i++) np[i] = _workPartStack[i];
+            _workPartStack = np;
+        }
+
+        // Seed the work stack with the initial (node, particle) pair
+        _workTop = 0;
+        _workNodeStack[_workTop] = idx;
+        _workPartStack[_workTop] = particle;
+        _workTop++;
+
+        while (_workTop > 0) {
+            _workTop--;
+            let nodeIdx = _workNodeStack[_workTop];
+            let pt     = _workPartStack[_workTop];
             const px = pt.pos.x, py = pt.pos.y;
             let depth = 0;
 
@@ -169,7 +218,9 @@ export default class QuadTreePool {
                     const base = nodeIdx * cap;
                     for (let i = 0; i < this.pointCount[nodeIdx]; i++) {
                         const p = this.points[base + i];
-                        work.push(this._childFor(nodeIdx, p.pos.x, p.pos.y), p);
+                        _workNodeStack[_workTop] = this._childFor(nodeIdx, p.pos.x, p.pos.y);
+                        _workPartStack[_workTop] = p;
+                        _workTop++;
                     }
                     this.pointCount[nodeIdx] = 0;
                 }
@@ -221,7 +272,6 @@ export default class QuadTreePool {
 
                 for (let i = 0; i < cnt; i++) {
                     const p = this.points[base + i];
-                    const rSq = p.radiusSq;
                     const pm = p.mass;
                     mass += pm;
                     charge += p.charge;
@@ -357,7 +407,8 @@ export default class QuadTreePool {
     build(bx, by, bw, bh, particles) {
         this.reset();
         const root = this.alloc(bx, by, bw, bh);
-        for (const p of particles) this.insert(root, p);
+        // M5: Indexed loop — avoids iterator protocol overhead of for...of
+        for (let i = 0, n = particles.length; i < n; i++) this.insert(root, particles[i]);
         this.calculateMassDistribution(root);
         return root;
     }
