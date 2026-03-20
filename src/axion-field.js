@@ -80,61 +80,29 @@ export default class AxionField extends ScalarField {
         const fGx = this._gradX;
         const fGy = this._gradY;
 
-        // Compute Laplacian (Dirichlet a=0)
-        this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 0);
-
-        // Störmer-Verlet: half-kick → drift → recompute Laplacian → second half-kick
+        // Störmer-Verlet: half-kick → drift → recompute → second half-kick
         // Klein-Gordon: d²a/dt² = ∇²a - m_a²·a - g·m_a·ȧ + source  (ζ = g/2, Q = 1/g)
         const mA = this.mass;
         const mASq = mA * mA;
         const damp = AXION_COUPLING * mA; // Q = 1/g = 20, so g·Q = 1 (resonant buildup ≈ static response)
-        const lap = this._laplacian;
         const halfDt = dt * 0.5;
+
+        // C16: Pre-compute viscosity coefficient
+        const nu = 0.5 / Math.sqrt(invCellWSq + invCellHSq);
+        const last = GRID - 1;
 
         // Portal coupling: V_portal = ½λφ²a², contributes -λφ²a to ddA
         const portalArr = otherField ? otherField.field : null;
 
-        // ── First half-kick ──
-        this._computeViscosity(invCellWSq, invCellHSq);
-        const visc = this._viscBuf;
-        if (sgOn) {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const aVal = field[i];
-                const lapI = lap[i];
-                const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
-                const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
-                const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    + 4 * Phi * lapI
-                    + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                    - 2 * Phi * mASq * aVal
-                    - portalTerm * aVal - 2 * Phi * portalTerm * aVal;
-                fieldDot[i] += ddA * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
-            }
-        } else if (portalArr) {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const aVal = field[i];
-                const ddA = lap[i] - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * aVal;
-                fieldDot[i] += ddA * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
-            }
-        } else {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const aVal = field[i];
-                const ddA = lap[i] - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
-                fieldDot[i] += ddA * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
-            }
-        }
+        // ── First half-kick (C16: Laplacian + viscosity inlined) ──
+        this._axionKick(halfDt, field, fieldDot, src, invCellArea,
+            mASq, damp, nu, invCellWSq, invCellHSq, GRID, last, bcMode, topoConst,
+            sgOn, sgFull, sgGx, sgGy, fGx, fGy, portalArr);
 
         // ── Full drift ──
         for (let i = 0; i < GRID_SQ; i++) {
             field[i] = Math.max(-SCALAR_FIELD_MAX, Math.min(SCALAR_FIELD_MAX, field[i] + fieldDot[i] * dt));
         }
-
-        // ── Recompute Laplacian with updated field ──
-        this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 0);
 
         // ── Refresh self-gravity at drifted field (restores O(dt²) for GR correction) ──
         if (sgOn) {
@@ -142,39 +110,79 @@ export default class AxionField extends ScalarField {
             this.computeSelfGravity(domainW, domainH, softeningSq, bcMode, topoConst);
         }
 
-        // ── Second half-kick (with updated field values) ──
-        this._computeViscosity(invCellWSq, invCellHSq);
-        if (sgOn) {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const aVal = field[i];
-                const lapI = lap[i];
-                const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
-                const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
-                const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    + 4 * Phi * lapI
-                    + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                    - 2 * Phi * mASq * aVal
-                    - portalTerm * aVal - 2 * Phi * portalTerm * aVal;
-                fieldDot[i] += ddA * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
-            }
-        } else if (portalArr) {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * field[i];
-                fieldDot[i] += ddA * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
-            }
-        } else {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const ddA = lap[i] - mASq * field[i] - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
-                fieldDot[i] += ddA * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
-            }
-        }
+        // ── Second half-kick (C16: Laplacian + viscosity inlined) ──
+        this._axionKick(halfDt, field, fieldDot, src, invCellArea,
+            mASq, damp, nu, invCellWSq, invCellHSq, GRID, last, bcMode, topoConst,
+            sgOn, sgFull, sgGx, sgGy, fGx, fGy, portalArr);
 
         // Pre-compute grid gradients for C² smooth force interpolation
         this._computeGridGradients(bcMode, topoConst, 0);
+    }
+
+    /** C16: Axion half-kick with inlined Laplacian + viscosity.
+     *  Computes Laplacian of field and viscosity of fieldDot inline, avoiding separate grid passes.
+     *  Interior cells use direct indexing; border cells use _nb() for topology-aware wrapping. */
+    _axionKick(halfDt, field, fieldDot, src, invCellArea,
+        mASq, damp, nu, invCellWSq, invCellHSq, GRID, last, bcMode, topoConst,
+        sgOn, sgFull, sgGx, sgGy, fGx, fGy, portalArr) {
+        const vacValue = 0; // Axion vacuum
+
+        for (let iy = 0; iy < GRID; iy++) {
+            for (let ix = 0; ix < GRID; ix++) {
+                const i = iy * GRID + ix;
+                let lapI, viscI;
+
+                if (ix > 0 && ix < last && iy > 0 && iy < last) {
+                    // Interior: direct indexing
+                    const fC = field[i];
+                    lapI = (field[i - 1] + field[i + 1] - 2 * fC) * invCellWSq
+                         + (field[i - GRID] + field[i + GRID] - 2 * fC) * invCellHSq;
+                    const fdC = fieldDot[i];
+                    viscI = nu * ((fieldDot[i - 1] + fieldDot[i + 1] - 2 * fdC) * invCellWSq
+                                + (fieldDot[i - GRID] + fieldDot[i + GRID] - 2 * fdC) * invCellHSq);
+                } else {
+                    // Border: topology-aware neighbor lookup
+                    const fC = field[i];
+                    const iL = this._nb(ix - 1, iy, bcMode, topoConst);
+                    const iR = this._nb(ix + 1, iy, bcMode, topoConst);
+                    const iT = this._nb(ix, iy - 1, bcMode, topoConst);
+                    const iB = this._nb(ix, iy + 1, bcMode, topoConst);
+                    lapI = ((iL >= 0 ? field[iL] : vacValue) + (iR >= 0 ? field[iR] : vacValue) - 2 * fC) * invCellWSq
+                         + ((iT >= 0 ? field[iT] : vacValue) + (iB >= 0 ? field[iB] : vacValue) - 2 * fC) * invCellHSq;
+                    // Viscosity: clamp-to-edge for border
+                    const fdC = fieldDot[i];
+                    const fdL = ix > 0 ? fieldDot[i - 1] : fdC;
+                    const fdR = ix < last ? fieldDot[i + 1] : fdC;
+                    const fdT = iy > 0 ? fieldDot[i - GRID] : fdC;
+                    const fdB = iy < last ? fieldDot[i + GRID] : fdC;
+                    viscI = nu * ((fdL + fdR - 2 * fdC) * invCellWSq
+                                + (fdT + fdB - 2 * fdC) * invCellHSq);
+                }
+
+                const aVal = field[i];
+
+                if (sgOn) {
+                    const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
+                    const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
+                    const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + viscI
+                        + 4 * Phi * lapI
+                        + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                        - 2 * Phi * mASq * aVal
+                        - portalTerm * aVal - 2 * Phi * portalTerm * aVal;
+                    fieldDot[i] += ddA * halfDt;
+                    if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
+                } else if (portalArr) {
+                    const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + viscI
+                        - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * aVal;
+                    fieldDot[i] += ddA * halfDt;
+                    if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
+                } else {
+                    const ddA = lapI - mASq * aVal - damp * fieldDot[i] + src[i] * invCellArea + viscI;
+                    fieldDot[i] += ddA * halfDt;
+                    if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 0; }
+                }
+            }
+        }
     }
 
     /** PQS source deposition.
@@ -202,6 +210,16 @@ export default class AxionField extends ScalarField {
      *  Sets p.yukMod = 1 ± g·a(x) when Yukawa on (pseudoscalar PQ coupling).
      */
     interpolateAxMod(particles, domainW, domainH, coulombEnabled = false, yukawaEnabled = false, boundaryMode = 0, topoConst = 0) {
+        // A2: Early return when neither coupling is active
+        if (!coulombEnabled && !yukawaEnabled) {
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i];
+                if (!p.alive) continue;
+                p.axMod = 1;
+                p.yukMod = 1;
+            }
+            return;
+        }
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;

@@ -53,17 +53,14 @@ export default class HiggsField extends ScalarField {
 
         const bcMode = boundaryMode;
 
-        // PQS source deposition
+        // C8: Fused source + thermal PQS deposition (one _pqsCoords per particle)
         const src = this._source;
         src.fill(0);
-        this._depositSources(particles, invCellW, invCellH, bcMode, topoConst);
-        const cellArea = cellW * cellH;
-        const invCellArea = cellArea > EPSILON ? 1 / cellArea : 0;
-
-        // Deposit thermal energy (drives phase transitions)
         const thermal = this._thermal;
         thermal.fill(0);
-        this._depositThermal(particles, invCellW, invCellH, bcMode, topoConst, relativityEnabled);
+        this._depositSourcesAndThermal(particles, invCellW, invCellH, bcMode, topoConst, relativityEnabled);
+        const cellArea = cellW * cellH;
+        const invCellArea = cellArea > EPSILON ? 1 / cellArea : 0;
 
         // Self-gravity: weak-field GR correction to Klein-Gordon equation
         // φ̈ = (1+4Φ)∇²φ + 2∇Φ·∇φ - (1+2Φ)V'(φ)
@@ -76,67 +73,29 @@ export default class HiggsField extends ScalarField {
         const fGx = this._gradX;
         const fGy = this._gradY;
 
-        // Compute Laplacian (Dirichlet VEV=1)
-        this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 1);
-
-        // Störmer-Verlet: half-kick → drift → recompute Laplacian → second half-kick
+        // Störmer-Verlet: half-kick → drift → recompute → second half-kick
         // VEV=1, λ = m_H²/2, μ² = m_H²/2, critical damping = 2*m_H
         const mH = this.mass;
         const muSq = 0.5 * mH * mH;
         const damp = 2 * mH;
-        const lap = this._laplacian;
         const halfDt = dt * 0.5;
+
+        // C16: Pre-compute viscosity coefficient (nu = 1/(2*sqrt(1/cellW²+1/cellH²)))
+        const nu = 0.5 / Math.sqrt(invCellWSq + invCellHSq);
+        const last = GRID - 1;
 
         // Portal coupling: V_portal = ½λφ²a², contributes -λa²φ to ddphi
         const portalArr = otherField ? otherField.field : null;
 
-        // ── First half-kick ──
-        this._computeViscosity(invCellWSq, invCellHSq);
-        const visc = this._viscBuf;
-        if (sgOn) {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const phiVal = field[i];
-                const muSqEff = muSq - thermal[i];
-                const lapI = lap[i];
-                const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
-                const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
-                const ddphi = lapI + muSqEff * phiVal - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    + 4 * Phi * lapI
-                    + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                    + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal
-                    - portalTerm * phiVal - 2 * Phi * portalTerm * phiVal;
-                fieldDot[i] += ddphi * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
-            }
-        } else if (portalArr) {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const phiVal = field[i];
-                const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
-                    - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * phiVal;
-                fieldDot[i] += ddphi * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
-            }
-        } else {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const phiVal = field[i];
-                const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
-                    - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
-                fieldDot[i] += ddphi * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
-            }
-        }
+        // ── First half-kick (C16: Laplacian + viscosity inlined) ──
+        this._higgsKick(halfDt, field, fieldDot, src, thermal, invCellArea,
+            muSq, damp, nu, invCellWSq, invCellHSq, GRID, last, bcMode, topoConst,
+            sgOn, sgFull, sgGx, sgGy, fGx, fGy, portalArr);
 
         // ── Full drift ──
         for (let i = 0; i < GRID_SQ; i++) {
             field[i] = Math.max(-SCALAR_FIELD_MAX, Math.min(SCALAR_FIELD_MAX, field[i] + fieldDot[i] * dt));
         }
-
-        // ── Recompute Laplacian with updated field ──
-        this._computeLaplacian(bcMode, topoConst, invCellWSq, invCellHSq, 1);
 
         // ── Refresh self-gravity at drifted field (restores O(dt²) for GR correction) ──
         if (sgOn) {
@@ -144,62 +103,24 @@ export default class HiggsField extends ScalarField {
             this.computeSelfGravity(domainW, domainH, softeningSq, bcMode, topoConst);
         }
 
-        // ── Second half-kick (with updated field values) ──
-        this._computeViscosity(invCellWSq, invCellHSq);
-        if (sgOn) {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const phiVal = field[i];
-                const muSqEff = muSq - thermal[i];
-                const lapI = lap[i];
-                const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
-                const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
-                const ddphi = lapI + muSqEff * phiVal - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    + 4 * Phi * lapI
-                    + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
-                    + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiVal * phiVal * phiVal
-                    - portalTerm * phiVal - 2 * Phi * portalTerm * phiVal;
-                fieldDot[i] += ddphi * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
-            }
-        } else if (portalArr) {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const phiVal = field[i];
-                const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
-                    - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i]
-                    - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * phiVal;
-                fieldDot[i] += ddphi * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
-            }
-        } else {
-            for (let i = 0; i < GRID_SQ; i++) {
-                const phiVal = field[i];
-                const ddphi = lap[i] + (muSq - thermal[i]) * phiVal
-                    - muSq * phiVal * phiVal * phiVal
-                    - damp * fieldDot[i] + src[i] * invCellArea + visc[i];
-                fieldDot[i] += ddphi * halfDt;
-                if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
-            }
-        }
+        // ── Second half-kick (C16: Laplacian + viscosity inlined) ──
+        this._higgsKick(halfDt, field, fieldDot, src, thermal, invCellArea,
+            muSq, damp, nu, invCellWSq, invCellHSq, GRID, last, bcMode, topoConst,
+            sgOn, sgFull, sgGx, sgGy, fGx, fGy, portalArr);
 
         // Pre-compute grid gradients for C² smooth force interpolation
         this._computeGridGradients(bcMode, topoConst, 1);
     }
 
-    /** PQS deposition of g·baseMass as scalar source (g = HIGGS_COUPLING). */
-    _depositSources(particles, invCellW, invCellH, bcMode, topoConst) {
+    /** C8: Fused PQS deposition of source (g·baseMass) + thermal (KE) in one particle loop.
+     *  Computes PQS coords once per particle, deposits into both arrays. */
+    _depositSourcesAndThermal(particles, invCellW, invCellH, bcMode, topoConst, relativityEnabled) {
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            if (p.baseMass < EPSILON) continue;
-            this._depositPQS(this._source, p.pos.x, p.pos.y, HIGGS_COUPLING * p.baseMass, invCellW, invCellH, bcMode, topoConst);
-        }
-    }
+            const bm = p.baseMass;
+            if (bm < EPSILON) continue;
 
-    /** PQS deposition of local kinetic energy density. */
-    _depositThermal(particles, invCellW, invCellH, bcMode, topoConst, relativityEnabled) {
-        for (let i = 0; i < particles.length; i++) {
-            const p = particles[i];
+            // Compute KE for thermal deposition
             let ke;
             if (relativityEnabled) {
                 const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
@@ -207,8 +128,92 @@ export default class HiggsField extends ScalarField {
             } else {
                 ke = 0.5 * p.mass * (p.vel.x * p.vel.x + p.vel.y * p.vel.y);
             }
-            if (ke < EPSILON) continue;
-            this._depositPQS(this._thermal, p.pos.x, p.pos.y, ke, invCellW, invCellH, bcMode, topoConst);
+
+            // Compute PQS coords once
+            this._pqsCoords(p.pos.x, p.pos.y, invCellW, invCellH);
+
+            // Deposit source: g·baseMass
+            this._pqsDepositRaw(this._source, HIGGS_COUPLING * bm, bcMode, topoConst);
+
+            // Deposit thermal (reuse same PQS coords)
+            if (ke >= EPSILON) {
+                this._pqsDepositRaw(this._thermal, ke, bcMode, topoConst);
+            }
+        }
+    }
+
+    /** C16+C18: Higgs half-kick with inlined Laplacian + viscosity + optimized phi powers.
+     *  Computes Laplacian of field and viscosity of fieldDot inline, avoiding separate grid passes.
+     *  Interior cells use direct indexing; border cells use _nb() for topology-aware wrapping. */
+    _higgsKick(halfDt, field, fieldDot, src, thermal, invCellArea,
+        muSq, damp, nu, invCellWSq, invCellHSq, GRID, last, bcMode, topoConst,
+        sgOn, sgFull, sgGx, sgGy, fGx, fGy, portalArr) {
+        const vacValue = 1; // Higgs VEV
+
+        for (let iy = 0; iy < GRID; iy++) {
+            for (let ix = 0; ix < GRID; ix++) {
+                const i = iy * GRID + ix;
+                let lapI, viscI;
+
+                if (ix > 0 && ix < last && iy > 0 && iy < last) {
+                    // Interior: direct indexing
+                    const fC = field[i];
+                    lapI = (field[i - 1] + field[i + 1] - 2 * fC) * invCellWSq
+                         + (field[i - GRID] + field[i + GRID] - 2 * fC) * invCellHSq;
+                    const fdC = fieldDot[i];
+                    viscI = nu * ((fieldDot[i - 1] + fieldDot[i + 1] - 2 * fdC) * invCellWSq
+                                + (fieldDot[i - GRID] + fieldDot[i + GRID] - 2 * fdC) * invCellHSq);
+                } else {
+                    // Border: topology-aware neighbor lookup
+                    const fC = field[i];
+                    const iL = this._nb(ix - 1, iy, bcMode, topoConst);
+                    const iR = this._nb(ix + 1, iy, bcMode, topoConst);
+                    const iT = this._nb(ix, iy - 1, bcMode, topoConst);
+                    const iB = this._nb(ix, iy + 1, bcMode, topoConst);
+                    lapI = ((iL >= 0 ? field[iL] : vacValue) + (iR >= 0 ? field[iR] : vacValue) - 2 * fC) * invCellWSq
+                         + ((iT >= 0 ? field[iT] : vacValue) + (iB >= 0 ? field[iB] : vacValue) - 2 * fC) * invCellHSq;
+                    // Viscosity: clamp-to-edge for border (matches original _computeViscosity)
+                    const fdC = fieldDot[i];
+                    const fdL = ix > 0 ? fieldDot[i - 1] : fdC;
+                    const fdR = ix < last ? fieldDot[i + 1] : fdC;
+                    const fdT = iy > 0 ? fieldDot[i - GRID] : fdC;
+                    const fdB = iy < last ? fieldDot[i + GRID] : fdC;
+                    viscI = nu * ((fdL + fdR - 2 * fdC) * invCellWSq
+                                + (fdT + fdB - 2 * fdC) * invCellHSq);
+                }
+
+                // C18: Cache phi powers
+                const phiVal = field[i];
+                const phiSq = phiVal * phiVal;
+                const phiCu = phiSq * phiVal;
+
+                if (sgOn) {
+                    const muSqEff = muSq - thermal[i];
+                    const Phi = Math.max(-SELFGRAV_PHI_MAX, Math.min(SELFGRAV_PHI_MAX, sgFull[i]));
+                    const portalTerm = portalArr ? HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] : 0;
+                    const ddphi = lapI + muSqEff * phiVal - muSq * phiCu
+                        - damp * fieldDot[i] + src[i] * invCellArea + viscI
+                        + 4 * Phi * lapI
+                        + 2 * (sgGx[i] * fGx[i] * invCellWSq + sgGy[i] * fGy[i] * invCellHSq)
+                        + 2 * Phi * muSqEff * phiVal - 2 * Phi * muSq * phiCu
+                        - portalTerm * phiVal - 2 * Phi * portalTerm * phiVal;
+                    fieldDot[i] += ddphi * halfDt;
+                    if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
+                } else if (portalArr) {
+                    const ddphi = lapI + (muSq - thermal[i]) * phiVal
+                        - muSq * phiCu
+                        - damp * fieldDot[i] + src[i] * invCellArea + viscI
+                        - HIGGS_AXION_COUPLING * portalArr[i] * portalArr[i] * phiVal;
+                    fieldDot[i] += ddphi * halfDt;
+                    if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
+                } else {
+                    const ddphi = lapI + (muSq - thermal[i]) * phiVal
+                        - muSq * phiCu
+                        - damp * fieldDot[i] + src[i] * invCellArea + viscI;
+                    fieldDot[i] += ddphi * halfDt;
+                    if (!isFinite(fieldDot[i])) { fieldDot[i] = 0; field[i] = 1; }
+                }
+            }
         }
     }
 
@@ -360,7 +365,7 @@ export default class HiggsField extends ScalarField {
         const muSq = 0.5 * this.mass * this.mass;
         const vacOffset = 0.25 * muSq; // shift so V(VEV=1)=0
         return this._fieldEnergy(domainW, domainH,
-            p => muSq * (-0.5 * p * p + 0.25 * p * p * p * p) + vacOffset);
+            p => { const pSq = p * p; return muSq * (-0.5 * pSq + 0.25 * pSq * pSq) + vacOffset; });
     }
 
     /** Render field deviation from VEV=1 to offscreen canvas.

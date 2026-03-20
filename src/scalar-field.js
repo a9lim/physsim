@@ -144,6 +144,12 @@ export default class ScalarField {
      */
     _depositPQS(out, x, y, value, invCellW, invCellH, bcMode, topoConst) {
         this._pqsCoords(x, y, invCellW, invCellH);
+        this._pqsDepositRaw(out, value, bcMode, topoConst);
+    }
+
+    /** Deposit value into target array using already-computed PQS coords (_pqs, _wx, _wy).
+     *  Call _pqsCoords() first to set up the weights. */
+    _pqsDepositRaw(out, value, bcMode, topoConst) {
         const { ix, iy } = this._pqs;
         const wx = this._wx;
         const wy = this._wy;
