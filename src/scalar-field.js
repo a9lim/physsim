@@ -471,13 +471,13 @@ export default class ScalarField {
         return total === total ? total : 0;
     }
 
-    /** Subclasses override to add V(field) per cell to _energyDensity. */
-    _addPotentialEnergy() {}
-
     /** Compute energy density per grid cell: ρ = ½φ̇² + ½|∇φ|² + V(φ).
      *  Stores result in _energyDensity. Requires _gradX/_gradY to be current
-     *  (called at end of subclass update()). */
-    _computeEnergyDensity(domainW, domainH) {
+     *  (called at end of subclass update()).
+     *  C15: Accepts optional potentialFn(fieldValue) to fuse V(φ) into the same loop,
+     *  eliminating the separate _addPotentialEnergy() pass. Subclasses override
+     *  _computeEnergyDensity() to supply their potential inline via super(). */
+    _computeEnergyDensity(domainW, domainH, potentialFn) {
         const GRID = this._grid;
         const cellW = domainW / GRID;
         const cellH = domainH / GRID;
@@ -485,17 +485,28 @@ export default class ScalarField {
         const invCellWSq = 1 / (cellW * cellW);
         const invCellHSq = 1 / (cellH * cellH);
         const rho = this._energyDensity;
+        const field = this.field;
         const fieldDot = this.fieldDot;
         const gx = this._gradX;
         const gy = this._gradY;
+        const total = this._gridSq;
 
-        for (let i = 0; i < this._gridSq; i++) {
-            const fd = fieldDot[i];
-            const gxi = gx[i], gyi = gy[i];
-            rho[i] = 0.5 * fd * fd
-                   + 0.5 * (gxi * gxi * invCellWSq + gyi * gyi * invCellHSq);
+        if (potentialFn) {
+            for (let i = 0; i < total; i++) {
+                const fd = fieldDot[i];
+                const gxi = gx[i], gyi = gy[i];
+                rho[i] = 0.5 * fd * fd
+                       + 0.5 * (gxi * gxi * invCellWSq + gyi * gyi * invCellHSq)
+                       + potentialFn(field[i]);
+            }
+        } else {
+            for (let i = 0; i < total; i++) {
+                const fd = fieldDot[i];
+                const gxi = gx[i], gyi = gy[i];
+                rho[i] = 0.5 * fd * fd
+                       + 0.5 * (gxi * gxi * invCellWSq + gyi * gyi * invCellHSq);
+            }
         }
-        this._addPotentialEnergy();
     }
 
     /** Build Green's function G(r) = -1/√(r²+ε²) in Fourier space.
@@ -543,10 +554,13 @@ export default class ScalarField {
     }
 
     /** Central-difference gradient of gravitational potential.
-     *  Topology-aware via _nb() for border cells (matches _computeGridGradients pattern). */
-    _computeSelfGravGradients(bcMode, topoConst) {
+     *  Topology-aware via _nb() for border cells (matches _computeGridGradients pattern).
+     *  @param {Float64Array} [srcArray] - Optional source array; defaults to _sgPhiFull.
+     *    Pass _fftRe to skip the copy loop in computeSelfGravity() when callers
+     *    that need _sgPhiFull (update(), gravPE()) are not involved. */
+    _computeSelfGravGradients(bcMode, topoConst, srcArray) {
         const GRID = this._grid;
-        const phi = this._sgPhiFull;
+        const phi = srcArray || this._sgPhiFull;
         const gx = this._sgGradX;
         const gy = this._sgGradY;
         const last = GRID - 1;
@@ -628,13 +642,15 @@ export default class ScalarField {
         // Inverse FFT → Φ(x)
         fft2d(re, im, GRID, true);
 
+        // C14: Compute gradients directly from _fftRe (avoids reading _sgPhiFull before it's populated).
+        // Then copy real part to _sgPhiFull for subclass update() (sgFull[i] Phi clamping) and gravPE().
+        this._computeSelfGravGradients(bcMode, topoConst, re);
+
         // Copy real part to potential (should be purely real, discard tiny imaginary residual)
         const phi = this._sgPhiFull;
         for (let i = 0; i < GSQ; i++) {
             phi[i] = re[i];
         }
-
-        this._computeSelfGravGradients(bcMode, topoConst);
     }
 
     /** Apply gravitational force from field potential onto particles.

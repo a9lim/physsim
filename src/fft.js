@@ -2,6 +2,20 @@
 // In-place Cooley-Tukey, split-radix for 2D convolution.
 // No dependencies. Operates on separate real/imag Float64Arrays.
 
+// C7: Module-level scratch buffers for fft2d() rows/columns — avoids 4 allocations per call.
+let _rowRe = null, _rowIm = null, _colRe = null, _colIm = null;
+let _fftBufSize = 0;
+
+function _ensureFftBufs(N) {
+    if (N > _fftBufSize) {
+        _rowRe = new Float64Array(N);
+        _rowIm = new Float64Array(N);
+        _colRe = new Float64Array(N);
+        _colIm = new Float64Array(N);
+        _fftBufSize = N;
+    }
+}
+
 /**
  * In-place 1D FFT (Cooley-Tukey, decimation-in-time).
  * @param {Float64Array} re - Real part (length must be power of 2)
@@ -66,35 +80,33 @@ export function fft1d(re, im, inverse) {
  * @param {boolean} inverse
  */
 export function fft2d(re, im, N, inverse) {
-    const rowRe = new Float64Array(N);
-    const rowIm = new Float64Array(N);
+    // C7: Use pre-allocated module-level scratch buffers (resized lazily)
+    _ensureFftBufs(N);
 
     // Transform rows
     for (let y = 0; y < N; y++) {
         const off = y * N;
         for (let x = 0; x < N; x++) {
-            rowRe[x] = re[off + x];
-            rowIm[x] = im[off + x];
+            _rowRe[x] = re[off + x];
+            _rowIm[x] = im[off + x];
         }
-        fft1d(rowRe, rowIm, inverse);
+        fft1d(_rowRe, _rowIm, inverse);
         for (let x = 0; x < N; x++) {
-            re[off + x] = rowRe[x];
-            im[off + x] = rowIm[x];
+            re[off + x] = _rowRe[x];
+            im[off + x] = _rowIm[x];
         }
     }
 
     // Transform columns
-    const colRe = new Float64Array(N);
-    const colIm = new Float64Array(N);
     for (let x = 0; x < N; x++) {
         for (let y = 0; y < N; y++) {
-            colRe[y] = re[y * N + x];
-            colIm[y] = im[y * N + x];
+            _colRe[y] = re[y * N + x];
+            _colIm[y] = im[y * N + x];
         }
-        fft1d(colRe, colIm, inverse);
+        fft1d(_colRe, _colIm, inverse);
         for (let y = 0; y < N; y++) {
-            re[y * N + x] = colRe[y];
-            im[y * N + x] = colIm[y];
+            re[y * N + x] = _colRe[y];
+            im[y * N + x] = _colIm[y];
         }
     }
 }

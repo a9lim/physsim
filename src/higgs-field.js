@@ -25,16 +25,14 @@ export default class HiggsField extends ScalarField {
         super.reset(1); // VEV = 1
     }
 
-    /** Add Mexican hat potential energy to _energyDensity: V(φ) = μ²/4·(φ²−1)². */
-    _addPotentialEnergy() {
-        const rho = this._energyDensity;
-        const field = this.field;
+    /** C15: Fused energy density with Mexican hat potential V(φ) = μ²/4·(φ²−1)² in one loop. */
+    _computeEnergyDensity(domainW, domainH) {
         const muSq = 0.5 * this.mass * this.mass;
         const vacOffset = 0.25 * muSq;
-        for (let i = 0; i < this._gridSq; i++) {
-            const phi = field[i];
-            rho[i] += muSq * (-0.5 * phi * phi + 0.25 * phi * phi * phi * phi) + vacOffset;
-        }
+        super._computeEnergyDensity(domainW, domainH, phi => {
+            const phiSq = phi * phi;
+            return muSq * (-0.5 * phiSq + 0.25 * phiSq * phiSq) + vacOffset;
+        });
     }
 
     /** Evolve field one timestep using Störmer-Verlet (kick-drift-kick, O(dt²)). */
