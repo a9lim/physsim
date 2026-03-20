@@ -8,7 +8,7 @@
  * dark mode uses additive blending ('lighter' equivalent, matching CPU Canvas 2D).
  * On theme change setTheme() swaps _pipeline / _photonPipeline / _pionPipeline.
  */
-import { fetchShader, createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTorqueRenderPipeline, createRingRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
+import { fetchShader, getSharedPrefix, createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTorqueRenderPipeline, createRingRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
 import { TRAIL_LEN } from './gpu-buffers.js';
 import { buildWGSLConstants, paletteRGB } from './gpu-constants.js';
 import { HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA, GPU_MAX_PHOTONS, GPU_MAX_PIONS } from '../config.js';
@@ -130,6 +130,10 @@ export default class GPURenderer {
         this._arrowPipeline = null;
         this._arrowBindGroup = null;
         this._arrowUniformBuffer = null;
+        // Per-type pre-allocated uniform buffers + bind groups for batched draws (G4).
+        // 13 slots: types 0-10 (force components), 11 (total force), 12 (velocity).
+        this._arrowUniformBufs = null;   // Array<GPUBuffer>[13]
+        this._arrowBindGroups = null;    // Array<GPUBindGroup>[13]
         this._arrowReady = false;
 
         // Spin ring rendering (arc + arrowhead pipelines)
@@ -143,12 +147,20 @@ export default class GPURenderer {
         this._torqueArrowPipeline = null;
         this._torqueBindGroup = null;
         this._torqueUniformBuffer = null;
+        // Per-type pre-allocated uniform buffers + bind groups for batched draws (G4).
+        // 5 slots: types 0-3 (torque components), 11 (total torque).
+        this._torqueUniformBufs = null;  // Array<GPUBuffer>[5]
+        this._torqueBindGroups = null;   // Array<GPUBindGroup>[5]
         this._torqueReady = false;
 
         // Ring rendering (ergosphere + antimatter dashed circles)
         this._ringPipeline = null;
         this._ringBindGroup = null;
         this._ringUniformBuffer = null;
+        // Per-type ring uniform buffers + bind groups for batched draws (G4).
+        // Slot 0: ergosphere, slot 1: antimatter.
+        this._ringUniformBufs = null;   // Array<GPUBuffer>[2]
+        this._ringBindGroups = null;    // Array<GPUBindGroup>[2]
         this._ringReady = false;
 
         // Trail rendering
@@ -258,9 +270,16 @@ export default class GPURenderer {
     async _initBosonRendering() {
         let lightResult, darkResult;
         try {
+            // Fetch shader + create module once; share it between the light and dark pipeline pairs
+            // to avoid a redundant network fetch and GPU shader compilation.
+            const wgslConstants = this._wgslConstants || '';
+            const prefix = await getSharedPrefix(wgslConstants);
+            const bosonCode = await fetchShader('boson-render.wgsl', prefix);
+            const bosonModule = this.device.createShaderModule({ label: 'bosonRender', code: bosonCode });
+
             [lightResult, darkResult] = await Promise.all([
-                createBosonRenderPipelines(this.device, this.format, true, this._wgslConstants || ''),
-                createBosonRenderPipelines(this.device, this.format, false, this._wgslConstants || ''),
+                createBosonRenderPipelines(this.device, this.format, true,  wgslConstants, bosonModule),
+                createBosonRenderPipelines(this.device, this.format, false, wgslConstants, bosonModule),
             ]);
         } catch (e) {
             console.warn('[physsim] Boson render pipeline creation failed, skipping:', e.message);
@@ -337,28 +356,39 @@ export default class GPURenderer {
                 await createArrowRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
             this._arrowPipeline = pipeline;
 
-            // ArrowUniforms: forceType(u32) + colorR/G/B(f32) + arrowScale(f32) + minMag(f32) + pad0 + pad1 = 32 bytes
-            if (!this._arrowUniformBuffer) {
-                this._arrowUniformBuffer = this.device.createBuffer({
-                    label: 'arrowUniforms',
-                    size: 32,
+            const b = this.buffers;
+
+            // Pre-allocate per-type uniform buffers + bind groups (G4 batching).
+            // 13 slots: types 0-10 (force components), 11 (total force), 12 (velocity).
+            // This allows all arrow types to be drawn in one encoder with one submit.
+            const ARROW_SLOT_COUNT = 13;
+            this._arrowUniformBufs = [];
+            this._arrowBindGroups = [];
+            for (let i = 0; i < ARROW_SLOT_COUNT; i++) {
+                const buf = this.device.createBuffer({
+                    label: `arrowUniforms_${i}`,
+                    size: 32, // ArrowUniforms: forceType(u32) + colorR/G/B + arrowScale + minMag + pad*2 = 32B
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                 });
+                this._arrowUniformBufs.push(buf);
+                this._arrowBindGroups.push(this.device.createBindGroup({
+                    label: `arrowRender_${i}`,
+                    layout: bindGroupLayout,
+                    entries: [
+                        { binding: 0, resource: { buffer: this.cameraBuffer } },
+                        { binding: 1, resource: { buffer: buf } },
+                        { binding: 2, resource: { buffer: b.particleState } },
+                        { binding: 3, resource: { buffer: b.particleAux } },
+                        { binding: 4, resource: { buffer: b.allForces } },
+                        { binding: 5, resource: { buffer: b.derived } },
+                    ],
+                }));
             }
 
-            const b = this.buffers;
-            this._arrowBindGroup = this.device.createBindGroup({
-                label: 'arrowRender',
-                layout: bindGroupLayout,
-                entries: [
-                    { binding: 0, resource: { buffer: this.cameraBuffer } },
-                    { binding: 1, resource: { buffer: this._arrowUniformBuffer } },
-                    { binding: 2, resource: { buffer: b.particleState } },
-                    { binding: 3, resource: { buffer: b.particleAux } },
-                    { binding: 4, resource: { buffer: b.allForces } },
-                    { binding: 5, resource: { buffer: b.derived } },
-                ],
-            });
+            // Keep legacy single buffer/bindGroup for backward compat with _submitArrowDraw
+            // (now unused in the batched path, but retained in case of fallback).
+            this._arrowUniformBuffer = this._arrowUniformBufs[0];
+            this._arrowBindGroup = this._arrowBindGroups[0];
 
             this._arrowReady = true;
         } catch (e) {
@@ -399,26 +429,37 @@ export default class GPURenderer {
             this._torqueArcPipeline = arcPipeline;
             this._torqueArrowPipeline = arrowPipeline;
 
-            if (!this._torqueUniformBuffer) {
-                this._torqueUniformBuffer = this.device.createBuffer({
-                    label: 'torqueUniforms',
+            const b = this.buffers;
+
+            // Pre-allocate per-type uniform buffers + bind groups (G4 batching).
+            // 5 slots: types 0-3 (torque components), slot 4 used for type 11 (total torque).
+            const TORQUE_SLOT_COUNT = 5;
+            this._torqueUniformBufs = [];
+            this._torqueBindGroups = [];
+            for (let i = 0; i < TORQUE_SLOT_COUNT; i++) {
+                const buf = this.device.createBuffer({
+                    label: `torqueUniforms_${i}`,
                     size: 32,
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                 });
+                this._torqueUniformBufs.push(buf);
+                this._torqueBindGroups.push(this.device.createBindGroup({
+                    label: `torqueRender_${i}`,
+                    layout: bindGroupLayout,
+                    entries: [
+                        { binding: 0, resource: { buffer: this.cameraBuffer } },
+                        { binding: 1, resource: { buffer: buf } },
+                        { binding: 2, resource: { buffer: b.particleState } },
+                        { binding: 3, resource: { buffer: b.particleAux } },
+                        { binding: 4, resource: { buffer: b.allForces } },
+                    ],
+                }));
             }
 
-            const b = this.buffers;
-            this._torqueBindGroup = this.device.createBindGroup({
-                label: 'torqueRender',
-                layout: bindGroupLayout,
-                entries: [
-                    { binding: 0, resource: { buffer: this.cameraBuffer } },
-                    { binding: 1, resource: { buffer: this._torqueUniformBuffer } },
-                    { binding: 2, resource: { buffer: b.particleState } },
-                    { binding: 3, resource: { buffer: b.particleAux } },
-                    { binding: 4, resource: { buffer: b.allForces } },
-                ],
-            });
+            // Keep legacy single buffer/bindGroup for backward compat.
+            this._torqueUniformBuffer = this._torqueUniformBufs[0];
+            this._torqueBindGroup = this._torqueBindGroups[0];
+
             this._torqueReady = true;
         } catch (e) {
             console.warn('[physsim] Torque render pipeline creation failed, skipping:', e.message);
@@ -432,26 +473,37 @@ export default class GPURenderer {
                 await createRingRenderPipeline(this.device, this.format, this.isLight, this._wgslConstants || '');
             this._ringPipeline = pipeline;
 
-            if (!this._ringUniformBuffer) {
-                this._ringUniformBuffer = this.device.createBuffer({
-                    label: 'ringUniforms',
+            const b = this.buffers;
+
+            // Pre-allocate per-type ring uniform buffers + bind groups (G4 batching).
+            // Slot 0: ergosphere, slot 1: antimatter.
+            const RING_SLOT_COUNT = 2;
+            this._ringUniformBufs = [];
+            this._ringBindGroups = [];
+            for (let i = 0; i < RING_SLOT_COUNT; i++) {
+                const buf = this.device.createBuffer({
+                    label: `ringUniforms_${i}`,
                     size: 32, // RingParams struct
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                 });
+                this._ringUniformBufs.push(buf);
+                this._ringBindGroups.push(this.device.createBindGroup({
+                    label: `ringRender_${i}`,
+                    layout: bindGroupLayout,
+                    entries: [
+                        { binding: 0, resource: { buffer: this.cameraBuffer } },
+                        { binding: 1, resource: { buffer: b.particleState } },
+                        { binding: 2, resource: { buffer: b.particleAux } },
+                        { binding: 3, resource: { buffer: b.derived } },
+                        { binding: 4, resource: { buffer: buf } },
+                    ],
+                }));
             }
 
-            const b = this.buffers;
-            this._ringBindGroup = this.device.createBindGroup({
-                label: 'ringRender',
-                layout: bindGroupLayout,
-                entries: [
-                    { binding: 0, resource: { buffer: this.cameraBuffer } },
-                    { binding: 1, resource: { buffer: b.particleState } },
-                    { binding: 2, resource: { buffer: b.particleAux } },
-                    { binding: 3, resource: { buffer: b.derived } },
-                    { binding: 4, resource: { buffer: this._ringUniformBuffer } },
-                ],
-            });
+            // Keep legacy single buffer/bindGroup for backward compat.
+            this._ringUniformBuffer = this._ringUniformBufs[0];
+            this._ringBindGroup = this._ringBindGroups[0];
+
             this._ringReady = true;
         } catch (e) {
             console.warn('[physsim] Ring render pipeline creation failed, skipping:', e.message);
@@ -703,10 +755,14 @@ export default class GPURenderer {
         }
 
         // Pass 3c: Dashed ring overlays (ergosphere + antimatter)
-        // Each ring type needs its own writeBuffer + submit (different uniform data).
+        // Both ring types are batched into ONE encoder + ONE submit using per-slot
+        // uniform buffers (slot 0 = ergosphere, slot 1 = antimatter).
         if (this._ringReady && aliveCount > 0) {
             try {
                 const bhEnabled = opts.blackHoleEnabled || false;
+
+                // Collect active ring draws; each writes its own uniform buffer before the encoder.
+                const ringDrawSlots = [];
 
                 // Ergosphere rings (only when BH mode active)
                 if (bhEnabled) {
@@ -717,55 +773,46 @@ export default class GPURenderer {
                     _ringF32[5] = 0.3;  // gapLen
                     _ringF32[6] = 0.075; // halfWidth (CPU lineWidth 0.15 / 2)
                     _ringU32[7] = 0;    // ringType = ergosphere
-                    this.device.queue.writeBuffer(this._ringUniformBuffer, 0, _ringData);
-
-                    const ergoEncoder = this.device.createCommandEncoder({ label: 'ergo-ring' });
-                    const ergoPass = ergoEncoder.beginRenderPass({
-                        label: 'ergosphere ring',
-                        colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
-                    });
-                    ergoPass.setPipeline(this._ringPipeline);
-                    ergoPass.setBindGroup(0, this._ringBindGroup);
-                    ergoPass.draw(130, aliveCount); // (RING_SEGMENTS + 1) * 2 to close strip
-                    ergoPass.end();
-                    this.device.queue.submit([ergoEncoder.finish()]);
+                    this.device.queue.writeBuffer(this._ringUniformBufs[0], 0, _ringData);
+                    ringDrawSlots.push(0);
                 }
 
-                // Antimatter rings (always, when antimatter particles exist)
-                // TODO: skip when no antimatter particles — currently submits 5 WebGPU
-                // API calls per frame even with zero antimatter. Would need an
-                // antimatter count tracked across addParticle/removeParticle.
+                // Antimatter rings (always — shader skips non-antimatter particles)
+                // TODO: skip when no antimatter particles — currently submits even with zero antimatter.
                 {
                     const [ar, ag, ab] = this.isLight ? [0.533, 0.533, 0.533] : [0.8, 0.8, 0.8];
-                    const aa = 1.0;
-                    _ringF32[0] = ar; _ringF32[1] = ag; _ringF32[2] = ab; _ringF32[3] = aa;
+                    _ringF32[0] = ar; _ringF32[1] = ag; _ringF32[2] = ab; _ringF32[3] = 1.0;
                     _ringF32[4] = 0.5;   // dashLen
                     _ringF32[5] = 0.3;   // gapLen
                     _ringF32[6] = 0.125; // halfWidth (CPU lineWidth 0.25 / 2)
                     _ringU32[7] = 1;     // ringType = antimatter
-                    this.device.queue.writeBuffer(this._ringUniformBuffer, 0, _ringData);
+                    this.device.queue.writeBuffer(this._ringUniformBufs[1], 0, _ringData);
+                    ringDrawSlots.push(1);
+                }
 
-                    const antiEncoder = this.device.createCommandEncoder({ label: 'anti-ring' });
-                    const antiPass = antiEncoder.beginRenderPass({
-                        label: 'antimatter ring',
+                // One encoder, one render pass per ring type, one submit
+                const ringEnc = this.device.createCommandEncoder({ label: 'rings-batch' });
+                for (const slot of ringDrawSlots) {
+                    const ringPass = ringEnc.beginRenderPass({
+                        label: `ring-slot-${slot}`,
                         colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
                     });
-                    antiPass.setPipeline(this._ringPipeline);
-                    antiPass.setBindGroup(0, this._ringBindGroup);
-                    antiPass.draw(130, aliveCount); // (RING_SEGMENTS + 1) * 2 to close strip
-                    antiPass.end();
-                    this.device.queue.submit([antiEncoder.finish()]);
+                    ringPass.setPipeline(this._ringPipeline);
+                    ringPass.setBindGroup(0, this._ringBindGroups[slot]);
+                    ringPass.draw(130, aliveCount); // (RING_SEGMENTS + 1) * 2 to close strip
+                    ringPass.end();
                 }
+                this.device.queue.submit([ringEnc.finish()]);
             } catch (e) {
                 console.warn('[physsim] Ring render failed, disabling:', e.message);
                 this._ringReady = false;
             }
         }
 
-        // Pass 4: Force/velocity arrows — one submit per arrow type.
-        // Each arrow type needs its own writeBuffer + submit to ensure the uniform
-        // data is correct for that draw call (writeBuffer inside a single render pass
-        // would cause all draws to use the last-written uniform).
+        // Pass 4: Force/velocity arrows — batched into ONE encoder + ONE submit.
+        // Each arrow type uses its own pre-allocated uniform buffer (slot = draw index)
+        // so all writeBuffers execute before the encoder, yet each render pass reads
+        // from its own buffer. Reduces up to 12 submits down to 1.
         const wantsArrows = this._arrowReady && aliveCount > 0 &&
             (this.showForce || this.showForceComponents || this.showVelocity);
         if (wantsArrows) {
@@ -774,35 +821,66 @@ export default class GPURenderer {
                 const zoom = this.zoom || 16;
                 const invZoom = 1 / zoom;
                 const arrowScale = 256.0;
-                // Threshold on scaled length (F/m * arrowScale), matching CPU minLen
                 const minMag = 0.5 * invZoom;
 
+                // Build list of (slot, forceType, color, scale, minMag) draws
+                const arrowDraws = [];
                 if (this.showForceComponents) {
-                    const forceTypes = [];
-                    if (enabledForces.gravity) forceTypes.push(0);
-                    if (enabledForces.coulomb) forceTypes.push(1);
-                    if (enabledForces.magnetic) forceTypes.push(2);
-                    if (enabledForces.gravitomag) forceTypes.push(3);
-                    if (enabledForces.onePN) forceTypes.push(4);
-                    if (enabledForces.spinOrbit) forceTypes.push(5);
-                    if (enabledForces.radiation) forceTypes.push(6);
-                    if (enabledForces.yukawa) forceTypes.push(7);
-                    if (enabledForces.external) forceTypes.push(8);
-                    if (enabledForces.higgs) forceTypes.push(9);
-                    if (enabledForces.axion) forceTypes.push(10);
-                    for (const ft of forceTypes) {
-                        const color = GPURenderer.FORCE_COLORS[ft] || [1, 1, 1];
-                        this._submitArrowDraw(textureView, aliveCount, ft, color, arrowScale, minMag);
+                    const pairs = [
+                        [0, enabledForces.gravity],
+                        [1, enabledForces.coulomb],
+                        [2, enabledForces.magnetic],
+                        [3, enabledForces.gravitomag],
+                        [4, enabledForces.onePN],
+                        [5, enabledForces.spinOrbit],
+                        [6, enabledForces.radiation],
+                        [7, enabledForces.yukawa],
+                        [8, enabledForces.external],
+                        [9, enabledForces.higgs],
+                        [10, enabledForces.axion],
+                    ];
+                    for (const [ft, enabled] of pairs) {
+                        if (enabled) {
+                            arrowDraws.push({ slot: arrowDraws.length, ft, color: GPURenderer.FORCE_COLORS[ft] || [1, 1, 1], scale: arrowScale, minMag });
+                        }
                     }
                 } else if (this.showForce) {
                     const accentColor = this.isLight ? _accentLight : _accentDark;
-                    this._submitArrowDraw(textureView, aliveCount, 11, accentColor, arrowScale, minMag);
+                    arrowDraws.push({ slot: 0, ft: 11, color: accentColor, scale: arrowScale, minMag });
                 }
-
                 if (this.showVelocity) {
                     const textColor = this.isLight ? _textLight : _textDark;
-                    // Velocity uses minMag = 1 * invZoom (matching CPU), not force threshold
-                    this._submitArrowDraw(textureView, aliveCount, 12, textColor, 1.0, 1.0 * invZoom);
+                    arrowDraws.push({ slot: arrowDraws.length, ft: 12, color: textColor, scale: 1.0, minMag: 1.0 * invZoom });
+                }
+
+                if (arrowDraws.length > 0) {
+                    // Write all uniform buffers up front (queue-level, before encoder starts)
+                    for (const { slot, ft, color, scale, minMag: mm } of arrowDraws) {
+                        const buf = this._arrowUniformBufs[slot];
+                        // Re-use the pre-allocated _arrowData ArrayBuffer for temp staging
+                        _arrowU32[0] = ft;
+                        _arrowF32[1] = color[0];
+                        _arrowF32[2] = color[1];
+                        _arrowF32[3] = color[2];
+                        _arrowF32[4] = scale;
+                        _arrowF32[5] = mm;
+                        _arrowF32[6] = 0;
+                        _arrowF32[7] = 0;
+                        this.device.queue.writeBuffer(buf, 0, _arrowData);
+                    }
+                    // One encoder, one render pass per draw type, one submit
+                    const arrowEnc = this.device.createCommandEncoder({ label: 'arrows-batch' });
+                    for (const { slot } of arrowDraws) {
+                        const pass = arrowEnc.beginRenderPass({
+                            label: `arrow-slot-${slot}`,
+                            colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
+                        });
+                        pass.setPipeline(this._arrowPipeline);
+                        pass.setBindGroup(0, this._arrowBindGroups[slot]);
+                        pass.draw(9, aliveCount);
+                        pass.end();
+                    }
+                    this.device.queue.submit([arrowEnc.finish()]);
                 }
             } catch (e) {
                 console.warn('[physsim] Arrow render failed, disabling:', e.message);
@@ -810,31 +888,70 @@ export default class GPURenderer {
             }
         }
 
-        // Pass 5: Torque arcs — one arc + arrowhead submit per torque type.
+        // Pass 5: Torque arcs — batched into ONE encoder + ONE submit.
+        // Each torque type uses its own pre-allocated uniform buffer. Arc + arrowhead
+        // for all types share the same encoder; reduces up to 8 submits to 1.
         const wantsTorques = this._torqueReady && aliveCount > 0 &&
             (this.showForce || this.showForceComponents);
         if (wantsTorques) {
             try {
                 const torqueScale = 640.0; // FORCE_VECTOR_SCALE / INERTIA_K = 256 / 0.4
+                const enabledForces = opts.enabledForces || {};
+
+                // Build list of (slot, torqueType, color) draws
+                const torqueDraws = [];
                 if (this.showForceComponents) {
-                    const enabledForces = opts.enabledForces || {};
-                    // spinOrbit torque: type 0, purple
-                    if (enabledForces.spinOrbit) {
-                        this._submitTorqueDraw(textureView, aliveCount, 0, GPURenderer.TORQUE_COLORS[0], torqueScale);
-                    }
-                    // frameDrag torque: type 1, rose (requires gravitomag)
-                    if (enabledForces.gravitomag) {
-                        this._submitTorqueDraw(textureView, aliveCount, 1, GPURenderer.TORQUE_COLORS[1], torqueScale);
-                    }
-                    // tidal torque: type 2, red (requires gravity)
-                    if (enabledForces.gravity) {
-                        this._submitTorqueDraw(textureView, aliveCount, 2, GPURenderer.TORQUE_COLORS[2], torqueScale);
-                    }
-                    // contact torque: type 3, brown (always active with bounce)
-                    this._submitTorqueDraw(textureView, aliveCount, 3, GPURenderer.TORQUE_COLORS[3], torqueScale);
+                    // spinOrbit: type 0, slot 0, purple
+                    if (enabledForces.spinOrbit) torqueDraws.push({ slot: 0, type: 0, color: GPURenderer.TORQUE_COLORS[0] });
+                    // frameDrag: type 1, slot 1, rose
+                    if (enabledForces.gravitomag) torqueDraws.push({ slot: 1, type: 1, color: GPURenderer.TORQUE_COLORS[1] });
+                    // tidal: type 2, slot 2, red
+                    if (enabledForces.gravity) torqueDraws.push({ slot: 2, type: 2, color: GPURenderer.TORQUE_COLORS[2] });
+                    // contact: type 3, slot 3, brown (always active with bounce)
+                    torqueDraws.push({ slot: 3, type: 3, color: GPURenderer.TORQUE_COLORS[3] });
                 } else if (this.showForce) {
                     const accentColor = this.isLight ? _accentLight : _accentDark;
-                    this._submitTorqueDraw(textureView, aliveCount, 11, accentColor, torqueScale);
+                    torqueDraws.push({ slot: 4, type: 11, color: accentColor });
+                }
+
+                if (torqueDraws.length > 0) {
+                    // Write all uniform buffers up front
+                    for (const { slot, type, color } of torqueDraws) {
+                        const buf = this._torqueUniformBufs[slot];
+                        _torqueU32[0] = type;
+                        _torqueF32[1] = color[0];
+                        _torqueF32[2] = color[1];
+                        _torqueF32[3] = color[2];
+                        _torqueF32[4] = torqueScale;
+                        _torqueF32[5] = 0;
+                        _torqueF32[6] = 0;
+                        _torqueF32[7] = 0;
+                        this.device.queue.writeBuffer(buf, 0, _torqueData);
+                    }
+                    // One encoder: arc + arrowhead per type, one submit
+                    const torqueEnc = this.device.createCommandEncoder({ label: 'torques-batch' });
+                    for (const { slot } of torqueDraws) {
+                        const bg = this._torqueBindGroups[slot];
+                        // Arc ribbon (triangle-strip, ARC_SEGMENTS * 2 = 64 vertices)
+                        const arcPass = torqueEnc.beginRenderPass({
+                            label: `torque-arc-${slot}`,
+                            colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
+                        });
+                        arcPass.setPipeline(this._torqueArcPipeline);
+                        arcPass.setBindGroup(0, bg);
+                        arcPass.draw(64, aliveCount);
+                        arcPass.end();
+                        // Arrowhead (triangle-list, 3 vertices)
+                        const arrPass = torqueEnc.beginRenderPass({
+                            label: `torque-arrow-${slot}`,
+                            colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
+                        });
+                        arrPass.setPipeline(this._torqueArrowPipeline);
+                        arrPass.setBindGroup(0, bg);
+                        arrPass.draw(3, aliveCount);
+                        arrPass.end();
+                    }
+                    this.device.queue.submit([torqueEnc.finish()]);
                 }
             } catch (e) {
                 console.warn('[physsim] Torque render failed, disabling:', e.message);
