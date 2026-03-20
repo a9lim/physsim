@@ -16,7 +16,7 @@ export default class InputHandler {
         this.chargeInput = document.getElementById('chargeInput');
         this.spinInput = document.getElementById('spinInput');
 
-        this.tooltip = document.getElementById('particle-tooltip');
+        this.tooltip = createSimTooltip();
         this.hoveredParticle = null;
         this._screenX = 0;
         this._screenY = 0;
@@ -239,18 +239,16 @@ export default class InputHandler {
                     this.sim._gpuPhysics.hitTest(this.currentPos.x, this.currentPos.y);
                     // Tooltip updated when poll returns result — hide stale tooltip
                     this.hoveredParticle = null;
-                    this.tooltip.hidden = true;
+                    this.tooltip.hide();
                 } else {
                     const hit = this._cpuFindParticleAt(this.currentPos);
                     this.hoveredParticle = hit;
                     if (hit) {
                         const speed = Math.sqrt(hit.vel.x * hit.vel.x + hit.vel.y * hit.vel.y);
                         const spin = (hit.angVel * hit.radius).toFixed(3);
-                        this.tooltip.textContent = `m=${hit.mass.toFixed(2)}  q=${hit.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
-                        this.tooltip.style.transform = `translate(${ev.clientX + 14}px,${ev.clientY - 10}px)`;
-                        this.tooltip.hidden = false;
+                        this.tooltip.show(ev.clientX, ev.clientY, `m=${hit.mass.toFixed(2)}  q=${hit.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`);
                     } else {
-                        this.tooltip.hidden = true;
+                        this.tooltip.hide();
                     }
                 }
             });
@@ -328,7 +326,7 @@ export default class InputHandler {
      * Call periodically from the main loop (e.g. every 8th frame via STATS_THROTTLE_MASK).
      */
     refreshTooltip() {
-        if (this.tooltip.hidden) return;
+        if (!this.tooltip.el.classList.contains('visible')) return;
         if (this.sim.backend === BACKEND_GPU && this.sim._gpuReady) {
             // Re-dispatch hit test at the current world position for fresh data
             this.sim._gpuPhysics.hitTest(this.currentPos.x, this.currentPos.y);
@@ -336,7 +334,7 @@ export default class InputHandler {
             const hit = this.hoveredParticle;
             const speed = Math.sqrt(hit.vel.x * hit.vel.x + hit.vel.y * hit.vel.y);
             const spin = (hit.angVel * hit.radius).toFixed(3);
-            this.tooltip.textContent = `m=${hit.mass.toFixed(2)}  q=${hit.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
+            this.tooltip.el.textContent = `m=${hit.mass.toFixed(2)}  q=${hit.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
         }
     }
 
@@ -370,9 +368,7 @@ export default class InputHandler {
                 this.hoveredParticle = match || null;
                 const speed = Math.sqrt(result.velX * result.velX + result.velY * result.velY);
                 const spin = (result.angVel * result.radius).toFixed(3);
-                this.tooltip.textContent = `m=${result.mass.toFixed(2)}  q=${result.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`;
-                this.tooltip.style.transform = `translate(${this._screenX + 14}px,${this._screenY - 10}px)`;
-                this.tooltip.hidden = false;
+                this.tooltip.show(this._screenX, this._screenY, `m=${result.mass.toFixed(2)}  q=${result.charge.toFixed(2)}  s=${spin}c  v=${speed.toFixed(3)}c`);
             }
         } else {
             // GPU returned -1: no particle at click position
@@ -381,7 +377,7 @@ export default class InputHandler {
                 this.spawnParticle(pending.pos, pending.rightButton && !this.sim.physics.blackHoleEnabled);
             } else {
                 this.hoveredParticle = null;
-                this.tooltip.hidden = true;
+                this.tooltip.hide();
             }
         }
     }

@@ -151,22 +151,8 @@ body {
 #frictionInput::-moz-range-thumb     { background: var(--ext-brown); }
 
 /* ═══════════════════════════════════════════════
-   Particle Tooltip & Selection
+   Particle Selection
    ═══════════════════════════════════════════════ */
-.particle-tooltip {
-    position: fixed;
-    z-index: 200;
-    padding: 6px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-panel-solid);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-sm);
-    font: 500 0.72rem var(--font-mono);
-    color: var(--text);
-    pointer-events: none;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-}
 
 #selected-particle-section .stat-value {
     color: var(--accent);
