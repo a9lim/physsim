@@ -1,12 +1,27 @@
 # Geon
 
-A relativistic N-body simulation exploring how gravity, electromagnetism, scalar fields, and spin shape particle dynamics in 2D. Particles have mass, charge, and angular momentum; forces propagate at finite speed; scalar fields live on dynamical grids; matter and antimatter obey different symmetries.
+A relativistic N-body simulation exploring how gravity, electromagnetism, scalar fields, and spin shape particle dynamics in 2D. Eleven distinct force types, two dynamical scalar fields, massive force carriers, and a full WebGPU compute backend -- all in 29,100 lines of zero-dependency vanilla JavaScript.
 
 **[Live Demo](https://a9l.im/physsim)** | Part of the [a9l.im](https://a9l.im) portfolio
 
+## Highlights
+
+- **11 force types** -- Newtonian gravity, Coulomb, magnetic dipole, Lorentz, gravitomagnetic, frame-dragging, tidal locking, Yukawa (screened nuclear), spin-orbit, external fields, and scalar field gradients
+- **4 relativistic corrections** -- Einstein-Infeld-Hoffmann, Darwin EM, Bazanski cross-term, and scalar Breit, all velocity-Verlet corrected
+- **Signal delay** -- forces propagate at the speed of light via a three-phase light-cone solver (Newton-Raphson segment search, exact quadratic solve, constant-velocity extrapolation) on per-particle circular history buffers
+- **Higgs field** -- Mexican hat potential with spontaneous symmetry breaking, mass generation (`m_eff = baseMass * |phi|`), and electroweak-like phase transitions
+- **Axion field** -- quadratic potential with scalar EM coupling (position-dependent fine structure constant) and Peccei-Quinn CP violation that flips sign for antimatter
+- **Pion force carriers** -- massive bosons emitted via scalar Larmor radiation, with species (pi0/pi+/pi-), Lorentz-boosted decay kinematics, GR deflection, and Coulomb interaction
+- **Black holes** -- Kerr-Newman horizons, ergosphere visualization, Hawking radiation with evaporation, and pair production from energetic photons
+- **4 radiation channels** -- Larmor dipole, EM quadrupole, gravitational wave quadrupole, and pion emission
+- **3 non-trivial topologies** -- torus, Klein bottle, and real projective plane with topology-aware minimum image
+- **WebGPU compute backend** -- 52 WGSL shaders (10,120 lines) with Barnes-Hut tree build, instanced rendering, and automatic CPU fallback
+- **Boris integrator** -- exact energy-conserving magnetic rotation with adaptive substepping (up to 32 substeps per tick)
+- **Barnes-Hut O(N log N)** -- pool-based structure-of-arrays quadtree with zero per-frame allocation
+
 ## What It Simulates
 
-Everything runs in natural units (c = 1, G = 1, h = 1). Particles store proper velocity **w** = yv as their state variable, so the speed of light is enforced automatically: coordinate velocity **v** = **w** / sqrt(1 + w^2) always satisfies |v| < c. The same trick applies to spin.
+Everything runs in natural units (c = 1, G = 1, h = 1). Particles store proper velocity **w** = gamma * v as their state variable, so the speed of light is enforced automatically: coordinate velocity **v** = **w** / sqrt(1 + w^2) always satisfies |v| < c. The same trick applies to spin.
 
 ### Forces
 
@@ -29,27 +44,19 @@ Everything runs in natural units (c = 1, G = 1, h = 1). Particles store proper v
 
 ### Scalar Fields
 
-Two dynamical scalar fields live on 64x64 grids, sharing a common PQS (cubic B-spline) infrastructure for C^2-smooth interpolation and gradients. Both support topology-aware boundary conditions, receive energy from merge collisions as propagating wave packets, and gravitate particles and each other via weak-field GR corrections.
+Two dynamical scalar fields live on 64x64 grids (128x128 on GPU), sharing a common PQS (cubic B-spline) infrastructure for C^2-smooth interpolation and gradients. Both support topology-aware boundary conditions, receive energy from merge collisions as propagating wave packets, and gravitate particles and each other via weak-field GR corrections.
 
-- **Higgs field** -- Mexican hat potential V(f) = -1/2 u^2 f^2 + 1/4 l f^4. The field spontaneously breaks symmetry to VEV = 1. Particles acquire effective mass m_eff = baseMass * |f(x)|. At VEV, particles have full mass; when kinetic energy drives the field to zero, particles become effectively massless -- a classical analog of the **electroweak phase transition**. Merge collisions excite oscillations around the VEV (**Higgs bosons**).
+- **Higgs field** -- Mexican hat potential V(f) = -1/2 u^2 f^2 + 1/4 l f^4. The field spontaneously breaks symmetry to VEV = 1. Particles acquire effective mass m_eff = baseMass * |f(x)|. At VEV, particles have full mass; when kinetic energy drives the field to zero, particles become effectively massless -- a classical analog of the **electroweak phase transition**. Merge collisions excite oscillations around the VEV (**Higgs bosons**). Portal coupling to the axion field.
 
-- **Axion field** -- Quadratic potential V(a) = 1/2 m_a^2 a^2 with vacuum at a = 0. Two coupling channels:
-
-  - **Scalar EM (aF^2)** -- active when Coulomb is on. Makes the fine structure constant position-dependent: a_eff(x) = a(1 + g*a(x)). Charged particles source the field proportional to q^2 and feel gradient forces.
-
-  - **Peccei-Quinn (aGG analog)** -- active when Yukawa is on. A pseudoscalar coupling that **flips sign for antimatter**, implementing the PQ mechanism for CP violation. At vacuum a = 0, matter and antimatter interact identically -- **CP is conserved**.
-
-  Merge collisions excite oscillations around a = 0 (**axion particles**).
+- **Axion field** -- Quadratic potential V(a) = 1/2 m_a^2 a^2 with vacuum at a = 0. Scalar EM coupling (aF^2) makes the fine structure constant position-dependent. Peccei-Quinn coupling flips sign for antimatter, implementing CP violation that vanishes at vacuum. Portal coupling to the Higgs field.
 
 ### Radiation and Force Carriers
 
-- **Larmor radiation** -- Landau-Lifshitz force with analytical jerk from gravity + Coulomb + Yukawa, numerical backward-difference for residuals. Dipole photon emission with relativistic aberration.
+- **Larmor radiation** -- Landau-Lifshitz force with analytical jerk from gravity + Coulomb + Yukawa, numerical backward-difference for residuals.
 - **EM quadrupole** -- d^3 Q_ij/dt^3 formula with TT-projected angular emission via rejection sampling.
-- **GW quadrupole** -- Trace-free mass quadrupole d^3 I^TF_ij/dt^3 with COM-relative coordinates. Gravitons rendered red.
-- **Pion emission (scalar Larmor)** -- Yukawa interactions radiate massive pions with P = g^2 m^2 a^2/3 (spin-0 angular factor 1/3 vs 2/3 for spin-1 EM). Pions travel at v < c, experience gravitational deflection with factor (1 + v^2), and **decay**: pi0 -> 2y (Lorentz-boosted), pi+ -> e+ + y, pi- -> e- + y (two-body kinematics in rest frame).
-- **Photon & pion absorption** -- Quadtree overlap query transfers momentum (and charge for pi+/-) to absorbing particles. Self-absorption permanently blocked by emitter tracking.
-- **Boson gravity** -- Photons and pions gravitate particles and each other via Barnes-Hut tree walks. GR deflection: 2x for photons (null geodesic), (1+v^2)x for pions (massive).
-- **Field excitations** -- Inelastic merges deposit Gaussian wave packets into active scalar fields, propagated by the Klein-Gordon equation.
+- **GW quadrupole** -- Trace-free mass quadrupole d^3 I^TF_ij/dt^3 with COM-relative coordinates.
+- **Pion emission** -- Scalar Larmor formula P = g^2 F^2/3. Three species (pi0, pi+, pi-) with Lorentz-boosted decay kinematics, GR deflection, Higgs-modulated mass, and pi+pi- annihilation.
+- **Photon/pion lensing** -- gravitational deflection via Barnes-Hut tree walk (2x for null geodesics, (1+v^2) for massive bosons).
 
 ### Additional Physics
 
@@ -58,7 +65,6 @@ Two dynamical scalar fields live on 64x64 grids, sharing a common PQS (cubic B-s
 - **Black hole mode** -- Kerr-Newman horizons r+ = M + sqrt(M^2 - a^2 - Q^2). Ergosphere visualization. Hawking radiation; extremal BHs stop radiating. Sub-threshold BHs evaporate with photon burst.
 - **Cosmological expansion** -- Hubble flow from domain center with peculiar velocity redshift.
 - **Antimatter & pair production** -- Right-click spawns antimatter. Matter-antimatter mergers annihilate with photon emission. Energetic photons near massive bodies produce particle-antiparticle pairs.
-- **External fields** -- Uniform gravitational, electric, and magnetic background fields with configurable strength and direction.
 
 ### Integrator
 
