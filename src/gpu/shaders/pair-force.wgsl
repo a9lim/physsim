@@ -427,8 +427,10 @@ fn main(
         pAxMod = aym.x;
         pYukMod = aym.y;
         pHiggsMod = aym.z;
-        // Hoist ri5 = mass^(5/3) out of inner loop (avoids pow per pair)
-        pRi5 = pow(pMass, 5.0 / 3.0);
+        // G18: Hoist ri5 = mass^(5/3) = bodyRSq^2 * sqrt(bodyRSq) — avoids pow() per pair
+        let pBodyRSq = d.bodyRSq;
+        let pBodyR = sqrt(pBodyRSq);
+        pRi5 = pBodyRSq * pBodyRSq * pBodyR;
     }
 
     // Read toggle bits
@@ -499,7 +501,7 @@ fn main(
             tile[localIdx].axMod = saym.x;
             tile[localIdx].yukMod = saym.y;
             tile[localIdx].higgsMod = saym.z;
-            tile[localIdx].bodyRadSq = pow(sp.mass, 2.0 / 3.0);
+            tile[localIdx].bodyRadSq = derived[tileSrcIdx].bodyRSq; // G20: read precomputed value
             tile[localIdx].srcIdx = tileSrcIdx;
         } else {
             // Mark as invalid (zero mass = no force contribution)

@@ -54,8 +54,10 @@ fn accumulateForce(
     pRi5: f32,
     jerkOut: ptr<function, vec2<f32>>,
     useAberration: bool,
+    // Hoisted toggle booleans (G9: avoids re-reading uniforms.toggles0 per call)
+    gravOn: bool, coulOn: bool, magOn: bool, gmOn: bool,
+    yukOn: bool, onePNOn: bool, higgsOn: bool, radOn: bool, needAxMod: bool,
 ) {
-    let toggles = uniforms.toggles0;
     let softeningSq = uniforms.softeningSq;
 
     // Displacement (with minimum-image for periodic boundaries)
@@ -83,20 +85,18 @@ fn accumulateForce(
     let invR3a = select(invR3, invR3 * aberr, useAberration);
     let invR5a = select(invR5, invR5 * aberr, useAberration);
 
-    let needAxMod = ((toggles & COULOMB_BIT) != 0u || (toggles & MAGNETIC_BIT) != 0u) && (toggles & AXION_BIT) != 0u;
     var axModPair: f32 = 1.0;
     if (needAxMod) {
         axModPair = sqrt(max(pAxMod * sAxMod, 0.0));
     }
 
     // Relative velocity for jerk computation
-    let radOn = (toggles & RADIATION_BIT) != 0u;
     let vrx = svx - pVelX;
     let vry = svy - pVelY;
     let rDotVr = rx * vrx + ry * vry;
 
     // Gravity: +m1*m2/r^2 (attractive)
-    if ((toggles & GRAVITY_BIT) != 0u) {
+    if (gravOn) {
         let k = pMass * sMass;
         let fDir = k * invR3a;
         let fx = rx * fDir;
@@ -118,7 +118,7 @@ fn accumulateForce(
         let wOrbit = crossRV * invRSq;
         let dw = pAngVel - wOrbit;
         var coupling = sMass;
-        if ((toggles & COULOMB_BIT) != 0u && pMass > EPSILON) {
+        if (coulOn && pMass > EPSILON) {
             coupling += pCharge * sCharge / pMass;
         }
         let invR6 = invRSq * invRSq * invRSq;
@@ -126,7 +126,7 @@ fn accumulateForce(
     }
 
     // Coulomb: -q1*q2/r^2 (like repels)
-    if ((toggles & COULOMB_BIT) != 0u) {
+    if (coulOn) {
         let k = -(pCharge * sCharge) * axModPair;
         let fDir = k * invR3a;
         let fx = rx * fDir;
@@ -148,7 +148,7 @@ fn accumulateForce(
     let crossSV = svx * ry - svy * rx;
 
     // Magnetic: dipole-dipole + Bz field
-    if ((toggles & MAGNETIC_BIT) != 0u) {
+    if (magOn) {
         let axMod = axModPair;
         // Dipole-dipole radial: F = -3*mu1*mu2/r^4 (aligned dipoles repel)
         let fDir = -3.0 * (pMagMoment * sMagMoment) * invR5a * axMod;
@@ -182,7 +182,7 @@ fn accumulateForce(
     }
 
     // Gravitomagnetic: dipole + Bgz field
-    if ((toggles & GRAVITOMAG_BIT) != 0u) {
+    if (gmOn) {
         let fDir = 3.0 * (pAngMomentum * sAngMomentum) * invR5a;
         let fx = rx * fDir;
         let fy = ry * fDir;
@@ -218,8 +218,7 @@ fn accumulateForce(
     }
 
     // Yukawa (Higgs-modulated μ when both enabled)
-    if ((toggles & YUKAWA_BIT) != 0u) {
-        let higgsOn = (toggles & HIGGS_BIT) != 0u;
+    if (yukOn) {
         let mu = select(uniforms.yukawaMu, uniforms.yukawaMu * sqrt(pHiggsMod * sHiggsMod), higgsOn);
         let cutoffSq = select((6.0 / uniforms.yukawaMu) * (6.0 / uniforms.yukawaMu), (6.0 / max(mu, EPSILON)) * (6.0 / max(mu, EPSILON)), higgsOn);
         if (rawRSq < cutoffSq) {
@@ -246,7 +245,7 @@ fn accumulateForce(
             }
 
             // Scalar Breit 1PN correction
-            if ((toggles & ONE_PN_BIT) != 0u) {
+            if (onePNOn) {
                 let nx = rx * invR;
                 let ny = ry * invR;
                 let nDotV1 = nx * pVelX + ny * pVelY;
@@ -266,7 +265,7 @@ fn accumulateForce(
     }
 
     // 1PN EIH (gravitomagnetic + 1PN): perihelion precession
-    if ((toggles & ONE_PN_BIT) != 0u && (toggles & GRAVITOMAG_BIT) != 0u) {
+    if (onePNOn && gmOn) {
         let r_val = 1.0 / invR;
         let nx = rx * invR;
         let ny = ry * invR;
@@ -298,7 +297,7 @@ fn accumulateForce(
     }
 
     // 1PN Darwin EM (magnetic + 1PN)
-    if ((toggles & ONE_PN_BIT) != 0u && (toggles & MAGNETIC_BIT) != 0u) {
+    if (onePNOn && magOn) {
         let nx = rx * invR;
         let ny = ry * invR;
         let v2DotN = svx * nx + svy * ny;
@@ -313,7 +312,7 @@ fn accumulateForce(
     }
 
     // 1PN Bazanski (GM + Magnetic + 1PN): mixed gravity+EM
-    if ((toggles & ONE_PN_BIT) != 0u && (toggles & GRAVITOMAG_BIT) != 0u && (toggles & MAGNETIC_BIT) != 0u) {
+    if (onePNOn && gmOn && magOn) {
         let crossCoeff = pCharge * sCharge * (pMass + sMass)
             - (pCharge * pCharge * sMass + sCharge * sCharge * pMass);
         let fDir = crossCoeff * invRSq * invRSq;
@@ -373,6 +372,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let thetaSq = uniforms.bhTheta * uniforms.bhTheta;
     let pid = pAux.particleId;
+
+    // G9: Hoist toggle reads before the tree walk loop (avoids repeated uniform reads per call)
+    let _t0 = uniforms.toggles0;
+    let _gravOn  = (_t0 & GRAVITY_BIT)     != 0u;
+    let _coulOn  = (_t0 & COULOMB_BIT)     != 0u;
+    let _magOn   = (_t0 & MAGNETIC_BIT)    != 0u;
+    let _gmOn    = (_t0 & GRAVITOMAG_BIT)  != 0u;
+    let _yukOn   = (_t0 & YUKAWA_BIT)      != 0u;
+    let _onePNOn = (_t0 & ONE_PN_BIT)      != 0u;
+    let _higgsOn = (_t0 & HIGGS_BIT)       != 0u;
+    let _radOn   = (_t0 & RADIATION_BIT)   != 0u;
+    let _needAxMod = (_coulOn || _magOn) && (_t0 & AXION_BIT) != 0u;
 
     // Local jerk accumulator for radiation analytical jerk
     var localJerk = vec2<f32>(0.0, 0.0);
@@ -465,6 +476,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                     pRi5,
                     &localJerk,
                     true, // useAberration
+                    _gravOn, _coulOn, _magOn, _gmOn, _yukOn, _onePNOn, _higgsOn, _radOn, _needAxMod,
                 );
                 continue;
             }
@@ -498,6 +510,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                     pRi5,
                     &localJerk,
                     true, // useAberration
+                    _gravOn, _coulOn, _magOn, _gmOn, _yukOn, _onePNOn, _higgsOn, _radOn, _needAxMod,
                 );
             } else if (hasSignalDelay && isGhost) {
                 // Ghost leaf: signal delay from original particle's history + periodic shift
@@ -532,6 +545,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                     pRi5,
                     &localJerk,
                     true, // useAberration
+                    _gravOn, _coulOn, _magOn, _gmOn, _yukOn, _onePNOn, _higgsOn, _radOn, _needAxMod,
                 );
             } else {
                 // No signal delay: use current positions
@@ -549,6 +563,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                     pRi5,
                     &localJerk,
                     false, // no aberration
+                    _gravOn, _coulOn, _magOn, _gmOn, _yukOn, _onePNOn, _higgsOn, _radOn, _needAxMod,
                 );
             }
         } else if (!isLeaf && (size * size < thetaSq * dSq)) {
@@ -569,6 +584,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pRi5,
                 &localJerk,
                 false, // no aberration on aggregate nodes — velocities are not retarded
+                _gravOn, _coulOn, _magOn, _gmOn, _yukOn, _onePNOn, _higgsOn, _radOn, _needAxMod,
             );
         } else if (!isLeaf) {
             // Push children (only valid ones; NONE = -1 would become garbage u32)

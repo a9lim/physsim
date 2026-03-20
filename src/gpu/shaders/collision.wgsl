@@ -112,11 +112,16 @@ fn detectCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
                 }
             }
         } else if (!isLeaf) {
+            // G19: Guard child push — only push valid (non-NONE) children
             if (stackTop + 4u <= MAX_STACK) {
-                stack[stackTop] = u32(getNW(nodeIdx)); stackTop += 1u;
-                stack[stackTop] = u32(getNE(nodeIdx)); stackTop += 1u;
-                stack[stackTop] = u32(getSW(nodeIdx)); stackTop += 1u;
-                stack[stackTop] = u32(getSE(nodeIdx)); stackTop += 1u;
+                let nw = getNW(nodeIdx);
+                let ne = getNE(nodeIdx);
+                let sw = getSW(nodeIdx);
+                let se = getSE(nodeIdx);
+                if (nw != NONE) { stack[stackTop] = u32(nw); stackTop += 1u; }
+                if (ne != NONE) { stack[stackTop] = u32(ne); stackTop += 1u; }
+                if (sw != NONE) { stack[stackTop] = u32(sw); stackTop += 1u; }
+                if (se != NONE) { stack[stackTop] = u32(se); stackTop += 1u; }
             }
         }
     }

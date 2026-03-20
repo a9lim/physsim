@@ -175,6 +175,11 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     var f1pnX: f32 = 0.0;
     var f1pnY: f32 = 0.0;
 
+    // G21: Hoist axYukMod[i] reads before the inner loop (avoids per-iteration global reads)
+    let pYukMod = axYukMod[i].y;
+    let pHiggsMod = axYukMod[i].z;
+    let higgsOn = (u.toggles0 & HIGGS_BIT) != 0u;
+
     // Pairwise loop (or tree walk when BH on — dispatched differently)
     let n = u.aliveCount;
     for (var j = 0u; j < n; j++) {
@@ -204,13 +209,12 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
             svx = swx / sg; svy = swy / sg;
         }
 
-        let higgsOn = (u.toggles0 & HIGGS_BIT) != 0u;
         let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
                          sx, sy, svx, svy,
                          particles[j].mass, particles[j].charge, axYukMod[j].y,
                          u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
                          gmOn, magOn, yukOn, higgsOn, u.yukawaMu,
-                         u.yukawaCoupling, axYukMod[i].y, axYukMod[i].z, axYukMod[j].z);
+                         u.yukawaCoupling, pYukMod, pHiggsMod, axYukMod[j].z);
         f1pnX += f.x;
         f1pnY += f.y;
     }
@@ -249,6 +253,11 @@ fn compute1PNTree(@builtin(global_invocation_id) gid: vec3u) {
 
     var f1pnX: f32 = 0.0;
     var f1pnY: f32 = 0.0;
+
+    // G21: Hoist axYukMod[i] reads before the tree walk (avoids per-node global reads)
+    let pYukModT = axYukMod[i].y;
+    let pHiggsModT = axYukMod[i].z;
+    let higgsOnT = (u.toggles0 & HIGGS_BIT) != 0u;
 
     // Stack-based BH tree walk
     var stack: array<u32, 48>;
@@ -333,13 +342,13 @@ fn compute1PNTree(@builtin(global_invocation_id) gid: vec3u) {
                 svx = swx / sg; svy = swy / sg;
             }
 
-            let higgsOn = (u.toggles0 & HIGGS_BIT) != 0u;
+            // G21: use hoisted pYukModT/pHiggsModT/higgsOnT
             let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
                              sx, sy, svx, svy,
                              sPs.mass, sPs.charge, axYukMod[sIdx].y,
                              u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
-                             gmOn, magOn, yukOn, higgsOn, u.yukawaMu,
-                             u.yukawaCoupling, axYukMod[i].y, axYukMod[i].z, axYukMod[sIdx].z);
+                             gmOn, magOn, yukOn, higgsOnT, u.yukawaMu,
+                             u.yukawaCoupling, pYukModT, pHiggsModT, axYukMod[sIdx].z);
             f1pnX += f.x;
             f1pnY += f.y;
 
@@ -347,14 +356,14 @@ fn compute1PNTree(@builtin(global_invocation_id) gid: vec3u) {
             // Distant node: use aggregate data
             let avgVx = getTotalMomX(nodeIdx) / nodeMass;
             let avgVy = getTotalMomY(nodeIdx) / nodeMass;
-            let higgsOn = (u.toggles0 & HIGGS_BIT) != 0u;
 
+            // G21: use hoisted pYukModT/pHiggsModT/higgsOnT
             let f = accum1PN(px, py, pvx, pvy, pMass, pCharge,
                              comX, comY, avgVx, avgVy,
                              nodeMass, getTotalCharge(nodeIdx), 1.0,
                              u.softeningSq, periodic, u.domainW, u.domainH, u.topologyMode,
-                             gmOn, magOn, yukOn, higgsOn, u.yukawaMu,
-                             u.yukawaCoupling, axYukMod[i].y, axYukMod[i].z, 1.0);
+                             gmOn, magOn, yukOn, higgsOnT, u.yukawaMu,
+                             u.yukawaCoupling, pYukModT, pHiggsModT, 1.0);
             f1pnX += f.x;
             f1pnY += f.y;
 

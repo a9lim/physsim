@@ -51,12 +51,13 @@ fn higgsHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (ix >= GRID || iy >= GRID) { return; }
 
     let idx = iy * GRID + ix;
-    let cellW = uniforms.domainW / f32(GRID);
-    let cellH = uniforms.domainH / f32(GRID);
+    // G17: Read precomputed cell dims from FieldUniforms (avoids per-thread division)
+    let cellW = uniforms.cellW;
+    let cellH = uniforms.cellH;
     let cellArea = cellW * cellH;
     let invCellArea = select(0.0, 1.0 / cellArea, cellArea > EPSILON);
-    let invCWsq = 1.0 / (cellW * cellW);
-    let invCHsq = 1.0 / (cellH * cellH);
+    let invCWsq = uniforms.invCellWSq;
+    let invCHsq = uniforms.invCellHSq;
 
     let mH = uniforms.higgsMass;
     let muSq = 0.5 * mH * mH;
@@ -136,12 +137,13 @@ fn axionHalfKick(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (ix >= GRID || iy >= GRID) { return; }
 
     let idx = iy * GRID + ix;
-    let cellW = uniforms.domainW / f32(GRID);
-    let cellH = uniforms.domainH / f32(GRID);
+    // G17: Read precomputed cell dims from FieldUniforms (avoids per-thread division)
+    let cellW = uniforms.cellW;
+    let cellH = uniforms.cellH;
     let cellArea = cellW * cellH;
     let invCellArea = select(0.0, 1.0 / cellArea, cellArea > EPSILON);
-    let invCWsq = 1.0 / (cellW * cellW);
-    let invCHsq = 1.0 / (cellH * cellH);
+    let invCWsq = uniforms.invCellWSq;
+    let invCHsq = uniforms.invCellHSq;
 
     let mA = uniforms.axionMass;
     let mASq = mA * mA;
