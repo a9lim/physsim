@@ -352,8 +352,8 @@ export default class GPUPhysics {
         this._hitStagingI32 = null;
         this._hitStagingF32 = null;
 
-        // Stats readback (compute-stats.wgsl)
-        this._statsPipeline = null;
+        // Stats readback (compute-stats.wgsl — 4 entry points)
+        this._statsPipelines = null;
         this._statsBindGroup0 = null;
         this._statsBindGroup1 = null;
         this._statsGroup0Layout = null;
@@ -512,10 +512,10 @@ export default class GPUPhysics {
             });
         }
 
-        // --- Compute stats pipeline ---
+        // --- Compute stats pipelines (4 entry points) ---
         {
             const cs = await createComputeStatsPipeline(this.device, wgslConstants);
-            this._statsPipeline = cs.pipeline;
+            this._statsPipelines = cs.pipelines;
             this._statsGroup0Layout = cs.group0Layout;
             this._statsGroup1Layout = cs.group1Layout;
             this._statsUniformBuffer = this.device.createBuffer({
@@ -2951,7 +2951,7 @@ export default class GPUPhysics {
         _heatmapUniformU32[14] = this.boundaryMode === BOUND_LOOP ? 1 : 0;
         _heatmapUniformU32[15] = this.topologyMode;
         _heatmapUniformU32[16] = this.aliveCount;
-        _heatmapUniformU32[17] = 0; // _padDead (unused — dead particles found via FLAG_RETIRED scan)
+        _heatmapUniformU32[17] = this._barnesHutEnabled ? 1 : 0; // useTree
         this.device.queue.writeBuffer(this._heatmapUniformBuffer, 0, _heatmapUniformData);
 
         if (!this._heatmapBGs) {
@@ -2965,6 +2965,7 @@ export default class GPUPhysics {
                     entries: [
                         { binding: 0, resource: { buffer: b.particleState } },
                         { binding: 1, resource: { buffer: b.particleAux } },
+                        { binding: 2, resource: { buffer: b.qtNodeBuffer } },
                     ],
                 }),
                 g1: this.device.createBindGroup({
@@ -3024,10 +3025,17 @@ export default class GPUPhysics {
 
         const gridWG = Math.ceil(GPU_HEATMAP_GRID / 8);
 
-        // Compute heatmap
+        // Compute heatmap — use BH tree walk when BH on, signal delay off, non-periodic
+        // (periodic boundaries require minImage wrapping which the tree walk doesn't handle)
         {
-            const p = encoder.beginComputePass({ label: 'computeHeatmap' });
-            p.setPipeline(this._heatmapPipelines.computeHeatmap);
+            const useDelay = this._relativityEnabled && this.buffers.historyAllocated;
+            const isPeriodic = this.boundaryMode === BOUND_LOOP;
+            const useTree = this._barnesHutEnabled && !useDelay && !isPeriodic;
+            const pipeline = useTree
+                ? this._heatmapPipelines.computeHeatmapTree
+                : this._heatmapPipelines.computeHeatmap;
+            const p = encoder.beginComputePass({ label: useTree ? 'computeHeatmapTree' : 'computeHeatmap' });
+            p.setPipeline(pipeline);
             p.setBindGroup(0, this._heatmapBGs.g0);
             p.setBindGroup(1, this._heatmapBGs.g1);
             p.setBindGroup(2, this._heatmapBGs.g2);
@@ -3894,7 +3902,7 @@ export default class GPUPhysics {
      * @param {number} selectedGpuIdx  GPU buffer index of selected particle, or -1
      */
     requestStats(selectedGpuIdx = -1) {
-        if (!this._statsPipeline || !this._statsUniformBuffer) return;
+        if (!this._statsPipelines || !this._statsUniformBuffer) return;
         if (this._statsPending) return; // readback still in flight
 
         // Write uniforms (StatsUniforms: 48 bytes = 12 u32/f32)
@@ -3921,14 +3929,41 @@ export default class GPUPhysics {
             this._statsFieldHasAxion = !!this._axionBuffers;
         }
 
-        // Dispatch
+        // Dispatch 4 entry points sequentially in one encoder
         const encoder = this.device.createCommandEncoder({ label: 'computeStats' });
-        const pass = encoder.beginComputePass({ label: 'computeStats' });
-        pass.setPipeline(this._statsPipeline);
-        pass.setBindGroup(0, this._statsBindGroup0);
-        pass.setBindGroup(1, this._statsBindGroup1);
-        pass.dispatchWorkgroups(1);
-        pass.end();
+        const sp = this._statsPipelines;
+
+        // Pass 1+2: KE, momentum, COM, angular momentum (parallel, 64 threads)
+        const p1 = encoder.beginComputePass({ label: 'statsKEMom' });
+        p1.setPipeline(sp.statsKEMom);
+        p1.setBindGroup(0, this._statsBindGroup0);
+        p1.setBindGroup(1, this._statsBindGroup1);
+        p1.dispatchWorkgroups(1);
+        p1.end();
+
+        // Pass 3: PE + Darwin (serial O(N²))
+        const p2 = encoder.beginComputePass({ label: 'statsPE' });
+        p2.setPipeline(sp.statsPE);
+        p2.setBindGroup(0, this._statsBindGroup0);
+        p2.setBindGroup(1, this._statsBindGroup1);
+        p2.dispatchWorkgroups(1);
+        p2.end();
+
+        // Pass 4: Scalar field energy + momentum (parallel, 64 threads)
+        const p3 = encoder.beginComputePass({ label: 'statsField' });
+        p3.setPipeline(sp.statsField);
+        p3.setBindGroup(0, this._statsBindGroup0);
+        p3.setBindGroup(1, this._statsBindGroup1);
+        p3.dispatchWorkgroups(1);
+        p3.end();
+
+        // Pass 5+6: PFI + selected particle (serial)
+        const p4 = encoder.beginComputePass({ label: 'statsPFISel' });
+        p4.setPipeline(sp.statsPFISel);
+        p4.setBindGroup(0, this._statsBindGroup0);
+        p4.setBindGroup(1, this._statsBindGroup1);
+        p4.dispatchWorkgroups(1);
+        p4.end();
 
         // Copy to staging (double-buffered)
         const staging = this._statsStagingFlip

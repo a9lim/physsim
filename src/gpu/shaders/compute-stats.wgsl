@@ -1,13 +1,11 @@
-// compute-stats.wgsl — Single-thread stats reduction: KE, PE, momentum, angular momentum,
+// compute-stats.wgsl — Parallel stats reduction: KE, PE, momentum, angular momentum,
 // Darwin field energy/momentum, scalar field energy/momentum, selected particle readback.
 //
-// Dispatched as (1,1,1). Multi-pass:
-//   Pass 1: KE, momentum, COM, mass (O(N))
-//   Pass 2: Angular momentum about COM (O(N))
-//   Pass 3: PE + Darwin field energy/momentum (O(N²))
-//   Pass 4: Scalar field energy/momentum (O(GRID²))
-//   Pass 5: Particle-field interaction energy (O(N×16)) via PQS interpolation
-//   Pass 6: Selected particle data copy
+// Four entry points dispatched sequentially:
+//   statsKEMom:  (1,1,1) @workgroup_size(64) — Passes 1+2: KE, momentum, COM, angular momentum
+//   statsPE:     (1,1,1) @workgroup_size(1)  — Pass 3: PE + Darwin field energy (O(N²))
+//   statsField:  (1,1,1) @workgroup_size(64) — Pass 4: Scalar field energy + momentum
+//   statsPFISel: (1,1,1) @workgroup_size(1)  — Passes 5+6: PFI + selected particle
 //
 // Constants from wgslConstants: INERTIA_K, SOFTENING_SQ, BH_SOFTENING_SQ, YUKAWA_COUPLING,
 //   FLAG_ALIVE, FLAG_ANTIMATTER, ONE_PN_BIT, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT,
@@ -62,10 +60,161 @@ struct AxYukMod {
 
 fn toggle(bit: u32) -> bool { return (params.toggles0 & bit) != 0u; }
 
-@compute @workgroup_size(1)
-fn main() {
+// ═══════════════════════════════════════════════════════════════════════════
+// Entry 1: statsKEMom — Parallel KE, momentum, COM, angular momentum
+// Dispatch (1,1,1) with workgroup_size(64). Each thread processes N/64 particles.
+// Two-phase: first accumulate KE+momentum+COM, barrier, then angular momentum about COM.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const KE_WG: u32 = 64u;
+
+// Shared memory for tree reduction (9 channels for pass 1, 2 for pass 2)
+var<workgroup> sh_linearKE: array<f32, KE_WG>;
+var<workgroup> sh_spinKE: array<f32, KE_WG>;
+var<workgroup> sh_px: array<f32, KE_WG>;
+var<workgroup> sh_py: array<f32, KE_WG>;
+var<workgroup> sh_totalMass: array<f32, KE_WG>;
+var<workgroup> sh_comX: array<f32, KE_WG>;
+var<workgroup> sh_comY: array<f32, KE_WG>;
+var<workgroup> sh_orbAngMom: array<f32, KE_WG>;
+var<workgroup> sh_spinAngMom: array<f32, KE_WG>;
+
+// Broadcast COM from thread 0 to all threads
+var<workgroup> sh_comXFinal: f32;
+var<workgroup> sh_comYFinal: f32;
+
+@compute @workgroup_size(KE_WG)
+fn statsKEMom(@builtin(local_invocation_id) lid: vec3u) {
+    let tid = lid.x;
     let n = params.aliveCount;
     let relOn = toggle(RELATIVITY_BIT);
+
+    // ─── Pass 1: Each thread accumulates KE, momentum, COM for its partition ───
+    var localLinearKE: f32 = 0.0;
+    var localSpinKE: f32 = 0.0;
+    var localPx: f32 = 0.0;
+    var localPy: f32 = 0.0;
+    var localTotalMass: f32 = 0.0;
+    var localComX: f32 = 0.0;
+    var localComY: f32 = 0.0;
+
+    // Strided loop: thread tid processes particles tid, tid+64, tid+128, ...
+    var i = tid;
+    while (i < n) {
+        let p = particles[i];
+        if ((p.flags & FLAG_ALIVE) != 0u) {
+            let d = derived[i];
+            let m = p.mass;
+            if (relOn) {
+                let wSq = p.velWX * p.velWX + p.velWY * p.velWY;
+                let gamma = sqrt(1.0 + wSq);
+                localLinearKE += wSq / (gamma + 1.0) * m;
+                let srSq = p.angW * p.angW * d.radiusSq;
+                let gammaRot = sqrt(1.0 + srSq);
+                localSpinKE += INERTIA_K * m * srSq / (gammaRot + 1.0);
+            } else {
+                let vSq = d.velX * d.velX + d.velY * d.velY;
+                localLinearKE += 0.5 * m * vSq;
+                localSpinKE += 0.5 * INERTIA_K * m * d.radiusSq * d.angVel * d.angVel;
+            }
+            localPx += m * p.velWX;
+            localPy += m * p.velWY;
+            localTotalMass += m;
+            localComX += m * p.posX;
+            localComY += m * p.posY;
+        }
+        i += KE_WG;
+    }
+
+    // Store to shared memory
+    sh_linearKE[tid] = localLinearKE;
+    sh_spinKE[tid] = localSpinKE;
+    sh_px[tid] = localPx;
+    sh_py[tid] = localPy;
+    sh_totalMass[tid] = localTotalMass;
+    sh_comX[tid] = localComX;
+    sh_comY[tid] = localComY;
+    workgroupBarrier();
+
+    // Tree reduction (log2(64) = 6 steps)
+    for (var stride = KE_WG >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            sh_linearKE[tid] += sh_linearKE[tid + stride];
+            sh_spinKE[tid] += sh_spinKE[tid + stride];
+            sh_px[tid] += sh_px[tid + stride];
+            sh_py[tid] += sh_py[tid + stride];
+            sh_totalMass[tid] += sh_totalMass[tid + stride];
+            sh_comX[tid] += sh_comX[tid + stride];
+            sh_comY[tid] += sh_comY[tid + stride];
+        }
+        workgroupBarrier();
+    }
+
+    // Thread 0 computes final COM and broadcasts
+    if (tid == 0u) {
+        let tm = sh_totalMass[0];
+        var cx = sh_comX[0];
+        var cy = sh_comY[0];
+        if (tm > 0.0) { cx /= tm; cy /= tm; }
+        sh_comXFinal = cx;
+        sh_comYFinal = cy;
+
+        // Write pass 1 results
+        stats[0] = sh_linearKE[0];
+        stats[1] = sh_spinKE[0];
+        stats[2] = sh_px[0];
+        stats[3] = sh_py[0];
+        stats[8] = tm;
+        stats[9] = f32(n);
+        stats[6] = cx;
+        stats[7] = cy;
+    }
+    workgroupBarrier();
+
+    // ─── Pass 2: Angular momentum about COM ───
+    let comXF = sh_comXFinal;
+    let comYF = sh_comYFinal;
+
+    var localOrbAngMom: f32 = 0.0;
+    var localSpinAngMom: f32 = 0.0;
+    i = tid;
+    while (i < n) {
+        let p = particles[i];
+        if ((p.flags & FLAG_ALIVE) != 0u) {
+            let d = derived[i];
+            let m = p.mass;
+            localOrbAngMom += (p.posX - comXF) * (m * p.velWY) - (p.posY - comYF) * (m * p.velWX);
+            localSpinAngMom += INERTIA_K * m * d.radiusSq * p.angW;
+        }
+        i += KE_WG;
+    }
+
+    sh_orbAngMom[tid] = localOrbAngMom;
+    sh_spinAngMom[tid] = localSpinAngMom;
+    workgroupBarrier();
+
+    for (var stride = KE_WG >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            sh_orbAngMom[tid] += sh_orbAngMom[tid + stride];
+            sh_spinAngMom[tid] += sh_spinAngMom[tid + stride];
+        }
+        workgroupBarrier();
+    }
+
+    if (tid == 0u) {
+        stats[4] = sh_orbAngMom[0];
+        stats[5] = sh_spinAngMom[0];
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Entry 2: statsPE — O(N²) pairwise PE + Darwin field energy
+// Dispatch (1,1,1) with workgroup_size(1). Unchanged from original.
+// ═══════════════════════════════════════════════════════════════════════════
+
+@compute @workgroup_size(1)
+fn statsPE() {
+    let n = params.aliveCount;
     let gravOn = toggle(GRAVITY_BIT);
     let coulOn = toggle(COULOMB_BIT);
     let magOn = toggle(MAGNETIC_BIT);
@@ -73,58 +222,10 @@ fn main() {
     let onePNOn = toggle(ONE_PN_BIT);
     let yukOn = toggle(YUKAWA_BIT);
     let higgsOn = toggle(HIGGS_BIT);
-    let axionOn = toggle(AXION_BIT);
     let bhOn = toggle(BLACK_HOLE_BIT);
     let softeningSq = select(SOFTENING_SQ, BH_SOFTENING_SQ, bhOn);
     let yukMu = params.yukawaMu;
 
-    // ─── Pass 1: KE, momentum, COM ───
-    var linearKE: f32 = 0.0;
-    var spinKE: f32 = 0.0;
-    var px: f32 = 0.0;
-    var py: f32 = 0.0;
-    var totalMass: f32 = 0.0;
-    var comX: f32 = 0.0;
-    var comY: f32 = 0.0;
-
-    for (var i = 0u; i < n; i++) {
-        let p = particles[i];
-        if ((p.flags & FLAG_ALIVE) == 0u) { continue; }
-        let d = derived[i];
-        let m = p.mass;
-        if (relOn) {
-            let wSq = p.velWX * p.velWX + p.velWY * p.velWY;
-            let gamma = sqrt(1.0 + wSq);
-            linearKE += wSq / (gamma + 1.0) * m;
-            let srSq = p.angW * p.angW * d.radiusSq;
-            let gammaRot = sqrt(1.0 + srSq);
-            spinKE += INERTIA_K * m * srSq / (gammaRot + 1.0);
-        } else {
-            let vSq = d.velX * d.velX + d.velY * d.velY;
-            linearKE += 0.5 * m * vSq;
-            spinKE += 0.5 * INERTIA_K * m * d.radiusSq * d.angVel * d.angVel;
-        }
-        px += m * p.velWX;
-        py += m * p.velWY;
-        totalMass += m;
-        comX += m * p.posX;
-        comY += m * p.posY;
-    }
-    if (totalMass > 0.0) { comX /= totalMass; comY /= totalMass; }
-
-    // ─── Pass 2: Angular momentum about COM ───
-    var orbAngMom: f32 = 0.0;
-    var spinAngMom: f32 = 0.0;
-    for (var i = 0u; i < n; i++) {
-        let p = particles[i];
-        if ((p.flags & FLAG_ALIVE) == 0u) { continue; }
-        let d = derived[i];
-        let m = p.mass;
-        orbAngMom += (p.posX - comX) * (m * p.velWY) - (p.posY - comY) * (m * p.velWX);
-        spinAngMom += INERTIA_K * m * d.radiusSq * p.angW;
-    }
-
-    // ─── Pass 3: PE + Darwin field energy/momentum (O(N²)) ───
     var pe: f32 = 0.0;
     var darwinE: f32 = 0.0;
     var darwinPx: f32 = 0.0;
@@ -249,17 +350,40 @@ fn main() {
         }
     }
 
-    // ─── Pass 4: Scalar field energy + momentum ───
-    var higgsFieldE: f32 = 0.0;
-    var axionFieldE: f32 = 0.0;
-    var fieldMomX: f32 = 0.0;
-    var fieldMomY: f32 = 0.0;
-    let GRID = params.fieldGridRes;
-    let GRID_SQ = GRID * GRID;
+    stats[10] = pe;
+    stats[11] = darwinE;
+    stats[12] = darwinPx;
+    stats[13] = darwinPy;
+}
 
-    if ((higgsOn || axionOn) && GRID > 0u) {
-        let cellW = params.domainW / f32(GRID);
-        let cellH = params.domainH / f32(GRID);
+// ═══════════════════════════════════════════════════════════════════════════
+// Entry 3: statsField — Parallel scalar field energy + momentum
+// Dispatch (1,1,1) with workgroup_size(64). Each thread processes GRID_SQ/64 cells.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const FLD_WG: u32 = 64u;
+
+var<workgroup> sh_higgsE: array<f32, FLD_WG>;
+var<workgroup> sh_axionE: array<f32, FLD_WG>;
+var<workgroup> sh_fmx: array<f32, FLD_WG>;
+var<workgroup> sh_fmy: array<f32, FLD_WG>;
+
+@compute @workgroup_size(FLD_WG)
+fn statsField(@builtin(local_invocation_id) lid: vec3u) {
+    let tid = lid.x;
+    let higgsOn = toggle(HIGGS_BIT);
+    let axionOn = toggle(AXION_BIT);
+    let FGRID = params.fieldGridRes;
+    let FGRID_SQ = FGRID * FGRID;
+
+    var localHiggsE: f32 = 0.0;
+    var localAxionE: f32 = 0.0;
+    var localFmx: f32 = 0.0;
+    var localFmy: f32 = 0.0;
+
+    if ((higgsOn || axionOn) && FGRID > 0u) {
+        let cellW = params.domainW / f32(FGRID);
+        let cellH = params.domainH / f32(FGRID);
         let cellArea = cellW * cellH;
         let invCellWSq = 1.0 / (cellW * cellW);
         let invCellHSq = 1.0 / (cellH * cellH);
@@ -271,11 +395,13 @@ fn main() {
         let scaleX = cellH * 0.5;
         let scaleY = cellW * 0.5;
 
-        for (var idx = 0u; idx < GRID_SQ; idx++) {
-            let ix = idx % GRID;
-            let iy = idx / GRID;
-            let ixp = min(ix + 1u, GRID - 1u);
-            let iyp = min(iy + 1u, GRID - 1u);
+        // Strided loop: thread tid processes cells tid, tid+64, tid+128, ...
+        var idx = tid;
+        while (idx < FGRID_SQ) {
+            let ix = idx % FGRID;
+            let iy = idx / FGRID;
+            let ixp = min(ix + 1u, FGRID - 1u);
+            let iyp = min(iy + 1u, FGRID - 1u);
             let ixm = select(ix - 1u, 0u, ix == 0u);
             let iym = select(iy - 1u, 0u, iy == 0u);
 
@@ -283,47 +409,87 @@ fn main() {
             if (higgsOn) {
                 let phi = higgsField[idx];
                 let phiDot = higgsFieldDot[idx];
-                let dfx = higgsField[iyp * GRID + ix] - higgsField[iym * GRID + ix];
-                let dfy = higgsField[iy * GRID + ixp] - higgsField[iy * GRID + ixm];
+                let dfx = higgsField[iyp * FGRID + ix] - higgsField[iym * FGRID + ix];
+                let dfy = higgsField[iy * FGRID + ixp] - higgsField[iy * FGRID + ixm];
                 let ke = 0.5 * phiDot * phiDot;
-                let grad = 0.5 * (dfx * dfx * invCellHSq + dfy * dfy * invCellWSq) * 0.25; // centered diff → /4
+                let grad = 0.5 * (dfx * dfx * invCellHSq + dfy * dfy * invCellWSq) * 0.25;
                 let pot = muSqH * (-0.5 * phi * phi + 0.25 * phi * phi * phi * phi) + vacOffsetH;
-                higgsFieldE += (ke + grad + pot) * cellArea;
-                // Momentum: -φ̇ ∂_i φ
-                fieldMomX -= phiDot * dfy * scaleX; // ∂_x φ via centered diff, *cellW/2 for integration
-                fieldMomY -= phiDot * dfx * scaleY; // ∂_y φ via centered diff, *cellH/2 for integration
+                localHiggsE += (ke + grad + pot) * cellArea;
+                localFmx -= phiDot * dfy * scaleX;
+                localFmy -= phiDot * dfx * scaleY;
             }
 
             // Axion field energy
             if (axionOn) {
                 let a = axionField[idx];
                 let aDot = axionFieldDot[idx];
-                let dfx = axionField[iyp * GRID + ix] - axionField[iym * GRID + ix];
-                let dfy = axionField[iy * GRID + ixp] - axionField[iy * GRID + ixm];
+                let dfx = axionField[iyp * FGRID + ix] - axionField[iym * FGRID + ix];
+                let dfy = axionField[iy * FGRID + ixp] - axionField[iy * FGRID + ixm];
                 let ke = 0.5 * aDot * aDot;
                 let grad = 0.5 * (dfx * dfx * invCellHSq + dfy * dfy * invCellWSq) * 0.25;
                 let pot = 0.5 * mASq * a * a;
-                axionFieldE += (ke + grad + pot) * cellArea;
-                fieldMomX -= aDot * dfy * scaleX;
-                fieldMomY -= aDot * dfx * scaleY;
+                localAxionE += (ke + grad + pot) * cellArea;
+                localFmx -= aDot * dfy * scaleX;
+                localFmy -= aDot * dfx * scaleY;
             }
 
             // Portal coupling energy: ½λφ²a² (counted in Higgs to match CPU)
             if (higgsOn && axionOn) {
                 let phi = higgsField[idx];
                 let a = axionField[idx];
-                higgsFieldE += 0.5 * HIGGS_AXION_COUPLING * phi * phi * a * a * cellArea;
+                localHiggsE += 0.5 * HIGGS_AXION_COUPLING * phi * phi * a * a * cellArea;
             }
+
+            idx += FLD_WG;
         }
     }
+
+    // Store to shared memory and reduce
+    sh_higgsE[tid] = localHiggsE;
+    sh_axionE[tid] = localAxionE;
+    sh_fmx[tid] = localFmx;
+    sh_fmy[tid] = localFmy;
+    workgroupBarrier();
+
+    for (var stride = FLD_WG >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            sh_higgsE[tid] += sh_higgsE[tid + stride];
+            sh_axionE[tid] += sh_axionE[tid + stride];
+            sh_fmx[tid] += sh_fmx[tid + stride];
+            sh_fmy[tid] += sh_fmy[tid + stride];
+        }
+        workgroupBarrier();
+    }
+
+    if (tid == 0u) {
+        stats[14] = sh_higgsE[0];
+        stats[15] = sh_axionE[0];
+        stats[18] = sh_fmx[0];
+        stats[19] = sh_fmy[0];
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Entry 4: statsPFISel — PFI (O(N×16) PQS) + selected particle copy
+// Dispatch (1,1,1) with workgroup_size(1). Unchanged from original.
+// ═══════════════════════════════════════════════════════════════════════════
+
+@compute @workgroup_size(1)
+fn statsPFISel() {
+    let n = params.aliveCount;
+    let coulOn = toggle(COULOMB_BIT);
+    let yukOn = toggle(YUKAWA_BIT);
+    let higgsOn = toggle(HIGGS_BIT);
+    let axionOn = toggle(AXION_BIT);
+    let FGRID = params.fieldGridRes;
 
     // ─── Pass 5: Particle-field interaction energy (PQS interpolation) ───
     var higgsPfiE: f32 = 0.0;
     var axionPfiE: f32 = 0.0;
 
-    if ((higgsOn || axionOn) && GRID > 0u) {
-        let cellW = params.domainW / f32(GRID);
-        let cellH = params.domainH / f32(GRID);
+    if ((higgsOn || axionOn) && FGRID > 0u) {
+        let cellW = params.domainW / f32(FGRID);
+        let cellH = params.domainH / f32(FGRID);
         let invCellW = 1.0 / cellW;
         let invCellH = 1.0 / cellH;
 
@@ -356,12 +522,12 @@ fn main() {
             var higgsVal: f32 = 0.0;
             var axionVal: f32 = 0.0;
             for (var dy = 0; dy < 4; dy++) {
-                let ny = clamp(iy0 + dy - 1, 0, i32(GRID) - 1);
+                let ny = clamp(iy0 + dy - 1, 0, i32(FGRID) - 1);
                 let wwy = wy[dy];
                 for (var dx = 0; dx < 4; dx++) {
-                    let nx = clamp(ix0 + dx - 1, 0, i32(GRID) - 1);
+                    let nx = clamp(ix0 + dx - 1, 0, i32(FGRID) - 1);
                     let w = wx[dx] * wwy;
-                    let ci = u32(ny) * GRID + u32(nx);
+                    let ci = u32(ny) * FGRID + u32(nx);
                     if (higgsOn) { higgsVal += higgsField[ci] * w; }
                     if (axionOn) { axionVal += axionField[ci] * w; }
                 }
@@ -385,29 +551,10 @@ fn main() {
         }
     }
 
-    // ─── Write aggregates ───
-    stats[0] = linearKE;
-    stats[1] = spinKE;
-    stats[2] = px;
-    stats[3] = py;
-    stats[4] = orbAngMom;
-    stats[5] = spinAngMom;
-    stats[6] = comX;
-    stats[7] = comY;
-    stats[8] = totalMass;
-    stats[9] = f32(n);
-    stats[10] = pe;
-    stats[11] = darwinE;
-    stats[12] = darwinPx;
-    stats[13] = darwinPy;
-    stats[14] = higgsFieldE;
-    stats[15] = axionFieldE;
     stats[16] = higgsPfiE;
     stats[17] = axionPfiE;
-    stats[18] = fieldMomX;
-    stats[19] = fieldMomY;
 
-    // ─── Selected particle data (offset 32) ───
+    // ─── Pass 6: Selected particle data (offset 32) ───
     let selIdx = params.selectedIdx;
     if (selIdx >= 0 && u32(selIdx) < n) {
         let si = u32(selIdx);

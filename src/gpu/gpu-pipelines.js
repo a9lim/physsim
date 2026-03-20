@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 54;
+const SHADER_VERSION = 55;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -1319,19 +1319,22 @@ export async function createFieldExcitationPipeline(device, wgslConstants = '') 
 
 /**
  * Create heatmap compute pipelines (Phase 5).
+ * Two heatmap entry points:
+ *   computeHeatmap:     O(N*GRID²) pairwise, signal delay support
+ *   computeHeatmapTree: O(log(N)*GRID²) BH tree walk, no signal delay
  * Bind groups:
  *   heatmapLayout:
- *     Group 0: particleState (ro) = 1 (was 5 separate buffers)
+ *     Group 0: particleState (rw) + particleAux (rw) + treeNodes (rw) = 3
  *     Group 1: potential grids (3 rw) + HeatmapUniforms = 4
  *     Group 2: signal delay history (histData, histMeta) = 2
  *   blurLayout: unchanged
  */
 export async function createHeatmapPipelines(device, wgslConstants = '') {
-    const prefix = await getSharedPrefix(wgslConstants);
+    const treePrefix = await getTreePrefix(wgslConstants);
     const signalDelayWGSL = await fetchShader('signal-delay-common.wgsl');
     const heatmapWGSL = await fetchShader('heatmap.wgsl');
-    // Prepend: prefix (structs+topology) → signal-delay-common → heatmap
-    const code = prefix + '\n' + signalDelayWGSL + '\n' + heatmapWGSL;
+    // Prepend: treePrefix (structs+topology+rng+treeNodes) → signal-delay-common → heatmap
+    const code = treePrefix + '\n' + signalDelayWGSL + '\n' + heatmapWGSL;
     const module = device.createShaderModule({ label: 'heatmap', code });
 
     const hmG0 = device.createBindGroupLayout({
@@ -1339,6 +1342,7 @@ export async function createHeatmapPipelines(device, wgslConstants = '') {
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // particleState (rw for encoder compat)
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // particleAux
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // treeNodes (rw for accessor compat)
         ],
     });
     const hmG1 = device.createBindGroupLayout({
@@ -1359,11 +1363,18 @@ export async function createHeatmapPipelines(device, wgslConstants = '') {
         ],
     });
     const heatmapLayouts = [hmG0, hmG1, hmG2];
+    const heatmapPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: heatmapLayouts });
 
     const computeHeatmap = device.createComputePipeline({
         label: 'computeHeatmap',
-        layout: device.createPipelineLayout({ bindGroupLayouts: heatmapLayouts }),
+        layout: heatmapPipelineLayout,
         compute: { module, entryPoint: 'computeHeatmap' },
+    });
+
+    const computeHeatmapTree = device.createComputePipeline({
+        label: 'computeHeatmapTree',
+        layout: heatmapPipelineLayout,
+        compute: { module, entryPoint: 'computeHeatmapTree' },
     });
 
     const blurG0 = device.createBindGroupLayout({
@@ -1385,7 +1396,7 @@ export async function createHeatmapPipelines(device, wgslConstants = '') {
         compute: { module, entryPoint: 'blurVertical' },
     });
 
-    return { computeHeatmap, blurHorizontal, blurVertical, heatmapLayouts, blurLayouts };
+    return { computeHeatmap, computeHeatmapTree, blurHorizontal, blurVertical, heatmapLayouts, blurLayouts };
 }
 
 /**
@@ -1940,8 +1951,12 @@ export async function createHitTestPipeline(device, wgslConstants = '') {
 }
 
 /**
- * Create compute-stats pipeline for aggregate stats reduction + selected particle readback.
- * Standalone shader (defines own structs, receives wgslConstants).
+ * Create compute-stats pipelines for parallel stats reduction + selected particle readback.
+ * Four entry points sharing same bind groups:
+ *   statsKEMom:  @workgroup_size(64) — KE, momentum, COM, angular momentum
+ *   statsPE:     @workgroup_size(1)  — O(N²) PE + Darwin field energy
+ *   statsField:  @workgroup_size(64) — Scalar field energy + momentum
+ *   statsPFISel: @workgroup_size(1)  — PFI + selected particle copy
  * Group 0: uniforms, particleState(ro), derived(ro), allForces(ro), stats(rw), axYukMod(ro).
  * Group 1: higgs field(ro), higgs fieldDot(ro), axion field(ro), axion fieldDot(ro).
  */
@@ -1972,11 +1987,17 @@ export async function createComputeStatsPipeline(device, wgslConstants = '') {
         ],
     });
 
-    const pipeline = device.createComputePipeline({
-        label: 'computeStats',
-        layout: device.createPipelineLayout({ bindGroupLayouts: [group0Layout, group1Layout] }),
-        compute: { module, entryPoint: 'main' },
-    });
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [group0Layout, group1Layout] });
 
-    return { pipeline, group0Layout, group1Layout };
+    const entries = ['statsKEMom', 'statsPE', 'statsField', 'statsPFISel'];
+    const pipelines = {};
+    for (const entry of entries) {
+        pipelines[entry] = device.createComputePipeline({
+            label: `computeStats_${entry}`,
+            layout: pipelineLayout,
+            compute: { module, entryPoint: entry },
+        });
+    }
+
+    return { pipelines, group0Layout, group1Layout };
 }
