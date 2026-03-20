@@ -1,7 +1,7 @@
 // ─── UI Setup ───
 // Wires all panel controls, toggles, presets, shortcuts, and info tips to the sim.
 import { loadPreset, PRESETS, PRESET_ORDER } from './presets.js';
-import { PHYSICS_DT, WORLD_SCALE, SCALAR_GRID, GPU_SCALAR_GRID, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, colFromString, boundFromString, topoFromString } from './config.js';
+import { PHYSICS_DT, WORLD_SCALE, SCALAR_GRID, GPU_SCALAR_GRID, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, SPEED_OPTIONS, DEFAULT_SPEED_INDEX, colFromString, boundFromString, topoFromString } from './config.js';
 import { REFERENCE } from './reference.js';
 import { BACKEND_CPU, BACKEND_GPU } from './backend-interface.js';
 import Particle from './particle.js';
@@ -71,18 +71,33 @@ export function setupUI(sim) {
     });
 
     // ─── Pause / Resume ───
-    const pauseBtn = document.getElementById('pauseBtn');
-    const pauseIcon = document.getElementById('pauseIcon');
-    const playIcon = document.getElementById('playIcon');
+    const playBtn = document.getElementById('playBtn');
 
     const togglePause = () => {
         sim.running = !sim.running;
-        _haptics.trigger('medium');
-        pauseIcon.hidden = !sim.running;
-        playIcon.hidden = sim.running;
-        pauseBtn.title = sim.running ? 'Pause' : 'Resume';
+        _haptics.trigger(sim.running ? 'medium' : 'light');
+        _playback.updatePlayBtn(playBtn, sim.running);
     };
-    pauseBtn.addEventListener('click', togglePause);
+    playBtn.addEventListener('click', togglePause);
+    _playback.updatePlayBtn(playBtn, sim.running);
+
+    // ─── Speed Button ───
+    const speedBtn = document.getElementById('speedBtn');
+
+    const cycleSpeed = () => {
+        sim.speedIndex = (sim.speedIndex + 1) % SPEED_OPTIONS.length;
+        sim.speedScale = SPEED_OPTIONS[sim.speedIndex];
+        _playback.updateSpeedBtn(speedBtn, sim.speedScale);
+        _haptics.trigger('selection');
+    };
+    const decycleSpeed = () => {
+        sim.speedIndex = (sim.speedIndex - 1 + SPEED_OPTIONS.length) % SPEED_OPTIONS.length;
+        sim.speedScale = SPEED_OPTIONS[sim.speedIndex];
+        _playback.updateSpeedBtn(speedBtn, sim.speedScale);
+        _haptics.trigger('selection');
+    };
+    speedBtn.addEventListener('click', cycleSpeed);
+    speedBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); decycleSpeed(); });
 
     // ─── Mode toggles ───
     const collisionToggles = document.getElementById('collision-toggles');
@@ -581,12 +596,7 @@ export function setupUI(sim) {
         _haptics.trigger('selection');
     });
 
-    sim.dom.speedInput.addEventListener('input', () => {
-        const val = parseFloat(sim.dom.speedInput.value);
-        sim.speedScale = val;
-        document.getElementById('speedValue').textContent = val;
-        _haptics.trigger('selection');
-    });
+    // Speed is now controlled by the toolbar speed button (cycleSpeed/decycleSpeed above)
 
     // ─── Step button ───
     const stepSim = () => {

@@ -1,6 +1,6 @@
 // ─── Preset Definitions ───
 // Each preset configures toggles, engine settings, visuals, and spawns particles.
-import { PI, TWO_PI, WORLD_SCALE, SOFTENING_SQ, DEFAULT_PION_MASS, DEFAULT_HIGGS_MASS, DEFAULT_AXION_MASS } from './config.js';
+import { PI, TWO_PI, WORLD_SCALE, SOFTENING_SQ, DEFAULT_PION_MASS, DEFAULT_HIGGS_MASS, DEFAULT_AXION_MASS, SPEED_OPTIONS, DEFAULT_SPEED_INDEX } from './config.js';
 
 // Plummer-softened circular orbit velocity: F = coupling*r/(r²+ε²)^{3/2}, set F/m = v²/r
 const _vCirc = (coupling, r, m) => {
@@ -588,7 +588,6 @@ const MODE_GROUPS = {
 };
 
 const SLIDER_MAP = {
-    speed: 'speedInput',
     friction: 'frictionInput',
     yukawaMu: 'yukawaMuInput',
     axionMass: 'axionMassInput',
@@ -642,6 +641,23 @@ export function loadPreset(name, sim) {
             el.value = val;
             el.dispatchEvent(new Event('input'));
         }
+
+        // Speed: find nearest SPEED_OPTIONS index
+        const presetSpeed = preset.settings.speed;
+        if (presetSpeed != null) {
+            let bestIdx = DEFAULT_SPEED_INDEX;
+            let bestDist = Infinity;
+            for (let i = 0; i < SPEED_OPTIONS.length; i++) {
+                const d = Math.abs(SPEED_OPTIONS[i] - presetSpeed);
+                if (d < bestDist) { bestDist = d; bestIdx = i; }
+            }
+            sim.speedIndex = bestIdx;
+        } else {
+            sim.speedIndex = DEFAULT_SPEED_INDEX;
+        }
+        sim.speedScale = SPEED_OPTIONS[sim.speedIndex];
+        const speedBtn = document.getElementById('speedBtn');
+        if (speedBtn && typeof _playback !== 'undefined') _playback.updateSpeedBtn(speedBtn, sim.speedScale);
     }
 
     // 4. Apply visual toggles

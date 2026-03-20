@@ -1,6 +1,6 @@
 import Particle from './particle.js';
 import { angwToAngVel } from './relativity.js';
-import { DEFAULT_SPEED_SCALE, MAX_PARTICLES, COL_NAMES, BOUND_NAMES, TOPO_NAMES, colFromString, boundFromString, topoFromString } from './config.js';
+import { DEFAULT_SPEED_SCALE, SPEED_OPTIONS, DEFAULT_SPEED_INDEX, MAX_PARTICLES, COL_NAMES, BOUND_NAMES, TOPO_NAMES, colFromString, boundFromString, topoFromString } from './config.js';
 import { BACKEND_GPU } from './backend-interface.js';
 
 // Maps physics flag names to UI toggle element IDs (same order as presets.js TOGGLE_ORDER)
@@ -49,9 +49,9 @@ function syncUI(sim) {
         const target = group.querySelector(`[data-${attr}="${sim[prop]}"]`);
         if (target) target.click();
     }
-    // Sync sliders
-    const speedEl = document.getElementById('speedInput');
-    if (speedEl) { speedEl.value = sim.speedScale; speedEl.dispatchEvent(new Event('input')); }
+    // Sync speed button
+    const speedBtn = document.getElementById('speedBtn');
+    if (speedBtn && typeof _playback !== 'undefined') _playback.updateSpeedBtn(speedBtn, sim.speedScale);
     const frictionEl = document.getElementById('frictionInput');
     if (frictionEl) { frictionEl.value = ph.bounceFriction; frictionEl.dispatchEvent(new Event('input')); }
     const hubbleEl = document.getElementById('hubbleInput');
@@ -185,7 +185,15 @@ function _restoreSettings(state, sim) {
         sim.collisionMode = colFromString(col);
         sim.boundaryMode = boundFromString(state.settings.boundary);
         sim.topology = topoFromString(state.settings.topology);
-        sim.speedScale = state.settings.speed ?? DEFAULT_SPEED_SCALE;
+        const loadedSpeed = state.settings.speed ?? DEFAULT_SPEED_SCALE;
+        let bestIdx = DEFAULT_SPEED_INDEX;
+        let bestDist = Infinity;
+        for (let i = 0; i < SPEED_OPTIONS.length; i++) {
+            const d = Math.abs(SPEED_OPTIONS[i] - loadedSpeed);
+            if (d < bestDist) { bestDist = d; bestIdx = i; }
+        }
+        sim.speedIndex = bestIdx;
+        sim.speedScale = SPEED_OPTIONS[bestIdx];
     }
     if (state.camera) {
         sim.camera.x = state.camera.x;
