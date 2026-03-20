@@ -388,7 +388,7 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const mu = toggles.higgsEnabled ? toggles.yukawaMu * Math.sqrt(p.higgsMod * sHiggsMod) : toggles.yukawaMu;
         const r = 1 / invR;
         const expMuR = Math.exp(-mu * r);
-        const yukModPair = Math.sqrt(p.yukMod * sYukMod);
+        const yukModPair = _needAxMod ? Math.sqrt(p.yukMod * sYukMod) : 1;
         const ym = yukModPair;
         const fDir = YUKAWA_COUPLING * ym * p.mass * sMass * expMuR * (invRSq + mu * invR) * (signalDelayed ? invR * aberr : invR);
         out.x += rx * fDir;
@@ -434,7 +434,8 @@ export function pairForce(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMome
         const dw = p.angVel - wOrbit;
         let coupling = sMass;
         if (toggles.coulombEnabled && p.mass > EPSILON) coupling += p.charge * sCharge / p.mass;
-        const ri5 = p.bodyRadiusSq * p.bodyRadiusSq * Math.cbrt(p.mass);
+        const bodyR = Math.sqrt(p.bodyRadiusSq);
+        const ri5 = p.bodyRadiusSq * p.bodyRadiusSq * bodyR;
         const invR6 = invRSq * invRSq * invRSq;
         p._tidalTorque -= TIDAL_STRENGTH * coupling * coupling * ri5 * invR6 * dw;
     }

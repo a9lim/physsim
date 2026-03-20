@@ -154,8 +154,8 @@ function pairPE(p, sx, sy, svx, svy, sMass, sCharge, sAngVel, sMagMoment, sAngMo
     const invR = Math.sqrt(invRSq);
     const pMagMoment = p.magMoment;
     const pAngMomentum = p.angMomentum;
-    const axModPair = Math.sqrt(p.axMod * sAxMod);
-    const yukModPair = Math.sqrt(p.yukMod * sYukMod);
+    const axModPair = toggles.axionEnabled ? Math.sqrt(p.axMod * sAxMod) : 1;
+    const yukModPair = toggles.axionEnabled ? Math.sqrt(p.yukMod * sYukMod) : 1;
 
     let pe = 0;
     if (toggles.gravityEnabled)  pe -= p.mass * sMass * invR;
