@@ -304,12 +304,10 @@ export default class Heatmap {
 
     draw(ctx, width, height) {
         if (!this.enabled) return;
-        const prevSmooth = ctx.imageSmoothingEnabled;
-        const prevQuality = ctx.imageSmoothingQuality;
+        // C20: Set smoothing once per draw without save/restore — renderer never
+        // sets imageSmoothingEnabled = false, so no restore needed.
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(this.canvas, 0, 0, width, height);
-        ctx.imageSmoothingEnabled = prevSmooth;
-        ctx.imageSmoothingQuality = prevQuality;
     }
 }

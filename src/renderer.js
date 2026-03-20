@@ -74,6 +74,9 @@ export default class Renderer {
         // Sized for 256 particles; _ensureArrowBuffers() grows if needed
         this._arrowLines = new Float32Array(256 * 4);
         this._arrowHeads = new Float32Array(256 * 6);
+        // Pre-allocated buffer for spin ring / torque arc arrowhead endpoints
+        // 5 floats per entry: tipX, tipY, ax, ay, endAngle (saved during arc pass)
+        this._spinHeadData = new Float32Array(256 * 5);
         // Viewport culling bounds (set per-frame in render())
         this._vpLeft = 0;
         this._vpRight = 0;
@@ -255,7 +258,7 @@ export default class Renderer {
             ctx.strokeStyle = p.color;
             ctx.lineWidth = lineWidth;
 
-            const groupCount = 4;
+            const groupCount = 2; // C21: 2 groups halves ctx.stroke() calls vs 4
             for (let g = 0; g < groupCount; g++) {
                 const segStart = Math.floor(g * segCount / groupCount);
                 const segEnd = Math.floor((g + 1) * segCount / groupCount);
@@ -306,18 +309,23 @@ export default class Renderer {
         }
 
         // R5: Batch spin rings by sign — two passes (pos/neg), one stroke + one fill each
+        // C11: Fused — arrowhead endpoint data saved during arc pass, no second particle loop
         ctx.shadowBlur = 0;
         ctx.globalCompositeOperation = 'source-over';
         ctx.lineWidth = 0.2;
+        if (this._spinHeadData.length < particles.length * 5) {
+            this._spinHeadData = new Float32Array(particles.length * 5);
+        }
         for (let sign = 0; sign < 2; sign++) {
             const isPos = sign === 0;
             const colors = isPos ? _spinColors.pos : _spinColors.neg;
             const style = isLight ? colors.light : colors.dark;
             ctx.strokeStyle = style;
 
-            // Arcs pass: one beginPath + one stroke for all particles of this sign
+            // Single pass: draw arcs + save arrowhead data
             ctx.beginPath();
             let hasArcs = false;
+            let hdc = 0; // head data count (entries of 5 floats)
             for (let i = 0, len = particles.length; i < len; i++) {
                 const p = particles[i];
                 if (p.angVel === 0 || (p.angVel > 0) !== isPos) continue;
@@ -331,34 +339,39 @@ export default class Renderer {
                            p.pos.y + Math.sin(startAngle) * ringRadius);
                 ctx.arc(p.pos.x, p.pos.y, ringRadius, startAngle, endAngle, dir > 0);
                 hasArcs = true;
-            }
-            if (hasArcs) ctx.stroke();
-
-            // Arrowheads pass: one beginPath + one fill for all particles of this sign
-            ctx.fillStyle = style;
-            ctx.beginPath();
-            let hasHeads = false;
-            for (let i = 0, len = particles.length; i < len; i++) {
-                const p = particles[i];
-                if (p.angVel === 0 || (p.angVel > 0) !== isPos) continue;
-                if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
-                const dir = -Math.sign(p.angVel);
-                const arcLen = Math.min(Math.abs(p.angVel) * p.radius * TWO_PI, TWO_PI);
-                const ringRadius = p.radius + 0.5;
-                const endAngle = -HALF_PI - dir * arcLen;
+                // Save arrowhead data: 5 floats: tipX, tipY, ax, ay, endAngle
                 const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
                 const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
                 const sweepDir = endAngle - dir * HALF_PI;
-                const tipX = ax + Math.cos(sweepDir);
-                const tipY = ay + Math.sin(sweepDir);
-                const spread = 0.4;
-                ctx.moveTo(tipX, tipY);
-                ctx.lineTo(ax + Math.cos(endAngle) * spread, ay + Math.sin(endAngle) * spread);
-                ctx.lineTo(ax - Math.cos(endAngle) * spread, ay - Math.sin(endAngle) * spread);
-                ctx.closePath();
-                hasHeads = true;
+                const base = hdc * 5;
+                this._spinHeadData[base]     = ax + Math.cos(sweepDir);       // tipX
+                this._spinHeadData[base + 1] = ay + Math.sin(sweepDir);       // tipY
+                this._spinHeadData[base + 2] = ax;
+                this._spinHeadData[base + 3] = ay;
+                this._spinHeadData[base + 4] = endAngle;
+                hdc++;
             }
-            if (hasHeads) ctx.fill();
+            if (hasArcs) ctx.stroke();
+
+            // Arrowheads: draw from saved data
+            if (hdc > 0) {
+                ctx.fillStyle = style;
+                ctx.beginPath();
+                const spread = 0.4;
+                for (let j = 0; j < hdc; j++) {
+                    const base = j * 5;
+                    const tipX  = this._spinHeadData[base];
+                    const tipY  = this._spinHeadData[base + 1];
+                    const ax    = this._spinHeadData[base + 2];
+                    const ay    = this._spinHeadData[base + 3];
+                    const endAng = this._spinHeadData[base + 4];
+                    ctx.moveTo(tipX, tipY);
+                    ctx.lineTo(ax + Math.cos(endAng) * spread, ay + Math.sin(endAng) * spread);
+                    ctx.lineTo(ax - Math.cos(endAng) * spread, ay - Math.sin(endAng) * spread);
+                    ctx.closePath();
+                }
+                ctx.fill();
+            }
         }
         ctx.globalCompositeOperation = blendMode;
 
@@ -426,21 +439,22 @@ export default class Renderer {
     // Batched arrow drawing: accumulates all line segments into one path and
     // all arrowheads into another, then issues a single stroke + single fill.
     // Reduces canvas API calls from O(arrows) to O(1) per color batch.
-    _batchArrowsDraw(ctx, color, invZoom, lines, heads) {
-        if (lines.length === 0) return;
+    // C19: lc/hc counts passed directly — no subarray() allocation.
+    _batchArrowsDraw(ctx, color, invZoom, lines, lc, heads, hc) {
+        if (lc === 0) return;
         ctx.strokeStyle = color;
         ctx.lineWidth = 0.25;
         ctx.beginPath();
-        for (let i = 0, len = lines.length; i < len; i += 4) {
+        for (let i = 0; i < lc; i += 4) {
             ctx.moveTo(lines[i], lines[i + 1]);
             ctx.lineTo(lines[i + 2], lines[i + 3]);
         }
         ctx.stroke();
 
-        if (heads.length > 0) {
+        if (hc > 0) {
             ctx.fillStyle = color;
             ctx.beginPath();
-            for (let i = 0, len = heads.length; i < len; i += 6) {
+            for (let i = 0; i < hc; i += 6) {
                 ctx.moveTo(heads[i], heads[i + 1]);
                 ctx.lineTo(heads[i + 2], heads[i + 3]);
                 ctx.lineTo(heads[i + 4], heads[i + 5]);
@@ -479,16 +493,14 @@ export default class Renderer {
                 heads[hc++] = ey - ny * headLen + nx * headLen * 0.5;
             }
         }
-        this._batchArrowsDraw(ctx, color, invZoom,
-            lc < lines.length ? lines.subarray(0, lc) : lines,
-            hc < heads.length ? heads.subarray(0, hc) : heads);
+        this._batchArrowsDraw(ctx, color, invZoom, lines, lc, heads, hc);
     }
 
     drawForceVectors(ctx, particles, invZoom, isLight) {
         const scale = FORCE_VECTOR_SCALE;
         const color = isLight ? _PAL.accent : _PAL.accentLight;
+        // C22: minLen is strictly tighter than threshold (0.5 > 0.1) — only minLen needed
         const minLen = 0.5 * invZoom;
-        const threshold = 0.1 * invZoom;
         const headLen = 0.5;
         const lines = this._arrowLines;
         const heads = this._arrowHeads;
@@ -500,10 +512,9 @@ export default class Renderer {
             const fx = p.force.x * s;
             const fy = p.force.y * s;
             const mag = Math.sqrt(fx * fx + fy * fy);
-            if (mag < threshold) continue;
+            if (mag < minLen) continue;
             const px = p.pos.x, py = p.pos.y;
             const ex = px + fx, ey = py + fy;
-            if (mag < minLen) continue;
             const nx = fx / mag, ny = fy / mag;
             const hasHead = mag >= 0.5;
             lines[lc++] = px; lines[lc++] = py;
@@ -517,9 +528,7 @@ export default class Renderer {
                 heads[hc++] = ey - ny * headLen + nx * headLen * 0.5;
             }
         }
-        this._batchArrowsDraw(ctx, color, invZoom,
-            lc < lines.length ? lines.subarray(0, lc) : lines,
-            hc < heads.length ? heads.subarray(0, hc) : heads);
+        this._batchArrowsDraw(ctx, color, invZoom, lines, lc, heads, hc);
     }
 
     drawForceComponentVectors(ctx, particles, invZoom, isLight) {
@@ -566,8 +575,7 @@ export default class Renderer {
                 }
             }
             if (lc > 0) {
-                this._batchArrowsDraw(ctx, color, invZoom,
-                    lines.subarray(0, lc), heads.subarray(0, hc));
+                this._batchArrowsDraw(ctx, color, invZoom, lines, lc, heads, hc);
             }
         }
     }
@@ -593,10 +601,18 @@ export default class Renderer {
         ctx.lineWidth = 0.25;
         ctx.strokeStyle = color;
 
-        // Arcs pass: one beginPath + one stroke for all particles
+        // C12: Fused — getValue called once per particle; arrowhead data saved during arc pass.
+        // Head data layout per entry (5 floats): tipX, tipY, ax, ay, endAngle
+        if (this._spinHeadData.length < particles.length * 5) {
+            this._spinHeadData = new Float32Array(particles.length * 5);
+        }
+        const hd = this._spinHeadData;
+
         ctx.beginPath();
         let hasArcs = false;
-        for (const p of particles) {
+        let hdc = 0;
+        for (let i = 0, len = particles.length; i < len; i++) {
+            const p = particles[i];
             let val = getValue(p);
             if (Math.abs(val) < threshold) continue;
             val /= INERTIA_K * p.mass * p.radius * p.radius;
@@ -611,37 +627,43 @@ export default class Renderer {
                        p.pos.y + Math.sin(startAngle) * ringRadius);
             ctx.arc(p.pos.x, p.pos.y, ringRadius, startAngle, endAngle, dir > 0);
             hasArcs = true;
+
+            // Save arrowhead data if arc is long enough to warrant a head
+            if (sweep * ringRadius >= 0.5) {
+                const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
+                const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
+                const sweepDir = endAngle - dir * HALF_PI;
+                const h = 0.5;
+                const base = hdc * 5;
+                hd[base]     = ax + Math.cos(sweepDir) * h;  // tipX
+                hd[base + 1] = ay + Math.sin(sweepDir) * h;  // tipY
+                hd[base + 2] = ax;
+                hd[base + 3] = ay;
+                hd[base + 4] = endAngle;
+                hdc++;
+            }
         }
         if (hasArcs) ctx.stroke();
 
-        // Arrowheads pass: one beginPath + one fill for all particles
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        let hasHeads = false;
-        for (const p of particles) {
-            let val = getValue(p);
-            if (Math.abs(val) < threshold) continue;
-            val /= INERTIA_K * p.mass * p.radius * p.radius;
-
-            const ringRadius = p.radius + offset;
-            const sweep = Math.min(scale * Math.abs(val), maxSweep);
-            if (sweep * ringRadius < 0.5) continue;
-            const dir = val > 0 ? -1 : 1;
-            const endAngle = -HALF_PI - dir * sweep;
-            const ax = p.pos.x + Math.cos(endAngle) * ringRadius;
-            const ay = p.pos.y + Math.sin(endAngle) * ringRadius;
-            const sweepDir = endAngle - dir * HALF_PI;
-            const h = 0.5;
-            const tipX = ax + Math.cos(sweepDir) * h;
-            const tipY = ay + Math.sin(sweepDir) * h;
-            const spread = h * 0.4;
-            ctx.moveTo(tipX, tipY);
-            ctx.lineTo(ax + Math.cos(endAngle) * spread, ay + Math.sin(endAngle) * spread);
-            ctx.lineTo(ax - Math.cos(endAngle) * spread, ay - Math.sin(endAngle) * spread);
-            ctx.closePath();
-            hasHeads = true;
+        // Arrowheads: draw from saved data
+        if (hdc > 0) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            const spread = 0.5 * 0.4;
+            for (let j = 0; j < hdc; j++) {
+                const base = j * 5;
+                const tipX   = hd[base];
+                const tipY   = hd[base + 1];
+                const ax     = hd[base + 2];
+                const ay     = hd[base + 3];
+                const endAng = hd[base + 4];
+                ctx.moveTo(tipX, tipY);
+                ctx.lineTo(ax + Math.cos(endAng) * spread, ay + Math.sin(endAng) * spread);
+                ctx.lineTo(ax - Math.cos(endAng) * spread, ay - Math.sin(endAng) * spread);
+                ctx.closePath();
+            }
+            ctx.fill();
         }
-        if (hasHeads) ctx.fill();
     }
 
     drawPhotons(ctx, photons, isLight) {
