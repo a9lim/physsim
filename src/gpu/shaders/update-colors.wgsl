@@ -1,10 +1,10 @@
 // update-colors.wgsl — Recompute per-particle packed RGBA from charge/mass/antimatter.
 //
 // Matches CPU Particle.getColor() logic:
-//   neutral → slate (#8A7E72), or theme text color in BH mode
-//   positive charge → lerp base toward red (#C05048), intensity = |q|/5
-//   negative charge → lerp base toward blue (#5C92A8), intensity = |q|/5
-//   BH mode → use theme text color as base (light: #1A1612, dark: #E8DED4)
+//   neutral → slate (#848890), or theme text color in BH mode
+//   positive charge → lerp base toward red (#C25454), intensity = |q|/5
+//   negative charge → lerp base toward blue (#3892B8), intensity = |q|/5
+//   BH mode → use theme text color as base (light: #181B20, dark: #E2E4E9)
 //   antimatter → visual distinction via dashed ring overlay (rendered separately)
 
 // Struct definition (ParticleState) provided by shared-structs.wgsl.
