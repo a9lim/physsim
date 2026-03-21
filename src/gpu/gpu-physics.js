@@ -49,6 +49,10 @@ import { fft2d } from '../fft.js';
 
 const MAX_PARTICLES = GPU_MAX_PARTICLES;
 
+// Pack palette slate hex to ABGR u32 for WebGPU color buffers
+const _sN = parseInt(window._PALETTE.extended.slate.slice(1), 16);
+const _DEFAULT_SLATE_ABGR = 0xFF000000 | ((_sN & 0xFF) << 16) | (_sN & 0xFF00) | ((_sN >> 16) & 0xFF);
+
 // Pre-allocated typed arrays for per-frame writeBuffer calls (avoid GC pressure)
 const _qtNodeCounterData = new Uint32Array([1]);
 const _qtBoundsResetData = new Int32Array([2147483647, 2147483647, -2147483647, -2147483647]);
@@ -1701,8 +1705,8 @@ export default class GPUPhysics {
         _addParticleAuxF32[4] = 0;            // deathAngVel
         this.device.queue.writeBuffer(this.buffers.particleAux, idx * PARTICLE_AUX_SIZE, _addParticleAuxData);
 
-        // Pack color: neutral slate = #767C85 -> RGBA
-        _addParticleColorData[0] = 0xFF857C76; // ABGR packed
+        // Pack color: neutral slate -> ABGR (update-colors shader will refresh)
+        _addParticleColorData[0] = _DEFAULT_SLATE_ABGR;
         this.device.queue.writeBuffer(this.buffers.color, idx * 4, _addParticleColorData);
 
         // cacheDerived shader computes derived state before forces each substep.
@@ -3689,7 +3693,7 @@ export default class GPUPhysics {
             _dsAuxF32[aBase + 4] = 0;              // deathAngVel
 
             // Pack color (1 u32)
-            _dsColorData[idx] = 0xFF727E8A;        // default slate (update-colors will refresh)
+            _dsColorData[idx] = _DEFAULT_SLATE_ABGR; // default slate (update-colors will refresh)
 
             // Pack axYukMod (4 f32 = 16 bytes): axMod, yukMod, higgsMod, _pad
             const mBase = idx * 4;
