@@ -24,16 +24,11 @@ export function setupUI(sim) {
     const panelToggle = document.getElementById('panelToggle');
 
     _intro.init(document.getElementById('intro-screen'), document.getElementById('intro-start'), () => {
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-            panel.classList.add('open');
-            panelToggle.classList.add('active');
-            panelToggle.setAttribute('aria-expanded', 'true');
-        }));
         const hint = document.getElementById('hint-bar');
         if (hint) setTimeout(() => hint.classList.add('fade-out'), HINT_FADE_DELAY);
     });
 
-    // ─── Panel toggle ───
+    // ─── Panel toggle (auto-opens on desktop after intro dismiss) ───
     _toolbar.initSidebar(panelToggle, panel, document.getElementById('panelClose'));
 
     // ─── Preset dropdown ───
