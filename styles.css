@@ -218,11 +218,6 @@ label {
         --panel-w: 100%;
     }
 
-    .tool-btn {
-        width: 32px;
-        height: 32px;
-    }
-
     /* Bottom sheet */
     #control-panel {
         top: auto;
