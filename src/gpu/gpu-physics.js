@@ -1701,8 +1701,8 @@ export default class GPUPhysics {
         _addParticleAuxF32[4] = 0;            // deathAngVel
         this.device.queue.writeBuffer(this.buffers.particleAux, idx * PARTICLE_AUX_SIZE, _addParticleAuxData);
 
-        // Pack color: neutral slate = #848890 -> RGBA
-        _addParticleColorData[0] = 0xFF908884; // ABGR packed
+        // Pack color: neutral slate = #767C85 -> RGBA
+        _addParticleColorData[0] = 0xFF857C76; // ABGR packed
         this.device.queue.writeBuffer(this.buffers.color, idx * 4, _addParticleColorData);
 
         // cacheDerived shader computes derived state before forces each substep.

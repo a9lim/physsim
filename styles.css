@@ -73,7 +73,7 @@ body {
 .gpu-indicator {
     font-family: var(--font-display);
     font-weight: 700;
-    color: #3A9C68;
+    color: #2CA470;
     margin-left: 2px;
     user-select: none;
 }
