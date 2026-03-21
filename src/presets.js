@@ -657,7 +657,7 @@ export function loadPreset(name, sim) {
         }
         sim.speedScale = SPEED_OPTIONS[sim.speedIndex];
         const speedBtn = document.getElementById('speedBtn');
-        if (speedBtn && typeof _toolbar !== 'undefined') _toolbar.updateSpeedBtn(speedBtn, sim.speedScale);
+        if (speedBtn && typeof _toolbar !== 'undefined') _toolbar.updateSpeedBtn(speedBtn, sim.speedScale / 16);
     }
 
     // 4. Apply visual toggles

@@ -51,7 +51,7 @@ function syncUI(sim) {
     }
     // Sync speed button
     const speedBtn = document.getElementById('speedBtn');
-    if (speedBtn && typeof _toolbar !== 'undefined') _toolbar.updateSpeedBtn(speedBtn, sim.speedScale);
+    if (speedBtn && typeof _toolbar !== 'undefined') _toolbar.updateSpeedBtn(speedBtn, sim.speedScale / 16);
     const frictionEl = document.getElementById('frictionInput');
     if (frictionEl) { frictionEl.value = ph.bounceFriction; frictionEl.dispatchEvent(new Event('input')); }
     const hubbleEl = document.getElementById('hubbleInput');

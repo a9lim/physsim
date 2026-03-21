@@ -37,7 +37,7 @@ export const MAX_SPEED_RATIO = 0.99;
 export const PHYSICS_DT = 1 / 128;
 export const MAX_SUBSTEPS = 32;
 export const SPEED_OPTIONS = [4, 8, 16, 32, 64];
-export const DEFAULT_SPEED_INDEX = 3; // 32x
+export const DEFAULT_SPEED_INDEX = 2; // 16x (displays as 1x)
 export const DEFAULT_SPEED_SCALE = SPEED_OPTIONS[DEFAULT_SPEED_INDEX];
 export const MAX_FRAME_DT = 0.1;             // frame delta cap (100ms = 10fps floor)
 export const ACCUMULATOR_CAP = 2;            // max accumulator as multiple of PHYSICS_DT * MAX_SUBSTEPS (A6: reduced from 4)

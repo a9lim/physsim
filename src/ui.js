@@ -71,13 +71,13 @@ export function setupUI(sim) {
     const cycleSpeed = () => {
         sim.speedIndex = (sim.speedIndex + 1) % SPEED_OPTIONS.length;
         sim.speedScale = SPEED_OPTIONS[sim.speedIndex];
-        _toolbar.updateSpeedBtn(speedBtn, sim.speedScale);
+        _toolbar.updateSpeedBtn(speedBtn, sim.speedScale / 16);
         _haptics.trigger('selection');
     };
     const decycleSpeed = () => {
         sim.speedIndex = (sim.speedIndex - 1 + SPEED_OPTIONS.length) % SPEED_OPTIONS.length;
         sim.speedScale = SPEED_OPTIONS[sim.speedIndex];
-        _toolbar.updateSpeedBtn(speedBtn, sim.speedScale);
+        _toolbar.updateSpeedBtn(speedBtn, sim.speedScale / 16);
         _haptics.trigger('selection');
     };
     speedBtn.addEventListener('click', cycleSpeed);
