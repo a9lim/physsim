@@ -620,12 +620,17 @@ export function setupUI(sim) {
     });
 
     // ─── Theme toggle ───
-    const toggleTheme = () => {
-        const theme = _toolbar.toggleTheme();
-        const isLight = theme === 'light';
+    const syncRendererTheme = () => {
+        const isLight = document.documentElement.dataset.theme !== 'dark';
         sim.renderer.setTheme(isLight);
         if (sim._gpuRenderer) sim._gpuRenderer.setTheme(isLight);
         sim._dirty = true;
+    };
+    _toolbar.initTheme('geon-theme', syncRendererTheme);
+    syncRendererTheme();
+    const toggleTheme = () => {
+        _toolbar.toggleTheme('geon-theme');
+        syncRendererTheme();
     };
     document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
 
