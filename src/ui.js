@@ -20,40 +20,21 @@ function _buildGPUToggles(sim) {
 
 export function setupUI(sim) {
     // ─── Intro screen dismiss ───
-    const introScreen = document.getElementById('intro-screen');
-    const introStart = document.getElementById('intro-start');
     const panel = document.getElementById('control-panel');
     const panelToggle = document.getElementById('panelToggle');
 
-    if (introStart && introScreen) {
-        introStart.addEventListener('click', () => {
-            introScreen.classList.add('hidden');
-            _haptics.trigger('medium');
-            document.body.classList.add('app-ready');
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                panel.classList.add('open');
-                panelToggle.classList.add('active');
-            }));
-            setTimeout(() => { introScreen.style.display = 'none'; }, 850);
-            const hint = document.getElementById('hint-bar');
-            if (hint) setTimeout(() => hint.classList.add('fade-out'), HINT_FADE_DELAY);
-        });
-    }
+    _intro.init(document.getElementById('intro-screen'), document.getElementById('intro-start'), () => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            panel.classList.add('open');
+            panelToggle.classList.add('active');
+            panelToggle.setAttribute('aria-expanded', 'true');
+        }));
+        const hint = document.getElementById('hint-bar');
+        if (hint) setTimeout(() => hint.classList.add('fade-out'), HINT_FADE_DELAY);
+    });
 
     // ─── Panel toggle ───
-    const closePanel = () => {
-        _toolbar.closeSidebar(panelToggle, panel);
-    };
-    const togglePanel = () => {
-        _toolbar.toggleSidebar(panelToggle, panel);
-    };
-
-    panelToggle.addEventListener('click', togglePanel);
-    document.getElementById('panelClose').addEventListener('click', closePanel);
-
-    if (typeof initSwipeDismiss === 'function') {
-        initSwipeDismiss(panel, { onDismiss: closePanel });
-    }
+    _toolbar.initSidebar(panelToggle, panel, document.getElementById('panelClose'));
 
     // ─── Preset dropdown ───
     const presetSelect = document.getElementById('preset-select');
@@ -659,70 +640,15 @@ export function setupUI(sim) {
         bosoninter: { title: 'Boson Interaction', body: 'Boson\u2194boson gravity and pion\u2194pion Coulomb via Barnes\u2013Hut tree walks. Requires Barnes\u2013Hut + (Gravity or Coulomb). Includes \u03C0\u207A\u03C0\u207B annihilation into photon pairs.' },
     };
 
-    if (typeof createInfoTip === 'function') {
-        document.querySelectorAll('.info-trigger[data-info]').forEach(trigger => {
-            const key = trigger.dataset.info;
-            if (infoData[key]) {
-                createInfoTip(trigger, infoData[key]);
-            }
-        });
-    }
+    registerInfoTips(infoData);
 
-    // ─── Reference overlay (Shift+click on info buttons) ───
-    const refOverlay = document.getElementById('reference-overlay');
-    const refTitle = document.getElementById('reference-title');
-    const refBody = document.getElementById('reference-body');
-    const refClose = document.getElementById('reference-close');
-
-    // A3: Cache KaTeX-rendered HTML per key — first open pays cost, subsequent are instant
-    // Note: REFERENCE values are hardcoded trusted content from reference.js (not user input)
-    const _katexCache = new Map();
-    const openReference = (key) => {
-        const ref = REFERENCE[key];
-        if (!ref) return;
-        refTitle.textContent = ref.title;
-        if (_katexCache.has(key)) {
-            refBody.innerHTML = _katexCache.get(key); // trusted cached content from reference.js
-        } else {
-            refBody.innerHTML = ref.body; // trusted content from reference.js
-            if (typeof renderMathInElement === 'function') {
-                renderMathInElement(refBody, { delimiters: [
-                    { left: '$$', right: '$$', display: true },
-                    { left: '$', right: '$', display: false },
-                ]});
-            }
-            _katexCache.set(key, refBody.innerHTML);
-        }
-        refOverlay.hidden = false;
-    };
-
-    if (refOverlay) {
-        document.querySelectorAll('.info-trigger[data-info]').forEach(trigger => {
-            // Shift+click (desktop)
-            trigger.addEventListener('click', (e) => {
-                if (!e.shiftKey) return;
-                e.stopPropagation();
-                openReference(trigger.dataset.info);
-            });
-            // Long-press (mobile): 500ms touch hold opens reference
-            let longPressTimer = 0;
-            trigger.addEventListener('touchstart', (e) => {
-                longPressTimer = setTimeout(() => {
-                    e.preventDefault();
-                    openReference(trigger.dataset.info);
-                    longPressTimer = 0;
-                }, 500);
-            }, { passive: false });
-            trigger.addEventListener('touchend', () => {
-                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
-            });
-            trigger.addEventListener('touchmove', () => {
-                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
-            });
-        });
-        refClose.addEventListener('click', () => { refOverlay.hidden = true; });
-        refOverlay.addEventListener('click', (e) => {
-            if (e.target === refOverlay) refOverlay.hidden = true;
-        });
-    }
+    // ─── Reference overlay (Shift+click / long-press on info buttons) ───
+    const openReference = initReferenceOverlay(
+        document.getElementById('reference-overlay'),
+        document.getElementById('reference-title'),
+        document.getElementById('reference-body'),
+        document.getElementById('reference-close'),
+        REFERENCE
+    );
+    bindReferenceTriggers(openReference);
 }
