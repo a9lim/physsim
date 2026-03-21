@@ -116,18 +116,6 @@ export function setupUI(sim) {
         frictionGroup.style.display = (sim.collisionMode === COL_BOUNCE || sim.boundaryMode === BOUND_BOUNCE) ? '' : 'none';
     };
 
-    const bindToggleGroup = (id, attr, setter) => {
-        const group = document.getElementById(id);
-        group.addEventListener('click', (e) => {
-            const btn = e.target.closest('.mode-btn');
-            if (!btn) return;
-            group.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            setter(btn.dataset[attr]);
-            _haptics.trigger('selection');
-        });
-    };
-
     const _syncModesToGPU = () => {
         if (sim._gpuPhysics) {
             sim._gpuPhysics.boundaryMode = sim.boundaryMode;
@@ -135,18 +123,18 @@ export function setupUI(sim) {
             sim._gpuPhysics._collisionMode = sim.collisionMode;
         }
     };
-    bindToggleGroup('collision-toggles', 'collision', (v) => {
+    _forms.bindModeGroup(collisionToggles, 'collision', (v) => {
         sim.collisionMode = colFromString(v);
         updateFrictionVisibility();
         _syncModesToGPU();
     });
-    bindToggleGroup('boundary-toggles', 'boundary', (v) => {
+    _forms.bindModeGroup(boundaryToggles, 'boundary', (v) => {
         sim.boundaryMode = boundFromString(v);
         document.getElementById('topology-group').style.display = v === 'loop' ? '' : 'none';
         updateFrictionVisibility();
         _syncModesToGPU();
     });
-    bindToggleGroup('topology-toggles', 'topology', (v) => {
+    _forms.bindModeGroup(document.getElementById('topology-toggles'), 'topology', (v) => {
         sim.topology = topoFromString(v);
         _syncModesToGPU();
     });
@@ -158,7 +146,7 @@ export function setupUI(sim) {
         // Show only on GPU backend
         gridResGroup.style.display = sim.backend === 'gpu' ? '' : 'none';
 
-        bindToggleGroup('grid-res-toggles', 'gridres', (v) => {
+        _forms.bindModeGroup(gridResToggles, 'gridres', (v) => {
             const res = parseInt(v, 10);
             const gpuPhys = sim._gpuPhysics;
             if (gpuPhys && gpuPhys.setFieldResolution) {
@@ -484,115 +472,85 @@ export function setupUI(sim) {
     const frictionSlider = document.getElementById('frictionInput');
     const frictionLabel = document.getElementById('frictionValue');
 
-    massSlider.addEventListener('input', () => { massLabel.textContent = parseFloat(massSlider.value).toFixed(2); _haptics.trigger('selection'); });
-    chargeSlider.addEventListener('input', () => { chargeLabel.textContent = parseFloat(chargeSlider.value).toFixed(2); _haptics.trigger('selection'); });
-    spinSlider.addEventListener('input', () => { spinLabel.textContent = parseFloat(spinSlider.value).toFixed(2) + 'c'; _haptics.trigger('selection'); });
-    frictionSlider.addEventListener('input', () => {
-        sim.physics.bounceFriction = parseFloat(frictionSlider.value);
-        frictionLabel.textContent = parseFloat(frictionSlider.value).toFixed(2);
+    const _fmt2 = v => v.toFixed(2);
+    _forms.bindSlider(massSlider, massLabel, () => _haptics.trigger('selection'), _fmt2);
+    _forms.bindSlider(chargeSlider, chargeLabel, () => _haptics.trigger('selection'), _fmt2);
+    _forms.bindSlider(spinSlider, spinLabel, () => _haptics.trigger('selection'), v => v.toFixed(2) + 'c');
+    _forms.bindSlider(frictionSlider, frictionLabel, v => {
+        sim.physics.bounceFriction = v;
         _syncSlidersToGPU();
         _haptics.trigger('selection');
-    });
+    }, _fmt2);
 
-    // ─── Yukawa slider ───
+    // ─── Physics parameter sliders ───
     const yukawaMuSlider = document.getElementById('yukawaMuInput');
     const yukawaMuLabel = document.getElementById('yukawaMuValue');
-    yukawaMuSlider.addEventListener('input', () => {
-        const mu = parseFloat(yukawaMuSlider.value);
-        sim.physics.yukawaMu = mu;
-        yukawaMuLabel.textContent = mu.toFixed(2);
+    _forms.bindSlider(yukawaMuSlider, yukawaMuLabel, v => {
+        sim.physics.yukawaMu = v;
         _syncSlidersToGPU();
         _haptics.trigger('selection');
-    });
+    }, _fmt2);
 
-    // ─── Axion slider ───
     const axionMassSlider = document.getElementById('axionMassInput');
     const axionMassLabel = document.getElementById('axionMassValue');
-    axionMassSlider.addEventListener('input', () => {
-        const m = parseFloat(axionMassSlider.value);
-        sim.physics.axionMass = m;
-        if (sim.axionField) sim.axionField.mass = m;
-        axionMassLabel.textContent = m.toFixed(2);
+    _forms.bindSlider(axionMassSlider, axionMassLabel, v => {
+        sim.physics.axionMass = v;
+        if (sim.axionField) sim.axionField.mass = v;
         _syncSlidersToGPU();
         _haptics.trigger('selection');
-    });
+    }, _fmt2);
 
-    // ─── Hubble slider ───
     const hubbleSlider = document.getElementById('hubbleInput');
     const hubbleLabel = document.getElementById('hubbleValue');
-    hubbleSlider.addEventListener('input', () => {
-        sim.physics.hubbleParam = parseFloat(hubbleSlider.value);
-        hubbleLabel.textContent = parseFloat(hubbleSlider.value).toFixed(4);
+    _forms.bindSlider(hubbleSlider, hubbleLabel, v => {
+        sim.physics.hubbleParam = v;
         _syncSlidersToGPU();
         _haptics.trigger('selection');
-    });
+    }, v => v.toFixed(4));
 
-    // ─── Higgs mass slider ───
     const higgsMassSlider = document.getElementById('higgsMassInput');
     const higgsMassLabel = document.getElementById('higgsMassValue');
     if (higgsMassSlider) {
-        higgsMassSlider.addEventListener('input', () => {
-            const m = parseFloat(higgsMassSlider.value);
-            sim.physics.higgsMass = m;
-            if (sim.higgsField) sim.higgsField.mass = m;
-            higgsMassLabel.textContent = m.toFixed(2);
+        _forms.bindSlider(higgsMassSlider, higgsMassLabel, v => {
+            sim.physics.higgsMass = v;
+            if (sim.higgsField) sim.higgsField.mass = v;
             _syncSlidersToGPU();
             _haptics.trigger('selection');
-        });
+        }, _fmt2);
     }
 
     // ─── External field sliders ───
-    const extGravitySlider = document.getElementById('extGravityInput');
-    const extGravityLabel = document.getElementById('extGravityValue');
-    const extGravityAngleGroup = document.getElementById('extGravityAngleGroup');
-    const extGravityAngleSlider = document.getElementById('extGravityAngleInput');
-    const extGravityAngleLabel = document.getElementById('extGravityAngleValue');
-    extGravitySlider.addEventListener('input', () => {
-        const v = parseFloat(extGravitySlider.value);
-        sim.physics.extGravity = v;
-        extGravityLabel.textContent = v.toFixed(2);
-        extGravityAngleGroup.style.display = v !== 0 ? '' : 'none';
-        _syncSlidersToGPU();
-        _haptics.trigger('selection');
-    });
-    extGravityAngleSlider.addEventListener('input', () => {
-        const deg = parseFloat(extGravityAngleSlider.value);
-        sim.physics.extGravityAngle = deg * Math.PI / 180;
-        extGravityAngleLabel.textContent = deg + '°';
-        _syncSlidersToGPU();
-        _haptics.trigger('selection');
-    });
-
-    const extElectricSlider = document.getElementById('extElectricInput');
-    const extElectricLabel = document.getElementById('extElectricValue');
-    const extElectricAngleGroup = document.getElementById('extElectricAngleGroup');
-    const extElectricAngleSlider = document.getElementById('extElectricAngleInput');
-    const extElectricAngleLabel = document.getElementById('extElectricAngleValue');
-    extElectricSlider.addEventListener('input', () => {
-        const v = parseFloat(extElectricSlider.value);
-        sim.physics.extElectric = v;
-        extElectricLabel.textContent = v.toFixed(2);
-        extElectricAngleGroup.style.display = v !== 0 ? '' : 'none';
-        _syncSlidersToGPU();
-        _haptics.trigger('selection');
-    });
-    extElectricAngleSlider.addEventListener('input', () => {
-        const deg = parseFloat(extElectricAngleSlider.value);
-        sim.physics.extElectricAngle = deg * Math.PI / 180;
-        extElectricAngleLabel.textContent = deg + '°';
-        _syncSlidersToGPU();
-        _haptics.trigger('selection');
-    });
-
-    const extBzSlider = document.getElementById('extBzInput');
-    const extBzLabel = document.getElementById('extBzValue');
-    extBzSlider.addEventListener('input', () => {
-        const v = parseFloat(extBzSlider.value);
+    const _fmtDeg = deg => deg + '°';
+    const _extSlider = (prop, slider, label, angleGroup, angleSlider, angleLabel, angleProp) => {
+        _forms.bindSlider(slider, label, v => {
+            sim.physics[prop] = v;
+            if (angleGroup) angleGroup.style.display = v !== 0 ? '' : 'none';
+            _syncSlidersToGPU();
+            _haptics.trigger('selection');
+        }, _fmt2);
+        if (angleSlider) {
+            _forms.bindSlider(angleSlider, angleLabel, deg => {
+                sim.physics[angleProp] = deg * Math.PI / 180;
+                _syncSlidersToGPU();
+                _haptics.trigger('selection');
+            }, _fmtDeg);
+        }
+    };
+    _extSlider('extGravity',
+        document.getElementById('extGravityInput'), document.getElementById('extGravityValue'),
+        document.getElementById('extGravityAngleGroup'),
+        document.getElementById('extGravityAngleInput'), document.getElementById('extGravityAngleValue'),
+        'extGravityAngle');
+    _extSlider('extElectric',
+        document.getElementById('extElectricInput'), document.getElementById('extElectricValue'),
+        document.getElementById('extElectricAngleGroup'),
+        document.getElementById('extElectricAngleInput'), document.getElementById('extElectricAngleValue'),
+        'extElectricAngle');
+    _forms.bindSlider(document.getElementById('extBzInput'), document.getElementById('extBzValue'), v => {
         sim.physics.extBz = v;
-        extBzLabel.textContent = v.toFixed(2);
         _syncSlidersToGPU();
         _haptics.trigger('selection');
-    });
+    }, _fmt2);
 
     // Speed is now controlled by the toolbar speed button (cycleSpeed/decycleSpeed above)
 
