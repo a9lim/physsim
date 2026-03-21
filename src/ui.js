@@ -120,22 +120,6 @@ export function setupUI(sim) {
         _syncModesToGPU();
     });
 
-    // ─── Grid resolution (GPU backend only) ───
-    const gridResGroup = document.getElementById('grid-res-group');
-    const gridResToggles = document.getElementById('grid-res-toggles');
-    if (gridResGroup && gridResToggles) {
-        // Show only on GPU backend
-        gridResGroup.style.display = sim.backend === 'gpu' ? '' : 'none';
-
-        _forms.bindModeGroup(gridResToggles, 'gridres', (v) => {
-            const res = parseInt(v, 10);
-            const gpuPhys = sim._gpuPhysics;
-            if (gpuPhys && gpuPhys.setFieldResolution) {
-                gpuPhys.setFieldResolution(res);
-            }
-            sim._dirty = true;
-        });
-    }
 
     // ─── Physics toggles ───
     const toggleDefs = [
@@ -291,8 +275,6 @@ export function setupUI(sim) {
         gpuToggle.setAttribute('aria-checked', 'true');
         const lbl = gpuToggle.closest('.checkbox-label');
         if (lbl) lbl.classList.remove('ctrl-disabled');
-        const grg = document.getElementById('grid-res-group');
-        if (grg) grg.style.display = '';
     };
     sim._onGPULost = () => {
         gpuToggle.disabled = true;
@@ -300,8 +282,6 @@ export function setupUI(sim) {
         gpuToggle.setAttribute('aria-checked', 'false');
         const lbl = gpuToggle.closest('.checkbox-label');
         if (lbl) lbl.classList.add('ctrl-disabled');
-        const grg = document.getElementById('grid-res-group');
-        if (grg) grg.style.display = 'none';
     };
     gpuToggle.addEventListener('change', async () => {
         const on = gpuToggle.checked;
@@ -603,8 +583,8 @@ export function setupUI(sim) {
             sim._dirty = true;
         }},
         { key: 'T', label: 'Toggle theme', group: 'View', action: toggleTheme },
-        { key: 'S', label: 'Toggle sidebar', group: 'View', action: togglePanel },
-        { key: 'Escape', label: 'Close panel', group: 'View', action: closePanel },
+        { key: 'S', label: 'Toggle sidebar', group: 'View', action: () => _toolbar.toggleSidebar() },
+        { key: 'Escape', label: 'Close panel', group: 'View', action: () => _toolbar.closeSidebar() },
     ];
 
     if (typeof initShortcuts === 'function') {
