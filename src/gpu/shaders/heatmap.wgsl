@@ -216,7 +216,6 @@ fn computeHeatmapTree(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (doC) { ePhi += pj.charge * invR; }
             if (doY && rSq < yCutSq) {
                 let r = 1.0 / invR;
-                gPhi; // no-op, just continue
                 yPhi -= yukCoupling * pj.mass * exp(-yukMu * r) * invR;
             }
         } else {
