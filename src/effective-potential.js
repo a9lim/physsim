@@ -20,9 +20,8 @@ export default class EffectivePotentialPlot {
         this.currentR = 0;
         this.currentV = 0;
         this._valid = false;
-        // R11: Cached layout dimensions (avoids reflow from clientWidth reads)
+        // R11: Cached CSS width (avoids reflow from clientWidth reads in draw loop)
         this._cachedWidth = 180;
-        this._cachedDpr = devicePixelRatio || 1;
         // R12: Dirty flag — skip 200-sample recomputation when key inputs unchanged
         this._lastSelId = -1;
         this._lastRefId = -1;
@@ -30,10 +29,9 @@ export default class EffectivePotentialPlot {
         this._lastToggleKey = '';
     }
 
-    /** R11: Call on resize to refresh cached dimensions. */
+    /** R11: Call on resize to refresh cached CSS width. */
     cacheSize() {
         this._cachedWidth = this.canvas.clientWidth || 180;
-        this._cachedDpr = devicePixelRatio || 1;
     }
 
     update(particles, selectedParticle, physics) {
@@ -156,15 +154,13 @@ export default class EffectivePotentialPlot {
     draw(isLight) {
         if (!this.enabled || !this._valid) return;
 
-        const dpr = this._cachedDpr;
         const ps = this._cachedWidth;
-        const pxW = Math.round(ps * dpr);
-        const pxH = Math.round(ps * dpr);
-        if (this.canvas.width !== pxW || this.canvas.height !== pxH) {
-            this.canvas.width = pxW;
-            this.canvas.height = pxH;
+        const dpr = window.devicePixelRatio || 1;
+        const px = Math.round(ps * dpr);
+        if (this.canvas.width !== px || this.canvas.height !== px) {
+            this.canvas.width = px;
+            this.canvas.height = px;
         }
-
         const c = this.ctx;
         c.setTransform(dpr, 0, 0, dpr, 0, 0);
 

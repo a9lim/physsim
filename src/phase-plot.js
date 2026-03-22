@@ -19,15 +19,13 @@ export default class PhasePlot {
         this.head = 0;
         this.count = 0;
         this.trackedId = -1;
-        // R11: Cached layout dimensions (avoids reflow from clientWidth reads)
+        // R11: Cached CSS width (avoids reflow from clientWidth reads in draw loop)
         this._cachedWidth = 180;
-        this._cachedDpr = devicePixelRatio || 1;
     }
 
-    /** R11: Call on resize to refresh cached dimensions. */
+    /** R11: Call on resize to refresh cached CSS width. */
     cacheSize() {
         this._cachedWidth = this.canvas.clientWidth || 180;
-        this._cachedDpr = devicePixelRatio || 1;
     }
 
     update(particles, selectedParticle, physics) {
@@ -74,14 +72,13 @@ export default class PhasePlot {
     draw(isLight) {
         if (!this.enabled || this.count < 2) return;
 
-        const dpr = this._cachedDpr;
         const ps = this._cachedWidth;
-        const pxW = Math.round(ps * dpr);
-        if (this.canvas.width !== pxW || this.canvas.height !== pxW) {
-            this.canvas.width = pxW;
-            this.canvas.height = pxW;
+        const dpr = window.devicePixelRatio || 1;
+        const px = Math.round(ps * dpr);
+        if (this.canvas.width !== px || this.canvas.height !== px) {
+            this.canvas.width = px;
+            this.canvas.height = px;
         }
-
         const c = this.ctx;
         c.setTransform(dpr, 0, 0, dpr, 0, 0);
 

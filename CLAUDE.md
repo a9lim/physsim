@@ -91,7 +91,8 @@ src/
     gpu-buffers.js        569 lines  Buffer allocation: packed structs, quadtree, collision, field, history,
                                       trail buffers, staging, boson tree visitor flags
     gpu-constants.js      299 lines  buildWGSLConstants(): generates WGSL const block from config.js +
-                                      _PALETTE colors, single source of truth for JS/WGSL constants
+                                      _PALETTE colors, single source of truth for JS/WGSL constants.
+                                      paletteRGB() delegates to _parseHex(); hslToRGB via _hsl2rgb()
     shaders/               52 files  WGSL compute + render shaders (10120 lines total)
 ```
 
@@ -122,7 +123,7 @@ save-load.js    <- BACKEND_GPU (backend-interface)
 gpu-physics.js   <- gpu-buffers, gpu-pipelines (fetchShader + pipeline creators), gpu-constants
 gpu-pipelines.js <- gpu-constants (buildWGSLConstants), exports fetchShader + getSharedPrefix
 gpu-renderer.js  <- gpu-pipelines (fetchShader + render pipeline creators)
-gpu-constants.js <- config, _PALETTE (generates WGSL const block from JS constants + palette)
+gpu-constants.js <- config, _PALETTE, _parseHex, _hsl2rgb (generates WGSL const block from JS constants + palette)
 ```
 
 ## Physics Engine

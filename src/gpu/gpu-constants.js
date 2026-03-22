@@ -4,7 +4,7 @@
  * buildWGSLConstants() generates a WGSL const declaration block from config.js
  * exports + _PALETTE hex→RGB conversions. Prepended to all shaders at compile time.
  *
- * paletteRGB() converts hex colors to normalized [r,g,b] for JS-side GPU use.
+ * paletteRGB() delegates to _parseHex() from shared-tokens.js for hex→RGB conversion.
  */
 
 import {
@@ -33,30 +33,11 @@ const _PAL = window._PALETTE;
 
 /**
  * Convert a hex color string (#RRGGBB) to normalized [r, g, b] floats (0–1).
+ * Delegates to _parseHex() from shared-tokens.js.
  * @param {string} hex
  * @returns {[number, number, number]}
  */
-export function paletteRGB(hex) {
-    const n = parseInt(hex.slice(1), 16);
-    return [(n >> 16 & 0xFF) / 255, (n >> 8 & 0xFF) / 255, (n & 0xFF) / 255];
-}
-
-/**
- * Convert HSL (h: 0–360, s: 0–1, l: 0–1) to normalized [r, g, b].
- */
-function hslToRGB(h, s, l) {
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-    const m = l - c / 2;
-    let r, g, b;
-    if (h < 60) { r = c; g = x; b = 0; }
-    else if (h < 120) { r = x; g = c; b = 0; }
-    else if (h < 180) { r = 0; g = c; b = x; }
-    else if (h < 240) { r = 0; g = x; b = c; }
-    else if (h < 300) { r = x; g = 0; b = c; }
-    else { r = c; g = 0; b = x; }
-    return [r + m, g + m, b + m];
-}
+export const paletteRGB = window._parseHex;
 
 /** Format a float for WGSL (always includes decimal point). */
 function wf(v) {
@@ -111,8 +92,8 @@ export function buildWGSLConstants() {
     const accentLight = paletteRGB(_PAL.accentLight);
 
     // Spin ring colors: HSL-derived from palette hues (80% sat, 60% lightness)
-    const spinCW = hslToRGB(_PAL.spinPos, 0.8, 0.6);
-    const spinCCW = hslToRGB(_PAL.spinNeg, 0.8, 0.6);
+    const spinCW = window._hsl2rgb(_PAL.spinPos, 0.8, 0.6);
+    const spinCCW = window._hsl2rgb(_PAL.spinNeg, 0.8, 0.6);
 
     _cached = `// ── Auto-generated from config.js + _PALETTE ──
 
