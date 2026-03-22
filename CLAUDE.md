@@ -1,6 +1,10 @@
 # CLAUDE.md
 
-Part of the **a9l.im** portfolio. See parent `site-meta/CLAUDE.md` for shared design system, head loading order, and CSS conventions. Sibling projects: `biosim`, `gerry`.
+Part of the **a9l.im** portfolio. See root `CLAUDE.md` for the shared design system, head loading order, CSS conventions, and shared code policy. Sibling projects: `finsim`, `biosim`, `gerry`.
+
+## Shared Code Policy
+
+Always prefer shared modules over project-specific reimplementations. This project uses: `shared-tokens.js`, `shared-utils.js`, `shared-haptics.js`, `shared-toolbar.js`, `shared-forms.js`, `shared-intro.js`, `shared-base.css`, `shared-tabs.js`, `shared-camera.js`, `shared-info.js`, `shared-shortcuts.js`, `shared-touch.js`, `shared-tooltip.js`. Before adding utility code, check whether a `shared-*.js` file already provides it. New utilities useful across projects should be added to the shared files in the root repo.
 
 ## Style Rule
 
@@ -22,10 +26,13 @@ main.js                   838 lines  Simulation class, fixed-timestep loop, back
 index.html                498 lines  UI: 4-tab sidebar, reference overlay, zoom controls, field sliders
 styles.css                295 lines  Project-specific CSS overrides, toggle/slider theme colors
 colors.js                  18 lines  Project color tokens (extends shared-tokens.js)
+PERFORMANCE_AUDIT.md              Performance audit notes
+PHYSICS_AUDIT.md                  Physics accuracy audit notes
 src/
   integrator.js          1622 lines  CPU physics: Boris substep loop, radiation, pion emission/absorption,
                                       field excitations, tidal, GW quadrupole, expansion, Roche, external fields,
                                       Hertz bounce, scalar fields
+  fft.js                  112 lines  Compact radix-2 FFT: in-place Cooley-Tukey for 2D convolution, no dependencies
   scalar-field.js         858 lines  ScalarField base: PQS grid, topology-aware deposition, Laplacian, C²
                                       gradients, field energy, excitations, particle-field gravity, self-gravity
   forces.js               921 lines  CPU pairForce(), computeAllForces(), calculateForce() (BH walk, uses
