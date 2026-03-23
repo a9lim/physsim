@@ -586,6 +586,21 @@ export function setupUI(sim) {
         initShortcuts(shortcuts, { helpTitle: 'Keyboard Shortcuts' });
     }
 
+    if (typeof initAboutPanel === 'function') {
+        initAboutPanel({
+            title: 'Particle Physics',
+            description: 'N-body particle simulator with Boris integration, Barnes-Hut tree acceleration, and scalar field support. Explore gravitational, electromagnetic, and exotic physics scenarios across 19 presets.',
+            controls: [
+                { label: 'Pan', value: 'Click + drag' },
+                { label: 'Zoom', value: 'Scroll wheel / pinch' },
+                { label: 'Add particle', value: 'Click on canvas' },
+                { label: 'Fling particle', value: 'Click + drag + release' },
+            ],
+            shortcuts: shortcuts,
+            repo: 'https://github.com/a9lim/physsim',
+        });
+    }
+
     // ─── Info tips ───
     const infoData = {
         energy: { title: 'Energy', body: 'Sum of kinetic, potential, field, and radiated energy. "Drift" tracks cumulative numerical error as a percentage of initial energy.' },
