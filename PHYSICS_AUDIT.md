@@ -1,6 +1,6 @@
 # Physics Accuracy Audit
 
-Comprehensive audit of the physsim N-body simulation for physical accuracy, realism, and factual correctness. Covers all force laws, field theories, numerical methods, presets, and reference documentation.
+Comprehensive audit of the Geon N-body simulation for physical accuracy, realism, and factual correctness. Covers all force laws, field theories, numerical methods, presets, and reference documentation.
 
 **Audit date**: 2026-03-07
 **Scope**: All source files in `src/`, `main.js`, `colors.js`

@@ -2,7 +2,7 @@
 
 A relativistic N-body simulation exploring how gravity, electromagnetism, scalar fields, and spin shape particle dynamics in 2D. Eleven distinct force types, two dynamical scalar fields, massive force carriers, and a full WebGPU compute backend -- all in 29,100 lines of zero-dependency vanilla JavaScript.
 
-**[Live Demo](https://a9l.im/physsim)** | Part of the [a9l.im](https://a9l.im) portfolio
+**[Live Demo](https://a9l.im/geon)** | Part of the [a9l.im](https://a9l.im) portfolio
 
 ## Highlights
 
@@ -119,7 +119,7 @@ Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepp
 ```bash
 # Serve from parent -- shared design files load via absolute paths
 cd path/to/a9lim.github.io && python -m http.server
-# -> http://localhost:8000/physsim/
+# -> http://localhost:8000/geon/
 ```
 
 No build step, no dependencies, no npm. ES6 modules require HTTP (no `file://`).
@@ -188,9 +188,9 @@ src/
 
 ## Sibling Projects
 
-- [Cyano](https://github.com/a9lim/biosim) -- [a9l.im/biosim](https://a9l.im/biosim)
+- [Cyano](https://github.com/a9lim/cyano) -- [a9l.im/cyano](https://a9l.im/cyano)
 - [Gerry](https://github.com/a9lim/gerry) -- [a9l.im/gerry](https://a9l.im/gerry)
-- [Shoals](https://github.com/a9lim/finsim) -- [a9l.im/finsim](https://a9l.im/finsim)
+- [Shoals](https://github.com/a9lim/shoals) -- [a9l.im/shoals](https://a9l.im/shoals)
 
 ## License
 

@@ -1,4 +1,4 @@
-# Performance Audit: physsim
+# Performance Audit: Geon
 
 **Date**: 2026-03-07
 **Scope**: Full codebase — physics hot paths, rendering, memory/data structures, main loop, UI
