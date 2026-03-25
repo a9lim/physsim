@@ -603,7 +603,7 @@ export function setupUI(sim) {
                 { label: 'Select particle', value: 'Click on particle' },
             ],
             shortcuts: shortcuts,
-            repo: 'https://github.com/a9lim/physsim',
+            repo: 'https://github.com/a9lim/geon',
         });
     }
 

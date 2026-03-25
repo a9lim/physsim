@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Part of the **a9l.im** portfolio. See root `CLAUDE.md` for the shared design system, head loading order, CSS conventions, and shared code policy. Sibling projects: `finsim`, `biosim`, `gerry`.
+Part of the **a9l.im** portfolio. See root `CLAUDE.md` for the shared design system, head loading order, CSS conventions, and shared code policy. Sibling projects: `shoals`, `cyano`, `gerry`.
 
 ## Shared Code Policy
 

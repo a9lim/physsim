@@ -1,5 +1,5 @@
 /* ===================================================================
-   colors.js — physsim project-specific tokens
+   colors.js — geon project-specific tokens
    Extends shared-tokens.js with particle physics colors & CSS vars.
    =================================================================== */
 
