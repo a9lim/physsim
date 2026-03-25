@@ -378,6 +378,59 @@ Defaults off: Boson Interaction, Yukawa, Axion, Higgs, Disintegration, Expansion
 
 19 presets in 4 groups: Gravity (6), Electromagnetism (3), Exotic (8), Cosmological (2). First 9 via keyboard `1`-`9`. Speed: 1-64, default 32.
 
+### Antimatter/Delete Toggle (`#mode-btn`)
+
+Toolbar button toggled by click or `X` key. State exported via `getAntimatterMode()` from `ui.js`, consumed by `input.js`.
+
+- **Normal mode** (default): tap canvas spawns matter, tap on particle selects it.
+- **Antimatter mode**: tap canvas spawns antimatter, tap on particle deletes it, tap on antimatter particle selects it.
+
+The button SVG gains a vertical bar when antimatter mode is active. `aria-pressed` and `aria-label` update on toggle.
+
+### Touch Interactions
+
+- **Single-finger tap**: spawn / select / delete (behavior depends on antimatter mode)
+- **Two-finger pinch**: pan + zoom
+- **Hint bar**: on `(pointer: coarse)` devices, text changes to "Tap to Spawn · Pinch to Zoom · X to Toggle Mode". Fades out after 5 seconds.
+
+### Keyboard Shortcuts
+
+Registered via `initShortcuts()` from `shared-shortcuts.js`. `?` key opens help overlay.
+
+| Key | Action | Group |
+|-----|--------|-------|
+| Space | Pause / Play | Simulation |
+| R | Reset simulation | Simulation |
+| . | Speed up | Simulation |
+| , | Slow down | Simulation |
+| / | Step forward | Simulation |
+| X | Toggle antimatter mode | Simulation |
+| 1-9 | Load preset (Kepler, Precession, Inspiral, Tidal Lock, Roche, Hawking, Atom, Bremsstrahlung, Magnetic) | Presets |
+| V | Toggle velocity vectors | View |
+| F | Toggle acceleration vectors | View |
+| C | Toggle acceleration components | View |
+| T | Toggle theme | View |
+| S | Toggle sidebar | View |
+| Escape | Close panel | View |
+| [ | Previous tab | View |
+| ] | Next tab | View |
+| = | Zoom in | View |
+| - | Zoom out | View |
+| 0 | Reset zoom | View |
+| Ctrl+S | Quick save | Save / Load |
+| Ctrl+L | Quick load | Save / Load |
+| Ctrl+Shift+S | Download state | Save / Load |
+| Ctrl+Shift+L | Upload state | Save / Load |
+
+### Accessibility
+
+- **Engine tab checkboxes**: all physics toggles have `role="switch"` and `aria-checked` synced in JS on every change (including cascading disables via `updateAllDeps()`).
+- **About panel**: uses `trapFocus()` (from `shared-utils.js`) and `aria-modal="true"` (set in `shared-about.js`).
+- **Reference overlay**: uses `trapFocus()` and `aria-modal="true"` (set in `shared-info.js`).
+- **Toolbar buttons**: all have `aria-label` attributes (`index.html`). The `#mode-btn` also uses `aria-pressed`.
+- **Touch targets**: `@media (pointer: coarse)` in `shared-base.css` expands `.tool-btn` to 44x44px, `.info-trigger` to 32x32px min, `.tab-btn` to 44px min-height.
+- **Tab navigation**: `shared-tabs.js` supports Arrow Left/Right/Up/Down and Home/End key navigation between tab buttons.
+
 ## Backend Architecture
 
 Two interchangeable backends via `selectBackend()`:
@@ -515,5 +568,5 @@ Particles, trails, field overlays, heatmap, bosons (photons + pions), spin rings
 - Yukawa cutoff: skip `Math.exp` when `μr > 6`
 - Lazy field init: Higgs/Axion fields `null` until first toggle-on
 - KaTeX CSS preload + render cache
-- Shared utilities: `_toolbar.initSidebar()` for panel toggle/close/swipe, `_toolbar.initTheme('geon-theme')` for theme persistence + system preference, `_toolbar.updatePlayBtn`/`updateSpeedBtn` for playback, `_intro.init()` for intro screen, `_forms.bindModeGroup()` for collision/boundary/topology/grid-res toggles, `_forms.bindSlider()` for all parameter sliders, `registerInfoTips()` for info tips, `initReferenceOverlay()`/`bindReferenceTriggers()` for reference pages
+- Shared utilities: `_toolbar.initSidebar()` for panel toggle/close/swipe, `_toolbar.initTheme('geon-theme')` for theme persistence + system preference, `_toolbar.updatePlayBtn`/`updateSpeedBtn` for playback, `_intro.init()` for intro screen, `_forms.bindModeGroup()` for collision/boundary/topology/grid-res toggles, `_forms.bindSlider()` for all parameter sliders, `registerInfoTips()` for info tips, `initReferenceOverlay()`/`bindReferenceTriggers()` for reference pages, `trapFocus()` for modal focus trapping (about panel + reference overlay), `shared-tabs.js` for sidebar tab switching with arrow key navigation
 - rAF-throttled hover, visibilitychange halt, accumulator cap = 2 frames
