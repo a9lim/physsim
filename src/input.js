@@ -1,6 +1,7 @@
 import Vec2 from './vec2.js';
 import { PINCH_DEBOUNCE, DRAG_THRESHOLD, SHOOT_VELOCITY_SCALE } from './config.js';
 import { BACKEND_GPU } from './backend-interface.js';
+import { getAntimatterMode } from './ui.js';
 
 export default class InputHandler {
     constructor(canvas, sim) {
@@ -139,7 +140,30 @@ export default class InputHandler {
             if (this.isDragging && !this._wasPinching) {
                 this.isDragging = false;
                 const t = e.changedTouches[0];
-                this.spawnParticle(this._getPosNew(t.clientX, t.clientY));
+                const endPos = this._getPosNew(t.clientX, t.clientY);
+                const isShortTap = this.dragStart.dist(endPos) < DRAG_THRESHOLD;
+                const amMode = getAntimatterMode();
+
+                if (isShortTap) {
+                    // Hit-test: check if a particle is under the tap
+                    if (this.sim.backend === BACKEND_GPU && this.sim._gpuReady) {
+                        // GPU mode: defer action until GPU hit test result arrives
+                        this.sim._gpuPhysics.hitTest(endPos.x, endPos.y);
+                        this._pendingClick = { pos: endPos, rightButton: amMode };
+                        this.sim._dirty = true;
+                        return;
+                    }
+                    // CPU mode: immediate hit test
+                    const hit = this._cpuFindParticleAt(endPos);
+                    if (hit) {
+                        this._resolveClickHit(hit, amMode);
+                        this.sim._dirty = true;
+                        return;
+                    }
+                }
+
+                // No hit or long drag: spawn particle
+                this.spawnParticle(endPos, amMode && !this.sim.physics.blackHoleEnabled);
                 this.sim._dirty = true;
                 return;
             }

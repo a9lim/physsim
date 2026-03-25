@@ -9,6 +9,9 @@ import { quickSave, quickLoad, downloadState, uploadState } from './save-load.js
 
 const HINT_FADE_DELAY = 5000;
 
+let antimatterMode = false;
+export function getAntimatterMode() { return antimatterMode; }
+
 // C3: Persistent GPU toggle proxy — avoids Object.create() allocation on every slider drag.
 // Object.assign copies all own enumerable properties from sim.physics, then we add extras.
 const _gpuToggleProxy = {};
@@ -31,6 +34,34 @@ export function setupUI(sim) {
 
     // ─── Panel toggle (auto-opens on desktop after intro dismiss) ───
     _toolbar.initSidebar(panelToggle, panel, document.getElementById('panelClose'));
+
+    // ─── Antimatter mode toggle ───
+    const modeBtn = document.getElementById('mode-btn');
+    modeBtn.addEventListener('click', () => {
+        antimatterMode = !antimatterMode;
+        modeBtn.setAttribute('aria-pressed', String(antimatterMode));
+        modeBtn.setAttribute('aria-label', antimatterMode ? 'Antimatter mode' : 'Normal mode');
+        modeBtn.title = antimatterMode ? 'Antimatter mode (X)' : 'Normal mode (X)';
+        const svg = modeBtn.querySelector('svg');
+        let vl = svg.querySelector('.vert-line');
+        if (antimatterMode && !vl) {
+            vl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            vl.setAttribute('x1', '12'); vl.setAttribute('y1', '8');
+            vl.setAttribute('x2', '12'); vl.setAttribute('y2', '16');
+            vl.setAttribute('stroke', 'currentColor'); vl.setAttribute('stroke-width', '2');
+            vl.setAttribute('stroke-linecap', 'round');
+            vl.classList.add('vert-line');
+            svg.appendChild(vl);
+        } else if (!antimatterMode && vl) {
+            vl.remove();
+        }
+    });
+
+    // ─── Mobile hint bar ───
+    if (window.matchMedia('(pointer: coarse)').matches) {
+        const hintEl = document.getElementById('hint-bar');
+        if (hintEl) hintEl.textContent = 'Tap to Spawn \u00b7 Pinch to Zoom \u00b7 X to Toggle Mode';
+    }
 
     // ─── Preset dropdown ───
     const presetSelect = document.getElementById('preset-select');
@@ -603,7 +634,7 @@ export function setupUI(sim) {
         { key: '=', label: 'Zoom in', group: 'View', action: zoomIn },
         { key: '-', label: 'Zoom out', group: 'View', action: zoomOut },
         { key: '0', label: 'Reset zoom', group: 'View', action: zoomReset },
-        { key: 'X', label: 'Toggle antimatter mode', group: 'Simulation', action: () => {} },
+        { key: 'X', label: 'Toggle antimatter mode', group: 'Simulation', action: () => document.getElementById('mode-btn').click() },
         { key: 'Ctrl+S', label: 'Quick save', group: 'Save / Load', action: () => quickSave(sim) },
         { key: 'Ctrl+L', label: 'Quick load', group: 'Save / Load', action: () => { quickLoad(sim); sim._dirty = true; } },
         { key: 'Ctrl+Shift+S', label: 'Download state', group: 'Save / Load', action: () => downloadState(sim) },
