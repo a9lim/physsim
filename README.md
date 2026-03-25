@@ -92,6 +92,8 @@ Boris integrator (half-kick / rotate / half-kick / drift) with adaptive substepp
 | `1`-`9` | Load preset directly |
 | `V` / `F` / `C` | Toggle velocity / force / component vectors |
 | `T` / `S` | Toggle theme / sidebar |
+| `Ctrl+S` / `Ctrl+L` | Quick save / load |
+| `Ctrl+Shift+S` / `Ctrl+Shift+L` | Download / upload state file |
 | `?` | Keyboard shortcut help |
 
 ### Sidebar Tabs

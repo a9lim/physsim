@@ -580,6 +580,10 @@ export function setupUI(sim) {
         { key: 'T', label: 'Toggle theme', group: 'View', action: toggleTheme },
         { key: 'S', label: 'Toggle sidebar', group: 'View', action: () => _toolbar.toggleSidebar() },
         { key: 'Escape', label: 'Close panel', group: 'View', action: () => _toolbar.closeSidebar() },
+        { key: 'Ctrl+S', label: 'Quick save', group: 'Save / Load', action: () => {} },
+        { key: 'Ctrl+L', label: 'Quick load', group: 'Save / Load', action: () => {} },
+        { key: 'Ctrl+Shift+S', label: 'Download state', group: 'Save / Load', action: () => {} },
+        { key: 'Ctrl+Shift+L', label: 'Upload state', group: 'Save / Load', action: () => {} },
     ];
 
     if (typeof initShortcuts === 'function') {
@@ -588,13 +592,15 @@ export function setupUI(sim) {
 
     if (typeof initAboutPanel === 'function') {
         initAboutPanel({
-            title: 'Particle Physics',
-            description: 'N-body particle simulator with Boris integration, Barnes-Hut tree acceleration, and scalar field support. Explore gravitational, electromagnetic, and exotic physics scenarios across 19 presets.',
+            title: 'Geon',
+            description: 'Spawn particles and watch them interact through gravity, electromagnetism, and exotic forces. Fling matter into orbit, toggle scalar fields, switch between 19 preset scenarios, and explore relativistic physics in real time.',
             controls: [
-                { label: 'Pan', value: 'Click + drag' },
-                { label: 'Zoom', value: 'Scroll wheel / pinch' },
                 { label: 'Add particle', value: 'Click on canvas' },
                 { label: 'Fling particle', value: 'Click + drag + release' },
+                { label: 'Spawn antimatter', value: 'Right-click on canvas' },
+                { label: 'Pan', value: 'Middle-click + drag' },
+                { label: 'Zoom', value: 'Scroll wheel / pinch' },
+                { label: 'Select particle', value: 'Click on particle' },
             ],
             shortcuts: shortcuts,
             repo: 'https://github.com/a9lim/physsim',
