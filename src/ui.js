@@ -264,7 +264,7 @@ export function setupUI(sim) {
     toggleDefs.forEach(({ id, prop }) => {
         tEl[id].addEventListener('change', () => {
             sim.physics[prop] = tEl[id].checked;
-            tEl[id].setAttribute('aria-checked', tEl[id].checked);
+            tEl[id].setAttribute('aria-checked', String(tEl[id].checked));
             // A11: Lazy field initialization on first toggle-on
             if (id === 'higgs-toggle' && tEl[id].checked) sim.ensureHiggsField();
             if (id === 'axion-toggle' && tEl[id].checked) sim.ensureAxionField();
