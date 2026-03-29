@@ -46,13 +46,16 @@
     min-width: 0;
 }
 
-/* GPU indicator — serif green "+" next to title */
+/* GPU indicator — italic serif "on GPU" next to title */
 .gpu-indicator {
     font-family: var(--font-display);
-    font-weight: 700;
+    font-style: italic;
+    font-weight: 400;
     color: var(--ext-green);
-    margin-left: 2px;
+    margin-left: 6px;
     user-select: none;
+    font-size: 1em;
+    vertical-align: baseline;
 }
 
 
