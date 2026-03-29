@@ -581,13 +581,6 @@ export function setupUI(sim) {
     document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
 
     // ─── Tab cycling helper ───
-    function cycleTab(dir) {
-        var btns = document.querySelectorAll('.tab-btn');
-        var idx = 0;
-        btns.forEach(function(b, i) { if (b.classList.contains('active')) idx = i; });
-        var next = (idx + dir + btns.length) % btns.length;
-        btns[next].click();
-    }
 
     // ─── Zoom helpers ───
     const canvas = sim.canvas || document.getElementById('simCanvas');

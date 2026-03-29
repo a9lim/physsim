@@ -11,8 +11,4 @@ _PALETTE.chargeNeg = _hueOf(_PALETTE.extended.blue);    // hue — negative char
 _PALETTE.spinPos   = _hueOf(_PALETTE.extended.cyan);    // hue — positive spin ring
 _PALETTE.spinNeg   = _hueOf(_PALETTE.extended.orange);  // hue — negative spin ring
 
-Object.freeze(_PALETTE.extended);
-Object.freeze(_PALETTE.light);
-Object.freeze(_PALETTE.dark);
-Object.freeze(_FONT);
-Object.freeze(_PALETTE);
+_freezeTokens();

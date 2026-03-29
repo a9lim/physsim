@@ -23,7 +23,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Noto+Sans+Mono:wght@300;400;500;600;700&family=Noto+Serif:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- A2: Non-render-blocking KaTeX CSS — preloads in parallel, applies on download -->
     <link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" as="style" crossorigin="anonymous" onload="this.onload=null;this.rel='stylesheet'">
     <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous"></noscript>
@@ -86,7 +86,7 @@
     </script>
 </head>
 
-<body>
+<body class="sim-body">
     <a href="#simCanvas" class="skip-link">Skip to simulation</a>
     <div id="intro-screen">
         <div class="intro-bg"></div>
@@ -223,7 +223,7 @@
         <div class="sheet-handle"></div>
         <div class="stats-header">
             <h2 class="stats-title">Controls</h2>
-            <button id="panelClose" class="tool-btn" title="Close" aria-label="Close panel">
+            <button id="panelClose" class="tool-btn icon-tight" title="Close" aria-label="Close panel">
                 <svg width="16" height="16" viewBox="0 0 24 24">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
