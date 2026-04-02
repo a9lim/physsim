@@ -15,5 +15,11 @@ Thumbs.db
 # Claude Code
 .claude/
 
+# Playwright MCP
+.playwright-mcp/
+
 # Superpowers
 .superpowers/
+
+# Worktrees
+.worktrees/
