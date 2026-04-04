@@ -103,7 +103,7 @@
         <div class="topbar-right sim-toolbar-actions">
             <button id="playBtn" class="tool-btn" title="Pause" aria-label="Pause simulation">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
                     <rect x="6" y="4" width="4" height="16"></rect>
                     <rect x="14" y="4" width="4" height="16"></rect>
                 </svg>
@@ -118,24 +118,24 @@
                 </svg>
             </button>
             <button id="clearBtn" class="tool-btn" title="Reset" aria-label="Reset simulation">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3.7 7.3"></path><path d="M3 3v5h5"></path>
                 </svg>
             </button>
             <button id="mode-btn" class="tool-btn" aria-label="Normal mode" aria-pressed="false" title="Normal mode (X)">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square">
                     <circle cx="12" cy="12" r="9"/>
                     <line x1="8" y1="12" x2="16" y2="12"/>
                 </svg>
             </button>
             <button id="saveBtn" class="tool-btn" title="Quick Save (Ctrl+S)" aria-label="Quick save">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
                     <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
                 </svg>
             </button>
             <button id="loadBtn" class="tool-btn" title="Quick Load (Ctrl+L)" aria-label="Quick load">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+                    <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                 </svg>
             </button>
             <div class="tool-sep"></div>
@@ -156,12 +156,12 @@
                 </svg>
             </button>
             <button id="about-btn" class="tool-btn" aria-label="About" title="About">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
                     <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
                 </svg>
             </button>
             <button id="panelToggle" class="tool-btn" title="Settings" aria-label="Toggle settings panel" aria-expanded="false">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
                     <line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line>
                 </svg>
             </button>
@@ -467,7 +467,7 @@
     <div id="sim-controls" class="sim-controls glass">
         <button id="zoom-in-btn" class="tool-btn" title="Zoom in" aria-label="Zoom in">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2.5" stroke-linecap="round">
+                stroke-width="2.5" stroke-linecap="square">
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
@@ -475,18 +475,18 @@
         <span id="zoom-level" class="zoom-level">100%</span>
         <button id="zoom-out-btn" class="tool-btn" title="Zoom out" aria-label="Zoom out">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2.5" stroke-linecap="round">
+                stroke-width="2.5" stroke-linecap="square">
                 <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
         </button>
         <div class="ctrl-sep"></div>
         <button id="zoom-reset-btn" class="tool-btn" title="Reset zoom" aria-label="Reset zoom">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
                 <path d="M15 3h6v6" />
                 <path d="M9 21H3v-6" />
-                <path d="M21 3l-7 7" />
-                <path d="M3 21l7-7" />
+                <path d="M20.3 3.7l-6.3 6.3" />
+                <path d="M3.7 20.3l6.3-6.3" />
             </svg>
         </button>
     </div>
@@ -500,7 +500,7 @@
             <div class="stats-header">
                 <h2 id="reference-title" class="stats-title">Reference</h2>
                 <button id="reference-close" class="tool-btn" aria-label="Close reference">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
             </div>
             <div id="reference-body" class="sim-overlay-body scrollbar-thin"></div>

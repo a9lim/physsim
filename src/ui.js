@@ -46,7 +46,7 @@ export function setupUI(sim) {
             vl.setAttribute('x1', '12'); vl.setAttribute('y1', '8');
             vl.setAttribute('x2', '12'); vl.setAttribute('y2', '16');
             vl.setAttribute('stroke', 'currentColor'); vl.setAttribute('stroke-width', '2');
-            vl.setAttribute('stroke-linecap', 'round');
+            vl.setAttribute('stroke-linecap', 'square');
             vl.classList.add('vert-line');
             svg.appendChild(vl);
         } else if (!antimatterMode && vl) {
