@@ -121,16 +121,15 @@
     <aside id="control-panel" class="sim-panel glass" role="complementary" aria-label="Controls panel">
         <div class="sheet-handle"></div>
         <div class="stats-header">
-            <h2 class="stats-title">Controls</h2>
-            <button id="panelClose" class="tool-btn icon-tight" title="Close" aria-label="Close panel" data-icon="close" data-icon-size="16"></button>
-        </div>
-        <div class="tabs-wrap">
-            <nav class="tab-bar" role="tablist">
+            <div class="sidebar-tabs" role="tablist" aria-label="Sidebar tabs">
                 <button class="tab-btn active" data-tab="settings" role="tab" aria-selected="true">Settings</button>
                 <button class="tab-btn" data-tab="engine" role="tab" aria-selected="false">Engine</button>
                 <button class="tab-btn" data-tab="stats" role="tab" aria-selected="false">Stats</button>
                 <button class="tab-btn" data-tab="particle" role="tab" aria-selected="false">Particle</button>
-            </nav>
+            </div>
+            <button id="panelClose" class="tool-btn icon-tight" title="Close" aria-label="Close panel" data-icon="close" data-icon-size="16"></button>
+        </div>
+        <div class="tabs-wrap">
             <div class="tab-panels scrollbar-thin">
                 <!-- ── Settings ── -->
                 <div class="tab-panel active" id="tab-settings" role="tabpanel">

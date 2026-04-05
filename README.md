@@ -56,6 +56,7 @@ Zero-dependency vanilla JavaScript (~29,000 lines across 92 files). CPU backend 
 
 - [Cyano](https://github.com/a9lim/cyano) -- [a9l.im/cyano](https://a9l.im/cyano)
 - [Gerry](https://github.com/a9lim/gerry) -- [a9l.im/gerry](https://a9l.im/gerry)
+- [Scripture](https://github.com/a9lim/scripture) -- [a9l.im/scripture](https://a9l.im/scripture)
 - [Shoals](https://github.com/a9lim/shoals) -- [a9l.im/shoals](https://a9l.im/shoals)
 
 ## License
