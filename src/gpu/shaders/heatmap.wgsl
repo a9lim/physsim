@@ -292,9 +292,9 @@ fn blurHorizontal(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (x >= HGRID || y >= HGRID) { return; }
 
     let row = y * HGRID;
-    let l = select(arr[row], arr[row + x - 1u], x > 0u);
+    let l = arr[row + select(0u, x - 1u, x > 0u)];
     let c = arr[row + x];
-    let r = select(arr[row + HGRID - 1u], arr[row + x + 1u], x < HGRID - 1u);
+    let r = arr[row + select(HGRID - 1u, x + 1u, x < HGRID - 1u)];
     blurTemp[row + x] = (l + c + r) * (1.0 / 3.0);
 }
 
@@ -304,8 +304,8 @@ fn blurVertical(@builtin(global_invocation_id) gid: vec3<u32>) {
     let y = gid.y;
     if (x >= HGRID || y >= HGRID) { return; }
 
-    let t = select(blurTemp[x], blurTemp[(y - 1u) * HGRID + x], y > 0u);
+    let t = blurTemp[select(0u, y - 1u, y > 0u) * HGRID + x];
     let c = blurTemp[y * HGRID + x];
-    let b = select(blurTemp[(HGRID - 1u) * HGRID + x], blurTemp[(y + 1u) * HGRID + x], y < HGRID - 1u);
+    let b = blurTemp[select(HGRID - 1u, y + 1u, y < HGRID - 1u) * HGRID + x];
     arr[y * HGRID + x] = (t + c + b) * (1.0 / 3.0);
 }

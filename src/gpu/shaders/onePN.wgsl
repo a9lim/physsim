@@ -22,30 +22,8 @@
 const NONE: i32 = -1;
 const MAX_STACK: u32 = 48u;
 
-// Must match SimUniforms byte layout in common.wgsl / writeUniforms() exactly.
-// Fields we don't use are kept as padding to preserve alignment.
-struct Uniforms {
-    dt: f32,                // [0] dt
-    simTime: f32,           // [1] simTime
-    domainW: f32,           // [2] domainW
-    domainH: f32,           // [3] domainH
-    _speedScale: f32,       // [4] speedScale (unused here)
-    _softening: f32,        // [5] softening (unused here)
-    softeningSq: f32,       // [6] softeningSq
-    toggles0: u32,          // [7] toggles0
-    _toggles1: u32,         // [8] toggles1 (unused here)
-    yukawaCoupling: f32,    // [9] yukawaCoupling
-    yukawaMu: f32,          // [10] yukawaMu
-    _higgsMass: f32,        // [11] higgsMass (unused here)
-    _axionMass: f32,        // [12] axionMass (unused here)
-    boundaryMode: u32,      // [13] boundaryMode
-    topologyMode: u32,      // [14] topologyMode
-    _collisionMode: u32,    // [15] collisionMode (unused here)
-    _maxParticles: u32,     // [16] maxParticles (unused here)
-    aliveCount: u32,        // [17] aliveCount
-};
-
-@group(0) @binding(0) var<uniform> u: Uniforms;
+// Uses SimUniforms from shared-structs.wgsl (prepended).
+@group(0) @binding(0) var<uniform> u: SimUniforms;
 
 // Group 1: particle state (read_write for encoder compat)
 @group(1) @binding(0) var<storage, read_write> particles: array<ParticleState>;
@@ -220,8 +198,8 @@ fn compute1PN(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     var afOut = allForces[i];
-    afOut.f2.x = f1pnX;
-    afOut.f2.y = f1pnY;
+    afOut.f2.x = select(f1pnX, 0.0, f1pnX != f1pnX);
+    afOut.f2.y = select(f1pnY, 0.0, f1pnY != f1pnY);
     allForces[i] = afOut;
 }
 
@@ -383,8 +361,8 @@ fn compute1PNTree(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     var afOut = allForces[i];
-    afOut.f2.x = f1pnX;
-    afOut.f2.y = f1pnY;
+    afOut.f2.x = select(f1pnX, 0.0, f1pnX != f1pnX);
+    afOut.f2.y = select(f1pnY, 0.0, f1pnY != f1pnY);
     allForces[i] = afOut;
 }
 

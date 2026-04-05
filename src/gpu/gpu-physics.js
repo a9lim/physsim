@@ -1038,7 +1038,7 @@ export default class GPUPhysics {
         this._phase4BindGroups.btG1 = bg('bosonTree_g1', p4.insertBosonsIntoTree.bindGroupLayouts[1],
             [b.photonPool, b.phCount]);
         this._phase4BindGroups.btG2 = bg('bosonTree_g2', p4.insertBosonsIntoTree.bindGroupLayouts[2],
-            [b.pionPool, b.piCount]);
+            [b.pionPool, b.piCount, b.pionClaims]);
         this._phase4BindGroups.btG3 = bg('bosonTree_g3', p4.insertBosonsIntoTree.bindGroupLayouts[3],
             [b.particleState, b.allForces]);
     }
@@ -1404,6 +1404,8 @@ export default class GPUPhysics {
 
         // annihilatePions: π⁺π⁻ → 2 photons
         {
+            // Reset pion claim buffer (must use copyBufferToBuffer within encoder, not queue.writeBuffer)
+            encoder.clearBuffer(b.pionClaims);
             const pionWG = Math.ceil(PION_POOL_CAP / 64);
             const passAnnihilate = encoder.beginComputePass({ label: 'annihilatePions' });
             passAnnihilate.setPipeline(p4.annihilatePions.pipeline);
@@ -3503,8 +3505,9 @@ export default class GPUPhysics {
             }
         } catch (e) {
             // Device lost or other error — don't block future readbacks
+        } finally {
+            this._freeTopPending = false;
         }
-        this._freeTopPending = false;
     }
 
     /** Store camera state for heatmap viewport calculation */

@@ -43,9 +43,10 @@ const N_PARENT: u32 = 19u;
 @group(1) @binding(0) var<storage, read_write> photons: array<Photon>;
 @group(1) @binding(1) var<storage, read_write> phCount: atomic<u32>;
 
-// Group 2: pion pool (packed)
+// Group 2: pion pool (packed) + annihilation claim buffer
 @group(2) @binding(0) var<storage, read_write> pions: array<Pion>;
 @group(2) @binding(1) var<storage, read_write> piCount: atomic<u32>;
+@group(2) @binding(2) var<storage, read_write> pionClaims: array<atomic<u32>>;
 
 // Group 3: particle state + force accumulators (read_write for encoder compat)
 @group(3) @binding(0) var<storage, read_write> particles: array<ParticleState>;
@@ -550,6 +551,10 @@ fn annihilatePions(@builtin(global_invocation_id) gid: vec3u) {
     if (pi1.charge == 0) { return; }
     if (pi1.age < BOSON_MIN_AGE) { return; }
 
+    // Claim self via CAS — if another thread already claimed us as their target, bail out
+    let claimSelf = atomicCompareExchangeWeak(&pionClaims[i], 0u, i + 1u);
+    if (!claimSelf.exchanged) { return; }
+
     let p1x = pi1.posX;
     let p1y = pi1.posY;
     let p1c = pi1.charge;
@@ -567,7 +572,11 @@ fn annihilatePions(@builtin(global_invocation_id) gid: vec3u) {
         let dy = p1y - pi2.posY;
         if (dx * dx + dy * dy >= BOSON_SOFTENING_SQ) { continue; }
 
-        // Annihilate: mark both dead
+        // Claim target via CAS — if another thread already claimed j, try next candidate
+        let claimTarget = atomicCompareExchangeWeak(&pionClaims[j], 0u, i + 1u);
+        if (!claimTarget.exchanged) { continue; }
+
+        // Both claims succeeded — safe to annihilate
         pions[i].flags &= ~1u;
         pions[j].flags &= ~1u;
 

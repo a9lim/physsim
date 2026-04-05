@@ -23,6 +23,8 @@ struct FGUniforms {
 @group(1) @binding(0) var<storage, read> sgGradX: array<f32>;
 @group(1) @binding(1) var<storage, read> sgGradY: array<f32>;
 
+// NOTE: nbIndex and PQS weights below are duplicated from field-common.wgsl because this
+// shader uses a different uniform struct (FGUniforms). Keep in sync with field-common.wgsl.
 fn nbIndex(nx: i32, ny: i32, bcMode: u32, topoMode: u32) -> i32 {
     var cx = nx;
     var cy = ny;
@@ -70,7 +72,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let invCellW = 1.0 / cellW;
     let invCellH = 1.0 / cellH;
 
-    // PQS weights at particle position
+    // PQS weights at particle position (duplicated from field-common.wgsl pqsWeights)
     let gx = px * invCellW - 0.5;
     let gy = py * invCellH - 0.5;
     let ix = i32(floor(gx));

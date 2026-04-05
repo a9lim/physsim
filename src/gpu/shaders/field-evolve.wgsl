@@ -33,10 +33,10 @@ fn inlineLaplacian(ix: u32, iy: u32, idx: u32, invCWsq: f32, invCHsq: f32) -> f3
     let iR = nbIndex(i32(ix) + 1, i32(iy), bcMode, topoMode);
     let iT = nbIndex(i32(ix), i32(iy) - 1, bcMode, topoMode);
     let iB = nbIndex(i32(ix), i32(iy) + 1, bcMode, topoMode);
-    let fL = select(vacValue, field[iL], iL >= 0);
-    let fR = select(vacValue, field[iR], iR >= 0);
-    let fT = select(vacValue, field[iT], iT >= 0);
-    let fB = select(vacValue, field[iB], iB >= 0);
+    let fL = select(vacValue, field[max(iL, 0)], iL >= 0);
+    let fR = select(vacValue, field[max(iR, 0)], iR >= 0);
+    let fT = select(vacValue, field[max(iT, 0)], iT >= 0);
+    let fB = select(vacValue, field[max(iB, 0)], iB >= 0);
     return (fL + fR - 2.0 * fC) * invCWsq + (fT + fB - 2.0 * fC) * invCHsq;
 }
 
@@ -249,10 +249,10 @@ fn computeGridGradients(@builtin(global_invocation_id) gid: vec3<u32>) {
     let iR = nbIndex(i32(ix) + 1, i32(iy), bcMode, topoMode);
     let iT = nbIndex(i32(ix), i32(iy) - 1, bcMode, topoMode);
     let iB = nbIndex(i32(ix), i32(iy) + 1, bcMode, topoMode);
-    let fL = select(vacValue, field[iL], iL >= 0);
-    let fR = select(vacValue, field[iR], iR >= 0);
-    let fT = select(vacValue, field[iT], iT >= 0);
-    let fB = select(vacValue, field[iB], iB >= 0);
+    let fL = select(vacValue, field[max(iL, 0)], iL >= 0);
+    let fR = select(vacValue, field[max(iR, 0)], iR >= 0);
+    let fT = select(vacValue, field[max(iT, 0)], iT >= 0);
+    let fB = select(vacValue, field[max(iB, 0)], iB >= 0);
     fieldGradX[idx] = (fR - fL) * 0.5;
     fieldGradY[idx] = (fB - fT) * 0.5;
 }
