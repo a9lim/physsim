@@ -4,16 +4,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Geon | a9l.im</title>
-    <meta name="description" content="Explore relativistic N-body physics in the browser. Geon simulates gravity, electromagnetism, Yukawa forces, scalar fields, and signal delay using a Boris integrator with Barnes-Hut acceleration and WebGPU compute shaders. Includes 19 presets spanning planetary orbits, electromagnetic scattering, Higgs fields, and cosmological expansion.">
+    <title>Geon — a9l.im</title>
+    <meta name="description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 11 forces, scalar fields, and 19 educational presets — running in real time in your browser with WebGPU.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
     <meta property="og:title" content="Geon — Interactive Particle Physics Simulator">
-    <meta property="og:description" content="Explore relativistic N-body physics with gravity, electromagnetism, scalar fields, and 19 educational presets — all running in real time in the browser with WebGPU.">
+    <meta property="og:description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 19 educational presets, running in real time in your browser.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://a9l.im/geon">
     <meta property="og:site_name" content="a9l.im">
     <meta name="twitter:card" content="summary_large_image">
     <meta property="og:image" content="https://a9l.im/geon/og-image.webp">
     <meta name="twitter:image" content="https://a9l.im/geon/og-image.webp">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/webp">
     <meta name="twitter:site" content="@a9_lim">
     <meta name="twitter:creator" content="@a9_lim">
     <meta name="author" content="a9lim">
@@ -53,17 +57,21 @@
       "name": "Geon",
       "url": "https://a9l.im/geon",
       "description": "Interactive relativistic N-body simulator with 11 force types, Boris integration, Barnes-Hut tree acceleration, Higgs and axion scalar fields, and WebGPU compute shaders. Educational tool for exploring gravity, electromagnetism, Yukawa interactions, signal delay, and cosmological expansion across 19 curated presets.",
+      "speakable": {
+        "@type": "SpeakableSpecification",
+        "cssSelector": ["meta[name='description']"]
+      },
       "applicationCategory": "EducationalApplication",
       "educationalUse": "Interactive simulation for learning classical mechanics, special relativity, electromagnetism, and particle physics",
       "learningResourceType": "Simulation",
       "educationalLevel": "Undergraduate",
       "about": [
-        {"@type": "Thing", "name": "N-body simulation"},
-        {"@type": "Thing", "name": "Special relativity"},
-        {"@type": "Thing", "name": "Electromagnetism"},
-        {"@type": "Thing", "name": "Particle physics"},
-        {"@type": "Thing", "name": "Scalar field theory"},
-        {"@type": "Thing", "name": "WebGPU"}
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q2539879", "name": "N-body simulation"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q3711325", "name": "Special relativity"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q11406", "name": "Electromagnetism"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q12725", "name": "Particle physics"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q190056", "name": "Scalar field theory"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q106630953", "name": "WebGPU"}
       ],
       "keywords": "physics simulator, N-body, relativity, gravity, electromagnetism, Boris integrator, Barnes-Hut, Higgs field, axion, WebGPU, educational",
       "operatingSystem": "Any (Web Browser)",
