@@ -198,6 +198,12 @@ export function createParticleBuffers(device, maxParticles) {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
+    const collisionClaims = device.createBuffer({
+        label: 'collisionClaims',
+        size: 4 * maxParticles,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
     const mergeCountStaging = device.createBuffer({
         label: 'mergeCountStaging',
         size: 4,
@@ -311,6 +317,7 @@ export function createParticleBuffers(device, maxParticles) {
         // Collision (Phase 3)
         collisionPairBuffer, collisionPairCounter,
         mergeResultBuffer, mergeResultCounter,
+        collisionClaims,
         mergeCountStaging, mergeResultStaging,
         // Free stack (Phase 3: dead particle GC)
         freeStack, freeTop, freeTopStaging, freeStackStaging,

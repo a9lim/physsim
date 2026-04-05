@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 58;
+const SHADER_VERSION = 59;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -330,9 +330,9 @@ export async function createTreeForcePipeline(device, wgslConstants = '') {
  * Create collision detection/resolution pipelines (Phase 3).
  * Bind groups:
  *   Group 0: nodes (ro) + uniforms = 2
- *   Group 1: particleState (rw) + particleAux (rw) + ghostOriginalIdx (ro) + allForces (rw) = 4
+ *   Group 1: particleState (rw) + particleAux (rw) + ghostOriginalIdx (ro) + allForces (rw) + collisionClaims (rw) = 5
  *   Group 2: collisionPairs + pairCounter + mergeResults + mergeCounter = 4
- *   Total: 9 storage buffers per stage
+ *   Total: 10 storage buffers per stage
  */
 export async function createCollisionPipelines(device, wgslConstants = '') {
     const treePrefix = await getTreePrefix(wgslConstants);
@@ -355,6 +355,7 @@ export async function createCollisionPipelines(device, wgslConstants = '') {
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // particleAux
             { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // ghostOriginalIdx (rw for encoder compat)
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // allForces (contact torque display)
+            { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // collisionClaims (atomic claim)
         ],
     });
 

@@ -906,6 +906,7 @@ export default class GPUPhysics {
                 { binding: 1, resource: { buffer: b.particleAux } },
                 { binding: 2, resource: { buffer: b.ghostOriginalIdx } },
                 { binding: 3, resource: { buffer: b.allForces } },
+                { binding: 4, resource: { buffer: b.collisionClaims } },
             ],
         });
 
@@ -1471,6 +1472,7 @@ export default class GPUPhysics {
         // Reset pair counter (and merge counter for merge mode)
         encoder.clearBuffer(b.collisionPairCounter, 0, 4);
         if (isMerge) encoder.clearBuffer(b.mergeResultCounter, 0, 4);
+        encoder.clearBuffer(b.collisionClaims, 0, this.aliveCount * 4);
 
         // ── Detection phase (always tree-accelerated) ──
         const detectWG = Math.ceil(this.aliveCount / 64);
