@@ -429,48 +429,60 @@ export default class GPUPhysics {
             ],
         });
 
-        // --- Phase 2 pipelines ---
-        this._phase2 = await createPhase2Pipelines(this.device, wgslConstants);
+        // --- All pipelines: fetch shaders in parallel ---
+        const [phase2, ghostGen, treeBuild, treeForce, collisionPipelines, deadGC, phase4, updateColors, trailRecord, hitTest, computeStats] =
+            await Promise.all([
+                createPhase2Pipelines(this.device, wgslConstants),
+                createGhostGenPipeline(this.device, wgslConstants),
+                createTreeBuildPipelines(this.device, wgslConstants),
+                createTreeForcePipeline(this.device, wgslConstants),
+                createCollisionPipelines(this.device, wgslConstants),
+                createDeadGCPipeline(this.device, wgslConstants),
+                createPhase4Pipelines(this.device, wgslConstants),
+                createUpdateColorsPipeline(this.device, wgslConstants),
+                createTrailRecordPipeline(this.device, wgslConstants),
+                createHitTestPipeline(this.device, wgslConstants),
+                createComputeStatsPipeline(this.device, wgslConstants),
+            ]);
+
+        // --- Phase 2 ---
+        this._phase2 = phase2;
         this._createPhase2BindGroups();
 
-        // --- Phase 3: Ghost generation pipeline ---
-        const ghostGen = await createGhostGenPipeline(this.device, wgslConstants);
+        // --- Ghost gen ---
         this._ghostGenPipeline = ghostGen.pipeline;
         this._createGhostGenBindGroups(ghostGen.bindGroupLayouts);
 
-        // --- Phase 3: Tree build pipelines ---
-        this._treeBuild = await createTreeBuildPipelines(this.device, wgslConstants);
+        // --- Tree build ---
+        this._treeBuild = treeBuild;
         this._createTreeBuildBindGroups(this._treeBuild.bindGroupLayouts);
 
-        // --- Phase 3: Tree force pipeline ---
-        const treeForce = await createTreeForcePipeline(this.device, wgslConstants);
+        // --- Tree force ---
         this._treeForcePipeline = treeForce.pipeline;
         this._createTreeForceBindGroups(treeForce.bindGroupLayouts);
 
-        // --- Phase 3: Collision detection/resolution pipelines ---
-        this._collisionPipelines = await createCollisionPipelines(this.device, wgslConstants);
+        // --- Collision ---
+        this._collisionPipelines = collisionPipelines;
         this._createCollisionBindGroups(this._collisionPipelines.bindGroupLayouts);
 
-        // --- Phase 3: Dead particle GC pipeline ---
-        const deadGC = await createDeadGCPipeline(this.device, wgslConstants);
+        // --- Dead GC ---
         this._deadGCPipeline = deadGC.pipeline;
         this._createDeadGCBindGroup(deadGC.bindGroupLayouts);
 
-        // --- Phase 4: Advanced physics pipelines ---
-        this._phase4 = await createPhase4Pipelines(this.device, wgslConstants);
+        // --- Phase 4 ---
+        this._phase4 = phase4;
         this._createPhase4BindGroups();
 
-        // --- Update colors compute pipeline ---
+        // --- Update colors ---
         {
-            const uc = await createUpdateColorsPipeline(this.device, wgslConstants);
-            this._updateColorsPipeline = uc.pipeline;
+            this._updateColorsPipeline = updateColors.pipeline;
             this._colorUniformBuffer = this.device.createBuffer({
                 label: 'colorUniforms', size: 16,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
             this._updateColorsBindGroup = this.device.createBindGroup({
                 label: 'updateColors',
-                layout: uc.bindGroupLayout,
+                layout: updateColors.bindGroupLayout,
                 entries: [
                     { binding: 0, resource: { buffer: this._colorUniformBuffer } },
                     { binding: 1, resource: { buffer: this.buffers.particleState } },
@@ -479,17 +491,15 @@ export default class GPUPhysics {
             });
         }
 
-        // --- Trail recording compute pipeline ---
+        // --- Trail record ---
         {
-            const tr = await createTrailRecordPipeline(this.device, wgslConstants);
-            this._trailRecordPipeline = tr.pipeline;
-            this._trailRecordLayout = tr.bindGroupLayout;
+            this._trailRecordPipeline = trailRecord.pipeline;
+            this._trailRecordLayout = trailRecord.bindGroupLayout;
         }
 
-        // --- Hit test compute pipeline ---
+        // --- Hit test ---
         {
-            const ht = await createHitTestPipeline(this.device, wgslConstants);
-            this._hitTestPipeline = ht.pipeline;
+            this._hitTestPipeline = hitTest.pipeline;
             this._hitUniformBuffer = this.device.createBuffer({
                 label: 'hitUniforms', size: 16,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -505,7 +515,7 @@ export default class GPUPhysics {
             });
             this._hitTestBindGroup = this.device.createBindGroup({
                 label: 'hitTest',
-                layout: ht.bindGroupLayout,
+                layout: hitTest.bindGroupLayout,
                 entries: [
                     { binding: 0, resource: { buffer: this._hitUniformBuffer } },
                     { binding: 1, resource: { buffer: this.buffers.qtNodeBuffer } },
@@ -517,24 +527,22 @@ export default class GPUPhysics {
             });
         }
 
-        // --- Compute stats pipelines (4 entry points) ---
+        // --- Compute stats ---
         {
-            const cs = await createComputeStatsPipeline(this.device, wgslConstants);
-            this._statsPipelines = cs.pipelines;
-            this._statsGroup0Layout = cs.group0Layout;
-            this._statsGroup1Layout = cs.group1Layout;
+            this._statsPipelines = computeStats.pipelines;
+            this._statsGroup0Layout = computeStats.group0Layout;
+            this._statsGroup1Layout = computeStats.group1Layout;
             this._statsUniformBuffer = this.device.createBuffer({
-                label: 'statsUniforms', size: 48, // StatsUniforms struct
+                label: 'statsUniforms', size: 48,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
-            // Dummy 4-byte buffer for inactive field bindings
             this._statsDummyBuffer = this.device.createBuffer({
                 label: 'statsDummy', size: 4,
                 usage: GPUBufferUsage.STORAGE,
             });
             this._statsBindGroup0 = this.device.createBindGroup({
                 label: 'computeStats_g0',
-                layout: cs.group0Layout,
+                layout: computeStats.group0Layout,
                 entries: [
                     { binding: 0, resource: { buffer: this._statsUniformBuffer } },
                     { binding: 1, resource: { buffer: this.buffers.particleState } },
@@ -544,7 +552,6 @@ export default class GPUPhysics {
                     { binding: 5, resource: { buffer: this.buffers.axYukMod } },
                 ],
             });
-            // Field bind group rebuilt when fields toggle on/off
             this._statsBindGroup1 = null;
             this._rebuildStatsFieldBindGroup();
         }

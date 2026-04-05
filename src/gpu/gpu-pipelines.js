@@ -21,18 +21,22 @@ export async function fetchShader(filename, prepend = '') {
 
 /** Module-level cache for shared WGSL includes */
 let _sharedCache = null;
+let _sharedCachePromise = null;
 
 async function _ensureSharedCache() {
-    if (!_sharedCache) {
-        const [structs, topo, treeNodes, rng] = await Promise.all([
+    if (_sharedCache) return _sharedCache;
+    if (!_sharedCachePromise) {
+        _sharedCachePromise = Promise.all([
             fetchShader('shared-structs.wgsl'),
             fetchShader('shared-topology.wgsl'),
             fetchShader('shared-tree-nodes.wgsl'),
             fetchShader('shared-rng.wgsl'),
-        ]);
-        _sharedCache = { structs, topo, treeNodes, rng };
+        ]).then(([structs, topo, treeNodes, rng]) => {
+            _sharedCache = { structs, topo, treeNodes, rng };
+            return _sharedCache;
+        });
     }
-    return _sharedCache;
+    return _sharedCachePromise;
 }
 
 /** Module-level cache for concatenated shared prefix (keyed by wgslConstants string) */
