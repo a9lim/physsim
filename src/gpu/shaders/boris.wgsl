@@ -22,9 +22,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let vy = wy * invG;
 
     // Store coordinate velocity in derived struct for next substep's force computation
+    // NaN guard — freeze velocity rather than propagate corruption to Boris rotation / spin-orbit
     var d = derived[idx];
-    d.velX = vx;
-    d.velY = vy;
+    d.velX = select(vx, 0.0, vx != vx);
+    d.velY = select(vy, 0.0, vy != vy);
     derived[idx] = d;
 
     // Drift position

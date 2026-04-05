@@ -54,10 +54,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var scY: f32 = 0.0;
     var soTorque: f32 = 0.0;  // spin-orbit energy coupling torque (for display)
 
-    // Clamp angMom denominator to avoid division-by-zero in energy transfer terms.
+    // Clamp angMom denominator to avoid division-by-zero and extreme kicks in energy transfer.
     // Translational kicks (Stern-Gerlach, Mathisson-Papapetrou) still apply when angMom is small.
+    // Floor at 1e-4 (not EPSILON) to prevent huge angular velocity changes for light spinning particles.
     let angMomSign = select(-1.0, 1.0, angMom >= 0.0);
-    let safeAngMom = select(angMom, angMomSign * EPSILON, abs(angMom) < EPSILON);
+    let safeAngMom = select(angMom, angMomSign * 1e-4, abs(angMom) < 1e-4);
 
     if (hasMag && abs(q) > EPSILON) {
         // Energy transfer: angw -= mu * (v . grad(Bz)) * dt / (I*omega)

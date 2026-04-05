@@ -620,8 +620,16 @@ fn main(
         af.f4 = vec4(0.0, 0.0, 0.0, 0.0);           // external/higgs filled by later passes
         af.f5 = vec4(0.0, 0.0, 0.0, 0.0);           // axion filled by later passes
         af.torques = vec4(0.0, accum.frameDrag, accum.tidal, 0.0);
-        af.bFields = vec4(accum.bz, accum.bgz, 0.0, 0.0);  // extBz added by external fields pass
-        af.bFieldGrads = vec4(accum.dbzdx, accum.dbzdy, accum.dbgzdx, accum.dbgzdy);
+        // NaN guard on B-field accumulators — corruption here propagates to Boris rotation + spin-orbit
+        af.bFields = vec4(
+            select(accum.bz, 0.0, accum.bz != accum.bz),
+            select(accum.bgz, 0.0, accum.bgz != accum.bgz),
+            0.0, 0.0);  // extBz added by external fields pass
+        af.bFieldGrads = vec4(
+            select(accum.dbzdx, 0.0, accum.dbzdx != accum.dbzdx),
+            select(accum.dbzdy, 0.0, accum.dbzdy != accum.dbzdy),
+            select(accum.dbgzdx, 0.0, accum.dbgzdx != accum.dbgzdx),
+            select(accum.dbgzdy, 0.0, accum.dbgzdy != accum.dbgzdy));
         // NaN guard on total force and jerk — must happen BEFORE writing to global memory
         af.totalForce = vec2(
             select(accum.totalX, 0.0, accum.totalX != accum.totalX),

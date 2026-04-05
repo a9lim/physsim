@@ -617,6 +617,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         select(localJerk.y, 0.0, localJerk.y != localJerk.y)
     );
 
+    // NaN guard on B-field accumulators — corruption propagates to Boris rotation + spin-orbit
+    localAF.bFields = vec4(
+        select(localAF.bFields.x, 0.0, localAF.bFields.x != localAF.bFields.x),
+        select(localAF.bFields.y, 0.0, localAF.bFields.y != localAF.bFields.y),
+        localAF.bFields.z, localAF.bFields.w);
+    localAF.bFieldGrads = vec4(
+        select(localAF.bFieldGrads.x, 0.0, localAF.bFieldGrads.x != localAF.bFieldGrads.x),
+        select(localAF.bFieldGrads.y, 0.0, localAF.bFieldGrads.y != localAF.bFieldGrads.y),
+        select(localAF.bFieldGrads.z, 0.0, localAF.bFieldGrads.z != localAF.bFieldGrads.z),
+        select(localAF.bFieldGrads.w, 0.0, localAF.bFieldGrads.w != localAF.bFieldGrads.w));
+
     // Write accumulated forces back to global memory ONCE
     allForces[pIdx] = localAF;
 

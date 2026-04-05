@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 56;
+const SHADER_VERSION = 57;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -799,6 +799,7 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
         entries: [
             { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // pionPool
             { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // piCount
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // pionClaims (atomic, for annihilation race prevention)
         ],
     });
     const btG3 = device.createBindGroupLayout({

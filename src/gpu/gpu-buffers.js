@@ -257,6 +257,13 @@ export function createParticleBuffers(device, maxParticles) {
         label: 'piCount',
     }); // atomic<u32>
 
+    // Pion annihilation claim buffer: atomic CAS to prevent double-annihilation races
+    const pionClaims = device.createBuffer({
+        size: 4 * PION_POOL_CAP,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        label: 'pionClaims',
+    });
+
     // ── Boson tree buffers (Phase 4: boson gravity BH tree) ──
     const MAX_BOSON_NODES = (GPU_MAX_PHOTONS + PION_POOL_CAP) * 6;
     const bosonTreeNodes = device.createBuffer({
@@ -313,7 +320,7 @@ export function createParticleBuffers(device, maxParticles) {
         photonPool, phCount,
         GPU_MAX_PHOTONS,
         // Pion pool (Phase 4, packed struct)
-        pionPool, piCount,
+        pionPool, piCount, pionClaims,
         GPU_MAX_PIONS, PION_POOL_CAP,
         // Boson tree (Phase 4)
         bosonTreeNodes, bosonTreeCounter, bosonVisitorFlags, MAX_BOSON_NODES,
