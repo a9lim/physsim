@@ -3185,10 +3185,12 @@ export default class GPUPhysics {
             frameCount: this._frameCount,
         });
 
+        const commandBuffers = [];
         for (let step = 0; step < numSubsteps; step++) {
             this.simTime += dtSub;
-            this._dispatchSubstep(dtSub);
+            commandBuffers.push(this._dispatchSubstep(dtSub));
         }
+        this.device.queue.submit(commandBuffers);
 
         this._frameCount++;
 
@@ -3440,7 +3442,7 @@ export default class GPUPhysics {
         passBoundary.dispatchWorkgroups(workgroups);
         passBoundary.end();
 
-        this.device.queue.submit([encoder.finish()]);
+        return encoder.finish();
     }
 
     /**
