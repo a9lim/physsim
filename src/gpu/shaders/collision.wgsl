@@ -28,6 +28,7 @@ const MERGE_INELASTIC: u32 = 1u;
 
 // Group 1 continued: force accumulators (for contact torque display)
 @group(1) @binding(3) var<storage, read_write> allForces: array<AllForces>;
+@group(1) @binding(4) var<storage, read_write> collisionClaims: array<atomic<u32>>;
 
 // Group 2: collision pairs + counters + merge results
 @group(2) @binding(0) var<storage, read_write> collisionPairs: array<u32>;
@@ -154,6 +155,16 @@ fn resolveCollisions(@builtin(global_invocation_id) gid: vec3<u32>) {
     // concurrent merge threads modifying the same particle.
     if ((ps1.flags & FLAG_ALIVE) == 0u || (ps2.flags & FLAG_ALIVE) == 0u) { return; }
     if (ps1.mass <= EPSILON || ps2.mass <= EPSILON) { return; }
+
+    // Atomic claim: prevent concurrent merge of same particle by multiple pairs.
+    let claim1 = atomicExchange(&collisionClaims[idx1], 1u);
+    let claim2 = atomicExchange(&collisionClaims[idx2], 1u);
+    if (claim1 != 0u || claim2 != 0u) {
+        // Release any claim we took (so particle can be merged next frame)
+        if (claim1 == 0u) { atomicStore(&collisionClaims[idx1], 0u); }
+        if (claim2 == 0u) { atomicStore(&collisionClaims[idx2], 0u); }
+        return;
+    }
 
     let isAntimatter1 = (ps1.flags & FLAG_ANTIMATTER) != 0u;
     let isAntimatter2 = (ps2.flags & FLAG_ANTIMATTER) != 0u;
