@@ -97,8 +97,8 @@
         "Barnes-Hut tree algorithm for O(N log N) force approximation"
       ],
       "educationalAlignment": [
-        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "AP Physics C: Mechanics"},
-        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "NGSS HS-PS2: Motion and Stability"}
+        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "AP Physics C: Mechanics", "targetUrl": "https://apcentral.collegeboard.org/courses/ap-physics-c-mechanics"},
+        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "NGSS HS-PS2: Motion and Stability", "targetUrl": "https://www.nextgenscience.org/dci-arrangement/hs-ps2-motion-and-stability-forces-and-interactions"}
       ],
       "datePublished": "2026-02-17",
       "dateModified": "2026-04-05",
@@ -118,14 +118,17 @@
       },
       "isBasedOn": [
         {"@type": "ScholarlyArticle", "name": "A hierarchical O(N log N) force-calculation algorithm", "author": "J. Barnes, P. Hut", "datePublished": "1986", "sameAs": "https://doi.org/10.1038/324446a0"},
-        {"@type": "ScholarlyArticle", "name": "Relativistic plasma simulation — optimization of a hybrid code", "author": "J. P. Boris", "datePublished": "1970"}
+        {"@type": "ScholarlyArticle", "name": "Relativistic plasma simulation — optimization of a hybrid code", "author": "J. P. Boris", "datePublished": "1970", "sameAs": "https://api.semanticscholar.org/CorpusID:122575027"}
       ],
       "offers": {
         "@type": "Offer",
         "price": "0",
         "priceCurrency": "USD"
       },
-      "timeRequired": "PT30M"
+      "timeRequired": "PT30M",
+      "accessibilityFeature": ["highContrastDisplay", "readingOrder", "structuralNavigation"],
+      "accessibilityHazard": ["flashing", "motionSimulation"],
+      "relatedLink": ["https://a9l.im/cyano", "https://a9l.im/shoals", "https://a9l.im/gerry"]
     }
     </script>
     <script type="application/ld+json">
@@ -223,7 +226,7 @@
     <a href="#control-panel" class="skip-link">Skip to controls</a>
     <a href="#simCanvas" class="skip-link">Skip to simulation</a>
 
-    <canvas id="simCanvas" aria-label="Particle physics simulation canvas"></canvas>
+    <canvas id="simCanvas" aria-label="Interactive N-body particle simulation showing trajectories under gravity, electromagnetism, and relativistic forces"></canvas>
 
     <nav id="topbar" class="sim-toolbar glass" role="toolbar" aria-label="Simulation controls">
         <div class="topbar-left">
