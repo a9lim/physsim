@@ -3874,12 +3874,19 @@ export default class GPUPhysics {
         if (this.buffers.piCount) {
             this.device.queue.writeBuffer(this.buffers.piCount, 0, _zeroU32);
         }
-        // Clear trail ring buffers (zero-fill via encoder to avoid allocation)
-        if (this._trailBuffers) {
-            const tb = this._trailBuffers;
-            const enc = this.device.createCommandEncoder({ label: 'clearTrails' });
-            enc.clearBuffer(tb.trailWriteIdx);
-            enc.clearBuffer(tb.trailCount);
+        // Clear heatmap + trail buffers (batch into one encoder/submit)
+        if (this._heatmapBuffers || this._trailBuffers) {
+            const enc = this.device.createCommandEncoder({ label: 'clearReset' });
+            if (this._heatmapBuffers) {
+                enc.clearBuffer(this._heatmapBuffers.gravPotential);
+                enc.clearBuffer(this._heatmapBuffers.elecPotential);
+                enc.clearBuffer(this._heatmapBuffers.yukawaPotential);
+                enc.clearBuffer(this._heatmapBuffers.output);
+            }
+            if (this._trailBuffers) {
+                enc.clearBuffer(this._trailBuffers.trailWriteIdx);
+                enc.clearBuffer(this._trailBuffers.trailCount);
+            }
             this.device.queue.submit([enc.finish()]);
         }
     }
