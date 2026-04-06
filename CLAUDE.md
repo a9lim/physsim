@@ -62,7 +62,7 @@ Forces:                        Physics:
   Yukawa               [independent]  Boson Interaction [requires BH + (Gravity OR Coulomb)]
   Axion                [requires Coulomb or Yukawa]
   Higgs                [independent]
-Disintegration                   [requires Gravity, locks collision to Merge]
+Disintegration                   [requires Gravity, locks collision to Merge] **HIDDEN**
 Barnes-Hut                       [independent]
 Expansion                        [independent, in Engine tab]
 ```
@@ -106,6 +106,15 @@ All shaders prepended with `wgslConstants + shared-structs.wgsl + shared-topolog
 - `queue.writeBuffer()` executes at queue time (before encoder starts), NOT inline with compute passes. Use `encoder.copyBufferToBuffer` for resets between dispatches within the same command buffer
 - `_phase5Ready` flag guards field dispatches until async pipeline creation completes
 - Async readback methods use try/catch/finally to clear pending flags on device loss
+
+### Disintegration (Hidden)
+
+UI toggle hidden via `style="display:none"` — still activatable via presets (Roche limit preset). Two mechanisms: tidal fragmentation (parent → SPAWN_COUNT children) and Roche lobe overflow (Eggleton 1983 mass transfer). Known bugs:
+
+- **Charge cascade**: fragments inherit parent's charge/SPAWN_COUNT, but if Coulomb self-repulsion caused the breakup, fragments still exceed the threshold and cascade into dust. Needs a cooldown, charge redistribution fix, or minimum fragment mass floor.
+- **GPU Roche**: source particle charge is not subtracted (only mass via `patchMass`). Minor charge non-conservation.
+- **GPU readback latency**: disintegration events have 1-frame latency (same as merge events). Parent state in `DisintEvent` is snapshot from detection frame; by readback time, particle has evolved further.
+- `DisintEvent` struct is 48 bytes (12 fields). GPU uses `atomicAdd` on event counter, capped at `MAX_DISINT_EVENTS` (64).
 
 ## Gotchas
 
