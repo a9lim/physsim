@@ -52,7 +52,7 @@ export const BOSON_MIN_AGE = 4;              // minimum age (substeps) before an
 // ── Particle Properties ──
 export const INERTIA_K = 0.4;                // I = (2/5)mr²
 export const MAG_MOMENT_K = 0.2;             // μ = (1/5)q·ω·r²
-export const TIDAL_STRENGTH = 1;
+export const TIDAL_STRENGTH = 64;
 
 // ── Barnes-Hut ──
 export const BH_THETA = 0.5;

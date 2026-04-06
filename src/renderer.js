@@ -413,7 +413,7 @@ export default class Renderer {
                 if (p.pos.x < vpL || p.pos.x > vpR || p.pos.y < vpT || p.pos.y > vpB) continue;
                 if (!hasAnti) {
                     ctx.globalCompositeOperation = 'source-over';
-                    ctx.strokeStyle = isLight ? '#888' : '#ccc';
+                    ctx.strokeStyle = isLight ? _PAL.light.textMuted : _PAL.dark.textMuted;
                     ctx.lineWidth = 0.25;
                     ctx.setLineDash(_ANTI_DASH);
                     hasAnti = true;
