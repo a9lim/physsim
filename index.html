@@ -28,6 +28,7 @@
     <meta name="theme-color" content="#C8553D">
     <link rel="canonical" href="https://a9l.im/geon">
     <link rel="alternate" hreflang="en" href="https://a9l.im/geon">
+    <meta property="og:locale" content="en_US">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
@@ -80,7 +81,10 @@
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q622606", "name": "Yukawa potential"},
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q165594", "name": "Axion"},
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q11028", "name": "General relativity"},
-        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q798459", "name": "Barnes–Hut simulation"}
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q798459", "name": "Barnes–Hut simulation"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q104837849", "name": "Phase space"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q1369275", "name": "Symplectic integrator"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q237284", "name": "Numerical integration"}
       ],
       "keywords": "physics simulator, N-body, relativity, gravity, electromagnetism, Boris integrator, Barnes-Hut, Higgs field, axion, WebGPU, educational",
       "operatingSystem": "Any (Web Browser)",
@@ -94,11 +98,13 @@
         "Electromagnetic force interactions between charged particles",
         "Special relativistic effects at high velocities",
         "Scalar field theory including Higgs and axion coupling",
-        "Barnes-Hut tree algorithm for O(N log N) force approximation"
+        "Barnes-Hut tree algorithm for O(N log N) force approximation",
+        "Phase-space preservation under magnetic fields"
       ],
       "educationalAlignment": [
         {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "AP Physics C: Mechanics", "targetUrl": "https://apcentral.collegeboard.org/courses/ap-physics-c-mechanics"},
-        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "NGSS HS-PS2: Motion and Stability", "targetUrl": "https://www.nextgenscience.org/dci-arrangement/hs-ps2-motion-and-stability-forces-and-interactions"}
+        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "NGSS HS-PS2: Motion and Stability", "targetUrl": "https://www.nextgenscience.org/dci-arrangement/hs-ps2-motion-and-stability-forces-and-interactions"},
+        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "educationalFramework": "APS Guidelines for Undergraduate Physics", "targetName": "Classical Mechanics and Electromagnetism", "targetUrl": "https://www.aps.org/programs/education/undergrad/"}
       ],
       "datePublished": "2026-02-17",
       "dateModified": "2026-04-05",
@@ -588,6 +594,7 @@
     </details>
 
     <script src="/shared-tabs.js"></script>
+    <link rel="modulepreload" href="main.js">
     <script type="module" src="main.js"></script>
 </body>
 
