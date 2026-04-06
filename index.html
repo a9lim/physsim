@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Geon — a9l.im</title>
+    <title>Geon — Interactive Particle Physics Simulator | a9l.im</title>
     <meta name="description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 11 forces, scalar fields, and 19 educational presets — running in real time in your browser with WebGPU.">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
     <meta property="og:title" content="Geon — Interactive Particle Physics Simulator">
@@ -21,6 +21,8 @@
     <meta property="og:image:alt" content="Geon particle physics simulator">
     <meta name="twitter:site" content="@a9_lim">
     <meta name="twitter:creator" content="@a9_lim">
+    <meta name="twitter:title" content="Geon — Interactive Particle Physics Simulator">
+    <meta name="twitter:description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 19 educational presets.">
     <meta name="author" content="a9lim">
     <link rel="icon" href="/favicon.ico">
     <meta name="theme-color" content="#C8553D">
@@ -65,13 +67,17 @@
       "educationalUse": "Interactive simulation for learning classical mechanics, special relativity, electromagnetism, and particle physics",
       "learningResourceType": "Simulation",
       "educationalLevel": "Undergraduate",
+      "inLanguage": "en",
       "about": [
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q2539879", "name": "N-body simulation"},
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q3711325", "name": "Special relativity"},
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q11406", "name": "Electromagnetism"},
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q12725", "name": "Particle physics"},
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q190056", "name": "Scalar field theory"},
-        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q106630953", "name": "WebGPU"}
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q106630953", "name": "WebGPU"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q2635179", "name": "Gravitomagnetism"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q622606", "name": "Yukawa potential"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q165594", "name": "Axion"}
       ],
       "keywords": "physics simulator, N-body, relativity, gravity, electromagnetism, Boris integrator, Barnes-Hut, Higgs field, axion, WebGPU, educational",
       "operatingSystem": "Any (Web Browser)",
@@ -106,7 +112,8 @@
         "@type": "Offer",
         "price": "0",
         "priceCurrency": "USD"
-      }
+      },
+      "timeRequired": "PT30M"
     }
     </script>
     <script type="application/ld+json">
@@ -172,21 +179,22 @@
         },
         {
           "@type": "Question",
-          "name": "Does Geon work on mobile devices?",
+          "name": "What is gravitomagnetism in Geon?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Yes. Geon is fully responsive and supports touch controls. Performance depends on your device's GPU capabilities."
+            "text": "Gravitomagnetism (also called frame-dragging) is the gravitational analogue of the magnetic Lorentz force. Moving masses generate a gravitomagnetic field that exerts a velocity-dependent force on other masses, analogous to how moving charges create magnetic fields. Geon simulates this using a gravitomagnetic dipole model where co-moving masses attract more strongly than stationary ones."
           }
         }
       ]
     }
     </script>
     <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://a9l.im"},{"@type":"ListItem","position":2,"name":"Geon"}]}
+{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://a9l.im"},{"@type":"ListItem","position":2,"name":"Geon","item":"https://a9l.im/geon"}]}
     </script>
 </head>
 
 <body class="sim-body app-ready">
+    <a href="#control-panel" class="skip-link">Skip to controls</a>
     <a href="#simCanvas" class="skip-link">Skip to simulation</a>
 
     <canvas id="simCanvas"></canvas>
@@ -536,6 +544,11 @@
         <p>Two scalar fields &mdash; Higgs and axion &mdash; live on a PQS grid with C&sup2; interpolation. The Higgs field modulates particle mass through its local vacuum expectation value, while the axion field couples to charge. Both evolve via St&ouml;rmer-Verlet integration and exert gradient forces on particles.</p>
         <h3>Presets</h3>
         <p>Nineteen curated presets demonstrate specific phenomena: Keplerian orbits, electromagnetic confinement, Rutherford scattering, Higgs potential wells, axion halos, Hubble expansion, gravitational wave inspiral, and more. Each preset configures initial conditions and force parameters to illustrate one concept clearly.</p>
+    <h3>Gravitomagnetism and Frame-Dragging</h3>
+    <p>Gravitomagnetism is the gravitational analogue of the magnetic force. In Geon, rotating or co-moving masses generate a gravitomagnetic field that produces velocity-dependent forces on nearby particles, mimicking the frame-dragging effect predicted by general relativity. This can be seen in the Gravitomagnetic preset, where orbiting masses drag the surrounding space and alter nearby trajectories.</p>
+    <h3>Boris Integrator</h3>
+    <p>Geon uses the Boris algorithm to integrate particle trajectories. The Boris integrator preserves phase-space volume under strong magnetic fields, preventing artificial energy drift that plagues simpler methods like Euler integration. It splits the force application into electric half-kicks and a magnetic rotation, ensuring stable cyclotron orbits at any timestep.</p>
+    <p><em>See also: <a href="/cyano">Cyano</a> for cellular energy simulations, <a href="/shoals">Shoals</a> for financial dynamics.</em></p>
       </article>
     </details>
 
