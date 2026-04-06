@@ -27,6 +27,7 @@
     <link rel="icon" href="/favicon.ico">
     <meta name="theme-color" content="#C8553D">
     <link rel="canonical" href="https://a9l.im/geon">
+    <link rel="alternate" hreflang="en" href="https://a9l.im/geon">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
@@ -77,11 +78,14 @@
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q106630953", "name": "WebGPU"},
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q2635179", "name": "Gravitomagnetism"},
         {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q622606", "name": "Yukawa potential"},
-        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q165594", "name": "Axion"}
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q165594", "name": "Axion"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q11028", "name": "General relativity"},
+        {"@type": "Thing", "@id": "https://www.wikidata.org/wiki/Q798459", "name": "Barnes–Hut simulation"}
       ],
       "keywords": "physics simulator, N-body, relativity, gravity, electromagnetism, Boris integrator, Barnes-Hut, Higgs field, axion, WebGPU, educational",
       "operatingSystem": "Any (Web Browser)",
       "browserRequirements": "Modern browser with WebGPU or Canvas support",
+      "sameAs": "https://github.com/a9lim/a9lim.github.io",
       "codeRepository": "https://github.com/a9lim/a9lim.github.io",
       "license": "https://www.gnu.org/licenses/agpl-3.0.html",
       "interactivityType": "active",
@@ -91,6 +95,10 @@
         "Special relativistic effects at high velocities",
         "Scalar field theory including Higgs and axion coupling",
         "Barnes-Hut tree algorithm for O(N log N) force approximation"
+      ],
+      "educationalAlignment": [
+        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "AP Physics C: Mechanics"},
+        {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "targetName": "NGSS HS-PS2: Motion and Stability"}
       ],
       "datePublished": "2026-02-17",
       "dateModified": "2026-04-05",
@@ -108,6 +116,10 @@
         "name": "a9l.im",
         "url": "https://a9l.im"
       },
+      "isBasedOn": [
+        {"@type": "ScholarlyArticle", "name": "A hierarchical O(N log N) force-calculation algorithm", "author": "J. Barnes, P. Hut", "datePublished": "1986", "sameAs": "https://doi.org/10.1038/324446a0"},
+        {"@type": "ScholarlyArticle", "name": "Relativistic plasma simulation — optimization of a hybrid code", "author": "J. P. Boris", "datePublished": "1970"}
+      ],
       "offers": {
         "@type": "Offer",
         "price": "0",
@@ -191,13 +203,27 @@
     <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://a9l.im"},{"@type":"ListItem","position":2,"name":"Geon","item":"https://a9l.im/geon"}]}
     </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "HowTo",
+      "name": "How to simulate particle physics with Geon",
+      "step": [
+        {"@type": "HowToStep", "position": 1, "name": "Choose a preset", "text": "Select one of 19 curated presets from the dropdown — each configures initial conditions and force parameters to demonstrate a specific physical phenomenon."},
+        {"@type": "HowToStep", "position": 2, "name": "Place particles", "text": "Click or drag on the canvas to spawn particles with the mass, charge, and spin values set in the controls panel."},
+        {"@type": "HowToStep", "position": 3, "name": "Toggle forces", "text": "Enable or disable individual forces — gravity, electromagnetism, Yukawa, Higgs, axion — to isolate and study specific physical interactions."},
+        {"@type": "HowToStep", "position": 4, "name": "Observe trajectories", "text": "Watch particles interact in real time. Use pause, step, and speed controls to examine dynamics at different timescales."},
+        {"@type": "HowToStep", "position": 5, "name": "Inspect the phase space", "text": "Open the Stats tab to view total energy, momentum, and per-particle properties — verify conservation laws and explore phase-space structure."}
+      ]
+    }
+    </script>
 </head>
 
 <body class="sim-body app-ready">
     <a href="#control-panel" class="skip-link">Skip to controls</a>
     <a href="#simCanvas" class="skip-link">Skip to simulation</a>
 
-    <canvas id="simCanvas"></canvas>
+    <canvas id="simCanvas" aria-label="Particle physics simulation canvas"></canvas>
 
     <nav id="topbar" class="sim-toolbar glass" role="toolbar" aria-label="Simulation controls">
         <div class="topbar-left">
@@ -549,6 +575,12 @@
     <h3>Boris Integrator</h3>
     <p>Geon uses the Boris algorithm to integrate particle trajectories. The Boris integrator preserves phase-space volume under strong magnetic fields, preventing artificial energy drift that plagues simpler methods like Euler integration. It splits the force application into electric half-kicks and a magnetic rotation, ensuring stable cyclotron orbits at any timestep.</p>
     <p><em>See also: <a href="/cyano">Cyano</a> for cellular energy simulations, <a href="/shoals">Shoals</a> for financial dynamics.</em></p>
+<h3>Learning Outcomes</h3>
+<p>After using Geon, students should be able to: explain how gravitational and electromagnetic forces produce qualitatively different orbital dynamics; describe the role of the Barnes-Hut algorithm in reducing force computation from O(N²) to O(N log N); identify how relativistic corrections (1PN, gravitomagnetism) modify Newtonian predictions at high velocities; and distinguish between conservative and dissipative forces in phase-space evolution.</p>
+<h3>Prerequisites</h3>
+<p>Familiarity with Newton's laws of motion and basic vector calculus. No prior knowledge of relativity or particle physics is required — the presets are designed to introduce each concept incrementally.</p>
+<h3>References</h3>
+<p>J. Barnes and P. Hut, <a href="https://doi.org/10.1038/324446a0" target="_blank" rel="noopener">"A hierarchical O(N log N) force-calculation algorithm"</a> (1986). J. P. Boris, "Relativistic plasma simulation — optimization of a hybrid code" (1970). L. Verlet, <a href="https://doi.org/10.1103/PhysRev.159.98" target="_blank" rel="noopener">"Computer experiments on classical fluids"</a> (1967).</p>
       </article>
     </details>
 

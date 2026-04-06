@@ -21,3 +21,15 @@ Designed for undergraduate physics education. Students can toggle individual for
 ## Technical Details
 
 WebGPU compute shaders handle force summation in parallel. Falls back to Canvas 2D on devices without WebGPU support. All computation runs client-side with no server dependency.
+
+## Topology Modes
+
+Six boundary conditions: open (particles escape), reflective (elastic walls), toroidal (wrap-around), Klein bottle (orientation-reversing wrap), projective plane (RP2), and spherical. Toroidal boundaries require minimum-image convention for force calculation to avoid double-counting.
+
+## Signal Delay
+
+Optional signal delay mode computes forces using the light-cone distance rather than instantaneous position, simulating relativistic causality. Requires maintaining a circular history buffer of past particle states. When enabled, each force evaluation interpolates the emitting particle's historical position at the retarded time, producing visible propagation delays at speeds near c.
+
+## GPU and CPU Backends
+
+WebGPU compute shaders handle pairwise force summation with Barnes-Hut tree acceleration when available. The GPU backend supports up to 512 particles with 4096 photons, compared to 128 particles on CPU. Falls back to a Web Worker pool with SharedArrayBuffer on devices without WebGPU. The Canvas 2D renderer is a final fallback for legacy browsers. Backend selection is automatic but can be forced to CPU via a query parameter. Scalar field evolution (Higgs, axion) uses a 128x128 grid on GPU and 64x64 on CPU, with cubic B-spline interpolation for C2 continuity.
