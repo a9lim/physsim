@@ -1441,7 +1441,7 @@ export default class Physics {
                 const quadPower = gwPower + emPower;
 
                 if (quadPower > 0) {
-                    const dE = quadPower * dtSub;
+                    const dE = quadPower * dt;
 
                     // Split dE proportionally between GW and EM channels
                     const gwFrac = gwPower / quadPower;
