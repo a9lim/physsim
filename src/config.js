@@ -28,8 +28,7 @@ export function topoFromString(s) { return s === 'klein' ? KLEIN : s === 'rp2' ?
 // ── Numerical Thresholds ──
 export const EPSILON = 1e-9;
 export const EPSILON_SQ = EPSILON * EPSILON;
-export const NR_TOLERANCE = EPSILON / 1000; // Newton-Raphson convergence (signal delay)
-export const NR_MAX_ITER = 8;
+export const SOLVE_TOLERANCE = EPSILON / 1000; // quadratic solver tolerance (signal delay)
 export const MIN_MASS = 0.05;               // emission threshold, evaporation floor
 export const MAX_SPEED_RATIO = 0.99;
 
@@ -53,7 +52,7 @@ export const BOSON_MIN_AGE = 4;              // minimum age (substeps) before an
 // ── Particle Properties ──
 export const INERTIA_K = 0.4;                // I = (2/5)mr²
 export const MAG_MOMENT_K = 0.2;             // μ = (1/5)q·ω·r²
-export const TIDAL_STRENGTH = 0.3;
+export const TIDAL_STRENGTH = 1;
 
 // ── Barnes-Hut ──
 export const BH_THETA = 0.5;
@@ -122,7 +121,7 @@ export const HISTORY_STRIDE = 64;            // ~120 snapshots/second
 
 // ── GPU-Specific ──
 export const GPU_SCALAR_GRID = 128;            // GPU scalar field grid resolution
-export const GPU_NR_TOLERANCE = 1e-5;         // GPU Newton-Raphson tolerance (f32 precision limit)
+export const GPU_SOLVE_TOLERANCE = 1e-5;      // GPU quadratic solver tolerance (f32 precision limit)
 export const GPU_HEATMAP_GRID = 128;           // GPU heatmap overlay resolution (tunable to 128)
 export const MAX_PARTICLES = 128;             // CPU particle pool cap
 export const GPU_MAX_PARTICLES = 512;         // GPU buffer pre-allocation limit

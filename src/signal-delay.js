@@ -1,9 +1,9 @@
 // ─── Signal Delay ───
 // Solves the light-cone equation |x_src(t_ret) - x_obs| = now - t_ret (c=1)
-// via NR convergence to segment, exact quadratic on that segment, and
-// constant-velocity extrapolation past the buffer.
+// via binary search to locate the segment (g is monotone for |v|<c),
+// exact quadratic on that segment, and constant-velocity extrapolation past the buffer.
 
-import { HISTORY_SIZE, HISTORY_MASK, NR_TOLERANCE, NR_MAX_ITER, EPSILON, TORUS } from './config.js';
+import { HISTORY_SIZE, HISTORY_MASK, SOLVE_TOLERANCE, EPSILON, TORUS } from './config.js';
 import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -25,7 +25,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     const tOldest = source.histTime[start];
     const tNewest = source.histTime[newest];
     const timeSpan = simTime - tOldest;
-    if (timeSpan < NR_TOLERANCE) return null;
+    if (timeSpan < SOLVE_TOLERANCE) return null;
 
     // Cache history array references to avoid repeated property lookups
     const histX = source.histX, histY = source.histY;
@@ -48,77 +48,32 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     buffer: {
     if (distSq > 4 * timeSpan * timeSpan) break buffer;
 
-    // ─── Phase 1: Newton-Raphson to locate the correct history segment ───
-    // g' = d_hat.v + 1 > 0 for |v| < c, guaranteeing convergence.
+    // ─── Phase 1: Binary search for the segment containing the light-cone root ───
+    // g(t) = |x_src(t) - x_obs| - (now - t) is strictly monotone increasing
+    // (g' = d_hat·v + 1 > 0 for |v| < c), so binary search on segment boundaries works.
 
-    let t = simTime - Math.sqrt(distSq);   // initial guess: light travel time
-    if (t < tOldest) t = tOldest;
-    if (t > tNewest) t = tNewest;
+    let lo = 0, hi = count - 2;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        const midIdx = (start + mid + 1) & HISTORY_MASK;
+        const tMid = histTime[midIdx];
 
-    // O(1) proportional estimate + short walk for non-uniform spacing
-    const histSpan = tNewest - tOldest;
-    let segK = histSpan > NR_TOLERANCE
-        ? Math.floor((t - tOldest) / histSpan * (count - 1))
-        : 0;
-    if (segK > count - 2) segK = count - 2;
-    if (segK < 0) segK = 0;
-    while (segK < count - 2 && histTime[(start + segK + 1) & HISTORY_MASK] <= t) segK++;
-    while (segK > 0 && histTime[(start + segK) & HISTORY_MASK] > t) segK--;
-
-    let prevSegK = -1;
-    for (let iter = 0; iter < NR_MAX_ITER; iter++) {
-        if (segK === prevSegK) break;   // segment stabilized → go to analytical phase
-        prevSegK = segK;
-
-        const loIdx = (start + segK) & HISTORY_MASK;
-        const hiIdx = (loIdx + 1) & HISTORY_MASK;
-        const tLo = histTime[loIdx];
-        const segDt = histTime[hiIdx] - tLo;
-        if (segDt < NR_TOLERANCE) {
-            if (segK < count - 2) { segK++; prevSegK = -1; continue; }
-            break buffer;
-        }
-
-        const xLo = histX[loIdx], yLo = histY[loIdx];
-        let vxEff, vyEff;
+        // Evaluate g at the boundary between segment mid and mid+1
+        let bx, by;
         if (periodic) {
-            minImage(xLo, yLo, histX[hiIdx], histY[hiIdx],
+            minImage(ox, oy, histX[midIdx], histY[midIdx],
                      topology, domW, domH, halfDomW, halfDomH, _miOut);
-            vxEff = _miOut.x / segDt;
-            vyEff = _miOut.y / segDt;
+            bx = _miOut.x; by = _miOut.y;
         } else {
-            vxEff = (histX[hiIdx] - xLo) / segDt;
-            vyEff = (histY[hiIdx] - yLo) / segDt;
+            bx = histX[midIdx] - ox;
+            by = histY[midIdx] - oy;
         }
+        const g = Math.sqrt(bx * bx + by * by) - (simTime - tMid);
 
-        const s = t - tLo;
-        const sx = xLo + vxEff * s;
-        const sy = yLo + vyEff * s;
-
-        let dx, dy;
-        if (periodic) {
-            minImage(ox, oy, sx, sy, topology, domW, domH, halfDomW, halfDomH, _miOut);
-            dx = _miOut.x; dy = _miOut.y;
-        } else {
-            dx = sx - ox; dy = sy - oy;
-        }
-
-        const distSq = dx * dx + dy * dy;
-        if (distSq < NR_TOLERANCE * NR_TOLERANCE) break; // source ≈ observer, skip to quadratic
-        const dist = Math.sqrt(distSq);
-
-        const g  = dist - (simTime - t);
-        const gp = (dx * vxEff + dy * vyEff) / dist + 1;
-        if (Math.abs(gp) < NR_TOLERANCE) break;
-
-        t -= g / gp;
-
-        if (t < tOldest) t = tOldest;
-        if (t > tNewest) t = tNewest;
-
-        while (segK < count - 2 && histTime[(start + segK + 1) & HISTORY_MASK] <= t) segK++;
-        while (segK > 0 && histTime[(start + segK) & HISTORY_MASK] > t) segK--;
+        if (g < 0) lo = mid + 1;
+        else hi = mid;
     }
+    let segK = lo;
 
     // ─── Phase 2: Exact quadratic on converged segment (and +/- 1 neighbor) ───
     // Piecewise-linear trajectory makes the light-cone equation a quadratic in s.
@@ -132,7 +87,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             const hiIdx = (loIdx + 1) & HISTORY_MASK;
             const tLo = histTime[loIdx];
             const segDt = histTime[hiIdx] - tLo;
-            if (segDt < NR_TOLERANCE) continue;
+            if (segDt < SOLVE_TOLERANCE) continue;
 
             const xLo = histX[loIdx], yLo = histY[loIdx];
             const xHi = histX[hiIdx], yHi = histY[hiIdx];
@@ -168,9 +123,9 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
             const sqrtDisc = Math.sqrt(disc);
             let s;
-            if (Math.abs(a) < NR_TOLERANCE) {
+            if (Math.abs(a) < SOLVE_TOLERANCE) {
                 // v ~ c: degenerate linear case
-                if (Math.abs(h) < NR_TOLERANCE) continue;
+                if (Math.abs(h) < SOLVE_TOLERANCE) continue;
                 s = -c / (2 * h);
             } else {
                 const s1 = (-h + sqrtDisc) / a;
@@ -236,8 +191,8 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
         const sqrtDisc = Math.sqrt(disc);
         let s;
-        if (Math.abs(a) < NR_TOLERANCE) {
-            if (Math.abs(h) < NR_TOLERANCE) return null;
+        if (Math.abs(a) < SOLVE_TOLERANCE) {
+            if (Math.abs(h) < SOLVE_TOLERANCE) return null;
             s = -c / (2 * h);
         } else {
             const s1 = (-h + sqrtDisc) / a;

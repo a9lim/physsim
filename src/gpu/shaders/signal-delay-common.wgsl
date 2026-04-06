@@ -1,10 +1,10 @@
 // ─── Signal Delay Common ───
-// Shared Newton-Raphson light-cone solver for interleaved history buffers.
+// Shared binary-search + quadratic light-cone solver for interleaved history buffers.
 // Prepended to consuming shaders (after shared-topology.wgsl which provides fullMinImageP).
 // Callers declare histData/histMeta bindings.
 //
 // Requires constants: HIST_STRIDE, HIST_META_STRIDE, HISTORY_LEN, HISTORY_MASK,
-// NR_TOLERANCE, NR_MAX_ITER, EPSILON, TOPO_TORUS, TOPO_KLEIN.
+// SOLVE_TOLERANCE, EPSILON, TOPO_TORUS, TOPO_KLEIN.
 
 struct DelayedState {
     x: f32, y: f32,
@@ -44,7 +44,7 @@ fn getDelayedStateGPU(
     let tOldest = histData[oldestBase + 5u]; // time field at offset 5
     let tNewest = histData[newestBase + 5u];
     let timeSpan = simTime - tOldest;
-    if (timeSpan < NR_TOLERANCE) { return result; }
+    if (timeSpan < SOLVE_TOLERANCE) { return result; }
 
     // Current distance to newest sample
     let nxPos = histData[newestBase + 0u];
@@ -58,92 +58,32 @@ fn getDelayedStateGPU(
     }
     let distSq = cdx * cdx + cdy * cdy;
 
-    // ─── Phase 1: Newton-Raphson segment search ───
+    // ─── Phase 1: Binary search for the segment containing the light-cone root ───
+    // g(t) = |x_src(t) - x_obs| - (now - t) is strictly monotone increasing
+    // (g' = d_hat·v + 1 > 0 for |v| < c), so binary search on segment boundaries works.
     if (distSq <= 4.0 * timeSpan * timeSpan) {
-        var t = simTime - sqrt(distSq);
-        t = clamp(t, tOldest, tNewest);
+        var bsLo: i32 = 0;
+        var bsHi: i32 = i32(count) - 2;
+        for (var bsIter = 0; bsIter < 16; bsIter++) {
+            if (bsLo >= bsHi) { break; }
+            let mid = (bsLo + bsHi) >> 1;
+            let midBase = histSampleBase(srcIdx, (start + u32(mid + 1)) & HISTORY_MASK);
+            let tMid = histData[midBase + 5u];
 
-        let histSpan = tNewest - tOldest;
-        var segK: i32;
-        if (histSpan > NR_TOLERANCE) {
-            segK = i32(floor((t - tOldest) / histSpan * f32(count - 1u)));
-        } else { segK = 0; }
-        segK = clamp(segK, 0, i32(count) - 2);
-
-        // Walk to correct segment
-        for (var w = 0; w < 256; w++) {
-            if (segK >= i32(count) - 2) { break; }
-            let nextBase = histSampleBase(srcIdx, (start + u32(segK + 1)) & HISTORY_MASK);
-            if (histData[nextBase + 5u] > t) { break; }
-            segK++;
-        }
-        for (var w = 0; w < 256; w++) {
-            if (segK <= 0) { break; }
-            let curBase = histSampleBase(srcIdx, (start + u32(segK)) & HISTORY_MASK);
-            if (histData[curBase + 5u] <= t) { break; }
-            segK--;
-        }
-
-        var prevSegK: i32 = -1;
-        for (var iter = 0u; iter < NR_MAX_ITER; iter++) {
-            if (segK == prevSegK) { break; }
-            prevSegK = segK;
-
-            let loBase = histSampleBase(srcIdx, (start + u32(segK)) & HISTORY_MASK);
-            let hiBase = histSampleBase(srcIdx, ((start + u32(segK)) + 1u) & HISTORY_MASK);
-            let tLo = histData[loBase + 5u];
-            let segDt = histData[hiBase + 5u] - tLo;
-            if (segDt < NR_TOLERANCE) {
-                if (segK < i32(count) - 2) { segK++; prevSegK = -1; continue; }
-                break;
-            }
-
-            let xLo = histData[loBase]; let yLo = histData[loBase + 1u];
-            var vxEff: f32; var vyEff: f32;
+            var bx: f32; var by: f32;
             if (periodic) {
-                let d = fullMinImageP(xLo, yLo, histData[hiBase], histData[hiBase + 1u], domW, domH, topoMode);
-                vxEff = d.x / segDt; vyEff = d.y / segDt;
+                let d = fullMinImageP(obsX, obsY, histData[midBase], histData[midBase + 1u], domW, domH, topoMode);
+                bx = d.x; by = d.y;
             } else {
-                vxEff = (histData[hiBase] - xLo) / segDt;
-                vyEff = (histData[hiBase + 1u] - yLo) / segDt;
+                bx = histData[midBase] - obsX;
+                by = histData[midBase + 1u] - obsY;
             }
+            let g = sqrt(bx * bx + by * by) - (simTime - tMid);
 
-            let s = t - tLo;
-            let sx_interp = xLo + vxEff * s;
-            let sy_interp = yLo + vyEff * s;
-
-            var dx: f32; var dy: f32;
-            if (periodic) {
-                let d = fullMinImageP(obsX, obsY, sx_interp, sy_interp, domW, domH, topoMode);
-                dx = d.x; dy = d.y;
-            } else {
-                dx = sx_interp - obsX; dy = sy_interp - obsY;
-            }
-
-            let dSq = dx * dx + dy * dy;
-            if (dSq < NR_TOLERANCE * NR_TOLERANCE) { break; }
-            let dist = sqrt(dSq);
-
-            let g = dist - (simTime - t);
-            let gp = (dx * vxEff + dy * vyEff) / dist + 1.0;
-            if (abs(gp) < NR_TOLERANCE) { break; }
-
-            t -= g / gp;
-            t = clamp(t, tOldest, tNewest);
-
-            for (var w2 = 0; w2 < 64; w2++) {
-                if (segK >= i32(count) - 2) { break; }
-                let ni = histSampleBase(srcIdx, (start + u32(segK + 1)) & HISTORY_MASK);
-                if (histData[ni + 5u] > t) { break; }
-                segK++;
-            }
-            for (var w2 = 0; w2 < 64; w2++) {
-                if (segK <= 0) { break; }
-                let ci = histSampleBase(srcIdx, (start + u32(segK)) & HISTORY_MASK);
-                if (histData[ci + 5u] <= t) { break; }
-                segK--;
-            }
+            if (g < 0.0) { bsLo = mid + 1; }
+            else { bsHi = mid; }
         }
+        var segK = bsLo;
 
         // ─── Phase 2: Exact quadratic on converged segment (+/- 1 neighbor) ───
         let center = segK;
@@ -156,7 +96,7 @@ fn getDelayedStateGPU(
                 let hiBase = histSampleBase(srcIdx, ((start + u32(k)) + 1u) & HISTORY_MASK);
                 let tLo = histData[loBase + 5u];
                 let segDt = histData[hiBase + 5u] - tLo;
-                if (segDt < NR_TOLERANCE) { continue; }
+                if (segDt < SOLVE_TOLERANCE) { continue; }
 
                 let xLo = histData[loBase]; let yLo = histData[loBase + 1u];
                 let xHi = histData[hiBase]; let yHi = histData[hiBase + 1u];
@@ -186,8 +126,8 @@ fn getDelayedStateGPU(
 
                 let sqrtDisc = sqrt(max(disc, 0.0));
                 var s_sol: f32;
-                if (abs(a) < NR_TOLERANCE) {
-                    if (abs(h) < NR_TOLERANCE) { continue; }
+                if (abs(a) < SOLVE_TOLERANCE) {
+                    if (abs(h) < SOLVE_TOLERANCE) { continue; }
                     s_sol = -c / (2.0 * h);
                 } else {
                     let s1 = (-h + sqrtDisc) / a;
@@ -249,8 +189,8 @@ fn getDelayedStateGPU(
 
         let sqrtDisc = sqrt(disc);
         var s_sol: f32;
-        if (abs(a) < NR_TOLERANCE) {
-            if (abs(h) < NR_TOLERANCE) { return result; }
+        if (abs(a) < SOLVE_TOLERANCE) {
+            if (abs(h) < SOLVE_TOLERANCE) { return result; }
             s_sol = -c / (2.0 * h);
         } else {
             let s1 = (-h + sqrtDisc) / a;
