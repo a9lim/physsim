@@ -75,9 +75,6 @@
     pointer-events: auto;
 }
 
-/* Sub-slider labels match sub-toggle text style */
-.ctrl-sub label { font-size: var(--font-sm); color: var(--text-secondary); }
-
 /* ═══════════════════════════════════════════════
    Force Toggle Colors
    ═══════════════════════════════════════════════ */
