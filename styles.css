@@ -76,7 +76,7 @@
 }
 
 /* Sub-slider labels match sub-toggle text style */
-.ctrl-sub label { font-size: 0.72rem; color: var(--text-secondary); }
+.ctrl-sub label { font-size: var(--font-sm); color: var(--text-secondary); }
 
 /* ═══════════════════════════════════════════════
    Force Toggle Colors
@@ -137,7 +137,7 @@
    ═══════════════════════════════════════════════ */
 
 label {
-    font-size: 0.78rem;
+    font-size: var(--font-base);
     color: var(--text);
     font-weight: 400;
     display: flex;
@@ -155,7 +155,7 @@ label {
 }
 
 #hint-bar p {
-    font-size: 0.75rem;
+    font-size: var(--font-base);
     color: var(--text-muted);
     white-space: nowrap;
     letter-spacing: 0.02em;
@@ -194,7 +194,7 @@ label {
     }
 
     #hint-bar p {
-        font-size: 0.7rem;
+        font-size: var(--font-sm);
     }
 }
 
