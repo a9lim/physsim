@@ -67,8 +67,8 @@ fn getTorqueOffset(torqueType: u32) -> f32 {
         case 0u:  { return 2.5; }  // spinOrbit
         case 1u:  { return 2.0; }  // frameDrag
         case 2u:  { return 1.5; }  // tidal
-        case 3u:  { return 1.0; }  // contact
-        case 4u:  { return 0.5; }  // superradiance
+        case 3u:  { return 0.5; }  // contact
+        case 4u:  { return 1.0; }  // superradiance
         case 11u: { return 3.0; }  // total
         default:  { return 1.0; }
     }

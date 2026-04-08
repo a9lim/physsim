@@ -105,7 +105,7 @@ export const HIGGS_AXION_COUPLING = 0.01;    // λ in V_portal = ½λφ²a² (Hi
 
 // ── Superradiance ──
 // BH spin → axion field amplification. Rate: Γ = COEFF · (Mμ)² · (Ω_H - μ_a)
-export const SUPERRADIANCE_COEFF = 500;
+export const SUPERRADIANCE_COEFF = 10;
 
 // ── Disintegration & Roche ──
 export const SPAWN_COUNT = 4;

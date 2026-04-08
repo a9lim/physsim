@@ -164,10 +164,11 @@ fn depositSuperradiance(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pqs = pqsWeights(p.posX, p.posY, 1.0 / cellW, 1.0 / cellH);
     atomicDeposit(pqs, dE, uniforms.boundaryMode, uniforms.topologyMode);
 
-    // Back-reaction: BH loses mass and angular momentum (first law: dM = Ω_H dJ)
+    // Back-reaction: BH loses mass and angular momentum
+    // dJ = (m/ω)·dE ≈ dE/μ_a for the dominant m=1 mode (ω ≈ μ_a).
     let I_bh = INERTIA_K * bodyRSq * M;
     if (I_bh < EPSILON) { return; }
-    let dJ = dE / omegaH;
+    let dJ = dE / muA;
     particles[pid].mass = M - dE;
     let signW = select(-1.0, 1.0, angw > 0.0);
     particles[pid].angW = angw - signW * dJ / I_bh;

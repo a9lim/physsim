@@ -240,7 +240,7 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
             coupling += m * sign;
         }
     }
-    // Superradiance torque for display (τ = rate / Ω_H, spin-down)
+    // Superradiance torque for display (τ = rate / μ_a, spin-down; m=1 mode)
     // Computed before the coupling early-return: superradiance needs BH + axion only,
     // not Coulomb or Yukawa.
     // Also stores φ² in axYukMod.w for the deposit shader's stimulated amplification.
@@ -267,7 +267,7 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
                     let alphaG = M * muA;
                     let rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA) * (1.0 + aLocal * aLocal);
                     let signW = select(-1.0, 1.0, angw > 0.0);
-                    af.f5.z = -signW * rate / omegaH;
+                    af.f5.z = -signW * rate / muA;
                 }
             }
         }
