@@ -256,7 +256,7 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     af.totalForce.y += fy;
 
     // Superradiance torque for display (τ = rate / Ω_H, spin-down)
-    if (uniforms.blackHoleEnabled != 0u && uniforms.currentFieldType == 1u) {
+    if (uniforms.blackHoleEnabled != 0u) {
         let M = p.mass;
         if (M > MIN_MASS) {
             let bodyRSq = pow(M, 2.0 / 3.0);
