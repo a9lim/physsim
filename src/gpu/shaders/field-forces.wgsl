@@ -242,20 +242,10 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
             coupling += m * sign;
         }
     }
-    if (abs(coupling) < EPSILON) { return; }
-
-    let grad = pqsGradient(&axionGradX, &axionGradY, px, py, invCellW, invCellH, bcMode, topoMode);
-    let fx = g * coupling * grad.x;
-    let fy = g * coupling * grad.y;
-
-    // Accumulate into axion force slot (allForces.f5.xy) and totalForce
-    var af = allForces[pid];
-    af.f5.x += fx;
-    af.f5.y += fy;
-    af.totalForce.x += fx;
-    af.totalForce.y += fy;
-
     // Superradiance torque for display (τ = rate / Ω_H, spin-down)
+    // Computed before the coupling early-return: superradiance needs BH + axion only,
+    // not Coulomb or Yukawa.
+    var af = allForces[pid];
     if (uniforms.blackHoleEnabled != 0u) {
         let M = p.mass;
         if (M > MIN_MASS) {
@@ -281,5 +271,18 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
+    if (abs(coupling) < EPSILON) {
+        allForces[pid] = af;
+        return;
+    }
+
+    let grad = pqsGradient(&axionGradX, &axionGradY, px, py, invCellW, invCellH, bcMode, topoMode);
+    let fx = g * coupling * grad.x;
+    let fy = g * coupling * grad.y;
+
+    af.f5.x += fx;
+    af.f5.y += fy;
+    af.totalForce.x += fx;
+    af.totalForce.y += fy;
     allForces[pid] = af;
 }
