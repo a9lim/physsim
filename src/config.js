@@ -103,6 +103,10 @@ export const HIGGS_AXION_COUPLING = 0.01;    // λ in V_portal = ½λφ²a² (Hi
 // Vacuum pair production at BH horizon when E > E_cr.
 // E_field = |Q| / r+², rate ∝ (E/E_cr)² exp(-π E_cr/E) per unit area.
 
+// ── Superradiance ──
+// BH spin → axion field amplification. Rate: Γ = COEFF · (Mμ)² · (Ω_H - μ_a)
+export const SUPERRADIANCE_COEFF = 500;
+
 // ── Disintegration & Roche ──
 export const SPAWN_COUNT = 4;
 export const SPAWN_OFFSET_MULTIPLIER = 1.5;
