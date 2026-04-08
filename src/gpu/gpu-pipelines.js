@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 70;
+const SHADER_VERSION = 71;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -1015,16 +1015,29 @@ export async function createFieldDepositPipelines(device, wgslConstants = '') {
     const bindGroupLayouts = [group0Layout, group1Layout];
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 
-    const entryPoints = ['depositHiggsSource', 'depositAxionSource', 'depositSuperradiance', 'depositThermal', 'finalizeDeposit'];
+    // Superradiance needs axYukMod (group 2) for stimulated amplification (φ²)
+    const group2Layout = device.createBindGroupLayout({
+        label: 'fieldDeposit_group2',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // axYukMod
+        ],
+    });
+    const srLayout = device.createPipelineLayout({ bindGroupLayouts: [group0Layout, group1Layout, group2Layout] });
+
+    const baseEntryPoints = ['depositHiggsSource', 'depositAxionSource', 'depositThermal', 'finalizeDeposit'];
     const pipelines = {};
-    for (const entry of entryPoints) {
+    for (const entry of baseEntryPoints) {
         pipelines[entry] = device.createComputePipeline({
             label: entry, layout: pipelineLayout,
             compute: { module, entryPoint: entry },
         });
     }
+    pipelines.depositSuperradiance = device.createComputePipeline({
+        label: 'depositSuperradiance', layout: srLayout,
+        compute: { module, entryPoint: 'depositSuperradiance' },
+    });
 
-    return { ...pipelines, bindGroupLayouts };
+    return { ...pipelines, bindGroupLayouts: [...bindGroupLayouts, group2Layout] };
 }
 
 /**

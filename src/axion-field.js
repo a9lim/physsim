@@ -210,8 +210,10 @@ export default class AxionField extends ScalarField {
     }
 
     /** Superradiant instability: spinning BH pumps axion field.
-     *  Rate: Γ = C · (M·μ_a)² · max(Ω_H - μ_a, 0), deposits into _source via PQS.
-     *  Back-reaction: BH angular momentum reduced by dJ = dE/Ω_H.
+     *  Rate: Γ = C · (M·μ_a)² · max(Ω_H - μ_a, 0) · (1 + φ²), deposits into _source via PQS.
+     *  The (1 + φ²) factor gives exponential cloud growth (stimulated) with a vacuum seed
+     *  (spontaneous), analogous to stimulated emission: Γ_total = A(1 + n).
+     *  Back-reaction: BH loses mass dM = dE and angular momentum dJ = dE/Ω_H (first law).
      */
     _depositSuperradiance(particles, invCellW, invCellH, bcMode, topoConst, dt) {
         const muA = this.mass;
@@ -233,18 +235,20 @@ export default class AxionField extends ScalarField {
             if (omegaH <= muA) continue;
 
             const alphaG = M * muA;
-            const rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA);
+            // Sample local field amplitude for stimulated amplification
+            const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
+            const rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA) * (1 + phiLocal * phiLocal);
             const dE = rate * dt;
             if (dE < EPSILON) continue;
 
             // Deposit into source array (positive = excite field)
             this._depositPQS(this._source, p.pos.x, p.pos.y, dE, invCellW, invCellH, bcMode, topoConst);
 
-            // Back-reaction: reduce BH angular momentum
-            // dJ = dE / Ω_H, then Δangw = -sign(angw) · dJ / I
+            // Back-reaction: BH loses mass and angular momentum (first law: dM = Ω_H dJ)
             const I = INERTIA_K * bodyRSq * M;
             if (I < EPSILON) continue;
             const dJ = dE / omegaH;
+            p.mass -= dE;
             p.angw -= Math.sign(p.angw) * dJ / I;
             // Recompute derived angular velocity
             const absAngw = Math.abs(p.angw);

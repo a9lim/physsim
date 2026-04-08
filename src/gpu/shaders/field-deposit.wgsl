@@ -12,6 +12,8 @@
 @group(1) @binding(1) var<storage, read_write> targetGrid: array<f32>;          // GRID_SQ (f32 output)
 @group(1) @binding(2) var<uniform> uniforms: FieldUniforms;
 
+@group(2) @binding(0) var<storage, read> axYukMod: array<vec4<f32>>;  // .w = φ² (set by field-forces)
+
 // Fixed-point scale: 2^20 ≈ 1M. Gives ~6 decimal digits of precision.
 // Max representable value: 2^31 / 2^20 ≈ 2048 — well above any deposit sum.
 const FP_SCALE: f32 = 1048576.0;  // 2^20
@@ -117,7 +119,9 @@ fn depositAxionSource(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 // ─── Superradiant Instability ───
 // Spinning BH pumps axion field. One thread per particle.
-// Γ = C · (M·μ_a)² · max(Ω_H - μ_a, 0). Deposits into atomicGrid, reduces angW.
+// Γ = C · (M·μ_a)² · max(Ω_H - μ_a, 0) · (1 + φ²). Deposits into atomicGrid.
+// (1 + φ²) gives exponential cloud growth (stimulated) with vacuum seed (spontaneous).
+// Back-reaction: BH loses mass dM = dE and angular momentum dJ = dE/Ω_H (first law).
 @compute @workgroup_size(256)
 fn depositSuperradiance(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pid = gid.x;
@@ -147,7 +151,9 @@ fn depositSuperradiance(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (omegaH <= muA) { return; }
 
     let alphaG = M * muA;
-    let rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA);
+    // Stimulated amplification: φ² from field-forces shader stored in axYukMod.w
+    let phiSq = axYukMod[pid].w;
+    let rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA) * (1.0 + phiSq);
     let dE = rate * uniforms.dt;
     if (dE < EPSILON) { return; }
 
@@ -158,10 +164,11 @@ fn depositSuperradiance(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pqs = pqsWeights(p.posX, p.posY, 1.0 / cellW, 1.0 / cellH);
     atomicDeposit(pqs, dE, uniforms.boundaryMode, uniforms.topologyMode);
 
-    // Back-reaction: reduce BH spin
+    // Back-reaction: BH loses mass and angular momentum (first law: dM = Ω_H dJ)
     let I_bh = INERTIA_K * bodyRSq * M;
     if (I_bh < EPSILON) { return; }
     let dJ = dE / omegaH;
+    particles[pid].mass = M - dE;
     let signW = select(-1.0, 1.0, angw > 0.0);
     particles[pid].angW = angw - signW * dJ / I_bh;
 }

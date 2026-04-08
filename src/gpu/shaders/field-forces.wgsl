@@ -225,8 +225,6 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     } else {
         aymVal.y = 1.0;
     }
-    axYukMod[pid] = aymVal;
-
     // Gradient force
     var coupling: f32 = 0.0;
     if (uniforms.coulombEnabled != 0u) {
@@ -245,10 +243,14 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Superradiance torque for display (τ = rate / Ω_H, spin-down)
     // Computed before the coupling early-return: superradiance needs BH + axion only,
     // not Coulomb or Yukawa.
+    // Also stores φ² in axYukMod.w for the deposit shader's stimulated amplification.
     var af = allForces[pid];
     if (uniforms.blackHoleEnabled != 0u) {
         let M = p.mass;
         if (M > MIN_MASS) {
+            // Store local field amplitude squared for deposit shader
+            aymVal.w = aLocal * aLocal;
+
             let bodyRSq = pow(M, 2.0 / 3.0);
             let angw = p.angW;
             let absAngw = abs(angw);
@@ -263,13 +265,14 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let muA = uniforms.axionMass;
                 if (omegaH > muA) {
                     let alphaG = M * muA;
-                    let rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA);
+                    let rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA) * (1.0 + aLocal * aLocal);
                     let signW = select(-1.0, 1.0, angw > 0.0);
                     af.f5.z = -signW * rate / omegaH;
                 }
             }
         }
     }
+    axYukMod[pid] = aymVal;
 
     if (abs(coupling) < EPSILON) {
         allForces[pid] = af;

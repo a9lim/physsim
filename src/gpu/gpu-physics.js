@@ -2191,7 +2191,16 @@ export default class GPUPhysics {
             ],
         });
 
-        this._fieldDepositBGs[which] = { g0, g1Source, g1Thermal };
+        // Group 2: axYukMod (read-only, for superradiance stimulated amplification)
+        const g2 = this.device.createBindGroup({
+            label: `fieldDeposit_g2_${which}`,
+            layout: dep.bindGroupLayouts[2],
+            entries: [
+                { binding: 0, resource: { buffer: b.axYukMod } },
+            ],
+        });
+
+        this._fieldDepositBGs[which] = { g0, g1Source, g1Thermal, g2 };
     }
 
     /**
@@ -2571,6 +2580,7 @@ export default class GPUPhysics {
             p.setPipeline(dep.depositSuperradiance);
             p.setBindGroup(0, depBGs.g0);
             p.setBindGroup(1, depBGs.g1Source);
+            p.setBindGroup(2, depBGs.g2);
             p.dispatchWorkgroups(particleWG);
             p.end();
         }
