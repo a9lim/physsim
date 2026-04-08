@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, MAX_REJECTION_SAMPLES, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, DEFAULT_HIGGS_MASS, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2, BOSON_CHARGE, ELECTRON_MASS, MAX_LEPTONS } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, MAX_REJECTION_SAMPLES, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, DEFAULT_HIGGS_MASS, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2, BOSON_CHARGE, ELECTRON_MASS, MAX_LEPTONS, MIN_KUGELBLITZ_ENERGY, MIN_KUGELBLITZ_COUNT } from './config.js';
 
 // Schwinger pair production: Γ = (e²Q²)/(π²Σ) × exp(-πE_cr Σ/|Q|)
 // where Σ = r₊² + a² (Kerr-Newman horizon area factor)
@@ -400,6 +400,153 @@ export default class Physics {
             this.sim.totalRadiatedPx += pMag * dirX;
             this.sim.totalRadiatedPy += pMag * dirY;
         }
+    }
+
+    /**
+     * Kugelblitz collapse: detect boson energy concentrations exceeding the
+     * hoop conjecture threshold (E > r/2 in natural units) and condense them
+     * into a new massive particle. Max 1 collapse per call.
+     */
+    _checkKugelblitz(bRoot) {
+        if (bRoot < 0 || !this.sim) return;
+        const bp = this._bosonPool;
+
+        // Walk all nodes (same post-order pattern as calculateBosonDistribution)
+        const s = bp._massStack, o = bp._massOrder;
+        let stackTop = 0, orderLen = 0;
+        s[stackTop++] = bRoot;
+        while (stackTop > 0) {
+            const idx = s[--stackTop];
+            o[orderLen++] = idx;
+            if (bp.divided[idx]) {
+                s[stackTop++] = bp.nw[idx];
+                s[stackTop++] = bp.ne[idx];
+                s[stackTop++] = bp.sw[idx];
+                s[stackTop++] = bp.se[idx];
+            }
+        }
+
+        // Find smallest (deepest) qualifying node — process bottom-up,
+        // track the smallest node size that qualifies
+        let bestIdx = -1, bestSize = Infinity;
+        for (let k = orderLen - 1; k >= 0; k--) {
+            const idx = o[k];
+            const energy = bp.totalMass[idx]; // _srcMass = energy for photons
+            if (energy < MIN_KUGELBLITZ_ENERGY) continue;
+            if (bp.totalCount[idx] < MIN_KUGELBLITZ_COUNT) continue;
+            const nodeSize = Math.max(bp.bw[idx], bp.bh[idx]) * 2; // full extent (bw/bh are half-extents)
+            if (energy > nodeSize * 0.5 && nodeSize < bestSize) {
+                bestSize = nodeSize;
+                bestIdx = idx;
+            }
+        }
+        if (bestIdx < 0) return;
+
+        // Collect all bosons in the collapsing node's subtree
+        const photons = this.sim.photons;
+        const pions = this.sim.pions;
+        const leptons = this.sim.leptons;
+        let totalEnergy = 0, totalPx = 0, totalPy = 0, totalCharge = 0, totalAngL = 0;
+        let comX = 0, comY = 0;
+
+        // Walk subtree of bestIdx, collecting leaf points
+        stackTop = 0;
+        s[stackTop++] = bestIdx;
+        while (stackTop > 0) {
+            const idx = s[--stackTop];
+            if (bp.divided[idx]) {
+                s[stackTop++] = bp.nw[idx];
+                s[stackTop++] = bp.ne[idx];
+                s[stackTop++] = bp.sw[idx];
+                s[stackTop++] = bp.se[idx];
+            } else {
+                const cnt = bp.pointCount[idx];
+                const base = idx * bp.nodeCapacity;
+                for (let i = 0; i < cnt; i++) {
+                    const b = bp.points[base + i];
+                    if (!b.alive) continue;
+                    const e = b._srcMass; // energy
+                    totalEnergy += e;
+                    comX += b.pos.x * e;
+                    comY += b.pos.y * e;
+                    if (b._kind === 0) {
+                        // Photon: momentum = energy × velocity direction
+                        totalPx += e * b.vel.x;
+                        totalPy += e * b.vel.y;
+                    } else {
+                        // Pion/lepton: momentum = mass × proper velocity
+                        totalPx += b.mass * b.w.x;
+                        totalPy += b.mass * b.w.y;
+                        totalCharge += b.charge;
+                    }
+                }
+            }
+        }
+
+        if (totalEnergy < MIN_KUGELBLITZ_ENERGY) return;
+
+        // COM position
+        comX /= totalEnergy;
+        comY /= totalEnergy;
+
+        // Orbital angular momentum about COM + kill consumed bosons (single pass)
+        stackTop = 0;
+        s[stackTop++] = bestIdx;
+        while (stackTop > 0) {
+            const idx = s[--stackTop];
+            if (bp.divided[idx]) {
+                s[stackTop++] = bp.nw[idx];
+                s[stackTop++] = bp.ne[idx];
+                s[stackTop++] = bp.sw[idx];
+                s[stackTop++] = bp.se[idx];
+            } else {
+                const cnt = bp.pointCount[idx];
+                const base = idx * bp.nodeCapacity;
+                for (let i = 0; i < cnt; i++) {
+                    const b = bp.points[base + i];
+                    if (!b.alive) continue;
+                    const dx = b.pos.x - comX, dy = b.pos.y - comY;
+                    if (b._kind === 0) {
+                        const e = b._srcMass;
+                        totalAngL += dx * (e * b.vel.y) - dy * (e * b.vel.x);
+                    } else {
+                        totalAngL += dx * (b.mass * b.w.y) - dy * (b.mass * b.w.x);
+                    }
+                    b.alive = false;
+                }
+            }
+        }
+
+        // Spawn particle at COM
+        const mass = totalEnergy;
+        const pSq = totalPx * totalPx + totalPy * totalPy;
+        const pMag = Math.sqrt(pSq);
+        // Velocity from momentum: v = p / E, capped at MAX_SPEED_RATIO
+        let vx = 0, vy = 0;
+        if (pMag > EPSILON) {
+            const speed = Math.min(pMag / mass, MAX_SPEED_RATIO);
+            vx = totalPx / pMag * speed;
+            vy = totalPy / pMag * speed;
+        }
+        const radius = Math.cbrt(mass);
+        const I = INERTIA_K * mass * radius * radius;
+        const angw = I > EPSILON ? totalAngL / I : 0;
+
+        this.sim.addParticle(comX, comY, vx, vy, {
+            mass,
+            baseMass: mass,
+            charge: totalCharge,
+            spin: 0,
+            skipBaseline: true,
+        });
+        // Set angular velocity directly (addParticle uses spin → angw conversion)
+        const spawned = this.sim.particles[this.sim.particles.length - 1];
+        spawned.angw = angw;
+        spawned.angVel = this.relativityEnabled ? angwToAngVel(angw, spawned.radius) : angw;
+
+        // Radiation returning to mass
+        this.sim.totalRadiated -= totalEnergy;
+        if (this.sim.totalRadiated < 0) this.sim.totalRadiated = 0;
     }
 
     /** Cache external field direction vectors (call once per frame, not per substep). */
@@ -1388,6 +1535,10 @@ export default class Physics {
                         for (let ai = 0; ai < lepPairs.length; ai += 2) {
                             this._annihilateLeptons(lepPairs[ai], lepPairs[ai + 1]);
                         }
+                    }
+                    // Kugelblitz: boson energy density exceeds hoop conjecture → massive particle
+                    if (this.gravityEnabled) {
+                        this._checkKugelblitz(bRoot);
                     }
                 }
             }

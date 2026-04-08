@@ -105,6 +105,10 @@ export const SPAWN_MIN_ENERGY = 0.01;         // min energy per emitted photon (
 export const ROCHE_THRESHOLD = 0.9;
 export const ROCHE_TRANSFER_RATE = 0.01;
 
+// ── Kugelblitz Collapse ──
+export const MIN_KUGELBLITZ_ENERGY = 0.2;    // minimum total boson energy for collapse (4 × MIN_MASS)
+export const MIN_KUGELBLITZ_COUNT = 4;       // minimum boson count in collapsing node
+
 // ── Pair Production ──
 export const PAIR_PROD_MIN_ENERGY = 0.5;       // minimum photon energy for pair production
 export const PAIR_PROD_RADIUS = 8;           // proximity to massive body

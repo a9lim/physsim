@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 73;
+const SHADER_VERSION = 74;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -840,6 +840,29 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
         };
     }
 
+    // ── Kugelblitz Collapse (kugelblitz.wgsl) ──
+    // Groups 0-2: same as boson tree (uniforms + tree + photons + pions)
+    // Group 3: kbEvents (rw) + kbCounter (rw) = 2 storage
+    const kbCode = await fetchShader('kugelblitz.wgsl', prefix);
+    const kbModule = device.createShaderModule({ label: 'kugelblitz', code: kbCode });
+
+    const kbG3 = device.createBindGroupLayout({
+        label: 'kugelblitz_g3',
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // kbEvents
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // kbCounter
+        ],
+    });
+    const kbLayouts = [btG0, btG1, btG2, kbG3];
+    const checkKugelblitz = {
+        pipeline: device.createComputePipeline({
+            label: 'checkKugelblitz',
+            layout: device.createPipelineLayout({ bindGroupLayouts: kbLayouts }),
+            compute: { module: kbModule, entryPoint: 'checkKugelblitz' },
+        }),
+        bindGroupLayouts: kbLayouts,
+    };
+
     return {
         recordHistory,
         compute1PN, vvKick1PN, compute1PNTree,
@@ -847,6 +870,7 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
         quadrupoleCoM, quadrupoleContrib, quadrupoleApply,
         ...bosonPipelines,
         ...bosonTreePipelines,
+        checkKugelblitz,
     };
 }
 

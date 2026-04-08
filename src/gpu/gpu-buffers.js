@@ -489,6 +489,23 @@ export function createPairProductionBuffers(device, maxEvents = 32) {
     };
 }
 
+/**
+ * Allocate kugelblitz collapse event buffers.
+ * KugelblitzEvent = 32 bytes (8 × f32): x, y, px, py, energy, charge, angL, count.
+ * Max 1 event per substep.
+ */
+export function createKugelblitzBuffers(device) {
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+    return {
+        events: device.createBuffer({ label: 'kugelblitz-events', size: 32, usage }),
+        counter: device.createBuffer({ label: 'kugelblitz-counter', size: 4, usage }),
+        staging: device.createBuffer({ label: 'kugelblitz-staging', size: 32,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }),
+        counterStaging: device.createBuffer({ label: 'kugelblitz-count-staging', size: 4,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }),
+    };
+}
+
 // Trail rendering constants
 const TRAIL_LEN = MAX_TRAIL_LENGTH;
 

@@ -273,6 +273,31 @@ export const REFERENCE = {
 `,
     },
 
+    kugelblitz: {
+        title: 'Kugelblitz Collapse',
+        body: `
+<p>A <b>kugelblitz</b> is a concentration of radiation energy so dense that it undergoes gravitational collapse — forming a massive object from pure energy. This is a direct consequence of mass-energy equivalence: photons gravitate, and enough photons in a small enough region can trap themselves.</p>
+
+<h3>Hoop Conjecture</h3>
+<p>The threshold for collapse follows Thorne's hoop conjecture. In natural units ($G = c = 1$), a region of characteristic size $r$ containing total energy $E$ collapses when:</p>
+<p>$$E > \\frac{r}{2}$$</p>
+<p>The simulation detects this by walking the boson Barnes-Hut tree after aggregation. Each tree node stores the total source energy and bounding box size of its boson population. The smallest (deepest) node satisfying the threshold collapses first, preventing the entire boson population from collapsing when only a dense core qualifies.</p>
+
+<h3>Collapse Resolution</h3>
+<p>All photons, pions, and leptons within the collapsing tree node are consumed and replaced by a single massive particle at the energy-weighted center of mass. The spawned particle inherits:</p>
+<ul>
+<li><b>Mass</b> = total boson energy (photon energy + relativistic $\\gamma m$ for massive bosons)</li>
+<li><b>Momentum</b> = vector sum of all consumed boson momenta</li>
+<li><b>Charge</b> = sum of pion/lepton charges (photons contribute zero)</li>
+<li><b>Angular momentum</b> = orbital $L$ of the boson cloud about its center of mass</li>
+</ul>
+<p>The resulting particle follows normal physics — it becomes a black hole only if black hole mode is independently enabled. A minimum of 4 bosons and total energy $\\geq 0.2$ is required to prevent trivial collapses.</p>
+
+<h3>Activation</h3>
+<p>Kugelblitz collapse is active whenever both <b>Gravity</b> and <b>Boson Interaction</b> are enabled. It requires no separate toggle.</p>
+`,
+    },
+
     spinorbit: {
         title: 'Spin-Orbit Coupling',
         body: `

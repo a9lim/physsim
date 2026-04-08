@@ -9,7 +9,7 @@ import PhasePlot from './src/phase-plot.js';
 import EffectivePotentialPlot from './src/effective-potential.js';
 import StatsDisplay from './src/stats-display.js';
 import { setupUI } from './src/ui.js';
-import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, SPEED_OPTIONS, DEFAULT_SPEED_INDEX, PHOTON_LIFETIME, LEPTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS, HEATMAP_INTERVAL_MASK, HEATMAP_GRID, GPU_HEATMAP_GRID, STATS_THROTTLE_MASK, SIDEBAR_THROTTLE_MASK, MAX_PARTICLES, BOSON_CHARGE, ELECTRON_MASS, MAX_LEPTONS } from './src/config.js';
+import { TWO_PI, WORLD_SCALE, ZOOM_MIN, ZOOM_MAX, WHEEL_ZOOM_IN, DEFAULT_SPEED_SCALE, SPEED_OPTIONS, DEFAULT_SPEED_INDEX, PHOTON_LIFETIME, LEPTON_LIFETIME, PION_DECAY_PROB, CHARGED_PION_DECAY_PROB, SPAWN_MIN_ENERGY, PHYSICS_DT, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, SOFTENING_SQ, BH_SOFTENING_SQ, MAX_SPEED_RATIO, MAX_FRAME_DT, ACCUMULATOR_CAP, SPAWN_COUNT, spawnOffset, SPAWN_OFFSET_FLOOR, PAIR_PROD_MIN_ENERGY, PAIR_PROD_RADIUS, PAIR_PROD_PROB, PAIR_PROD_MAX_PARTICLES, PAIR_PROD_MIN_AGE, COL_PASS, BOUND_DESPAWN, TORUS, HEATMAP_INTERVAL_MASK, HEATMAP_GRID, GPU_HEATMAP_GRID, STATS_THROTTLE_MASK, SIDEBAR_THROTTLE_MASK, MAX_PARTICLES, BOSON_CHARGE, ELECTRON_MASS, MAX_LEPTONS, INERTIA_K, EPSILON } from './src/config.js';
 import MasslessBoson from './src/massless-boson.js';
 import Pion from './src/pion.js';
 import Lepton from './src/lepton.js';
@@ -573,6 +573,37 @@ class Simulation {
                             mass: evt.transferMass, charge: evt.charge,
                         });
                     }
+                }
+
+                // Process kugelblitz collapse events from GPU readback
+                const kbEvents = this._gpuPhysics.consumeKugelblitzEvents();
+                for (let i = 0; i < kbEvents.length; i++) {
+                    const evt = kbEvents[i];
+                    if (evt.energy < EPSILON) continue;
+                    const mass = evt.energy;
+                    const pMag = Math.sqrt(evt.px * evt.px + evt.py * evt.py);
+                    let vx = 0, vy = 0;
+                    if (pMag > EPSILON) {
+                        const speed = Math.min(pMag / mass, MAX_SPEED_RATIO);
+                        vx = evt.px / pMag * speed;
+                        vy = evt.py / pMag * speed;
+                    }
+                    const radius = Math.cbrt(mass);
+                    const I = INERTIA_K * mass * radius * radius;
+                    const angw = I > EPSILON ? evt.angL / I : 0;
+                    this.addParticle(evt.x, evt.y, vx, vy, {
+                        mass, baseMass: mass,
+                        charge: evt.charge,
+                        spin: 0, skipBaseline: true,
+                    });
+                    const spawned = this.particles[this.particles.length - 1];
+                    if (spawned) {
+                        spawned.angw = angw;
+                        spawned.angVel = this.physics.relativityEnabled
+                            ? angwToAngVel(angw, spawned.radius) : angw;
+                    }
+                    this.totalRadiated -= mass;
+                    if (this.totalRadiated < 0) this.totalRadiated = 0;
                 }
 
                 // Periodic auto-save for GPU error recovery (non-blocking)

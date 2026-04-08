@@ -60,6 +60,7 @@ Forces:                        Physics:
   Coulomb                        Spin-Orbit           [requires Magnetic or GM]
     -> Magnetic                  Radiation             [requires Gravity, Coulomb, or Yukawa]
   Yukawa               [independent]  Boson Interaction [requires BH + (Gravity OR Coulomb)]
+                                         -> Kugelblitz  [auto, requires Gravity]
   Axion                [requires Coulomb, Yukawa, or BH]
   Higgs                [independent]
 Disintegration                   [requires Gravity, locks collision to Merge] **HIDDEN**
@@ -80,6 +81,10 @@ Vacuum pair production at BH horizons. Rate: `Γ = (e²Q²)/(π²Σ) × exp(-πE
 ### Superradiance
 
 Axion field amplification by spinning BHs. Rate: `Γ = (M·μ_a)² · max(Ω_H - μ_a, 0) · (1 + φ²)`, where `Ω_H = a/Σ` is horizon angular velocity and `φ` is the local axion field amplitude. Phenomenological α² scaling (real rate ∝ α⁸, too steep for interactive sim). The `(1 + φ²)` factor gives exponential cloud growth (stimulated amplification) from a constant vacuum seed (spontaneous), analogous to stimulated emission `Γ = A(1+n)`. Back-reaction: BH loses mass `dM = dE` and angular momentum `dJ = dE/μ_a` (m=1 mode at frequency ω ≈ μ_a; entropy production `TdS = dE(Ω_H/μ_a − 1) > 0`). Natural saturation when `Ω_H ≤ μ_a`. No accumulator (continuous deposit, not discrete event). Deposits into axion `_source` array via PQS at BH position. Requires BH + Axion. CPU: `axion-field.js` `_depositSuperradiance()` samples field via `interpolate()`. GPU: `field-deposit.wgsl` `depositSuperradiance` reads `φ²` from `axYukMod[pid].w` (set by `field-forces.wgsl` `applyAxionForces` at pass 5c, consumed at pass 15). GPU deposit pipeline has a 3-group layout (group 2 = axYukMod read-only) separate from the 2-group layout used by other deposit entry points. Torque display: `torqueSuperradiance` (CPU) / `f5.z` (GPU), rendered as indigo arc at offset 1.0 (second ring from center; contact torque is innermost at 0.5).
+
+### Kugelblitz Collapse
+
+Boson energy exceeding the hoop conjecture threshold (E > r/2, natural units) condenses into a massive particle. Detection walks the boson BH tree after aggregation: `totalMass[node]` (= total source energy) vs full node extent / 2. Smallest qualifying node collapses first. Collects all bosons in subtree, computes COM/momentum/charge/angular momentum, spawns particle via `addParticle()`. Guards: CPU uses `MIN_KUGELBLITZ_COUNT` (4) + `MIN_KUGELBLITZ_ENERGY` (0.2); GPU skips count check (GPU `N_PARTICLE_COUNT` is a visitor-flag protocol value, not subtree count) and uses energy + size only. Max 1 per substep. Requires Gravity + Boson Interaction (no separate toggle). CPU: `integrator.js` `_checkKugelblitz()`, node size = `bw * 2` (full extent from half-extents). GPU: `kugelblitz.wgsl` `checkKugelblitz`, node size = `maxX - minX` (full extent), event readback to CPU for particle spawn. `totalCount` array on `QuadTreePool` (computed in `calculateBosonDistribution`) tracks boson count per node for CPU path.
 
 ### Quantized Boson Charge
 

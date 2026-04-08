@@ -34,7 +34,7 @@
  *  - deadParticleGC           (Phase 3)
  *  - recordHistory            (Phase 4 — every HISTORY_STRIDE frames)
  */
-import { createParticleBuffers, createUniformBuffer, writeFrameUniforms, writeSubstepUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
+import { createParticleBuffers, createUniformBuffer, writeFrameUniforms, writeSubstepUniforms, createFieldBuffers, createAtomicGridBuffer, createHeatmapBuffers, createExcitationBuffers, createDisintegrationBuffers, createPairProductionBuffers, createKugelblitzBuffers, createTrailBuffers, FIELD_GRID_RES, PARTICLE_STATE_SIZE, PARTICLE_AUX_SIZE, RADIATION_STATE_SIZE, PHOTON_SIZE, PION_SIZE, DERIVED_SIZE } from './gpu-buffers.js';
 import { fetchShader, createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFFTPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
 import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, FIELD_GRAV_BIT_T1, HERTZ_BOUNCE_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
@@ -233,6 +233,8 @@ export default class GPUPhysics {
         this._pendingMergeEvents = [];
         this._disintResultsPending = false;
         this._pendingDisintEvents = [];
+        this._kbResultsPending = false;
+        this._pendingKugelblitzEvents = [];
 
         // Phase 3: Dead particle GC
         this._deadGCPipeline = null;
@@ -1053,6 +1055,16 @@ export default class GPUPhysics {
             [b.pionPool, b.piCount, b.pionClaims]);
         this._phase4BindGroups.btG3 = bg('bosonTree_g3', p4.insertBosonsIntoTree.bindGroupLayouts[3],
             [b.particleState, b.allForces]);
+
+        // ── Kugelblitz Collapse ──
+        // Groups 0-2 reuse boson tree bind groups; group 3 is kugelblitz event output
+        if (p4.checkKugelblitz) {
+            if (!this._kbBuffers) {
+                this._kbBuffers = createKugelblitzBuffers(this.device);
+            }
+            this._phase4BindGroups.kbG3 = bg('kugelblitz_g3', p4.checkKugelblitz.bindGroupLayouts[3],
+                [this._kbBuffers.events, this._kbBuffers.counter]);
+        }
     }
 
     /**
@@ -1442,6 +1454,21 @@ export default class GPUPhysics {
             passAnnihilate.dispatchWorkgroups(pionWG);
             passAnnihilate.end();
         }
+
+        // Kugelblitz: boson energy density exceeds hoop conjecture → massive particle
+        if (this._gravityEnabled && p4.checkKugelblitz && this._kbBuffers && bgs.kbG3) {
+            encoder.clearBuffer(this._kbBuffers.counter, 0, 4);
+            // Upper bound on tree nodes: each boson can create ~5 nodes during subdivision
+            const nodeWG = Math.ceil(totalBosons * 6 / 64);
+            const passKB = encoder.beginComputePass({ label: 'checkKugelblitz' });
+            passKB.setPipeline(p4.checkKugelblitz.pipeline);
+            passKB.setBindGroup(0, bgs.btG0);
+            passKB.setBindGroup(1, bgs.btG1);
+            passKB.setBindGroup(2, bgs.btG2);
+            passKB.setBindGroup(3, bgs.kbG3);
+            passKB.dispatchWorkgroups(nodeWG);
+            passKB.end();
+        }
     }
 
     /**
@@ -1664,6 +1691,58 @@ export default class GPUPhysics {
     consumeDisintegrationEvents() {
         const events = this._pendingDisintEvents;
         this._pendingDisintEvents = [];
+        return events;
+    }
+
+    /**
+     * Non-blocking readback of kugelblitz collapse events.
+     * Max 1 event per substep (32 bytes = 8 × f32).
+     */
+    async _readbackKugelblitzResults() {
+        if (this._kbResultsPending) return;
+        if (!this._kbBuffers) return;
+        this._kbResultsPending = true;
+
+        try {
+            const kb = this._kbBuffers;
+
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyBufferToBuffer(kb.counter, 0, kb.counterStaging, 0, 4);
+            this.device.queue.submit([encoder.finish()]);
+
+            await kb.counterStaging.mapAsync(GPUMapMode.READ);
+            const countData = new Uint32Array(kb.counterStaging.getMappedRange().slice(0));
+            kb.counterStaging.unmap();
+
+            const eventCount = countData[0];
+            if (eventCount > 0) {
+                const encoder2 = this.device.createCommandEncoder();
+                encoder2.copyBufferToBuffer(kb.events, 0, kb.staging, 0, 32);
+                this.device.queue.submit([encoder2.finish()]);
+
+                await kb.staging.mapAsync(GPUMapMode.READ);
+                const f32 = new Float32Array(kb.staging.getMappedRange(0, 32).slice(0));
+                kb.staging.unmap();
+
+                this._pendingKugelblitzEvents = [{
+                    x: f32[0], y: f32[1],
+                    px: f32[2], py: f32[3],
+                    energy: f32[4], charge: f32[5],
+                    angL: f32[6], count: f32[7],
+                }];
+            } else {
+                this._pendingKugelblitzEvents = [];
+            }
+        } catch (e) {
+            // Device lost or other error
+        } finally {
+            this._kbResultsPending = false;
+        }
+    }
+
+    consumeKugelblitzEvents() {
+        const events = this._pendingKugelblitzEvents;
+        this._pendingKugelblitzEvents = [];
         return events;
     }
 
@@ -3400,6 +3479,11 @@ export default class GPUPhysics {
         // Readback disintegration events for fragment spawning (non-blocking)
         this._readbackDisintegrationResults();
 
+        // Readback kugelblitz collapse events (non-blocking)
+        if (this._bosonInterEnabled && this._gravityEnabled && this._kbBuffers) {
+            this._readbackKugelblitzResults();
+        }
+
         // Readback free stack for slot reuse (non-blocking)
         this._readbackFreeStack();
     }
@@ -3894,6 +3978,7 @@ export default class GPUPhysics {
         this._heatmapFrame = 0;
         this._pendingMergeEvents = [];
         this._pendingDisintEvents = [];
+        this._pendingKugelblitzEvents = [];
         this._cpuFreeSlots = [];
         // Reset GPU free stack (reuse pre-allocated zero buffer)
         if (this.buffers.freeTop) {

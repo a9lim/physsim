@@ -22,6 +22,7 @@ export default class QuadTreePool {
 
         this.totalMass = new Float64Array(maxNodes);
         this.totalCharge = new Float64Array(maxNodes);
+        this.totalCount = new Float64Array(maxNodes);
         this.totalMagneticMoment = new Float64Array(maxNodes);
         this.totalAngularMomentum = new Float64Array(maxNodes);
         this.totalMomentumX = new Float64Array(maxNodes);
@@ -57,6 +58,7 @@ export default class QuadTreePool {
         this.bh[idx] = bh;
         this.totalMass[idx] = 0;
         this.totalCharge[idx] = 0;
+        this.totalCount[idx] = 0;
         this.totalMagneticMoment[idx] = 0;
         this.totalAngularMomentum[idx] = 0;
         this.totalMomentumX[idx] = 0;
@@ -82,6 +84,7 @@ export default class QuadTreePool {
         this.bx = copyF64(this.bx); this.by = copyF64(this.by);
         this.bw = copyF64(this.bw); this.bh = copyF64(this.bh);
         this.totalMass = copyF64(this.totalMass); this.totalCharge = copyF64(this.totalCharge);
+        this.totalCount = copyF64(this.totalCount);
         this.totalMagneticMoment = copyF64(this.totalMagneticMoment);
         this.totalAngularMomentum = copyF64(this.totalAngularMomentum);
         this.totalMomentumX = copyF64(this.totalMomentumX);
@@ -126,7 +129,7 @@ export default class QuadTreePool {
         // NW (c)
         this.bx[c] = x - hw; this.by[c] = y - hh;
         this.bw[c] = hw; this.bh[c] = hh;
-        this.totalMass[c] = 0; this.totalCharge[c] = 0;
+        this.totalMass[c] = 0; this.totalCharge[c] = 0; this.totalCount[c] = 0;
         this.totalMagneticMoment[c] = 0; this.totalAngularMomentum[c] = 0;
         this.totalMomentumX[c] = 0; this.totalMomentumY[c] = 0;
         this.comX[c] = x - hw; this.comY[c] = y - hh;
@@ -136,7 +139,7 @@ export default class QuadTreePool {
         // NE (c+1)
         this.bx[c+1] = x + hw; this.by[c+1] = y - hh;
         this.bw[c+1] = hw; this.bh[c+1] = hh;
-        this.totalMass[c+1] = 0; this.totalCharge[c+1] = 0;
+        this.totalMass[c+1] = 0; this.totalCharge[c+1] = 0; this.totalCount[c+1] = 0;
         this.totalMagneticMoment[c+1] = 0; this.totalAngularMomentum[c+1] = 0;
         this.totalMomentumX[c+1] = 0; this.totalMomentumY[c+1] = 0;
         this.comX[c+1] = x + hw; this.comY[c+1] = y - hh;
@@ -146,7 +149,7 @@ export default class QuadTreePool {
         // SW (c+2)
         this.bx[c+2] = x - hw; this.by[c+2] = y + hh;
         this.bw[c+2] = hw; this.bh[c+2] = hh;
-        this.totalMass[c+2] = 0; this.totalCharge[c+2] = 0;
+        this.totalMass[c+2] = 0; this.totalCharge[c+2] = 0; this.totalCount[c+2] = 0;
         this.totalMagneticMoment[c+2] = 0; this.totalAngularMomentum[c+2] = 0;
         this.totalMomentumX[c+2] = 0; this.totalMomentumY[c+2] = 0;
         this.comX[c+2] = x - hw; this.comY[c+2] = y + hh;
@@ -156,7 +159,7 @@ export default class QuadTreePool {
         // SE (c+3)
         this.bx[c+3] = x + hw; this.by[c+3] = y + hh;
         this.bw[c+3] = hw; this.bh[c+3] = hh;
-        this.totalMass[c+3] = 0; this.totalCharge[c+3] = 0;
+        this.totalMass[c+3] = 0; this.totalCharge[c+3] = 0; this.totalCount[c+3] = 0;
         this.totalMagneticMoment[c+3] = 0; this.totalAngularMomentum[c+3] = 0;
         this.totalMomentumX[c+3] = 0; this.totalMomentumY[c+3] = 0;
         this.comX[c+3] = x + hw; this.comY[c+3] = y + hh;
@@ -349,6 +352,7 @@ export default class QuadTreePool {
                 }
                 this.totalMass[idx] = mass;
                 this.totalCharge[idx] = charge;
+                this.totalCount[idx] = cnt;
                 if (mass > 0) { this.comX[idx] = cx / mass; this.comY[idx] = cy / mass; }
             } else {
                 const c0 = this.nw[idx], c1 = this.ne[idx], c2 = this.sw[idx], c3 = this.se[idx];
@@ -356,6 +360,7 @@ export default class QuadTreePool {
                 const mass = m0 + m1 + m2 + m3;
                 this.totalMass[idx] = mass;
                 this.totalCharge[idx] = this.totalCharge[c0] + this.totalCharge[c1] + this.totalCharge[c2] + this.totalCharge[c3];
+                this.totalCount[idx] = this.totalCount[c0] + this.totalCount[c1] + this.totalCount[c2] + this.totalCount[c3];
                 if (mass > 0) {
                     this.comX[idx] = (this.comX[c0] * m0 + this.comX[c1] * m1 + this.comX[c2] * m2 + this.comX[c3] * m3) / mass;
                     this.comY[idx] = (this.comY[c0] * m0 + this.comY[c1] * m1 + this.comY[c2] * m2 + this.comY[c3] * m3) / mass;
