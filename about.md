@@ -14,6 +14,14 @@ Particle trajectories are advanced with a Boris integrator, which preserves phas
 
 Nineteen curated presets demonstrate specific physical phenomena: Keplerian orbits, electromagnetic confinement, Rutherford scattering, Higgs potential wells, axion halos, Hubble expansion, gravitational wave inspiral, and more. Each preset sets initial conditions and force parameters to illustrate one concept clearly.
 
+## Black Hole Physics
+
+In black hole mode, particles become Kerr-Newman black holes with event horizons determined by mass, charge, and spin. Hawking radiation follows Stefan-Boltzmann scaling from the Kerr-Newman temperature — smaller black holes are hotter and evaporate faster, ending in a photon burst. Charged black holes also undergo Schwinger discharge: the electric field at the horizon exceeds the critical threshold and tears electron-positron pairs from the vacuum. The same-sign lepton escapes while the opposite-sign partner falls back in, reducing the black hole's charge by one quantized unit per event. This drives charged black holes toward neutrality, enforcing cosmic censorship through pair production.
+
+## Charge Quantization
+
+All charges are quantized in units of the boson charge (default 0.1). Particle charges are rounded to the nearest multiple on creation, and all transfer processes — pion emission, lepton pair production, Schwinger discharge, disintegration — conserve charge in discrete steps. This ensures exact charge conservation and prevents continuous drift.
+
 ## Educational Use
 
 Designed for undergraduate physics education. Students can toggle individual forces on and off, adjust coupling constants, and observe how changes affect particle trajectories in real time. The simulation makes abstract concepts like frame-dragging and scalar field coupling visible and interactive.
