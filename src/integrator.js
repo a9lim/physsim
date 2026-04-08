@@ -1183,7 +1183,7 @@ export default class Physics {
             // Axion field evolution (axMod/yukMod interpolation deferred to step 7)
             if (this.axionEnabled && this.sim && this.sim.axionField) {
                 const higgsRef = (this.higgsEnabled && this.sim.higgsField) ? this.sim.higgsField : null;
-                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.coulombEnabled, this.yukawaEnabled, this.gravityEnabled, toggles.softeningSq, higgsRef);
+                this.sim.axionField.update(dtSub, particles, boundaryMode, this._topologyConst, width, height, this.coulombEnabled, this.yukawaEnabled, this.gravityEnabled, toggles.softeningSq, higgsRef, this.blackHoleEnabled);
             }
 
             // Step 5: Rebuild quadtree at new positions
