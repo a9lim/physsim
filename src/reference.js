@@ -261,6 +261,15 @@ export const REFERENCE = {
 
 <h3>Extremal Limit</h3>
 <p>When $M^2 = a^2 + Q^2$, the inner and outer horizons merge, surface gravity vanishes, and the temperature drops to zero — the black hole stops radiating. Extremal black holes are the most compact objects possible for their mass and charge, saturating the cosmic censorship bound.</p>
+
+<h3>Schwinger Discharge</h3>
+<p>A sufficiently charged black hole generates an electric field strong enough to rip electron-positron pairs from the vacuum — the <b>Schwinger effect</b>. The rate per unit time for a Kerr-Newman black hole:</p>
+<p>$$\\Gamma = \\frac{e^2 Q^2}{\\pi^2 \\Sigma}\\,\\exp\\!\\left(-\\frac{\\pi\\, E_{\\text{cr}}\\,\\Sigma}{|Q|}\\right), \\qquad \\Sigma = r_+^2 + a^2$$</p>
+<p>where $e$ is the elementary charge, $E_{\\text{cr}} = m_e^2/e$ is the critical Schwinger field, and $\\Sigma$ is the Kerr-Newman horizon area factor that encodes spin corrections. The exponential suppression means the rate is negligible until $E \\approx E_{\\text{cr}}$ (threshold at $0.5\\,E_{\\text{cr}}$).</p>
+<p>The escaping lepton carries kinetic energy derived from the horizon electrostatic potential:</p>
+<p>$$\\text{KE} = e\\,\\Phi_H - m_e, \\qquad \\Phi_H = \\frac{|Q|\\,r_+}{r_+^2 + a^2}$$</p>
+<p>Each discharge event reduces the black hole's charge by one elementary unit and its mass by $m_e$. The same-sign lepton escapes; the opposite-sign partner falls back in. Over many events, this drives a charged black hole toward neutrality — enforcing cosmic censorship through pair production rather than naked singularity formation.</p>
+
 `,
     },
 
@@ -584,6 +593,22 @@ export const REFERENCE = {
 <li><b>Angular momentum</b>: $L = 2m\\omega r^2/5$ — the source of gravitomagnetic dipole interactions</li>
 </ul>
 <p>Spin evolves dynamically under torques from tidal locking, frame dragging, and spin-orbit energy transfer.</p>
+`,
+    },
+
+    charge: {
+        title: 'Charge & Quantization',
+        body: `
+<p>The charge slider sets the electric charge of newly placed particles. Charge determines the strength of Coulomb and magnetic interactions, and is one of the three quantities (mass, charge, spin) that fully characterize a black hole.</p>
+
+<h3>Quantization</h3>
+<p>All charges are quantized in units of the <b>boson charge</b> $e$ (default 0.1). Particle charges are rounded to the nearest multiple of $e$ on creation. Every charge-transfer process — pion emission, lepton pair production, Schwinger discharge, disintegration — conserves charge in discrete $\\pm e$ increments.</p>
+
+<h3>Consequences</h3>
+<p>Quantization means a black hole cannot shed an arbitrary fraction of its charge. Schwinger discharge removes exactly $e$ per event, so a BH with charge $Q$ requires $|Q|/e$ discharge events to reach neutrality. Pion emission similarly transfers $\\pm e$ or $0$ (neutral pion). This discreteness prevents continuous charge drift and makes conservation exact up to floating-point precision.</p>
+
+<h3>Annihilation</h3>
+<p>Opposite-charge pions ($\\pi^+\\pi^-$) annihilate into photon pairs when they collide. Neutral pions are identified by $|q| < \\epsilon$ rather than exact zero, accommodating floating-point rounding.</p>
 `,
     },
 
