@@ -592,8 +592,8 @@ export default class Renderer {
         this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSO, 2.5, (p) => p.torqueSpinOrbit);
         this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueFD, 2, (p) => p.torqueFrameDrag);
         this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueTidal, 1.5, (p) => p.torqueTidal);
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueContact, 1, (p) => p.torqueContact);
-        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSR, 0.5, (p) => p.torqueSuperradiance);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueContact, 0.5, (p) => p.torqueContact);
+        this._drawTorqueArc(ctx, particles, invZoom, _forceCompColors.torqueSR, 1, (p) => p.torqueSuperradiance);
     }
 
     _drawTorqueArc(ctx, particles, invZoom, color, offset, getValue) {

@@ -213,7 +213,7 @@ export default class AxionField extends ScalarField {
      *  Rate: Γ = C · (M·μ_a)² · max(Ω_H - μ_a, 0) · (1 + φ²), deposits into _source via PQS.
      *  The (1 + φ²) factor gives exponential cloud growth (stimulated) with a vacuum seed
      *  (spontaneous), analogous to stimulated emission: Γ_total = A(1 + n).
-     *  Back-reaction: BH loses mass dM = dE and angular momentum dJ = dE/Ω_H (first law).
+     *  Back-reaction: BH loses mass dM = dE and angular momentum dJ = dE/μ_a (m=1 mode).
      */
     _depositSuperradiance(particles, invCellW, invCellH, bcMode, topoConst, dt) {
         const muA = this.mass;
@@ -244,18 +244,23 @@ export default class AxionField extends ScalarField {
             // Deposit into source array (positive = excite field)
             this._depositPQS(this._source, p.pos.x, p.pos.y, dE, invCellW, invCellH, bcMode, topoConst);
 
-            // Back-reaction: BH loses mass and angular momentum (first law: dM = Ω_H dJ)
+            // Back-reaction: BH loses mass and angular momentum
+            // dJ = (m/ω)·dE ≈ dE/μ_a for the dominant m=1 mode (ω ≈ μ_a).
+            // Entropy production: TdS = dE(Ω_H/μ_a − 1) > 0 (area theorem satisfied).
             const I = INERTIA_K * bodyRSq * M;
             if (I < EPSILON) continue;
-            const dJ = dE / omegaH;
+            const dJ = dE / muA;
+            const signW = Math.sign(p.angw);
             p.mass -= dE;
-            p.angw -= Math.sign(p.angw) * dJ / I;
-            // Recompute derived angular velocity
+            p.angw -= signW * dJ / I;
+            // Recompute derived state after mass/spin change
+            const newBodyRSq = Math.cbrt(p.mass) ** 2;
+            p.bodyRadiusSq = newBodyRSq;
             const absAngw = Math.abs(p.angw);
-            p.angVel = p.angw / Math.sqrt(1 + absAngw * absAngw * bodyRSq);
+            p.angVel = p.angw / Math.sqrt(1 + absAngw * absAngw * newBodyRSq);
 
             // Record effective torque for display (same units as other torques: τ = dJ/dt)
-            p.torqueSuperradiance = -Math.sign(p.angw) * rate / omegaH;
+            p.torqueSuperradiance = -signW * rate / muA;
         }
     }
 
