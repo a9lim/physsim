@@ -14,7 +14,7 @@
 
 import {
     HISTORY_SIZE, GPU_MAX_PHOTONS, GPU_MAX_PIONS, MAX_TRAIL_LENGTH,
-    GPU_SCALAR_GRID, MAX_LEPTONS,
+    GPU_SCALAR_GRID, GPU_MAX_LEPTONS,
 } from '../config.js';
 import { HIST_STRIDE as HIST_STRIDE_CONST } from './gpu-constants.js';
 
@@ -255,7 +255,7 @@ export function createParticleBuffers(device, maxParticles) {
     }); // atomic<u32>
 
     // Pion pool: shared buffer for pions + leptons (48 bytes each)
-    const PION_POOL_CAP = GPU_MAX_PIONS + MAX_LEPTONS;
+    const PION_POOL_CAP = GPU_MAX_PIONS + GPU_MAX_LEPTONS;
     const pionPool = storageBuffer('pionPool', PION_SIZE, PION_POOL_CAP);
     const piCount = device.createBuffer({
         size: 4,

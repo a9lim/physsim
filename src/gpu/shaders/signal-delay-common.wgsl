@@ -4,7 +4,7 @@
 // Callers declare histData/histMeta bindings.
 //
 // Requires constants: HIST_STRIDE, HIST_META_STRIDE, HISTORY_LEN, HISTORY_MASK,
-// SOLVE_TOLERANCE, EPSILON, TOPO_TORUS, TOPO_KLEIN.
+// EPSILON, EPSILON, TOPO_TORUS, TOPO_KLEIN.
 
 struct DelayedState {
     x: f32, y: f32,
@@ -44,7 +44,7 @@ fn getDelayedStateGPU(
     let tOldest = histData[oldestBase + 5u]; // time field at offset 5
     let tNewest = histData[newestBase + 5u];
     let timeSpan = simTime - tOldest;
-    if (timeSpan < SOLVE_TOLERANCE) { return result; }
+    if (timeSpan < EPSILON) { return result; }
 
     // Current distance to newest sample
     let nxPos = histData[newestBase + 0u];
@@ -96,7 +96,7 @@ fn getDelayedStateGPU(
                 let hiBase = histSampleBase(srcIdx, ((start + u32(k)) + 1u) & HISTORY_MASK);
                 let tLo = histData[loBase + 5u];
                 let segDt = histData[hiBase + 5u] - tLo;
-                if (segDt < SOLVE_TOLERANCE) { continue; }
+                if (segDt < EPSILON) { continue; }
 
                 let xLo = histData[loBase]; let yLo = histData[loBase + 1u];
                 let xHi = histData[hiBase]; let yHi = histData[hiBase + 1u];
@@ -126,8 +126,8 @@ fn getDelayedStateGPU(
 
                 let sqrtDisc = sqrt(max(disc, 0.0));
                 var s_sol: f32;
-                if (abs(a) < SOLVE_TOLERANCE) {
-                    if (abs(h) < SOLVE_TOLERANCE) { continue; }
+                if (abs(a) < EPSILON) {
+                    if (abs(h) < EPSILON) { continue; }
                     s_sol = -c / (2.0 * h);
                 } else {
                     let s1 = (-h + sqrtDisc) / a;
@@ -189,8 +189,8 @@ fn getDelayedStateGPU(
 
         let sqrtDisc = sqrt(disc);
         var s_sol: f32;
-        if (abs(a) < SOLVE_TOLERANCE) {
-            if (abs(h) < SOLVE_TOLERANCE) { return result; }
+        if (abs(a) < EPSILON) {
+            if (abs(h) < EPSILON) { return result; }
             s_sol = -c / (2.0 * h);
         } else {
             let s1 = (-h + sqrtDisc) / a;

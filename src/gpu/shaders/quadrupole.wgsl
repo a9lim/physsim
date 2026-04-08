@@ -146,7 +146,7 @@ fn quadrupoleCoM(
         let wx = particles[i].velWX;
         let wy = particles[i].velWY;
         let wSq = wx * wx + wy * wy;
-        if (wSq > EPSILON_SQ) {
+        if (wSq > EPSILON) {
             ke = mass * wSq / (sqrt(1.0 + wSq) + 1.0);
         }
         // NOTE: residual force history shift is done in quadrupoleContrib (pass 2)
@@ -347,7 +347,7 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
     let emPower = select(0.0, (1.0 / 180.0) * (d3Qxx * d3Qxx + 2.0 * d3Qxy * d3Qxy + d3Qyy * d3Qyy), emQuad);
 
     let quadPower = gwPower + emPower;
-    if (quadPower <= 0.0 || totalKE <= EPSILON_SQ) { return; }
+    if (quadPower <= 0.0 || totalKE <= EPSILON) { return; }
 
     // Use PHYSICS_DT constant (matches CPU where quadrupole uses this._dt ≈ PHYSICS_DT)
     let dt = PHYSICS_DT;
@@ -360,8 +360,8 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
 
     // Per-particle weighted drag: exact relativistic rescaling.
     // Each particle loses energy proportional to its quadrupole contribution.
-    let invD3I = select(0.0, 1.0 / totalD3I, totalD3I > EPSILON_SQ);
-    let invD3Q = select(0.0, 1.0 / totalD3Q, totalD3Q > EPSILON_SQ);
+    let invD3I = select(0.0, 1.0 / totalD3I, totalD3I > EPSILON);
+    let invD3Q = select(0.0, 1.0 / totalD3Q, totalD3Q > EPSILON);
 
     var rs = radState[i];
 
@@ -380,7 +380,7 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
     let afBase = allForces[i];
 
     // Exact relativistic velocity rescaling
-    if (dKE_i > 0.0 && wSq > EPSILON_SQ) {
+    if (dKE_i > 0.0 && wSq > EPSILON) {
         let gamma = sqrt(1.0 + wSq);
         let KE_i = wSq / (gamma + 1.0) * particles[i].mass;
         if (dKE_i >= KE_i) {
@@ -472,7 +472,7 @@ fn quadrupoleApply(@builtin(global_invocation_id) gid: vec3u) {
 // Power ∝ (Axx·cos2φ + Axy·sin2φ)² where peak² = Axx² + Axy².
 fn quadSample(Axx: f32, Axy: f32, particleIdx: u32, channel: u32) -> f32 {
     let peak2 = Axx * Axx + Axy * Axy;
-    if (peak2 < EPSILON_SQ) {
+    if (peak2 < EPSILON) {
         return pcgRand((particleIdx * 2654435761u) ^ (u.frameCount * 1664525u) ^ (channel * 999u)) * TWO_PI;
     }
     var seedBase = (particleIdx * 2246822519u) ^ (u.frameCount * 2654435769u) ^ (channel * 12345u);
