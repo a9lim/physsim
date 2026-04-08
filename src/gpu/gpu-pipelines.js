@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 68;
+const SHADER_VERSION = 69;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -1015,7 +1015,7 @@ export async function createFieldDepositPipelines(device, wgslConstants = '') {
     const bindGroupLayouts = [group0Layout, group1Layout];
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 
-    const entryPoints = ['depositHiggsSource', 'depositAxionSource', 'depositThermal', 'finalizeDeposit'];
+    const entryPoints = ['depositHiggsSource', 'depositAxionSource', 'depositSuperradiance', 'depositThermal', 'finalizeDeposit'];
     const pipelines = {};
     for (const entry of entryPoints) {
         pipelines[entry] = device.createComputePipeline({

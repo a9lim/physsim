@@ -2565,6 +2565,16 @@ export default class GPUPhysics {
             p.end();
         }
 
+        // Superradiance: spinning BH deposits into axion field (axion only, requires BH)
+        if (which === 'axion' && this._blackHoleEnabled && this.aliveCount > 0) {
+            const p = encoder.beginComputePass({ label: 'depositSuperradiance' });
+            p.setPipeline(dep.depositSuperradiance);
+            p.setBindGroup(0, depBGs.g0);
+            p.setBindGroup(1, depBGs.g1Source);
+            p.dispatchWorkgroups(particleWG);
+            p.end();
+        }
+
         // Step 2: Finalize source (atomic i32 → f32, clears atomic grid)
         {
             const p = encoder.beginComputePass({ label: `finalizeSource_${which}` });
