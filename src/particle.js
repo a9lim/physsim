@@ -41,6 +41,7 @@ export default class Particle {
         this.torqueFrameDrag = 0;
         this.torqueTidal = 0;
         this.torqueContact = 0;
+        this.torqueSuperradiance = 0;
         this._f1pnOld = new Vec2(0, 0);
 
         this.mass = mass;

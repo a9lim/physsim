@@ -254,5 +254,32 @@ fn applyAxionForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     af.f5.y += fy;
     af.totalForce.x += fx;
     af.totalForce.y += fy;
+
+    // Superradiance torque for display (τ = rate / Ω_H, spin-down)
+    if (uniforms.blackHoleEnabled != 0u && uniforms.currentFieldType == 1u) {
+        let M = p.mass;
+        if (M > MIN_MASS) {
+            let bodyRSq = pow(M, 2.0 / 3.0);
+            let angw = p.angW;
+            let absAngw = abs(angw);
+            let angvel = angw / sqrt(1.0 + absAngw * absAngw * bodyRSq);
+            let a_sr = INERTIA_K * bodyRSq * abs(angvel);
+            let disc = M * M - a_sr * a_sr - p.charge * p.charge;
+            let rPlus = select(M, M + sqrt(max(0.0, disc)), disc >= 0.0);
+            let rPlusSq = rPlus * rPlus;
+            let sigma = rPlusSq + a_sr * a_sr;
+            if (sigma >= EPSILON) {
+                let omegaH = a_sr / sigma;
+                let muA = uniforms.axionMass;
+                if (omegaH > muA) {
+                    let alphaG = M * muA;
+                    let rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA);
+                    let signW = select(-1.0, 1.0, angw > 0.0);
+                    af.f5.z = -signW * rate / omegaH;
+                }
+            }
+        }
+    }
+
     allForces[pid] = af;
 }

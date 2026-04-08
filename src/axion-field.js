@@ -217,6 +217,7 @@ export default class AxionField extends ScalarField {
         const muA = this.mass;
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
+            p.torqueSuperradiance = 0;
             if (p.mass <= MIN_MASS) continue;
 
             const M = p.mass;
@@ -248,6 +249,9 @@ export default class AxionField extends ScalarField {
             // Recompute derived angular velocity
             const absAngw = Math.abs(p.angw);
             p.angVel = p.angw / Math.sqrt(1 + absAngw * absAngw * bodyRSq);
+
+            // Record effective torque for display (same units as other torques: τ = dJ/dt)
+            p.torqueSuperradiance = -Math.sign(p.angw) * rate / omegaH;
         }
     }
 

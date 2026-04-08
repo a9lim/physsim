@@ -41,7 +41,7 @@ struct AllForces {
     f2: vec4<f32>,          // f1pn.xy, spinCurv.xy
     f3: vec4<f32>,          // radiation.xy, yukawa.xy
     f4: vec4<f32>,          // external.xy, higgs.xy
-    f5: vec4<f32>,          // axion.xy, pad, pad
+    f5: vec4<f32>,          // axion.xy, torqueSuperradiance, pad
     torques: vec4<f32>,     // spinOrbit, frameDrag, tidal, contact
     bFields: vec4<f32>,     // Bz, Bgz, extBz, pad
     bFieldGrads: vec4<f32>, // dBzdx, dBzdy, dBgzdx, dBgzdy

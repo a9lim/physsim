@@ -433,7 +433,7 @@ export default class GPURenderer {
 
             // Pre-allocate per-type uniform buffers + bind groups (G4 batching).
             // 5 slots: types 0-3 (torque components), slot 4 used for type 11 (total torque).
-            const TORQUE_SLOT_COUNT = 5;
+            const TORQUE_SLOT_COUNT = 6;
             this._torqueUniformBufs = [];
             this._torqueBindGroups = [];
             for (let i = 0; i < TORQUE_SLOT_COUNT; i++) {
@@ -909,6 +909,8 @@ export default class GPURenderer {
                     if (enabledForces.gravity) torqueDraws.push({ slot: 2, type: 2, color: GPURenderer.TORQUE_COLORS[2] });
                     // contact: type 3, slot 3, brown (always active with bounce)
                     torqueDraws.push({ slot: 3, type: 3, color: GPURenderer.TORQUE_COLORS[3] });
+                    // superradiance: type 4, slot 5, indigo (requires axion + BH)
+                    if (enabledForces.axion && opts.blackHoleEnabled) torqueDraws.push({ slot: 5, type: 4, color: GPURenderer.TORQUE_COLORS[4] });
                 } else if (this.showForce) {
                     const accentColor = this.isLight ? _accentLight : _accentDark;
                     torqueDraws.push({ slot: 4, type: 11, color: accentColor });
@@ -1028,6 +1030,7 @@ export default class GPURenderer {
             rgb(ext.rose),      // 1: frameDrag
             rgb(ext.red),       // 2: tidal
             rgb(ext.brown),     // 3: contact
+            rgb(ext.indigo),    // 4: superradiance
         ];
     })();
 

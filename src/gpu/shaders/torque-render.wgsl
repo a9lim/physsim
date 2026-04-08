@@ -4,12 +4,13 @@
 // offset from the particle, with an arrowhead indicating direction.
 // Modeled on spin-render.wgsl, but reads torque data from AllForces buffer.
 //
-// Four torque types (drawn in separate passes via uniform):
-//   0: spinOrbit  (torques.x)  offset 2.5
-//   1: frameDrag  (torques.y)  offset 2.0
-//   2: tidal      (torques.z)  offset 1.5
-//   3: contact    (torques.w)  offset 1.0
-//  11: total      (sum of all) offset 3.0
+// Five torque types (drawn in separate passes via uniform):
+//   0: spinOrbit      (torques.x)  offset 2.5
+//   1: frameDrag      (torques.y)  offset 2.0
+//   2: tidal          (torques.z)  offset 1.5
+//   3: contact        (torques.w)  offset 1.0
+//   4: superradiance  (f5.z)       offset 0.5
+//  11: total          (sum of all) offset 3.0
 //
 // Two sets of entry points:
 //   vs_main/fs_main — triangle-strip arc ribbon (ARC_SEGMENTS * 2 vertices)
@@ -55,7 +56,8 @@ fn getTorqueValue(idx: u32, torqueType: u32) -> f32 {
         case 1u:  { return t.y; }  // frameDrag
         case 2u:  { return t.z; }  // tidal
         case 3u:  { return t.w; }  // contact
-        case 11u: { return t.x + t.y + t.z + t.w; }  // total
+        case 4u:  { return allForces[idx].f5.z; }  // superradiance
+        case 11u: { return t.x + t.y + t.z + t.w + allForces[idx].f5.z; }  // total
         default:  { return 0.0; }
     }
 }
@@ -66,6 +68,7 @@ fn getTorqueOffset(torqueType: u32) -> f32 {
         case 1u:  { return 2.0; }  // frameDrag
         case 2u:  { return 1.5; }  // tidal
         case 3u:  { return 1.0; }  // contact
+        case 4u:  { return 0.5; }  // superradiance
         case 11u: { return 3.0; }  // total
         default:  { return 1.0; }
     }
