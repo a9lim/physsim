@@ -11,7 +11,7 @@
 import { fetchShader, getSharedPrefix, createBosonRenderPipelines, createFieldRenderPipeline, createHeatmapRenderPipeline, createArrowRenderPipeline, createSpinRenderPipeline, createTorqueRenderPipeline, createRingRenderPipeline, createTrailRenderPipeline } from './gpu-pipelines.js';
 import { TRAIL_LEN } from './gpu-buffers.js';
 import { buildWGSLConstants, paletteRGB } from './gpu-constants.js';
-import { HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA, GPU_MAX_PHOTONS, GPU_MAX_PIONS, MAX_LEPTONS } from '../config.js';
+import { HEATMAP_SENSITIVITY, HEATMAP_MAX_ALPHA, GPU_MAX_PHOTONS, GPU_MAX_PIONS, GPU_MAX_LEPTONS } from '../config.js';
 
 // Pre-allocated typed arrays for per-frame writeBuffer calls (eliminate GC pressure)
 const _cameraData = new ArrayBuffer(256);
@@ -716,7 +716,7 @@ export default class GPURenderer {
                 bosonPass.setBindGroup(0, bgs[0]);
                 bosonPass.setBindGroup(1, bgs[1]);
                 bosonPass.setBindGroup(2, bgs[2]);
-                bosonPass.draw(4, GPU_MAX_PIONS + MAX_LEPTONS);
+                bosonPass.draw(4, GPU_MAX_PIONS + GPU_MAX_LEPTONS);
 
                 bosonPass.end();
                 this.device.queue.submit([bosonEncoder.finish()]);

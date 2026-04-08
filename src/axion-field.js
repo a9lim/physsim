@@ -18,7 +18,7 @@
 //    yukMod = 1 + g·a for matter, 1 - g·a for antimatter.
 //    At vacuum (a=0): yukMod = 1 for both → CP conserved (PQ solution).
 
-import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, HIGGS_AXION_COUPLING, SELFGRAV_PHI_MAX, EPSILON, SUPERRADIANCE_COEFF, INERTIA_K, MIN_MASS, kerrNewmanRadius } from './config.js';
+import { SCALAR_GRID, SCALAR_FIELD_MAX, DEFAULT_AXION_MASS, AXION_COUPLING, HIGGS_AXION_COUPLING, SELFGRAV_PHI_MAX, EPSILON, INERTIA_K, MIN_MASS, kerrNewmanRadius } from './config.js';
 import ScalarField from './scalar-field.js';
 
 // Parse overlay colors from shared palette at module load (0-255 ints)
@@ -237,7 +237,7 @@ export default class AxionField extends ScalarField {
             const alphaG = M * muA;
             // Sample local field amplitude for stimulated amplification
             const phiLocal = this.interpolate(p.pos.x, p.pos.y, invCellW, invCellH, bcMode, topoConst);
-            const rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA) * (1 + phiLocal * phiLocal);
+            const rate = alphaG * alphaG * (omegaH - muA) * (1 + phiLocal * phiLocal);
             const dE = rate * dt;
             if (dE < EPSILON) continue;
 

@@ -3,7 +3,7 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, DEFAULT_HIGGS_MASS, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2, BOSON_CHARGE, ELECTRON_MASS, MAX_LEPTONS } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, MAX_REJECTION_SAMPLES, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, DEFAULT_HIGGS_MASS, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2, BOSON_CHARGE, ELECTRON_MASS, MAX_LEPTONS } from './config.js';
 
 // Schwinger pair production: Γ = (e²Q²)/(π²Σ) × exp(-πE_cr Σ/|Q|)
 // where Σ = r₊² + a² (Kerr-Newman horizon area factor)
@@ -46,7 +46,7 @@ function _scalarDipoleSample(accelAngle) {
  */
 function _quadSample(Axx, Axy) {
     const peak2 = Axx * Axx + Axy * Axy;
-    if (peak2 < EPSILON_SQ) return Math.random() * TWO_PI;
+    if (peak2 < EPSILON) return Math.random() * TWO_PI;
     for (let tries = 0; tries < MAX_REJECTION_SAMPLES; tries++) {
         const phi = Math.random() * TWO_PI;
         const c2 = Math.cos(2 * phi), s2 = Math.sin(2 * phi);
@@ -714,7 +714,7 @@ export default class Physics {
             }
             let aMax = Math.sqrt(maxAccelSq);
             if (aMax !== aMax) aMax = 0; // NaN guard: prevents NaN from propagating to dtSafe
-            let dtSafe = aMax > EPSILON_SQ ? Math.sqrt((this.blackHoleEnabled ? BH_SOFTENING : SOFTENING) / aMax) : dtRemain;
+            let dtSafe = aMax > EPSILON ? Math.sqrt((this.blackHoleEnabled ? BH_SOFTENING : SOFTENING) / aMax) : dtRemain;
             if (maxCyclotron > 0) {
                 const dtCyclotron = 0.7853981633974483 / maxCyclotron; // (2π/8) = π/4
                 if (dtCyclotron < dtSafe) dtSafe = dtCyclotron;
@@ -842,7 +842,7 @@ export default class Physics {
                     if (Math.abs(p.charge) < EPSILON) continue;
 
                     const wMagSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                    if (wMagSq < EPSILON_SQ) continue;
+                    if (wMagSq < EPSILON) continue;
 
                     const gamma = relOn ? Math.sqrt(1 + wMagSq) : 1;
                     const qSq = p.charge * p.charge;
@@ -898,7 +898,7 @@ export default class Physics {
                         const ax = p.force.x * p.invMass, ay = p.force.y * p.invMass;
                         // Radiated momentum direction = -acceleration (no atan2/cos/sin needed)
                         const aMagSq = ax * ax + ay * ay;
-                        if (aMagSq > EPSILON_SQ) {
+                        if (aMagSq > EPSILON) {
                             const invAMag = 1 / Math.sqrt(aMagSq);
                             this.sim.totalRadiatedPx -= dE * ax * invAMag;
                             this.sim.totalRadiatedPy -= dE * ay * invAMag;
@@ -1052,7 +1052,7 @@ export default class Physics {
                 for (let i = 0; i < n; i++) {
                     const p = particles[i];
                     const fYukSq = p.forceYukawa.x * p.forceYukawa.x + p.forceYukawa.y * p.forceYukawa.y;
-                    if (fYukSq < EPSILON_SQ) continue;
+                    if (fYukSq < EPSILON) continue;
                     // Scalar Larmor: P = g²m²a²/3 = g²F²/3
                     // 1/3 angular factor for spin-0 (cf. 2/3 for spin-1 EM Larmor)
                     // Scalar charge Q = g·m (Yukawa couples ∝ m), so Q²a² = g²m²(F/m)² = g²F²
@@ -1092,7 +1092,7 @@ export default class Physics {
                             this.sim.totalRadiatedPy += pionMass * wy;
                             // Radiation reaction: subtract emitted energy from particle KE
                             const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                            if (wSq > EPSILON_SQ) {
+                            if (wSq > EPSILON) {
                                 const gamma = Math.sqrt(1 + wSq);
                                 const pKE = relOn
                                     ? (gamma - 1) * p.mass
@@ -1106,7 +1106,7 @@ export default class Physics {
                                     } else {
                                         wSqNew = 2 * keNew / p.mass;
                                     }
-                                    if (wSqNew > EPSILON_SQ) {
+                                    if (wSqNew > EPSILON) {
                                         const scale = Math.sqrt(wSqNew / wSq);
                                         p.w.x *= scale;
                                         p.w.y *= scale;
@@ -1397,7 +1397,7 @@ export default class Physics {
 
         // Record signal delay history (strided: ~60 snapshots/sec at 100× speed)
         if (relOn && n > 0 && ++this._histStride >= HISTORY_STRIDE) {
-            this._histStride = 0;
+            this._histStride -= HISTORY_STRIDE;
             for (let i = 0; i < n; i++) {
                 const p = particles[i];
                 p._initHistory();
@@ -1453,7 +1453,7 @@ export default class Physics {
 
                 // Accumulate KE for quadrupole power clamping
                 const _wSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                if (_wSq > EPSILON_SQ) totalKE += p.mass * _wSq / (Math.sqrt(1 + _wSq) + 1);
+                if (_wSq > EPSILON) totalKE += p.mass * _wSq / (Math.sqrt(1 + _wSq) + 1);
 
                 // Analytical jerk from pairForce: gravity, Coulomb, Yukawa,
                 // magnetic dipole, GM dipole, Bazanski, EIH position-only
@@ -1513,12 +1513,12 @@ export default class Physics {
                     // Per-particle weighted drag + accumulation (∝ contribution, A7)
                     // Exact relativistic rescaling: dKE_i removes the correct energy
                     // fraction from each particle proportional to its quadrupole contribution.
-                    if (dE > EPSILON && totalKE > EPSILON_SQ) {
+                    if (dE > EPSILON && totalKE > EPSILON) {
                         // Sum per-particle contributions for weighting (A7)
                         let totalD3I = 0, totalD3Q = 0;
                         for (let i = 0; i < n; i++) { totalD3I += _d3IContrib[i]; totalD3Q += _d3QContrib[i]; }
-                        const invD3I = totalD3I > EPSILON_SQ ? 1 / totalD3I : 0;
-                        const invD3Q = totalD3Q > EPSILON_SQ ? 1 / totalD3Q : 0;
+                        const invD3I = totalD3I > EPSILON ? 1 / totalD3I : 0;
+                        const invD3Q = totalD3Q > EPSILON ? 1 / totalD3Q : 0;
 
                         for (let i = 0; i < n; i++) {
                             const p = particles[i];
@@ -1531,7 +1531,7 @@ export default class Physics {
 
                             if (dKE_i <= 0) continue;
                             const wSq = p.w.x * p.w.x + p.w.y * p.w.y;
-                            if (wSq < EPSILON_SQ) continue;
+                            if (wSq < EPSILON) continue;
                             const gamma = Math.sqrt(1 + wSq);
                             const KE_i = wSq / (gamma + 1) * p.mass;
                             if (dKE_i >= KE_i) {

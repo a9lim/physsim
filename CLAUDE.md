@@ -79,7 +79,7 @@ Vacuum pair production at BH horizons. Rate: `Γ = (e²Q²)/(π²Σ) × exp(-πE
 
 ### Superradiance
 
-Axion field amplification by spinning BHs. Rate: `Γ = SUPERRADIANCE_COEFF · (M·μ_a)² · max(Ω_H - μ_a, 0) · (1 + φ²)`, where `Ω_H = a/Σ` is horizon angular velocity and `φ` is the local axion field amplitude. Phenomenological α² scaling (real rate ∝ α⁸, too steep for interactive sim). The `(1 + φ²)` factor gives exponential cloud growth (stimulated amplification) from a constant vacuum seed (spontaneous), analogous to stimulated emission `Γ = A(1+n)`. Back-reaction: BH loses mass `dM = dE` and angular momentum `dJ = dE/μ_a` (m=1 mode at frequency ω ≈ μ_a; entropy production `TdS = dE(Ω_H/μ_a − 1) > 0`). Natural saturation when `Ω_H ≤ μ_a`. No accumulator (continuous deposit, not discrete event). Deposits into axion `_source` array via PQS at BH position. Requires BH + Axion. CPU: `axion-field.js` `_depositSuperradiance()` samples field via `interpolate()`. GPU: `field-deposit.wgsl` `depositSuperradiance` reads `φ²` from `axYukMod[pid].w` (set by `field-forces.wgsl` `applyAxionForces` at pass 5c, consumed at pass 15). GPU deposit pipeline has a 3-group layout (group 2 = axYukMod read-only) separate from the 2-group layout used by other deposit entry points. Torque display: `torqueSuperradiance` (CPU) / `f5.z` (GPU), rendered as indigo arc at offset 1.0 (second ring from center; contact torque is innermost at 0.5).
+Axion field amplification by spinning BHs. Rate: `Γ = (M·μ_a)² · max(Ω_H - μ_a, 0) · (1 + φ²)`, where `Ω_H = a/Σ` is horizon angular velocity and `φ` is the local axion field amplitude. Phenomenological α² scaling (real rate ∝ α⁸, too steep for interactive sim). The `(1 + φ²)` factor gives exponential cloud growth (stimulated amplification) from a constant vacuum seed (spontaneous), analogous to stimulated emission `Γ = A(1+n)`. Back-reaction: BH loses mass `dM = dE` and angular momentum `dJ = dE/μ_a` (m=1 mode at frequency ω ≈ μ_a; entropy production `TdS = dE(Ω_H/μ_a − 1) > 0`). Natural saturation when `Ω_H ≤ μ_a`. No accumulator (continuous deposit, not discrete event). Deposits into axion `_source` array via PQS at BH position. Requires BH + Axion. CPU: `axion-field.js` `_depositSuperradiance()` samples field via `interpolate()`. GPU: `field-deposit.wgsl` `depositSuperradiance` reads `φ²` from `axYukMod[pid].w` (set by `field-forces.wgsl` `applyAxionForces` at pass 5c, consumed at pass 15). GPU deposit pipeline has a 3-group layout (group 2 = axYukMod read-only) separate from the 2-group layout used by other deposit entry points. Torque display: `torqueSuperradiance` (CPU) / `f5.z` (GPU), rendered as indigo arc at offset 1.0 (second ring from center; contact torque is innermost at 0.5).
 
 ### Quantized Boson Charge
 
@@ -104,7 +104,7 @@ Self-gravity via FFT convolution with Green's function. `computeSelfGravity(doma
 | Particles | 128 | 512 |
 | Photons | 1024 | 4096 |
 | Pions | 256 | 1024 |
-| Leptons | 256 | Shares pion pool (1280) |
+| Leptons | 256 | 1024 (shares pion pool, total 2048) |
 
 ### Shader Organization
 
@@ -138,7 +138,7 @@ UI toggle hidden via `style="display:none"` — still activatable via presets (R
 
 - `_peAccum` PE is accumulated inline during `pairForce()` — `potential.js` is a fallback only for preset-load recomputation
 - `forceRadiation` cleared for all particles before substep loop
-- History recording counts `update()` calls, not substeps (strided at HISTORY_STRIDE=64)
+- History recording strided at HISTORY_STRIDE=64; both CPU and GPU use subtraction (preserves remainder)
 - `.mode-toggles` sets `display: grid` overriding `hidden` — use `style.display`
 - External field trig cached once per frame via `_cacheExternalFields()`
 - Lazy field init: Higgs/Axion fields are `null` until first toggle-on

@@ -3,7 +3,7 @@
 // via binary search to locate the segment (g is monotone for |v|<c),
 // exact quadratic on that segment, and constant-velocity extrapolation past the buffer.
 
-import { HISTORY_SIZE, HISTORY_MASK, SOLVE_TOLERANCE, EPSILON, TORUS } from './config.js';
+import { HISTORY_SIZE, HISTORY_MASK, EPSILON, TORUS } from './config.js';
 import { minImage } from './topology.js';
 
 const _miOut = { x: 0, y: 0 };
@@ -25,7 +25,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
     const tOldest = source.histTime[start];
     const tNewest = source.histTime[newest];
     const timeSpan = simTime - tOldest;
-    if (timeSpan < SOLVE_TOLERANCE) return null;
+    if (timeSpan < EPSILON) return null;
 
     // Cache history array references to avoid repeated property lookups
     const histX = source.histX, histY = source.histY;
@@ -87,7 +87,7 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
             const hiIdx = (loIdx + 1) & HISTORY_MASK;
             const tLo = histTime[loIdx];
             const segDt = histTime[hiIdx] - tLo;
-            if (segDt < SOLVE_TOLERANCE) continue;
+            if (segDt < EPSILON) continue;
 
             const xLo = histX[loIdx], yLo = histY[loIdx];
             const xHi = histX[hiIdx], yHi = histY[hiIdx];
@@ -123,9 +123,9 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
             const sqrtDisc = Math.sqrt(disc);
             let s;
-            if (Math.abs(a) < SOLVE_TOLERANCE) {
+            if (Math.abs(a) < EPSILON) {
                 // v ~ c: degenerate linear case
-                if (Math.abs(h) < SOLVE_TOLERANCE) continue;
+                if (Math.abs(h) < EPSILON) continue;
                 s = -c / (2 * h);
             } else {
                 const s1 = (-h + sqrtDisc) / a;
@@ -191,8 +191,8 @@ export function getDelayedState(source, observer, simTime, periodic, domW, domH,
 
         const sqrtDisc = Math.sqrt(disc);
         let s;
-        if (Math.abs(a) < SOLVE_TOLERANCE) {
-            if (Math.abs(h) < SOLVE_TOLERANCE) return null;
+        if (Math.abs(a) < EPSILON) {
+            if (Math.abs(h) < EPSILON) return null;
             s = -c / (2 * h);
         } else {
             const s1 = (-h + sqrtDisc) / a;

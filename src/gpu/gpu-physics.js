@@ -38,8 +38,8 @@ import { createParticleBuffers, createUniformBuffer, writeFrameUniforms, writeSu
 import { fetchShader, createPhase2Pipelines, createGhostGenPipeline, createTreeBuildPipelines, createTreeForcePipeline, createCollisionPipelines, createDeadGCPipeline, createPhase4Pipelines, createFieldDepositPipelines, createFieldEvolvePipelines, createFieldForcesPipelines, createFieldParticleGravPipeline, createFieldSelfGravPipelines, createFFTPipelines, createFieldExcitationPipeline, createHeatmapPipelines, createExpansionPipeline, createDisintegrationPipeline, createPairProductionPipeline, createUpdateColorsPipeline, createTrailRecordPipeline, createHitTestPipeline, createComputeStatsPipeline } from './gpu-pipelines.js';
 import { buildWGSLConstants, GRAVITY_BIT, COULOMB_BIT, MAGNETIC_BIT, GRAVITOMAG_BIT, ONE_PN_BIT, RELATIVITY_BIT, SPIN_ORBIT_BIT, RADIATION_BIT, BLACK_HOLE_BIT, DISINTEGRATION_BIT, EXPANSION_BIT, YUKAWA_BIT, HIGGS_BIT, AXION_BIT, BARNES_HUT_BIT, BOSON_INTER_BIT, FIELD_GRAV_BIT_T1, HERTZ_BOUNCE_BIT_T1, HIST_META_STRIDE } from './gpu-constants.js';
 import {
-    HISTORY_STRIDE, GPU_MAX_PHOTONS, GPU_MAX_PIONS, MAX_LEPTONS,
-    GPU_MAX_PARTICLES, GPU_HEATMAP_GRID, PHYSICS_DT,
+    HISTORY_STRIDE, GPU_MAX_PHOTONS, GPU_MAX_PIONS, GPU_MAX_LEPTONS,
+    GPU_MAX_PARTICLES, GPU_HEATMAP_GRID, HEATMAP_INTERVAL_MASK, PHYSICS_DT,
     COL_MERGE, COL_BOUNCE, BOUND_LOOP,
     COL_NAMES, BOUND_NAMES, TOPO_NAMES,
     SOFTENING_SQ, BH_SOFTENING_SQ,
@@ -49,7 +49,7 @@ import {
 import { fft2d } from '../fft.js';
 
 const MAX_PARTICLES = GPU_MAX_PARTICLES;
-const PION_POOL_CAP = GPU_MAX_PIONS + MAX_LEPTONS;
+const PION_POOL_CAP = GPU_MAX_PIONS + GPU_MAX_LEPTONS;
 
 // Pack palette slate hex to ABGR u32 for WebGPU color buffers
 const _sN = parseInt(window._PALETTE.extended.slate.slice(1), 16);
@@ -3328,8 +3328,7 @@ export default class GPUPhysics {
 
             // Heatmap compute (every HEATMAP_INTERVAL=4 frames)
             this._heatmapFrame++;
-            if (this._heatmapEnabled && this._heatmapFrame >= 4) {
-                this._heatmapFrame = 0;
+            if (this._heatmapEnabled && (this._heatmapFrame & HEATMAP_INTERVAL_MASK) === 0) {
                 this.dispatchHeatmap(encoder, this._lastCamera);
             }
 

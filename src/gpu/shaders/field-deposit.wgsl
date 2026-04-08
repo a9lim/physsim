@@ -153,7 +153,7 @@ fn depositSuperradiance(@builtin(global_invocation_id) gid: vec3<u32>) {
     let alphaG = M * muA;
     // Stimulated amplification: φ² from field-forces shader stored in axYukMod.w
     let phiSq = axYukMod[pid].w;
-    let rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA) * (1.0 + phiSq);
+    let rate = alphaG * alphaG * (omegaH - muA) * (1.0 + phiSq);
     let dE = rate * uniforms.dt;
     if (dE < EPSILON) { return; }
 
