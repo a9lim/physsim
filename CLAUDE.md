@@ -79,7 +79,7 @@ Vacuum pair production at BH horizons. Rate: `Γ = (e²Q²)/(π²Σ) × exp(-πE
 
 ### Superradiance
 
-Axion field amplification by spinning BHs. Rate: `Γ = SUPERRADIANCE_COEFF · (M·μ_a)² · max(Ω_H - μ_a, 0)`, where `Ω_H = a/Σ` is horizon angular velocity. Phenomenological α² scaling (real rate ∝ α⁸, too steep for interactive sim). Back-reaction: BH loses angular momentum `dJ = dE/Ω_H`, reducing `angw`. Natural saturation when `Ω_H ≤ μ_a`. No accumulator (continuous deposit, not discrete event). Deposits into axion `_source` array via PQS at BH position. Requires BH + Axion. CPU: `axion-field.js` `_depositSuperradiance()` (called inside `update()`). GPU: `field-deposit.wgsl` `depositSuperradiance`, dispatched between `depositAxionSource` and `finalizeDeposit`.
+Axion field amplification by spinning BHs. Rate: `Γ = SUPERRADIANCE_COEFF · (M·μ_a)² · max(Ω_H - μ_a, 0)`, where `Ω_H = a/Σ` is horizon angular velocity. Phenomenological α² scaling (real rate ∝ α⁸, too steep for interactive sim). Back-reaction: BH loses angular momentum `dJ = dE/Ω_H`, reducing `angw`. Natural saturation when `Ω_H ≤ μ_a`. No accumulator (continuous deposit, not discrete event). Deposits into axion `_source` array via PQS at BH position. Requires BH + Axion. CPU: `axion-field.js` `_depositSuperradiance()` (called inside `update()`). GPU: `field-deposit.wgsl` `depositSuperradiance`, dispatched between `depositAxionSource` and `finalizeDeposit`. Torque display: `torqueSuperradiance` (CPU) / `f5.z` (GPU), rendered as indigo arc at offset 0.5 (innermost ring). GPU torque computed in `field-forces.wgsl` `applyAxionForces` (deposit shader lacks AllForces binding).
 
 ### Quantized Boson Charge
 
