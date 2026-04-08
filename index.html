@@ -51,6 +51,7 @@
     <script defer src="/shared-icons.js"></script>
     <script defer src="/shared-toolbar.js"></script>
     <script defer src="/shared-forms.js"></script>
+    <script defer src="/shared-settings.js"></script>
     <script defer src="/shared-dropdown.js"></script>
 
     <script defer src="/shared-shortcuts.js"></script>
@@ -257,6 +258,7 @@
             <button id="loadBtn" class="tool-btn" title="Quick Load (Ctrl+L)" aria-label="Quick load" data-icon="load"></button>
             <div class="tool-sep"></div>
             <button id="themeToggleBtn" class="tool-btn" title="Toggle Theme" aria-label="Toggle theme" data-icon="theme"></button>
+            <button id="settings-btn" class="tool-btn" title="Settings" aria-label="Settings" data-icon="gear"></button>
             <button id="about-btn" class="tool-btn" aria-label="About" title="About" data-icon="about"></button>
             <button id="panelToggle" class="tool-btn" title="Settings" aria-label="Toggle settings panel" aria-expanded="false" data-icon="menu"></button>
         </div>
@@ -267,7 +269,6 @@
         <div class="stats-header">
             <div class="sidebar-tabs" role="tablist" aria-label="Sidebar tabs">
                 <button class="tab-btn active" data-tab="settings" role="tab" aria-selected="true">Settings</button>
-                <button class="tab-btn" data-tab="engine" role="tab" aria-selected="false">Engine</button>
                 <button class="tab-btn" data-tab="stats" role="tab" aria-selected="false">Stats</button>
                 <button class="tab-btn" data-tab="particle" role="tab" aria-selected="false">Particle</button>
             </div>
@@ -388,17 +389,8 @@
                             <div class="tog-wrap"><input type="checkbox" id="bosoninter-toggle" role="switch" aria-checked="false">
                             <label for="bosoninter-toggle" class="tog tog-bosoninter"><span class="tog-thumb"></span></label></div></div>
                     </div>
-                </div>
-                <!-- ── Engine ── -->
-                <div class="tab-panel" id="tab-engine" role="tabpanel">
                     <div class="panel-section">
                         <h2 class="group-label">Simulation</h2>
-                        <div class="control-group">
-                            <label class="checkbox-label ctrl-disabled"><span>GPU Acceleration</span> <input type="checkbox" id="gpu-toggle" role="switch" aria-checked="false" disabled></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label"><span>Barnes-Hut <button class="info-trigger" data-info="barneshut" aria-label="Barnes-Hut info">?</button></span> <input type="checkbox" id="barneshut-toggle" role="switch" aria-checked="false"></label>
-                        </div>
                         <div class="control-group">
                             <label><span>Collision Mode <button class="info-trigger" data-info="collision" aria-label="Collision modes info">?</button></span></label>
                             <div class="mode-toggles" id="collision-toggles">
@@ -459,30 +451,6 @@
                         <div class="control-group">
                             <label>Magnetic B<sub>z</sub> <span class="slider-value" id="extBzValue">0.00</span></label>
                             <input type="range" id="extBzInput" min="-1" max="1" step="0.01" value="0">
-                        </div>
-                    </div>
-                    <div class="panel-section">
-                        <h2 class="group-label">Visuals</h2>
-                        <div class="control-group">
-                            <label class="checkbox-label">Trails<input type="checkbox" id="trailsToggle" checked></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label">Velocity Vectors<input type="checkbox" id="velocityToggle"></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label">Acceleration Vectors<input type="checkbox" id="forceToggle"></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label">Acceleration Components<input type="checkbox" id="forceComponentsToggle"></label>
-                        </div>
-                        <div class="control-group">
-                            <label class="checkbox-label">Potential Field<input type="checkbox" id="potentialToggle"></label>
-                            <div class="mode-toggles" id="potential-mode-toggles" style="display:none">
-                                <button class="mode-btn active" data-potential="all">All</button>
-                                <button class="mode-btn" data-potential="gravity">Grav</button>
-                                <button class="mode-btn" data-potential="electric">Elec</button>
-                                <button class="mode-btn" data-potential="yukawa">Yukawa</button>
-                            </div>
                         </div>
                     </div>
                 </div>

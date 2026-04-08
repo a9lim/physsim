@@ -145,6 +145,30 @@ export function setupUI(sim) {
     });
 
 
+    // ─── Settings dropdown (GPU, Barnes-Hut, visual overlays) ───
+    const settingsBtn = document.getElementById('settings-btn');
+    if (settingsBtn) {
+        _settings.create(settingsBtn, [
+            { type: 'toggle', label: 'GPU Acceleration', id: 'gpu-toggle', checked: false, disabled: true },
+            { type: 'toggle', label: 'Barnes-Hut', id: 'barneshut-toggle', checked: false },
+            { type: 'toggle', label: 'Trails', id: 'trailsToggle', checked: true },
+            { type: 'toggle', label: 'Velocity Vectors', id: 'velocityToggle', checked: false },
+            { type: 'toggle', label: 'Accel. Vectors', id: 'forceToggle', checked: false },
+            { type: 'toggle', label: 'Accel. Components', id: 'forceComponentsToggle', checked: false },
+            { type: 'toggle', label: 'Potential Field', id: 'potentialToggle', checked: false },
+            { type: 'mode', label: 'Potential Mode', id: 'potential-mode-toggles', dataAttr: 'potential',
+              buttons: [
+                  { value: 'all', label: 'All', active: true },
+                  { value: 'gravity', label: 'Grav' },
+                  { value: 'electric', label: 'Elec' },
+                  { value: 'yukawa', label: 'Yukawa' }
+              ]
+            }
+        ], { width: 280 });
+        // Hide potential mode bar until potential field is enabled
+        document.getElementById('potential-mode-toggles').closest('.settings-dd-row').style.display = 'none';
+    }
+
     // ─── Physics toggles ───
     const toggleDefs = [
         { id: 'gravity-toggle', prop: 'gravityEnabled' },
@@ -191,7 +215,7 @@ export function setupUI(sim) {
     const setDepState = (id, disabled) => {
         const el = tEl[id];
         el.disabled = disabled;
-        const row = el.closest('.ctrl-row') || el.closest('.checkbox-label');
+        const row = el.closest('.ctrl-row') || el.closest('.settings-dd-row') || el.closest('.checkbox-label');
         if (row) row.classList.toggle('ctrl-disabled', disabled);
         if (disabled && el.checked) {
             el.checked = false;
@@ -297,15 +321,15 @@ export function setupUI(sim) {
         gpuToggle.disabled = false;
         gpuToggle.checked = true;
         gpuToggle.setAttribute('aria-checked', 'true');
-        const lbl = gpuToggle.closest('.checkbox-label');
-        if (lbl) lbl.classList.remove('ctrl-disabled');
+        const row = gpuToggle.closest('.settings-dd-row') || gpuToggle.closest('.checkbox-label');
+        if (row) row.classList.remove('ctrl-disabled');
     };
     sim._onGPULost = () => {
         gpuToggle.disabled = true;
         gpuToggle.checked = false;
         gpuToggle.setAttribute('aria-checked', 'false');
-        const lbl = gpuToggle.closest('.checkbox-label');
-        if (lbl) lbl.classList.add('ctrl-disabled');
+        const row = gpuToggle.closest('.settings-dd-row') || gpuToggle.closest('.checkbox-label');
+        if (row) row.classList.add('ctrl-disabled');
     };
     gpuToggle.addEventListener('change', async () => {
         const on = gpuToggle.checked;
@@ -424,7 +448,9 @@ export function setupUI(sim) {
     const potentialModeBar = document.getElementById('potential-mode-toggles');
     potentialToggle?.addEventListener('change', (e) => {
         sim.heatmap.enabled = e.target.checked;
-        potentialModeBar.style.display = e.target.checked ? '' : 'none';
+        const modeRow = potentialModeBar?.closest('.settings-dd-row');
+        if (modeRow) modeRow.style.display = e.target.checked ? '' : 'none';
+        else if (potentialModeBar) potentialModeBar.style.display = e.target.checked ? '' : 'none';
         // Sync heatmap state to GPU (C3: persistent proxy, no Object.create)
         if (sim._gpuPhysics) {
             // heatmap.enabled already updated above; _buildGPUToggles reads it
