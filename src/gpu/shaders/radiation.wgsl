@@ -201,19 +201,56 @@ fn hawkingRadiation(@builtin(global_invocation_id) gid: vec3u) {
 
     let dt = u.dt;
     let dE = min(power * dt, particles[i].mass);
-    if (dE <= 0.0) { return; }
 
     let preMass = particles[i].mass;
-    particles[i].mass -= dE;
-    particles[i].baseMass *= 1.0 - dE / preMass;
+    if (dE > 0.0) {
+        particles[i].mass -= dE;
+        particles[i].baseMass *= 1.0 - dE / preMass;
+    }
+    // Skip normal emission if no energy radiated AND not at evaporation floor
+    // (Schwinger can drain mass below MIN_MASS even when Hawking power is zero)
+    if (dE <= 0.0 && particles[i].mass > MIN_MASS) { return; }
 
     var rs = radState[i];
     rs.hawkAccum += dE;
 
     // Full evaporation: mass dropped to or below MIN_MASS
     if (particles[i].mass <= MIN_MASS) {
+        // Schwinger burst: shed remaining charge as leptons
+        let coulombOn = (u.toggles0 & COULOMB_BIT) != 0u;
+        if (coulombOn) {
+            var remQ = particles[i].charge;
+            let csign = select(-1.0, 1.0, remQ > 0.0);
+            var seed = (i * 7654321u) ^ u.frameCount;
+            for (var ci = 0u; ci < 16u; ci++) {
+                if (abs(remQ) < BOSON_CHARGE - EPSILON) { break; }
+                let li = atomicAdd(&piCount, 1u);
+                if (li >= PION_POOL_CAP) { atomicSub(&piCount, 1u); break; }
+                seed = seed * 747796405u + 2891336453u;
+                let lAngle = f32(seed) / 4294967296.0 * TWO_PI;
+                let lCos = cos(lAngle); let lSin = sin(lAngle);
+                let lSpeed = min(sqrt(max(ELECTRON_MASS * 3.0 * ELECTRON_MASS, 0.0)) / max(3.0 * ELECTRON_MASS, EPSILON), MAX_SPEED_RATIO);
+                let lGamma = 1.0 / sqrt(max(1.0 - lSpeed * lSpeed, EPSILON));
+                var lep: Pion;
+                lep.posX = particles[i].posX + lCos * SPAWN_OFFSET_FLOOR;
+                lep.posY = particles[i].posY + lSin * SPAWN_OFFSET_FLOOR;
+                lep.wX = lGamma * lSpeed * lCos;
+                lep.wY = lGamma * lSpeed * lSin;
+                lep.mass = ELECTRON_MASS;
+                lep.charge = csign * BOSON_CHARGE;
+                lep.energy = 0.0;
+                lep.emitterId = particleAux[i].particleId;
+                lep.age = 0u; lep.flags = 1u;
+                lep.kind = 1u; lep._pad1 = 0u;
+                pions[li] = lep;
+                remQ -= csign * BOSON_CHARGE;
+                particles[i].mass -= ELECTRON_MASS;
+            }
+            particles[i].charge = remQ;
+        }
+
         // Emit all remaining mass + accumulated energy as final photon burst
-        let finalEnergy = rs.hawkAccum + particles[i].mass;
+        let finalEnergy = rs.hawkAccum + max(particles[i].mass, 0.0);
         if (finalEnergy > 0.0) {
             let phIdx = atomicAdd(&phCount, 1u);
             if (phIdx < MAX_PHOTONS) {
@@ -398,9 +435,9 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // ─── Schwinger Discharge ───
-// Vacuum e+e- pair production at BH horizon when E = |Q|/r+² > E_cr.
-// Accumulates rate per substep, emits pair when accumulator reaches 1.
-// Rate ∝ (E/E_cr)² exp(-π E_cr/E) × A_horizon. Requires Black Hole + Coulomb.
+// Vacuum e+e- pair production at BH horizon.
+// Γ = (e²Q²)/(π²Σ) × exp(-πE_cr Σ/|Q|), Σ = r₊² + a² (KN area factor).
+// Requires Black Hole + Coulomb.
 @compute @workgroup_size(64)
 fn schwingerDischarge(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
@@ -409,7 +446,8 @@ fn schwingerDischarge(@builtin(global_invocation_id) gid: vec3u) {
 
     let blackHoleOn = (u.toggles0 & BLACK_HOLE_BIT) != 0u;
     let coulombOn = (u.toggles0 & COULOMB_BIT) != 0u;
-    if (!blackHoleOn || !coulombOn) { return; }
+    let radiationOn = (u.toggles0 & RADIATION_BIT) != 0u;
+    if (!blackHoleOn || !coulombOn || !radiationOn) { return; }
 
     var M = particles[i].mass;
     if (M <= MIN_MASS) { return; }
@@ -424,12 +462,13 @@ fn schwingerDischarge(@builtin(global_invocation_id) gid: vec3u) {
     let disc = M * M - a * a - Q * Q;
     let rPlus = select(M * BH_NAKED_FLOOR, M + sqrt(max(0.0, disc)), disc >= 0.0);
     let rPlusSq = rPlus * rPlus;
-    let E_field = absQ / rPlusSq;
+    let sigma = rPlusSq + a * a; // KN horizon area factor
+    let E_field = absQ / sigma;  // effective KN field strength
 
-    if (E_field <= SCHWINGER_E_CR) { return; }
+    if (E_field <= 0.5 * SCHWINGER_E_CR) { return; }
 
-    // Γ/A = (e²E²)/(4π³) × exp(-π m_e²/(eE))
-    let dRate = SCHWINGER_PREFACTOR * E_field * E_field * exp(-PI * SCHWINGER_E_CR / E_field) * 4.0 * PI * rPlusSq * u.dt;
+    // Γ = (e²Q²)/(π²Σ) × exp(-πE_cr/E), E_cr/E = E_cr·Σ/|Q|
+    let dRate = SCHWINGER_COEFF * absQ * absQ / sigma * exp(-PI * SCHWINGER_E_CR / E_field) * u.dt;
 
     var rs = radState[i];
     rs.schwingerAccum += dRate;
@@ -447,13 +486,15 @@ fn schwingerDischarge(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-    let pairMass = 2.0 * ELECTRON_MASS;
     let angle = pcgRand((i * 3456789u) ^ u.frameCount) * TWO_PI;
     let cosA = cos(angle); let sinA = sin(angle);
     let offset = max(particleAux[i].radius * SPAWN_OFFSET_MUL, SPAWN_OFFSET_FLOOR);
-    let ke = max(E_field - pairMass, ELECTRON_MASS);
-    let speed = min(sqrt(max(ke * (ke + 2.0 * ELECTRON_MASS), 0.0)) / max(ke + ELECTRON_MASS, EPSILON), MAX_SPEED_RATIO);
-    let gammaL = 1.0 / sqrt(max(1.0 - speed * speed, EPSILON));
+    // KE from horizon electrostatic potential: eΦ_H - m_e
+    // Φ_H = |Q|r₊/(r₊² + a²) for Kerr-Newman
+    let ePhi = BOSON_CHARGE * absQ * rPlus / sigma;
+    let ke = max(ePhi - ELECTRON_MASS, 0.0);
+    let speed = select(min(sqrt(max(ke * (ke + 2.0 * ELECTRON_MASS), 0.0)) / max(ke + ELECTRON_MASS, EPSILON), MAX_SPEED_RATIO), 0.0, ke <= 0.0);
+    let gammaL = select(1.0 / sqrt(max(1.0 - speed * speed, EPSILON)), 1.0, ke <= 0.0);
     let wx = gammaL * speed * cosA;
     let wy = gammaL * speed * sinA;
     let sign = select(-1.0, 1.0, Q > 0.0);
@@ -465,13 +506,13 @@ fn schwingerDischarge(@builtin(global_invocation_id) gid: vec3u) {
     lep.wX = wx; lep.wY = wy;
     lep.mass = ELECTRON_MASS;
     lep.charge = sign * BOSON_CHARGE;
-    lep.energy = 0.0; // lifetime tracker
+    lep.energy = 0.0;
     lep.emitterId = particleAux[i].particleId;
     lep.age = 0u; lep.flags = 1u;
     lep.kind = 1u; lep._pad1 = 0u;
     pions[idx0] = lep;
 
-    // BH loses one BOSON_CHARGE (escaping lepton) and gains ELECTRON_MASS (captured anti-lepton)
+    // BH loses charge + one electron rest mass
     particles[i].charge -= sign * BOSON_CHARGE;
     let preMass = particles[i].mass;
     particles[i].mass -= ELECTRON_MASS;
