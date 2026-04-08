@@ -115,6 +115,57 @@ fn depositAxionSource(@builtin(global_invocation_id) gid: vec3<u32>) {
     atomicDeposit(pqs, value, uniforms.boundaryMode, uniforms.topologyMode);
 }
 
+// ─── Superradiant Instability ───
+// Spinning BH pumps axion field. One thread per particle.
+// Γ = C · (M·μ_a)² · max(Ω_H - μ_a, 0). Deposits into atomicGrid, reduces angW.
+@compute @workgroup_size(256)
+fn depositSuperradiance(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let pid = gid.x;
+    if (pid >= uniforms.particleCount) { return; }
+    if (uniforms.blackHoleEnabled == 0u) { return; }
+    if (uniforms.currentFieldType != 1u) { return; } // axion only
+
+    let p = particles[pid];
+    if ((p.flags & 1u) == 0u) { return; }  // not alive
+
+    let M = p.mass;
+    if (M <= MIN_MASS) { return; }
+
+    let bodyRSq = pow(M, 2.0 / 3.0);
+    let angw = p.angW;
+    let absAngw = abs(angw);
+    let angvel = angw / sqrt(1.0 + absAngw * absAngw * bodyRSq);
+    let a = INERTIA_K * bodyRSq * abs(angvel);
+    let disc = M * M - a * a - p.charge * p.charge;
+    let rPlus = select(M, M + sqrt(max(0.0, disc)), disc >= 0.0);
+    let rPlusSq = rPlus * rPlus;
+    let sigma = rPlusSq + a * a;
+    if (sigma < EPSILON) { return; }
+    let omegaH = a / sigma;
+
+    let muA = uniforms.axionMass;
+    if (omegaH <= muA) { return; }
+
+    let alphaG = M * muA;
+    let rate = SUPERRADIANCE_COEFF * alphaG * alphaG * (omegaH - muA);
+    let dE = rate * uniforms.dt;
+    if (dE < EPSILON) { return; }
+
+    // Deposit into atomic grid via PQS
+    let cellW = uniforms.domainW / f32(GRID);
+    let cellH = uniforms.domainH / f32(GRID);
+    if (cellW < EPSILON || cellH < EPSILON) { return; }
+    let pqs = pqsWeights(p.posX, p.posY, 1.0 / cellW, 1.0 / cellH);
+    atomicDeposit(pqs, dE, uniforms.boundaryMode, uniforms.topologyMode);
+
+    // Back-reaction: reduce BH spin
+    let I_bh = INERTIA_K * bodyRSq * M;
+    if (I_bh < EPSILON) { return; }
+    let dJ = dE / omegaH;
+    let signW = select(-1.0, 1.0, angw > 0.0);
+    particles[pid].angW = angw - signW * dJ / I_bh;
+}
+
 // ─── Thermal KE Deposit (Higgs phase transitions) ───
 @compute @workgroup_size(256)
 fn depositThermal(@builtin(global_invocation_id) gid: vec3<u32>) {
