@@ -9,7 +9,7 @@
  */
 
 /** Shader version — bump to invalidate browser cache after shader edits */
-const SHADER_VERSION = 63;
+const SHADER_VERSION = 66;
 
 /** Fetch a WGSL shader file relative to src/gpu/shaders/ */
 export async function fetchShader(filename, prepend = '') {
@@ -627,6 +627,13 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
         }),
         bindGroupLayouts: radLayouts,
     };
+    const schwingerDischarge = {
+        pipeline: device.createComputePipeline({
+            label: 'schwingerDischarge', layout: radPipelineLayout,
+            compute: { module: radiationModule, entryPoint: 'schwingerDischarge' },
+        }),
+        bindGroupLayouts: radLayouts,
+    };
 
     // ── Quadrupole radiation (quadrupole.wgsl) ──
     // Group 0: uniforms
@@ -836,7 +843,7 @@ export async function createPhase4Pipelines(device, wgslConstants = '') {
     return {
         recordHistory,
         compute1PN, vvKick1PN, compute1PNTree,
-        larmorRadiation, hawkingRadiation, pionEmission,
+        larmorRadiation, hawkingRadiation, pionEmission, schwingerDischarge,
         quadrupoleCoM, quadrupoleContrib, quadrupoleApply,
         ...bosonPipelines,
         ...bosonTreePipelines,

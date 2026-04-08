@@ -1,8 +1,9 @@
 // ─── Radiation Reaction Shaders ───
-// Three entry points:
-//   lamrorRadiation — Landau-Lifshitz Larmor radiation (requires Coulomb + Radiation)
+// Four entry points:
+//   larmorRadiation — Landau-Lifshitz Larmor radiation (requires Coulomb + Radiation)
 //   hawkingRadiation — Kerr-Newman BH evaporation (requires Black Hole + Radiation)
 //   pionEmission — Scalar Larmor pion emission (requires Yukawa + Radiation)
+//   schwingerDischarge — Vacuum e+e- pair production (requires Black Hole + Coulomb)
 //
 // All kernels accumulate energy into per-particle accumulators and emit
 // photons/pions via atomic append to boson pool buffers.
@@ -394,4 +395,101 @@ fn pionEmission(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
     radState[i] = rs;
+}
+
+// ─── Schwinger Discharge ───
+// Vacuum e+e- pair production at BH horizon when E = |Q|/r+² > E_cr.
+// Accumulates rate per substep, emits pair when accumulator reaches 1.
+// Rate ∝ (E/E_cr)² exp(-π E_cr/E) × A_horizon. Requires Black Hole + Coulomb.
+@compute @workgroup_size(64)
+fn schwingerDischarge(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= u.aliveCount) { return; }
+    if ((particles[i].flags & FLAG_ALIVE) == 0u) { return; }
+
+    let blackHoleOn = (u.toggles0 & BLACK_HOLE_BIT) != 0u;
+    let coulombOn = (u.toggles0 & COULOMB_BIT) != 0u;
+    if (!blackHoleOn || !coulombOn) { return; }
+
+    var M = particles[i].mass;
+    if (M <= MIN_MASS) { return; }
+    let Q = particles[i].charge;
+    let absQ = abs(Q);
+    if (absQ < BOSON_CHARGE - EPSILON) { return; }
+
+    let bodyRSq = pow(M, 2.0 / 3.0);
+    let angw = particles[i].angW;
+    let angvel = angw / sqrt(1.0 + angw * angw * bodyRSq);
+    let a = INERTIA_K * bodyRSq * abs(angvel);
+    let disc = M * M - a * a - Q * Q;
+    let rPlus = select(M * BH_NAKED_FLOOR, M + sqrt(max(0.0, disc)), disc >= 0.0);
+    let rPlusSq = rPlus * rPlus;
+    let E_field = absQ / rPlusSq;
+
+    if (E_field <= SCHWINGER_E_CR) { return; }
+
+    // Γ/A = (e²E²)/(4π³) × exp(-π m_e²/(eE))
+    let dRate = SCHWINGER_PREFACTOR * E_field * E_field * exp(-PI * SCHWINGER_E_CR / E_field) * 4.0 * PI * rPlusSq * u.dt;
+
+    var rs = radState[i];
+    rs.schwingerAccum += dRate;
+    if (rs.schwingerAccum < 1.0) {
+        radState[i] = rs;
+        return;
+    }
+    rs.schwingerAccum = 0.0;
+    radState[i] = rs;
+
+    // Same-sign lepton escapes; opposite-sign falls back into BH
+    let idx0 = atomicAdd(&piCount, 1u);
+    if (idx0 >= PION_POOL_CAP) {
+        atomicSub(&piCount, 1u);
+        return;
+    }
+
+    let pairMass = 2.0 * ELECTRON_MASS;
+    let angle = pcgRand((i * 3456789u) ^ u.frameCount) * TWO_PI;
+    let cosA = cos(angle); let sinA = sin(angle);
+    let offset = max(particleAux[i].radius * SPAWN_OFFSET_MUL, SPAWN_OFFSET_FLOOR);
+    let ke = max(E_field - pairMass, ELECTRON_MASS);
+    let speed = min(sqrt(max(ke * (ke + 2.0 * ELECTRON_MASS), 0.0)) / max(ke + ELECTRON_MASS, EPSILON), MAX_SPEED_RATIO);
+    let gammaL = 1.0 / sqrt(max(1.0 - speed * speed, EPSILON));
+    let wx = gammaL * speed * cosA;
+    let wy = gammaL * speed * sinA;
+    let sign = select(-1.0, 1.0, Q > 0.0);
+
+    // Escaping lepton carries same-sign charge away from BH
+    var lep: Pion;
+    lep.posX = particles[i].posX + cosA * offset;
+    lep.posY = particles[i].posY + sinA * offset;
+    lep.wX = wx; lep.wY = wy;
+    lep.mass = ELECTRON_MASS;
+    lep.charge = sign * BOSON_CHARGE;
+    lep.energy = 0.0; // lifetime tracker
+    lep.emitterId = particleAux[i].particleId;
+    lep.age = 0u; lep.flags = 1u;
+    lep.kind = 1u; lep._pad1 = 0u;
+    pions[idx0] = lep;
+
+    // BH loses one BOSON_CHARGE (escaping lepton) and gains ELECTRON_MASS (captured anti-lepton)
+    particles[i].charge -= sign * BOSON_CHARGE;
+    let preMass = particles[i].mass;
+    particles[i].mass -= ELECTRON_MASS;
+    if (preMass > EPSILON) {
+        particles[i].baseMass *= 1.0 - ELECTRON_MASS / preMass;
+    }
+
+    // Update derived state after charge + mass change
+    M = particles[i].mass;
+    let newBodyRSq = pow(M, 2.0 / 3.0);
+    let newAngVel = angw / sqrt(1.0 + angw * angw * newBodyRSq);
+    let newA = INERTIA_K * newBodyRSq * abs(newAngVel);
+    let newDisc = M * M - newA * newA - particles[i].charge * particles[i].charge;
+    let newRadius = select(M * BH_NAKED_FLOOR, M + sqrt(max(0.0, newDisc)), newDisc >= 0.0);
+    var drd = derived[i];
+    drd.invMass = select(0.0, 1.0 / M, M > EPSILON);
+    drd.radiusSq = newRadius * newRadius;
+    drd.bodyRSq = newBodyRSq;
+    derived[i] = drd;
+    particleAux[i].radius = newRadius;
 }

@@ -71,6 +71,7 @@ export default class Particle {
         this._radDisplayX = 0;
         this._radDisplayY = 0;
         this._yukawaRadAccum = 0; // Yukawa meson radiation accumulator
+        this._schwingerAccum = 0; // Schwinger discharge accumulator
 
         // Signal delay history (lazy-allocated)
         this.histX = null;

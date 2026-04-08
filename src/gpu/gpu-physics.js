@@ -1125,6 +1125,18 @@ export default class GPUPhysics {
             passPion.dispatchWorkgroups(workgroups);
             passPion.end();
         }
+
+        // Schwinger discharge (requires Black Hole + Coulomb)
+        if (this._blackHoleEnabled && this._coulombEnabled) {
+            const passSchwinger = encoder.beginComputePass({ label: 'schwingerDischarge' });
+            passSchwinger.setPipeline(p4.schwingerDischarge.pipeline);
+            passSchwinger.setBindGroup(0, bgs.radG0);
+            passSchwinger.setBindGroup(1, bgs.radG1);
+            passSchwinger.setBindGroup(2, bgs.radG2);
+            passSchwinger.setBindGroup(3, bgs.radG3);
+            passSchwinger.dispatchWorkgroups(workgroups);
+            passSchwinger.end();
+        }
     }
 
     /**
@@ -1227,7 +1239,9 @@ export default class GPUPhysics {
      * Skipped entirely when radiation and Yukawa are both off (no bosons can exist).
      */
     _dispatchBosonUpdate(encoder) {
-        if (!this._radiationEnabled && !this._yukawaEnabled) return;
+        // Pions exist from Yukawa emission; leptons exist from Yukawa (pion decay) or Schwinger (BH+Coulomb)
+        const canHavePions = this._yukawaEnabled || (this._blackHoleEnabled && this._coulombEnabled);
+        if (!this._radiationEnabled && !canHavePions) return;
         const p4 = this._phase4;
         const bgs = this._phase4BindGroups;
         const useBHTree = this._barnesHutEnabled;
@@ -1240,9 +1254,9 @@ export default class GPUPhysics {
         const g1 = useBHTree ? bgs.bosTreeG1 : bgs.bosG1;
 
         // G12: Skip photon passes when radiation is off (no photons can exist).
-        // Skip pion passes when Yukawa is off (no pions can exist).
+        // Pion/lepton passes needed for Yukawa pions OR Schwinger leptons.
         const hasPhotons = this._radiationEnabled;
-        const hasPions   = this._yukawaEnabled;
+        const hasPions   = canHavePions;
 
         if (hasPhotons) {
             // updatePhotons: drift + lensing

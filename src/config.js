@@ -71,7 +71,7 @@ export const PION_HALF_LIFE = 32;                // pi0 half-life (fast EM decay
 export const CHARGED_PION_HALF_LIFE = 64;        // pi+/- half-life (slower weak decay)
 export const PION_DECAY_PROB = 1 - Math.exp(-Math.LN2 / PION_HALF_LIFE * PHYSICS_DT);
 export const CHARGED_PION_DECAY_PROB = 1 - Math.exp(-Math.LN2 / CHARGED_PION_HALF_LIFE * PHYSICS_DT);
-export const ELECTRON_MASS = 0.05;                // decay product mass for pi+/- -> e+/- + photon
+export const ELECTRON_MASS = 0.01;                // decay product mass for pi+/- -> e+/- + photon
 export const BOSON_CHARGE = 0.1;                  // magnitude of pion/lepton charge (tunable)
 export const MAX_REJECTION_SAMPLES = 32;     // quadrupole rejection sampling cap
 export const ABERRATION_THRESHOLD = 1.01;    // min gamma for relativistic aberration
@@ -99,6 +99,10 @@ export const HIGGS_AXION_COUPLING = 0.01;    // λ in V_portal = ½λφ²a² (Hi
 
 // ── Black Hole ──
 export const BH_NAKED_FLOOR = 0.5;           // naked singularity horizon floor (M × this)
+
+// ── Schwinger Discharge ──
+// Vacuum pair production at BH horizon when E > E_cr.
+// E_field = |Q| / r+², rate ∝ (E/E_cr)² exp(-π E_cr/E) per unit area.
 
 // ── Disintegration & Roche ──
 export const SPAWN_COUNT = 4;

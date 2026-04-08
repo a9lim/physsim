@@ -69,6 +69,10 @@ Expansion                        [independent, in Engine tab]
 
 Declarative `DEPS` array in `ui.js`, topological evaluation via `updateAllDeps()`.
 
+### Schwinger Discharge
+
+Vacuum e⁺e⁻ pair production at BH horizons. Exact Schwinger formula with no tunable constants: `Γ/A = (e²E²)/(4π³) × exp(-π m_e²/(eE))`, where `E = |Q|/r₊²`, `e = BOSON_CHARGE`, `m_e = ELECTRON_MASS`. Critical field `E_cr = m_e²/e` and prefactor `e²/(4π³)` are derived in `integrator.js` (CPU) and `gpu-constants.js` (GPU). Requires Black Hole + Coulomb (no Radiation toggle — vacuum QED, not thermal). Accumulates rate per substep into `_schwingerAccum` (CPU) / `RadiationState.schwingerAccum` (GPU); emits when accumulator reaches 1. Same-sign lepton escapes, opposite-sign falls back into BH — net: BH loses `BOSON_CHARGE` of charge and `ELECTRON_MASS` of mass per event. CPU in `integrator.js` (after Hawking radiation), GPU in `radiation.wgsl` (`schwingerDischarge` entry point). GPU leptons use the shared pion pool with `kind=1u`.
+
 ### Quantized Boson Charge
 
 Pion and lepton charges are quantized in units of `BOSON_CHARGE` (config.js, default 0.1). Pion charge is `f32` in both CPU and GPU (WGSL Pion struct). Neutral pions have charge exactly `0.0`; charged pions/leptons carry `±BOSON_CHARGE`. Particle charge is also quantized: `addParticle()` (both CPU `main.js` and GPU `gpu-physics.js`) rounds charge to the nearest `BOSON_CHARGE` multiple. Charge conservation is maintained — emission subtracts `±BOSON_CHARGE` from emitter, absorption/decay adds it back. Disintegration (Roche transfer, tidal fragments) quantizes transferred charge. Annihilation checks use `abs(charge) < EPSILON` for neutral and sign comparison for opposite-charge (not integer equality).

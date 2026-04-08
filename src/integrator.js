@@ -3,9 +3,14 @@
 // B-like (velocity-dependent) forces for exact |v|-preserving rotation.
 
 import QuadTreePool from './quadtree.js';
-import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, DEFAULT_HIGGS_MASS, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2, BOSON_CHARGE } from './config.js';
+import { PI, TWO_PI, SOFTENING, BH_SOFTENING, DESPAWN_MARGIN, INERTIA_K, MAG_MOMENT_K, MAX_SUBSTEPS, MIN_MASS, MAX_PHOTONS, MAX_SPEED_RATIO, TIDAL_STRENGTH, SPAWN_COUNT, SOFTENING_SQ, BH_SOFTENING_SQ, QUADTREE_CAPACITY, BH_THETA, HISTORY_SIZE, HISTORY_MASK, HISTORY_STRIDE, DEFAULT_PION_MASS, DEFAULT_AXION_MASS, ROCHE_THRESHOLD, ROCHE_TRANSFER_RATE, DEFAULT_HUBBLE, EPSILON, EPSILON_SQ, MAX_REJECTION_SAMPLES, ABERRATION_THRESHOLD, spawnOffset, kerrNewmanRadius, MAX_PIONS, YUKAWA_COUPLING, BOSON_MIN_AGE, HIGGS_COUPLING, AXION_COUPLING, DEFAULT_HIGGS_MASS, COL_BOUNCE, COL_MERGE, BOUND_LOOP, BOUND_BOUNCE, BOUND_DESPAWN, TORUS, KLEIN, RP2, BOSON_CHARGE, ELECTRON_MASS, MAX_LEPTONS } from './config.js';
+
+// Schwinger pair production: Γ/A = (e²E²)/(4π³) × exp(-π m_e²/(eE))
+const SCHWINGER_E_CR = ELECTRON_MASS * ELECTRON_MASS / BOSON_CHARGE;       // m_e²/e
+const SCHWINGER_PREFACTOR = BOSON_CHARGE * BOSON_CHARGE / (4 * PI * PI * PI); // e²/(4π³)
 import MasslessBoson from './massless-boson.js';
 import Pion from './pion.js';
+import Lepton from './lepton.js';
 import { angwToAngVel } from './relativity.js';
 
 import { resetForces, computeAllForces, compute1PN, computeBosonGravity, applyBosonBosonGravity, applyPionPionCoulomb, findPionAnnihilations, findLeptonAnnihilations, getPEAccum } from './forces.js';
@@ -983,6 +988,54 @@ export default class Physics {
                         this.sim.totalRadiatedPy += p._hawkAccum * sinA;
                         p._hawkAccum = 0;
                     }
+                }
+            }
+
+            // Schwinger discharge: vacuum e+e- pair production at BH horizon
+            // Accumulates rate per substep, emits pair when threshold reached.
+            // E = |Q|/r+², rate ∝ (E/E_cr)² exp(-π E_cr/E) × A_horizon
+            if (this.blackHoleEnabled && this.coulombEnabled && this.sim) {
+                const leptons = this.sim.leptons;
+                const pairMass = 2 * ELECTRON_MASS;
+                for (let i = 0; i < n; i++) {
+                    const p = particles[i];
+                    if (p.mass <= MIN_MASS || Math.abs(p.charge) < BOSON_CHARGE - EPSILON) continue;
+                    const bodyRSq = p.bodyRadiusSq;
+                    const rPlus = kerrNewmanRadius(p.mass, bodyRSq, p.angVel, p.charge);
+                    const rPlusSq = rPlus * rPlus;
+                    const E = Math.abs(p.charge) / rPlusSq;
+                    if (E <= SCHWINGER_E_CR) continue;
+                    // Γ/A = (e²E²)/(4π³) × exp(-π m_e²/(eE))
+                    const dRate = SCHWINGER_PREFACTOR * E * E * Math.exp(-PI * SCHWINGER_E_CR / E) * 4 * PI * rPlusSq * dtSub;
+                    p._schwingerAccum += dRate;
+                    if (p._schwingerAccum < 1) continue;
+                    p._schwingerAccum = 0;
+                    if (leptons.length >= MAX_LEPTONS) continue;
+                    // Same-sign lepton escapes; opposite-sign falls back into BH
+                    const angle = Math.random() * TWO_PI;
+                    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                    const off = spawnOffset(p.radius);
+                    const ke = Math.max(E - pairMass, ELECTRON_MASS);
+                    const speed = Math.min(Math.sqrt(ke * (ke + 2 * ELECTRON_MASS)) / (ke + ELECTRON_MASS), MAX_SPEED_RATIO);
+                    const gamma = 1 / Math.sqrt(1 - speed * speed);
+                    const wx = gamma * speed * cosA;
+                    const wy = gamma * speed * sinA;
+                    const sign = p.charge > 0 ? 1 : -1;
+                    leptons.push(Lepton.acquire(
+                        p.pos.x + cosA * off, p.pos.y + sinA * off,
+                        wx, wy, sign * BOSON_CHARGE, p.id
+                    ));
+                    // BH loses one BOSON_CHARGE (escaping lepton) and gains ELECTRON_MASS (captured anti-lepton)
+                    p.charge -= sign * BOSON_CHARGE;
+                    p.updateColor();
+                    const preMass = p.mass;
+                    p.mass -= ELECTRON_MASS; // net: pair mass created, anti-lepton mass recaptured
+                    if (preMass > 0) p.baseMass *= p.mass / preMass;
+                    if (p.mass > EPSILON) p.invMass = 1 / p.mass;
+                    const newBodyRSq = Math.cbrt(p.mass) ** 2;
+                    p.bodyRadiusSq = newBodyRSq;
+                    p.radius = kerrNewmanRadius(p.mass, newBodyRSq, p.angVel, p.charge);
+                    p.radiusSq = p.radius * p.radius;
                 }
             }
 
