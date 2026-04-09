@@ -29,7 +29,7 @@ Interactive particle physics simulator. Boris integrator, BH tree acceleration, 
 
 Falls back to CPU on WebGPU unavailability or device loss. Force CPU via `?cpu=1`.
 
-**Key modules**: `integrator.js` (Boris substep loop, all physics), `forces.js` (pairForce, BH tree walk, 1PN), `scalar-field.js` (PQS grid base), `higgs-field.js` / `axion-field.js` (field subclasses), `quadtree.js` (SoA flat typed arrays, pool-based), `ui.js` (declarative toggle dependency graph), `presets.js` (19 scenarios).
+**Key modules**: `integrator.js` (Boris substep loop, all physics), `forces.js` (pairForce, BH tree walk, 1PN), `scalar-field.js` (PQS grid base), `higgs-field.js` / `axion-field.js` (field subclasses), `quadtree.js` (SoA flat typed arrays, pool-based), `ui.js` (toggle deps via shared `_forms.bindDeps`, mode locking, GPU sync), `presets.js` (19 scenarios).
 
 ## Physics
 
@@ -68,7 +68,7 @@ Barnes-Hut                       [independent]
 Expansion                        [independent, in Engine tab]
 ```
 
-Declarative `DEPS` array in `ui.js`, topological evaluation via `updateAllDeps()`.
+Enable/disable cascade and slider group visibility use shared `_forms.bindDeps()` in `ui.js`. `updateAllDeps()` calls `updateDeps()` (from `bindDeps`) plus sim-specific mode locking (collision/boundary) and GPU sync.
 
 ### Kerr-Newman Horizons
 

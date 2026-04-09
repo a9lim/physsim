@@ -1,7 +1,7 @@
 // ─── UI Setup ───
 // Wires all panel controls, toggles, presets, shortcuts, and info tips to the sim.
 import { loadPreset, PRESETS, PRESET_ORDER } from './presets.js';
-import { PHYSICS_DT, WORLD_SCALE, SCALAR_GRID, GPU_SCALAR_GRID, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, SPEED_OPTIONS, colFromString, boundFromString, topoFromString } from './config.js';
+import { PHYSICS_DT, WORLD_SCALE, SCALAR_GRID, GPU_SCALAR_GRID, COL_MERGE, COL_BOUNCE, BOUND_DESPAWN, BOUND_BOUNCE, BOUND_LOOP, SPEED_OPTIONS, colFromString, boundFromString, topoFromString } from './config.js';
 import { REFERENCE } from './reference.js';
 import { BACKEND_CPU, BACKEND_GPU } from './backend-interface.js';
 import Particle from './particle.js';
@@ -115,11 +115,6 @@ export function setupUI(sim) {
     // ─── Mode toggles ───
     const collisionToggles = document.getElementById('collision-toggles');
     const boundaryToggles = document.getElementById('boundary-toggles');
-    const frictionGroup = document.getElementById('friction-group');
-
-    const updateFrictionVisibility = () => {
-        frictionGroup.style.display = (sim.collisionMode === COL_BOUNCE || sim.boundaryMode === BOUND_BOUNCE) ? '' : 'none';
-    };
 
     const _syncModesToGPU = () => {
         if (sim._gpuPhysics) {
@@ -130,13 +125,12 @@ export function setupUI(sim) {
     };
     _forms.bindModeGroup(collisionToggles, 'collision', (v) => {
         sim.collisionMode = colFromString(v);
-        updateFrictionVisibility();
+        updateDeps();
         _syncModesToGPU();
     });
     _forms.bindModeGroup(boundaryToggles, 'boundary', (v) => {
         sim.boundaryMode = boundFromString(v);
-        document.getElementById('topology-group').style.display = v === 'loop' ? '' : 'none';
-        updateFrictionVisibility();
+        updateDeps();
         _syncModesToGPU();
     });
     _forms.bindModeGroup(document.getElementById('topology-toggles'), 'topology', (v) => {
@@ -198,43 +192,37 @@ export function setupUI(sim) {
     });
 
     // ─── Declarative dependency graph ───
-    // Evaluated in order: parents before children so cascading disables propagate
-    const DEPS = [
-        ['gravitomag-toggle', () => !tEl['gravity-toggle'].checked],
-        ['bosoninter-toggle', () => !tEl['barneshut-toggle'].checked || (!tEl['gravity-toggle'].checked && !tEl['coulomb-toggle'].checked)],
-        ['magnetic-toggle', () => !tEl['coulomb-toggle'].checked],
-        ['radiation-toggle', () => !tEl['gravity-toggle'].checked && !tEl['coulomb-toggle'].checked && !tEl['yukawa-toggle'].checked],
-        ['disintegration-toggle', () => !tEl['gravity-toggle'].checked],
-        ['axion-toggle', () => !tEl['coulomb-toggle'].checked && !tEl['yukawa-toggle'].checked && !tEl['blackhole-toggle'].checked],
-        ['blackhole-toggle', () => !tEl['relativity-toggle'].checked || !tEl['gravity-toggle'].checked],
+    // Evaluated in order: parents before children so cascading disables propagate.
+    // enable deps: disabled when fn returns false; checked toggles auto-uncheck.
+    // show deps: hidden when fn returns false; animated reveal/collapse.
+    const updateDeps = _forms.bindDeps([
+        // Enable/disable cascade
+        { target: tEl['gravitomag-toggle'], enable: () => tEl['gravity-toggle'].checked },
+        { target: tEl['bosoninter-toggle'], enable: () => tEl['barneshut-toggle'].checked && (tEl['gravity-toggle'].checked || tEl['coulomb-toggle'].checked) },
+        { target: tEl['magnetic-toggle'], enable: () => tEl['coulomb-toggle'].checked },
+        { target: tEl['radiation-toggle'], enable: () => tEl['gravity-toggle'].checked || tEl['coulomb-toggle'].checked || tEl['yukawa-toggle'].checked },
+        { target: tEl['disintegration-toggle'], enable: () => tEl['gravity-toggle'].checked },
+        { target: tEl['axion-toggle'], enable: () => tEl['coulomb-toggle'].checked || tEl['yukawa-toggle'].checked || tEl['blackhole-toggle'].checked },
+        { target: tEl['blackhole-toggle'], enable: () => tEl['relativity-toggle'].checked && tEl['gravity-toggle'].checked },
         // Children of toggles that may have been disabled above
-        ['onepn-toggle', () => !tEl['relativity-toggle'].checked || (!tEl['magnetic-toggle'].checked && !tEl['gravitomag-toggle'].checked && !tEl['yukawa-toggle'].checked)],
-        ['spinorbit-toggle', () => !tEl['magnetic-toggle'].checked && !tEl['gravitomag-toggle'].checked],
-    ];
-
-    const setDepState = (id, disabled) => {
-        const el = tEl[id];
-        el.disabled = disabled;
-        const row = el.closest('.ctrl-row') || el.closest('.settings-dd-row') || el.closest('.checkbox-label');
-        if (row) row.classList.toggle('ctrl-disabled', disabled);
-        if (disabled && el.checked) {
-            el.checked = false;
-            el.setAttribute('aria-checked', 'false');
-            sim.physics[propById[id]] = false;
-        }
-    };
-
-    // Slider groups toggled by their parent checkbox
-    const yukawaSliders = document.getElementById('yukawa-sliders');
-    const axionSliders = document.getElementById('axion-sliders');
-    const hubbleGroup = document.getElementById('hubble-group');
-    const higgsSliders = document.getElementById('higgs-sliders');
+        { target: tEl['onepn-toggle'], enable: () => tEl['relativity-toggle'].checked && (tEl['magnetic-toggle'].checked || tEl['gravitomag-toggle'].checked || tEl['yukawa-toggle'].checked) },
+        { target: tEl['spinorbit-toggle'], enable: () => tEl['magnetic-toggle'].checked || tEl['gravitomag-toggle'].checked },
+        // Slider group visibility
+        { target: 'yukawa-sliders', show: () => tEl['yukawa-toggle'].checked },
+        { target: 'axion-sliders', show: () => tEl['axion-toggle'].checked },
+        { target: 'hubble-group', show: () => tEl['expansion-toggle'].checked },
+        { target: 'higgs-sliders', show: () => tEl['higgs-toggle'].checked },
+        // Mode-dependent visibility
+        { target: 'friction-group', show: () => sim.collisionMode === COL_BOUNCE || sim.boundaryMode === BOUND_BOUNCE },
+        { target: 'topology-group', show: () => sim.boundaryMode === BOUND_LOOP && !tEl['expansion-toggle'].checked },
+    ], {
+        onDisable: (el) => { sim.physics[propById[el.id]] = false; }
+    });
 
     const updateAllDeps = () => {
-        // 1. Cascade dependency graph
-        for (const [id, disabledFn] of DEPS) setDepState(id, disabledFn());
+        updateDeps();
 
-        // 2. Black hole or disintegration locks collision to merge
+        // Black hole or disintegration locks collision to merge
         const bhOn = tEl['blackhole-toggle'].checked;
         const disintOn = tEl['disintegration-toggle'].checked;
         if (bhOn || disintOn) {
@@ -243,27 +231,17 @@ export function setupUI(sim) {
         } else {
             collisionToggles.classList.remove('ctrl-disabled');
         }
-        // 3. Expansion locks boundary to despawn
+        // Expansion locks boundary to despawn
         if (tEl['expansion-toggle'].checked) {
             boundaryToggles.querySelector('[data-boundary="despawn"]').click();
             boundaryToggles.classList.add('ctrl-disabled');
-            document.getElementById('topology-group').style.display = 'none';
         } else {
             boundaryToggles.classList.remove('ctrl-disabled');
         }
 
-        // 4. Slider group visibility
-        yukawaSliders.style.display = tEl['yukawa-toggle'].checked ? '' : 'none';
-        axionSliders.style.display = tEl['axion-toggle'].checked ? '' : 'none';
-        hubbleGroup.style.display = tEl['expansion-toggle'].checked ? '' : 'none';
-        if (higgsSliders) higgsSliders.style.display = tEl['higgs-toggle'].checked ? '' : 'none';
-        updateFrictionVisibility();
-
-        // 5. Sync toggle state to GPU backend
+        // Sync toggle state to GPU backend
         if (sim._gpuPhysics && sim._gpuPhysics.setToggles) {
-            // C3: Use persistent proxy object instead of Object.create per call
             sim._gpuPhysics.setToggles(_buildGPUToggles(sim));
-            // Sync boundary/collision/topology (live on sim, not sim.physics)
             _syncModesToGPU();
         }
     };
