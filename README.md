@@ -1,29 +1,14 @@
 # Geon
 
-Interactive particle physics simulator that runs entirely in the browser. You can spawn particles, launch them into orbit, toggle forces on and off, and watch the physics play out in real time. It covers gravity, electromagnetism, nuclear forces, scalar fields, relativistic corrections, black hole mechanics, and more. Everything runs on a WebGPU compute backend with an automatic CPU fallback.
+Interactive particle physics simulator that runs entirely in the browser. You can spawn particles, toggle a variety of forces on and off, and watch the physics play out in real time. It covers gravity, electromagnetism, nuclear forces, scalar fields, relativistic corrections, black hole mechanics, and more. Everything runs on a WebGPU compute backend with an automatic CPU fallback.
 
 **[Try it](https://a9l.im/geon)** | Part of the [a9l.im](https://a9l.im) portfolio
 
-## What You Can Explore
-
-**19 built-in presets** across four categories:
-
-| Category | Presets |
-|----------|---------|
-| Gravity | Kepler Orbits, Precession, Binary Inspiral, Tidal Lock, Roche Limit, Hawking Evaporation |
-| Electromagnetism | Atom, Bremsstrahlung, Magnetic Dipoles |
-| Exotic | Atomic Nucleus, Axion Field, Pion Exchange, Higgs Mechanism, Higgs Boson, Axion Burst, Peccei-Quinn, Phase Transition |
-| Cosmological | Galaxy, Expanding Universe |
-
-Each preset configures the forces, topology, boundary conditions, and initial particles, so the physics is immediately visible. Every parameter is adjustable from the sidebar.
-
 ## Physics
 
-Geon simulates 2D relativistic N-body dynamics in natural units (c = G = ℏ = 1). Particles store proper velocity (gamma * v), so the speed of light is enforced automatically. Boris integrator with adaptive substepping (up to 32 substeps per frame).
+2D optionally-relativistic N-body dynamics in natural units (c = G = ℏ = 1). Particles store proper velocity (gamma * v), so the speed of light is enforced automatically. Boris integrator with adaptive substepping (up to 32 substeps per frame).
 
 ### Forces
-
-15 force types, all with interdependent toggle logic:
 
 - **Newtonian gravity**: inverse-square with softening
 - **Coulomb**: electrostatic attraction or repulsion
@@ -44,7 +29,7 @@ Geon simulates 2D relativistic N-body dynamics in natural units (c = G = ℏ = 1
 ### Relativistic Corrections
 
 - **1PN (post-Newtonian)**: Einstein-Infeld-Hoffmann for gravity, Darwin for EM, Bazanski for gravity-EM cross-terms, scalar Breit for Yukawa
-- **Signal delay**: finite-speed force propagation solving for the retarded position on the past light cone, with history buffers (256 snapshots, stride 64)
+- **Signal delay**: finite-speed force propagation solving for the delayed position on the past light cone, with history buffers (256 snapshots, stride 64)
 
 ### Scalar Fields
 
@@ -65,16 +50,14 @@ Both fields evolve via Stormer-Verlet KDK integration, interact with particles a
 
 ### Black Holes
 
-- **Kerr-Newman horizons**: mass, spin, and charge determine horizon radius with cosmic censorship (super-extremal case clamps to extremal r+ = M)
+- **Kerr-Newman horizons**: mass, spin, and charge determine horizon radius with cosmic censorship
 - **Ergosphere visualization**: rendered as a distinct region around spinning black holes
 - **Hawking radiation**: thermal emission with inverse-mass-squared rate, evaporating small black holes
-- **Schwinger discharge**: vacuum pair production at charged black hole horizons (rate depends on Kerr-Newman area factor)
+- **Schwinger discharge**: vacuum pair production at charged black hole horizons 
 - **Pair production**: high-energy photon conversion to particle-antiparticle pairs
 - **Superradiance**: axion field amplification extracting rotational energy from spinning black holes, with natural saturation when horizon angular velocity drops below axion mass
 
-### Topology
-
-Boundary conditions and non-trivial topologies:
+### Topology and Boundary Conditions
 
 - **Despawn**: particles removed at edges
 - **Bounce**: elastic reflection with friction
