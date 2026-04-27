@@ -5,10 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Geon — Interactive Particle Physics Simulator | a9l.im</title>
-    <meta name="description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 11 forces, scalar fields, and 19 educational presets — running in real time in your browser with WebGPU.">
+    <meta name="description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 11 forces, scalar fields, and 15 educational presets — running in real time in your browser with WebGPU.">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
     <meta property="og:title" content="Geon — Interactive Particle Physics Simulator">
-    <meta property="og:description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 19 educational presets, running in real time in your browser.">
+    <meta property="og:description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 15 educational presets, running in real time in your browser.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://a9l.im/geon">
     <meta property="og:site_name" content="a9l.im">
@@ -22,7 +22,7 @@
     <meta name="twitter:site" content="@_a9lim">
     <meta name="twitter:creator" content="@_a9lim">
     <meta name="twitter:title" content="Geon — Interactive Particle Physics Simulator">
-    <meta name="twitter:description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 19 educational presets.">
+    <meta name="twitter:description" content="Explore how gravity, electromagnetism, and relativistic effects shape particle motion. An interactive N-body simulator with 15 educational presets.">
     <meta name="author" content="a9lim">
     <link rel="icon" href="/favicon.ico">
     <meta name="theme-color" content="#C8553D">
@@ -65,7 +65,7 @@
       "@type": ["WebApplication", "LearningResource"],
       "name": "Geon",
       "url": "https://a9l.im/geon",
-      "description": "Interactive relativistic N-body simulator with 11 force types, Boris integration, Barnes-Hut tree acceleration, Kerr-Newman black holes with Hawking radiation, Schwinger discharge, and superradiance, Higgs and axion scalar fields, and WebGPU compute shaders. Educational tool for exploring gravity, electromagnetism, black hole thermodynamics, and cosmological expansion across 19 curated presets.",
+      "description": "Interactive relativistic N-body simulator with 11 force types, Boris integration, Barnes-Hut tree acceleration, Kerr-Newman black holes with Hawking radiation, Schwinger discharge, and superradiance, Higgs and axion scalar fields, and WebGPU compute shaders. Educational tool for exploring gravity, electromagnetism, black hole thermodynamics, and cosmological expansion across 15 curated presets.",
       "speakable": {
         "@type": "SpeakableSpecification",
         "cssSelector": ["meta[name='description']"]
@@ -119,7 +119,7 @@
         {"@type": "AlignmentObject", "alignmentType": "educationalSubject", "educationalFramework": "APS Guidelines for Undergraduate Physics", "targetName": "Classical Mechanics and Electromagnetism", "targetUrl": "https://www.aps.org/programs/education/undergrad/"}
       ],
       "datePublished": "2026-02-17",
-      "dateModified": "2026-04-08",
+      "dateModified": "2026-04-27",
       "author": {
         "@type": "Person",
         "name": "a9lim",
@@ -247,7 +247,7 @@
       "@type": "HowTo",
       "name": "How to simulate particle physics with Geon",
       "step": [
-        {"@type": "HowToStep", "position": 1, "name": "Choose a preset", "text": "Select one of 19 curated presets from the dropdown — each configures initial conditions and force parameters to demonstrate a specific physical phenomenon."},
+        {"@type": "HowToStep", "position": 1, "name": "Choose a preset", "text": "Select one of 15 curated presets from the dropdown — each configures initial conditions and force parameters to demonstrate a specific physical phenomenon."},
         {"@type": "HowToStep", "position": 2, "name": "Place particles", "text": "Click or drag on the canvas to spawn particles with the mass, charge, and spin values set in the controls panel."},
         {"@type": "HowToStep", "position": 3, "name": "Toggle forces", "text": "Enable or disable individual forces — gravity, electromagnetism, Yukawa, Higgs, axion — to isolate and study specific physical interactions."},
         {"@type": "HowToStep", "position": 4, "name": "Observe trajectories", "text": "Watch particles interact in real time. Use pause, step, and speed controls to examine dynamics at different timescales."},
@@ -310,8 +310,6 @@
                                 <option value="kepler">Kepler Orbits</option>
                                 <option value="precession">Precession</option>
                                 <option value="inspiral">Binary Inspiral</option>
-                                <option value="tidallock">Tidal Lock</option>
-                                <option value="roche">Roche Limit</option>
                                 <option value="hawking">Hawking Evaporation</option>
                             </optgroup>
                             <optgroup label="Electromagnetism">
@@ -327,10 +325,8 @@
                                 <option value="higgsboson">Higgs Boson</option>
                                 <option value="axionburst">Axion Burst</option>
                                 <option value="pecceiQuinn">Peccei–Quinn</option>
-                                <option value="phasetransition">Phase Transition</option>
                             </optgroup>
                             <optgroup label="Cosmological">
-                                <option value="galaxy">Galaxy</option>
                                 <option value="expansion">Expanding Universe</option>
                             </optgroup>
                         </select>
@@ -576,7 +572,7 @@
         <h3>Scalar Fields</h3>
         <p>Two scalar fields &mdash; Higgs and axion &mdash; live on a PQS grid with C&sup2; interpolation. The Higgs field modulates particle mass through its local vacuum expectation value, while the axion field couples to charge. Both evolve via St&ouml;rmer-Verlet integration and exert gradient forces on particles.</p>
         <h3>Presets</h3>
-        <p>Nineteen curated presets demonstrate specific phenomena: Keplerian orbits, electromagnetic confinement, Rutherford scattering, Higgs potential wells, axion halos, Hubble expansion, gravitational wave inspiral, and more. Each preset configures initial conditions and force parameters to illustrate one concept clearly.</p>
+        <p>Fifteen curated presets demonstrate specific phenomena: Keplerian orbits, electromagnetic confinement, Rutherford scattering, Higgs potential wells, axion halos, Hubble expansion, gravitational wave inspiral, and more. Each preset configures initial conditions and force parameters to illustrate one concept clearly.</p>
     <h3>Gravitomagnetism and Frame-Dragging</h3>
     <p>Gravitomagnetism is the gravitational analogue of the magnetic force. In Geon, rotating or co-moving masses generate a gravitomagnetic field that produces velocity-dependent forces on nearby particles, mimicking the frame-dragging effect predicted by general relativity. This can be seen in the Gravitomagnetic preset, where orbiting masses drag the surrounding space and alter nearby trajectories.</p>
     <h3>Black Hole Physics</h3>

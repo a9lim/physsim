@@ -80,58 +80,16 @@ export const PRESETS = {
         visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
         spawn(sim) {
             const cx = sim.domainW / 2, cy = sim.domainH / 2;
-            const M = 5;
-            const sep = 14;
-            const v = _vGrav(M, 2 * sep) / Math.sqrt(2) * 0.85;
-            // Opposite spins — frame-dragging drives them toward co-rotation
-            sim.addParticle(cx - sep, cy, 0, v, { mass: M, charge: 0, spin: 0.9 });
-            sim.addParticle(cx + sep, cy, 0, -v, { mass: M, charge: 0, spin: -0.9 });
-        },
-    },
-
-    tidallock: {
-        name: 'Tidal Lock',
-        desc: 'Tidal friction synchronizes spin to orbit',
-        toggles: {
-            gravity: true, coulomb: false, magnetic: false, gravitomag: false,
-            relativity: false, onepn: false, blackhole: false,
-            radiation: false, spinorbit: false, disintegration: false,
-            barneshut: false, bosonInter: false, yukawa: false, axion: false, expansion: false, higgs: false,
-        },
-        settings: { collision: 'pass', boundary: 'despawn', speed: 32 },
-        visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
-        spawn(sim) {
-            const cx = sim.domainW / 2, cy = sim.domainH / 2;
-            const planetM = 3, moonM = 1;
-            // Moon with fast spin — watch it lock
-            const r = 12;
-            const v = _vGrav(planetM, r);
-            // Compensate planet velocity so total momentum = 0
-            const vPlanet = -v * moonM / planetM;
-            sim.addParticle(cx, cy, 0, vPlanet, { mass: planetM, charge: 0, spin: 0 });
-            sim.addParticle(cx + r, cy, 0, v, { mass: moonM, charge: 0, spin: 0.8 });
-        },
-    },
-
-    roche: {
-        name: 'Roche Limit',
-        desc: 'Tidal disintegration — a body torn apart past the Roche limit',
-        toggles: {
-            gravity: true, coulomb: false, magnetic: false, gravitomag: false,
-            relativity: false, onepn: false, blackhole: false,
-            radiation: false, spinorbit: false, disintegration: true,
-            barneshut: false, bosonInter: false, yukawa: false, axion: false, expansion: false, higgs: false,
-        },
-        settings: { collision: 'merge', boundary: 'despawn', speed: 32 },
-        visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
-        spawn(sim) {
-            const cx = sim.domainW / 2, cy = sim.domainH / 2;
-            // Massive primary at center
-            sim.addParticle(cx, cy, 0, 0, { mass: 8, charge: 0, spin: 0 });
-            // Smaller body on eccentric plunge — perihelion inside Roche limit
-            const r = 25;
-            const vCirc = _vGrav(8, r);
-            sim.addParticle(cx + r, cy, 0, vCirc * 0.5, { mass: 2, charge: 0, spin: 0.3 });
+            // Wide, weakly-relativistic binary so 1PN doesn't overshoot at perihelion
+            // and radiation reaction can drive a slow inward spiral instead of a fling.
+            const M = 3;
+            const sep = 22;
+            // Equal-mass binary: each circles CoM at radius `sep`; v_circ = sqrt(GM/(4·sep))
+            const v = Math.sqrt(M / (4 * sep));
+            // Aligned spins — GM dipole 3L₁L₂/r⁴ is attractive (repulsive when anti-aligned),
+            // so frame-dragging tightens the orbit instead of throwing them apart.
+            sim.addParticle(cx - sep, cy, 0, v, { mass: M, charge: 0, spin: 0.5 });
+            sim.addParticle(cx + sep, cy, 0, -v, { mass: M, charge: 0, spin: 0.5 });
         },
     },
 
@@ -440,73 +398,7 @@ export const PRESETS = {
         },
     },
 
-    phasetransition: {
-        name: 'Phase Transition',
-        desc: 'High-energy particles restore the Higgs symmetry \u2014 watch mass vanish',
-        toggles: {
-            gravity: true, coulomb: false, magnetic: false, gravitomag: false,
-            relativity: false, onepn: false, blackhole: false,
-            radiation: false, spinorbit: false, disintegration: false,
-            barneshut: false, bosonInter: false, yukawa: false, axion: false, expansion: false, higgs: true,
-        },
-        settings: { collision: 'bounce', boundary: 'bounce', speed: 32 },
-        visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
-        spawn(sim) {
-            const cx = sim.domainW / 2, cy = sim.domainH / 2;
-            // Fast particles that locally restore symmetry
-            for (let i = 0; i < 6; i++) {
-                const angle = (TWO_PI * i) / 6;
-                const r = 5;
-                const v = 0.6;
-                sim.addParticle(
-                    cx + Math.cos(angle) * r, cy + Math.sin(angle) * r,
-                    -Math.cos(angle) * v * 0.3 + (Math.random() - 0.5) * 0.2,
-                    -Math.sin(angle) * v * 0.3 + (Math.random() - 0.5) * 0.2,
-                    { mass: 2, charge: 0, spin: 0 }
-                );
-            }
-            // Stationary particles around the edge — feel the phase front
-            for (let i = 0; i < 8; i++) {
-                const angle = (TWO_PI * i) / 8 + PI / 8;
-                const r = 18;
-                sim.addParticle(
-                    cx + Math.cos(angle) * r, cy + Math.sin(angle) * r,
-                    0, 0,
-                    { mass: 1, charge: 0, spin: 0 }
-                );
-            }
-        },
-    },
-
     // ─── Cosmological ───
-
-    galaxy: {
-        name: 'Galaxy',
-        desc: 'Large-scale gravitational dynamics and accretion',
-        toggles: {
-            gravity: true, coulomb: false, magnetic: false, gravitomag: true,
-            relativity: false, onepn: false, blackhole: false,
-            radiation: false, spinorbit: false, disintegration: false,
-            barneshut: true, bosonInter: false, yukawa: false, axion: false, expansion: false, higgs: false,
-        },
-        settings: { collision: 'merge', boundary: 'despawn', speed: 32 },
-        visuals: { trails: true, velocity: false, force: false, forceComponents: false, potential: false },
-        spawn(sim) {
-            const cx = sim.domainW / 2, cy = sim.domainH / 2;
-            const coreM = 5;
-            sim.addParticle(cx, cy, 0, 0, { mass: coreM, charge: 0, spin: 0.8 });
-            for (let i = 0; i < 100; i++) {
-                const r = 10 + Math.random() * 22;
-                const angle = Math.random() * TWO_PI;
-                const v = _vGrav(coreM, r);
-                const cos = Math.cos(angle), sin = Math.sin(angle);
-                const m = 0.03 + Math.random() * 0.1;
-                sim.addParticle(cx + cos * r, cy + sin * r, -sin * v, cos * v, {
-                    mass: m, charge: 0, spin: (Math.random() - 0.5) * 0.5,
-                });
-            }
-        },
-    },
 
     expansion: {
         name: 'Expanding Universe',
@@ -536,10 +428,10 @@ export const PRESETS = {
 };
 
 export const PRESET_ORDER = [
-    'kepler', 'precession', 'inspiral', 'tidallock', 'roche', 'hawking',
+    'kepler', 'precession', 'inspiral', 'hawking',
     'atom', 'bremsstrahlung', 'magnetic',
-    'nucleus', 'axion', 'pionexchange', 'higgs', 'higgsboson', 'axionburst', 'pecceiQuinn', 'phasetransition',
-    'galaxy', 'expansion',
+    'nucleus', 'axion', 'pionexchange', 'higgs', 'higgsboson', 'axionburst', 'pecceiQuinn',
+    'expansion',
 ];
 
 // ─── Toggle/Setting Application ───
